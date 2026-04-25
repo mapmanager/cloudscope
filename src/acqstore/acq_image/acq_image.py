@@ -1,9 +1,13 @@
-from typing import Any
+from typing import Any, Literal
 
 from .metadata import ExperimentMetadata
 from .roi import RoiSet
 from .file_loaders.base_file_loader import BaseFileLoader
 from .acq_analysis import AcqAnalysis
+
+"""Supported acquisition file types."""
+AllowedImportExtension = Literal["tif", "oir"]
+ALLOWED_IMPORT_EXTENSIONS: tuple[AllowedImportExtension, ...] = ("tif", "oir")
 
 class AcqImage:
     def __init__(self, path:str):
@@ -12,7 +16,7 @@ class AcqImage:
         self._images = BaseFileLoader(path)
         self._experimental_metadata = ExperimentMetadata()
         self._rois = RoiSet()
-        self._analysis = AcqAnalysis()
+        self.acq_analysis = AcqAnalysis()
 
     @property
     def file_id(self) -> str:

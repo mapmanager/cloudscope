@@ -9,7 +9,7 @@ from typing import Self
 
 from .base_file_loader import BaseFileLoader, ImageHeader
 from .read_olympus_txt import read_olympus_txt_dict, _image_header_from_olympus_dict
-from cloudscope.core.utils.logging import get_logger
+from acqstore.utils.logging import get_logger
 
 logger = get_logger(__name__)
 

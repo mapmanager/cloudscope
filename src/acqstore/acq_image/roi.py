@@ -663,6 +663,7 @@ class RoiSet:
         """
         return list(self._rois.keys())
 
+    @property
     def num_rois(self) -> int:
         """Return the number of ROIs in the set.
 
