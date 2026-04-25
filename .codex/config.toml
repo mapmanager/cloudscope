@@ -1,0 +1,10 @@
+model = "gpt-5-codex"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+[workspace]
+include = ["src", "tests", "docs"]
+
+[commands]
+test = "uv run pytest"
+lint = "uv run ruff check ."

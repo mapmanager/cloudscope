@@ -1,0 +1,1 @@
+from acqstore.acq_image.file_types import ALLOWED_IMPORT_EXTENSIONS
