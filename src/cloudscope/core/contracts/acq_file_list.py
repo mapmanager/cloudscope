@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from typing import Protocol
 
 from .acq_file import AcqFileProtocol
@@ -51,7 +51,7 @@ class AcqFileListProtocol(Protocol):
     def get_default_file_id(self) -> str | None:
         """Return the explicitly defined default file identifier, if any."""
 
-    def get_default_selection(self) -> tuple[str | None, int | None, str | None]:
+    def get_default_selection(self) -> tuple[str | None, int | None, int | None]:
         """Return default primary selection for initial app state.
 
         Returns:
@@ -65,7 +65,18 @@ class AcqFileListProtocol(Protocol):
     def has_dirty_files(self) -> bool:
         """Return whether any file in the collection is dirty."""
 
-    def save_all(self) -> None:
+    def iter_save_all(
+        self,
+        *,
+        should_cancel: Callable[[], bool] | None = None,
+    ) -> Iterator[object]:
+        """Persist dirty files while yielding progress events."""
+
+    def save_all(
+        self,
+        *,
+        should_cancel: Callable[[], bool] | None = None,
+    ) -> None:
         """Persist all dirty files in the collection."""
 
     def get_table_schema(self) -> Sequence[TableColumnSchema]:

@@ -283,7 +283,7 @@ def test_delete_sets_dirty_and_removes_roi() -> None:
     rois.delete(roi.roi_id)
 
     assert rois.get(roi.roi_id) is None
-    assert rois.num_rois() == 0
+    assert rois.num_rois == 0
     assert rois.is_dirty()
 
 
@@ -299,7 +299,7 @@ def test_clear_resets_ids() -> None:
     rois.create_line_roi(LineEndpoints(1, 2, 3, 4))
 
     assert rois.clear() == 2
-    assert rois.num_rois() == 0
+    assert rois.num_rois == 0
 
     roi = rois.create_rect_roi()
     assert roi.roi_id == 1
