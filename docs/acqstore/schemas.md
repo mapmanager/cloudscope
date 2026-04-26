@@ -4,10 +4,16 @@ This document defines backend-owned semantic schemas that GUI layers consume.
 
 ## Design Goals
 
-- Backend defines schema and values once.
-- One schema supports both table and card views.
-- GUI toolkits map schema hints to concrete widgets and columns.
-- Schema serialization is forward-compatible (unknown keys ignored).
+- Keep `acqstore` independent from any GUI package.
+- Keep schema definitions concise and readable.
+- Expose one semantic schema usable for table and card UIs.
+- Fail fast when schema rows drift from schema field definitions.
+
+## Supported import file formats
+
+Canonical extensions (no leading dot, case-insensitive on disk) live in
+`acqstore.acq_image.supported_import_extensions` as `ALLOWED_IMPORT_EXTENSIONS`.
+Only `.tif`, `.oir`, and `.czi` are supported; `.tiff` is intentionally unsupported.
 
 ## Schema Envelope
 
@@ -17,31 +23,31 @@ Each schema is represented by:
 - `version`: integer schema version
 - `fields`: ordered list of semantic field definitions
 
-Ordering is the list order in `fields`.
+Field order in `fields` is the canonical display order.
 
 ## Field Definition
 
 Each field includes:
 
 - identity: `name`, `display_name`
-- semantics: `value_type`, `semantic_kind`, `description`, `unit`
+- semantics: `value_type`, `description`, `unit`
 - constraints: `required`, `default`, `choices`
-- table hints: visibility/editability/sort/filter/width/pin/format
-- card hints: visibility/editability/control/group/multiline
+- display/edit hints: `visible`, `editable`, `group`
 
-## Semantic Kinds (v1)
+No GUI widget types are encoded in `acqstore`. GUI code infers widgets from these semantic attributes.
 
-`semantic_kind` values currently include:
+## Validation
 
-- `id`
-- `name`
-- `path`
-- `count`
-- `status`
-- `metric`
-- `other`
+`acqstore.schema` provides:
 
-These are GUI-agnostic hints for consistent rendering behavior.
+- `validate_schema_field_names()`
+- `validate_values_for_schema()` (strict by default)
+- `validate_patch_for_schema()` for validating GUI edit patches
+
+Default row validation is strict:
+
+- `require_visible_fields=True`
+- `allow_extra_values=False`
 
 ## v1: `acq_file_list`
 
@@ -50,16 +56,7 @@ Version: `1`
 
 Fields:
 
-1. `path` (`value_type=path`, `semantic_kind=path`)
-2. `num_channels` (`value_type=int`, `semantic_kind=count`)
-3. `num_rois` (`value_type=int`, `semantic_kind=count`)
-
-## Planned AcqImage JSON Persistence
-
-AcqImage JSON persistence is intended to include:
-
-- multiple schema definitions keyed by schema id
-- schema-driven values for metadata sections
-- non-schema payloads such as ROI data
-
-This keeps metadata contracts explicit while letting ROI serialization evolve independently.
+1. `name` (`value_type=str`)
+2. `path` (`value_type=path`)
+3. `num_channels` (`value_type=int`)
+4. `num_rois` (`value_type=int`)

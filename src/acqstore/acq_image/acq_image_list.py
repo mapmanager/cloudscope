@@ -7,14 +7,16 @@ from enum import StrEnum
 import os
 from typing import TYPE_CHECKING
 
-from cloudscope.core.contracts.common import TableColumnSchema
+from acqstore.schema import (
+    ACQ_FILE_LIST_SCHEMA,
+    SchemaDefinition,
+    validate_values_for_schema,
+)
 
-from acqstore.schema import ACQ_FILE_LIST_SCHEMA, SchemaDefinition
+from .supported_import_extensions import ALLOWED_IMPORT_EXTENSIONS
 
 if TYPE_CHECKING:
     from acqstore.acq_image.acq_image import AcqImage
-
-ALLOWED_IMPORT_EXTENSIONS: tuple[str, ...] = ('tif', 'oir')
 
 def _build_file_list(path: str | Path, file_types: Sequence[str]) -> list[str]:
     """Build a list of files in the given path.
@@ -135,13 +137,20 @@ class AcqImageList:
         return file_id in self._files_by_id
 
     def get_default_file_id(self) -> str | None:
-        """Return the default file identifier in stable display order."""
+        """Return the default file identifier in stable display order.
+        
+        Returns first file in list."""
         if not self._files:
             return None
         return self._files[0].file_id
 
     def get_default_selection(self) -> tuple[str | None, int | None, int | None]:
-        """Return default primary selection for initial app state."""
+        """Return default primary selection for initial app state.
+        
+        Returns:
+            Tuple of (file_id, channel, roi) using backend-native values.
+            Any tuple member may be None when no explicit default exists.
+        """
         default_file_id = self.get_default_file_id()
         if default_file_id is None:
             return (None, None, None)
@@ -213,25 +222,21 @@ class AcqImageList:
             continue
 
     def get_schema(self) -> SchemaDefinition:
-        """Return semantic schema definition for list views."""
+        """Return schema definition for rows in this list."""
         return ACQ_FILE_LIST_SCHEMA
 
-    def get_table_schema(self) -> Sequence[TableColumnSchema]:
-        """Return semantic table-column schema for file-list views."""
-        return tuple(
-            TableColumnSchema(
-                name=field.name,
-                display_name=field.display_name,
-                description=field.description,
-                value_type=field.value_type.value,
-                visible=field.table.visible,
-                order=index,
-                sortable=field.table.sortable,
-                filterable=field.table.filterable,
-                editable=field.table.editable,
-                width=field.table.width,
-                pinned=field.table.pinned,
-                display_format=field.table.display_format,
-            )
-            for index, field in enumerate(self.get_schema().table_fields())
-        )
+    def get_schema_rows(self) -> list[dict[str, object]]:
+        """Return schema-keyed rows for all files in stable display order.
+
+        Returns:
+            List of row dictionaries keyed by schema field name.
+
+        Raises:
+            KeyError: If a required schema field is missing from any row.
+            ValueError: If any row has keys not declared by the schema.
+        """
+        schema = self.get_schema()
+        rows = [acq_file.get_schema_row() for acq_file in self.get_files()]
+        for row in rows:
+            validate_values_for_schema(schema, row)
+        return rows

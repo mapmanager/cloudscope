@@ -31,6 +31,14 @@ class _FakeAcqImage:
     def get_default_roi(self) -> int | None:
         return self._default_roi
 
+    def get_schema_row(self) -> dict[str, object]:
+        return {
+            'name': Path(self.path).name,
+            'path': self.path,
+            'num_channels': 1,
+            'num_rois': 0 if self._default_roi is None else 1,
+        }
+
     @property
     def saved_count(self) -> int:
         return self._saved
@@ -44,6 +52,18 @@ def test_builds_sorted_files_for_directory(tmp_path: Path) -> None:
     file_list = AcqImageList(str(tmp_path), file_factory=_FakeAcqImage)
 
     assert [Path(item.file_id).name for item in file_list.get_files()] == ['a.tif', 'b.tif']
+
+
+def test_directory_walk_case_insensitive_includes_czi_excludes_tiff(tmp_path: Path) -> None:
+    (tmp_path / 'a.CZI').write_text('')
+    (tmp_path / 'b.TIF').write_text('')
+    (tmp_path / 'c.oir').write_text('')
+    (tmp_path / 'ignored.tiff').write_text('')
+    (tmp_path / 'skip.txt').write_text('')
+
+    file_list = AcqImageList(str(tmp_path), file_factory=_FakeAcqImage)
+
+    assert [Path(p).name for p in file_list.file_list] == ['a.CZI', 'b.TIF', 'c.oir']
 
 
 def test_lookup_and_default_selection(tmp_path: Path) -> None:
@@ -82,10 +102,10 @@ def test_iter_save_all_yields_progress_and_honors_cancel(tmp_path: Path) -> None
     assert events[-1].completed == 1
 
 
-def test_get_table_schema_matches_backend_schema(tmp_path: Path) -> None:
+def test_get_schema_rows_match_backend_schema(tmp_path: Path) -> None:
     file_path = tmp_path / 'sample.tif'
     file_path.write_text('')
     file_list = AcqImageList(str(file_path), file_factory=_FakeAcqImage)
 
-    schema = file_list.get_table_schema()
-    assert [column.name for column in schema] == ['path', 'num_channels', 'num_rois']
+    rows = file_list.get_schema_rows()
+    assert list(rows[0].keys()) == ['name', 'path', 'num_channels', 'num_rois']

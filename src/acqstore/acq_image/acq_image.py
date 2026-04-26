@@ -1,14 +1,21 @@
 from pathlib import Path
-from typing import Any, Literal
 
+from acqstore.schema import ACQ_FILE_LIST_SCHEMA, SchemaDefinition, validate_values_for_schema
 from .metadata import ExperimentMetadata
 from .roi import ImageBounds, RoiSet
 from .file_loaders.base_file_loader import BaseFileLoader
+from .file_loaders.file_loader_factory import create_file_loader
+from .supported_import_extensions import (
+    ALLOWED_IMPORT_EXTENSIONS,
+    AllowedImportExtension,
+)
 from .acq_analysis import AcqAnalysis
 
-"""Supported acquisition file types."""
-AllowedImportExtension = Literal["tif", "oir"]
-ALLOWED_IMPORT_EXTENSIONS: tuple[AllowedImportExtension, ...] = ("tif", "oir")
+__all__ = [
+    'ALLOWED_IMPORT_EXTENSIONS',
+    'AllowedImportExtension',
+    'AcqImage',
+]
 
 class AcqImage:
     """Backend-facing root object for one acquisition file."""
@@ -18,10 +25,13 @@ class AcqImage:
 
         Args:
             path: Filesystem path for this acquisition file.
+
+        Raises:
+            ValueError: If the file extension is not a supported acquisition format.
         """
         self.path = str(Path(path).resolve())
 
-        self._images = BaseFileLoader(path)
+        self._images = create_file_loader(self.path)
         self._experimental_metadata = ExperimentMetadata()
         self._rois = RoiSet(self._infer_image_bounds())
         self.acq_analysis = AcqAnalysis()
@@ -60,15 +70,28 @@ class AcqImage:
         """Return analysis helper for this file."""
         return self.acq_analysis
     
-    def get_table_row(self) -> dict[str, Any]:
-        """Return one semantic table row for file-list display."""
-        return {
+    def get_schema(self) -> SchemaDefinition:
+        """Return the semantic schema for this acquisition file row."""
+        return ACQ_FILE_LIST_SCHEMA
+
+    def get_schema_row(self) -> dict[str, object]:
+        """Return schema-keyed values for this acquisition file.
+
+        Returns:
+            Mapping from schema field names to backend values.
+
+        Raises:
+            KeyError: If required schema fields are missing.
+            ValueError: If values include keys outside the schema.
+        """
+        values: dict[str, object] = {
+            'name': self.name,
             'path': self.path,
-            'num_channels': self._images.num_channels,
-            'num_rois': self._rois.num_rois,
-            # 'experimental_metadata': self._experimental_metadata.get_table_row(),
-            # 'analysis': self._analysis.get_table_row(),
+            'num_channels': self.images.num_channels,
+            'num_rois': self.rois.num_rois,
         }
+        validate_values_for_schema(self.get_schema(), values)
+        return values
 
     def get_default_channel(self) -> int | None:
         """Return the default channel index for this file.
