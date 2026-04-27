@@ -1,0 +1,204 @@
+"""Smoke tests for ``nicewidgets.table_widget`` (no live NiceGUI client)."""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
+
+from nicewidgets.table_widget.column_def import ColumnDef
+from nicewidgets.table_widget.config import TableWidgetConfig
+from nicewidgets.table_widget.js_hooks import (
+    js_on_cell_double_clicked_start_editing,
+    js_on_cell_editing_stopped_emit_change,
+    js_on_cell_key_down_select_prev_next,
+    js_on_row_clicked,
+)
+from nicewidgets.table_widget.table_widget import (
+    TableWidget,
+    _get_row_id_js_expression,
+    validate_row_id_field,
+    validate_rows_for_row_id_field,
+)
+
+
+def test_validate_row_id_field_rejects_empty() -> None:
+    with pytest.raises(ValueError, match='row_id_field'):
+        validate_row_id_field('')
+    with pytest.raises(ValueError, match='row_id_field'):
+        validate_row_id_field('   ')
+
+
+def test_validate_rows_missing_key() -> None:
+    with pytest.raises(ValueError, match='missing'):
+        validate_rows_for_row_id_field([{'a': 1}], 'id')
+
+
+def test_validate_rows_non_str_id() -> None:
+    with pytest.raises(ValueError, match='str'):
+        validate_rows_for_row_id_field([{'id': 1}], 'id')
+
+
+def test_validate_rows_duplicate_ids() -> None:
+    with pytest.raises(ValueError, match='Duplicate'):
+        validate_rows_for_row_id_field(
+            [
+                {'id': 'x', 'v': 1},
+                {'id': 'x', 'v': 2},
+            ],
+            'id',
+        )
+
+
+def test_column_def_extra_merged_into_aggrid_dict() -> None:
+    c = ColumnDef(field='a', headerName='A', extra={'width': 120})
+    d = c.as_aggrid_column_def()
+    assert d['field'] == 'a'
+    assert d['headerName'] == 'A'
+    assert d['hide'] is False
+    assert d['width'] == 120
+
+
+def test_table_widget_config_defaults() -> None:
+    cfg = TableWidgetConfig()
+    assert cfg.selection_mode == 'single'
+    assert cfg.clear_selection_on_set_data is True
+    assert cfg.enable_edit_on_double_click is True
+    assert cfg.enable_keyboard_row_nav is True
+
+
+def test_get_row_id_js_expression_escapes_field_name() -> None:
+    js = _get_row_id_js_expression('path')
+    assert 'params.data' in js
+    assert '"path"' in js
+
+
+def test_js_hooks_include_emit_event() -> None:
+    assert 'emitEvent' in js_on_row_clicked(emit_event='evt', row_id_field='id')
+    assert 'ArrowUp' in js_on_cell_key_down_select_prev_next(emit_event='evt', row_id_field='id')
+    assert 'startEditingCell' in js_on_cell_double_clicked_start_editing()
+    assert 'oldValue' in js_on_cell_editing_stopped_emit_change(emit_event='evt', row_id_field='id')
+
+
+def test_table_widget_upsert_replace_and_insert() -> None:
+    tw = TableWidget(
+        [ColumnDef(field='id', headerName='ID'), ColumnDef(field='v', headerName='V')],
+        'id',
+        [{'id': 'a', 'v': 1}],
+    )
+    tw.upsert_row({'id': 'a', 'v': 99})
+    assert tw.get_rows() == [{'id': 'a', 'v': 99}]
+    tw.upsert_row({'id': 'b', 'v': 2})
+    rows = tw.get_rows()
+    assert len(rows) == 2
+    assert {'id': 'a', 'v': 99} in rows
+    assert {'id': 'b', 'v': 2} in rows
+
+
+def test_table_widget_remove_row() -> None:
+    tw = TableWidget(
+        [ColumnDef(field='id', headerName='ID')],
+        'id',
+        [{'id': 'a'}, {'id': 'b'}],
+    )
+    tw.remove_row('a')
+    assert tw.get_rows() == [{'id': 'b'}]
+    with pytest.raises(ValueError, match='No row'):
+        tw.remove_row('a')
+
+
+def test_table_widget_update_row() -> None:
+    tw = TableWidget([ColumnDef(field='id', headerName='ID'), ColumnDef(field='v', headerName='V')], 'id', [{'id': 'a', 'v': 1}])
+    tw.update_row('a', {'id': 'a', 'v': 5})
+    assert tw.get_rows() == [{'id': 'a', 'v': 5}]
+
+
+def test_programmatic_selection_single_mode() -> None:
+    tw = TableWidget([ColumnDef(field='id', headerName='ID')], 'id', [{'id': 'a'}, {'id': 'b'}])
+    tw.set_selected_row_ids(['a', 'b'])
+    assert tw.get_selected_row_ids() == ['a']
+    assert tw.get_selected_rows() == [{'id': 'a'}]
+    tw.clear_selection()
+    assert tw.get_selected_row_ids() == []
+
+
+def test_programmatic_selection_none_mode() -> None:
+    tw = TableWidget(
+        [ColumnDef(field='id', headerName='ID')],
+        'id',
+        [{'id': 'a'}],
+        config=TableWidgetConfig(selection_mode='none'),
+    )
+    tw.set_selected_row_ids(['a'])
+    assert tw.get_selected_row_ids() == []
+
+
+def test_set_data_clears_selection_by_default() -> None:
+    tw = TableWidget([ColumnDef(field='id', headerName='ID')], 'id', [{'id': 'a'}])
+    tw.set_selected_row_ids(['a'])
+    assert tw.get_selected_row_ids() == ['a']
+    tw.set_data([{'id': 'z'}])
+    assert tw.get_selected_row_ids() == []
+
+
+def test_set_data_keeps_selection_when_configured() -> None:
+    tw = TableWidget(
+        [ColumnDef(field='id', headerName='ID')],
+        'id',
+        [{'id': 'a'}],
+        config=TableWidgetConfig(clear_selection_on_set_data=False),
+    )
+    tw.set_selected_row_ids(['a'])
+    tw.set_data([{'id': 'z'}])
+    # stale ids are kept with this opt-out behavior
+    assert tw.get_selected_row_ids() == ['a']
+
+
+def test_column_visibility_api_without_build() -> None:
+    tw = TableWidget(
+        [
+            ColumnDef(field='a', headerName='A', hide=False),
+            ColumnDef(field='b', headerName='B', hide=True),
+        ],
+        'id',
+        [{'id': '1'}],
+    )
+    assert tw.get_column_visibility() == {'a': True, 'b': False}
+    tw.set_column_visible('b', True)
+    assert tw.get_column_visibility()['b'] is True
+    tw.toggle_column_visible('a')
+    assert tw.get_column_visibility()['a'] is False
+
+
+def test_on_edit_emitted_updates_internal_rows_and_callback() -> None:
+    called: list[tuple[str, str, Any, Any, dict[str, Any]]] = []
+
+    def _cb(row_id: str, field: str, old: Any, new: Any, row: dict[str, Any]) -> None:
+        called.append((row_id, field, old, new, row))
+
+    tw = TableWidget(
+        [ColumnDef(field='id', headerName='ID'), ColumnDef(field='kind', headerName='Kind', extra={'editable': True})],
+        'id',
+        [{'id': 'a', 'kind': 'tif'}],
+        on_cell_edited=_cb,
+    )
+    tw._on_edit_emitted(
+        SimpleNamespace(
+            args={'rowId': 'a', 'colId': 'kind', 'oldValue': 'tif', 'newValue': 'czi', 'data': {'id': 'a', 'kind': 'czi'}}
+        )
+    )
+    assert tw.get_rows()[0]['kind'] == 'czi'
+    assert called and called[0][0] == 'a'
+
+
+def test_on_select_emitted_updates_selection_state_and_callback() -> None:
+    got: list[dict[str, Any]] = []
+
+    def _on_sel(row: dict[str, Any]) -> None:
+        got.append(row)
+
+    tw = TableWidget([ColumnDef(field='id', headerName='ID')], 'id', [{'id': 'a'}], on_row_selected=_on_sel)
+    tw._on_select_emitted(SimpleNamespace(args={'rowId': 'a', 'rowIndex': 0, 'data': {'id': 'a'}}))
+    assert tw.get_selected_row_ids() == ['a']
+    assert got == [{'id': 'a'}]
