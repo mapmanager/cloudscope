@@ -13,7 +13,7 @@ from acqstore.schema import (
     validate_values_for_schema,
 )
 
-from .supported_import_extensions import ALLOWED_IMPORT_EXTENSIONS
+from .supported_import_extensions import get_allowed_import_extensions
 
 if TYPE_CHECKING:
     from acqstore.acq_image.acq_image import AcqImage
@@ -84,7 +84,7 @@ class AcqImageList:
         self.path = str(path)
 
         if os.path.isdir(path):
-            self.file_list = _build_file_list(path, ALLOWED_IMPORT_EXTENSIONS)
+            self.file_list = _build_file_list(path, get_allowed_import_extensions())
         else:
             self.file_list = [str(Path(path).resolve())]
 

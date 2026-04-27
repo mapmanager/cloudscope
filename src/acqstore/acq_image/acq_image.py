@@ -6,14 +6,22 @@ from .roi import ImageBounds, RoiSet
 from .file_loaders.base_file_loader import BaseFileLoader
 from .file_loaders.file_loader_factory import create_file_loader
 from .supported_import_extensions import (
-    ALLOWED_IMPORT_EXTENSIONS,
-    AllowedImportExtension,
+    DEFAULT_IMPORT_EXTENSIONS,
+    add_allowed_import_extension,
+    get_allowed_import_extensions,
+    remove_allowed_import_extension,
+    reset_allowed_import_extensions,
+    set_allowed_import_extensions,
 )
 from .acq_analysis import AcqAnalysis
 
 __all__ = [
-    'ALLOWED_IMPORT_EXTENSIONS',
-    'AllowedImportExtension',
+    'DEFAULT_IMPORT_EXTENSIONS',
+    'get_allowed_import_extensions',
+    'set_allowed_import_extensions',
+    'add_allowed_import_extension',
+    'remove_allowed_import_extension',
+    'reset_allowed_import_extensions',
     'AcqImage',
 ]
 

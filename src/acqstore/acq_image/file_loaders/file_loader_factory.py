@@ -4,20 +4,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from acqstore.acq_image.supported_import_extensions import ALLOWED_IMPORT_EXTENSIONS
+from acqstore.acq_image.supported_import_extensions import get_allowed_import_extensions
 
 from .base_file_loader import BaseFileLoader
 from .czi_file_loader import CziFileLoader
 from .oir_file_loader import OirFileLoader
 from .tiff_file_loader import TiffFileLoader
 
-_ALLOWED = frozenset(ALLOWED_IMPORT_EXTENSIONS)
-
 
 def create_file_loader(path: str) -> BaseFileLoader:
     """Return a file loader appropriate for ``path``.
 
-    Only extensions listed in :data:`ALLOWED_IMPORT_EXTENSIONS` are supported.
+    Only extensions listed in :func:`get_allowed_import_extensions` are supported.
     Comparison is case-insensitive (``.TIF`` is treated as ``tif``). The ``.tiff``
     suffix is not supported.
 
@@ -31,10 +29,11 @@ def create_file_loader(path: str) -> BaseFileLoader:
         ValueError: If the path suffix is not a supported acquisition extension.
     """
     suffix = Path(path).suffix.lower().lstrip('.')
-    if suffix not in _ALLOWED:
-        allowed = ', '.join(sorted(_ALLOWED))
+    allowed = set(get_allowed_import_extensions())
+    if suffix not in allowed:
+        allowed_text = ', '.join(sorted(allowed))
         raise ValueError(
-            f'Unsupported acquisition file extension {suffix!r}; expected one of: {allowed}'
+            f'Unsupported acquisition file extension {suffix!r}; expected one of: {allowed_text}'
         )
     if suffix == 'tif':
         return TiffFileLoader(path, load_olympus_header=True)
