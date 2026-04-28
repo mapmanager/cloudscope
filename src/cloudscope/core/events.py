@@ -8,7 +8,8 @@ Events are split into:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -25,6 +26,49 @@ class IntentEvent(Event):
 
 class StateEvent(Event):
     """Base class for state events."""
+
+
+class LoadPathKind(StrEnum):
+    """Supported source kinds for load intents."""
+
+    FILE = 'file'
+    FOLDER = 'folder'
+    CSV = 'csv'
+
+
+class TaskKind(StrEnum):
+    """Supported long-running task categories."""
+
+    LOAD = 'load'
+    SAVE = 'save'
+    ANALYSIS = 'analysis'
+
+
+class TaskStatus(StrEnum):
+    """Lifecycle states for progress events."""
+
+    QUEUED = 'queued'
+    RUNNING = 'running'
+    COMPLETED = 'completed'
+    FAILED = 'failed'
+    CANCELLED = 'cancelled'
+
+
+class StatusLevel(StrEnum):
+    """UI status severity level."""
+
+    INFO = 'info'
+    WARNING = 'warning'
+    ERROR = 'error'
+
+
+class StatusSource(StrEnum):
+    """Subsystem source for a status message."""
+
+    LOAD = 'load'
+    SAVE = 'save'
+    ANALYSIS = 'analysis'
+    SYSTEM = 'system'
 
 
 # -----------------------------
@@ -58,14 +102,43 @@ class ApplyMetadataIntent(IntentEvent):
     patch: dict[str, object]
 
 
+@dataclass(frozen=True)
+class LoadPathIntent(IntentEvent):
+    """Request to load files from a path source."""
+
+    path: str
+    kind: LoadPathKind
+
+
+@dataclass(frozen=True)
+class SaveSelectedIntent(IntentEvent):
+    """Request to save currently selected file."""
+
+
+@dataclass(frozen=True)
+class SaveAllIntent(IntentEvent):
+    """Request to save all dirty files."""
+
+
+@dataclass(frozen=True)
+class ClearRecentPathsIntent(IntentEvent):
+    """Request to clear recent file and folder paths."""
+
+
 # -----------------------------
 # State Events
 # -----------------------------
 
 @dataclass(frozen=True)
 class FileListChanged(StateEvent):
-    """Emitted when the current file list changes."""
+    """Emitted when the current file list changes.
+
+    Attributes:
+        file_ids: Stable file identifiers in display order.
+        rows: Current table rows keyed by schema field names.
+    """
     file_ids: list[str]
+    rows: list[dict[str, object]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -122,3 +195,33 @@ class MetadataChanged(StateEvent):
     file_id: str
     section_id: str
     row: dict[str, object]
+
+
+@dataclass(frozen=True)
+class TaskProgressChanged(StateEvent):
+    """Unified progress state for long-running tasks."""
+
+    task_kind: TaskKind
+    task_id: str
+    task_label: str
+    status: TaskStatus
+    current: int
+    total: int
+    message: str
+
+
+@dataclass(frozen=True)
+class AppStatusChanged(StateEvent):
+    """Latest app-level status message for footer/notifications."""
+
+    level: StatusLevel
+    message: str
+    source: StatusSource
+
+
+@dataclass(frozen=True)
+class RecentPathsChanged(StateEvent):
+    """Current recent file and folder paths after updates/clear."""
+
+    recent_files: list[str]
+    recent_folders: list[str]

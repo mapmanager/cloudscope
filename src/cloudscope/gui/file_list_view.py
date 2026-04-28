@@ -9,7 +9,7 @@ from nicegui import ui
 from acqstore.acq_image.acq_image_list import AcqImageList
 from acqstore.schema import ACQ_FILE_LIST_SCHEMA
 from cloudscope.core.event_bus import EventBus
-from cloudscope.core.events import FileSelectionChanged, MetadataChanged, SelectFileIntent
+from cloudscope.core.events import FileListChanged, FileSelectionChanged, MetadataChanged, SelectFileIntent
 from cloudscope.gui.schema_adapters import schema_to_column_defs
 from nicewidgets.table_widget.config import TableWidgetConfig
 from nicewidgets.table_widget.table_widget import TableWidget
@@ -43,6 +43,7 @@ class AcqImageListTableView:
         self._table: TableWidget | None = None
 
         self._event_bus.subscribe(FileSelectionChanged, self._on_file_selection_changed)
+        self._event_bus.subscribe(FileListChanged, self._on_file_list_changed)
         self._event_bus.subscribe(MetadataChanged, self._on_metadata_changed)
 
     def build(self, parent: ui.element | None = None) -> ui.column:
@@ -129,3 +130,9 @@ class AcqImageListTableView:
         if self._table is None:
             return
         self._table.update_row(event.file_id, dict(event.row))
+
+    def _on_file_list_changed(self, event: FileListChanged) -> None:
+        """Replace table rows when controller publishes a new file list."""
+        if self._table is None:
+            return
+        self._table.set_data(list(event.rows))

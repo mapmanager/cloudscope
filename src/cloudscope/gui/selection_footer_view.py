@@ -20,9 +20,11 @@ from nicegui import ui
 
 from cloudscope.core.event_bus import EventBus
 from cloudscope.core.events import (
+    AppStatusChanged,
     ChannelSelectionChanged,
     FileSelectionChanged,
     RoiSelectionChanged,
+    TaskProgressChanged,
 )
 
 # Shown when there is no file, or when channel / ROI is unset (per product spec).
@@ -74,10 +76,13 @@ class SelectionFooterView:
         self._file_label: ui.label | None = None
         self._channel_label: ui.label | None = None
         self._roi_label: ui.label | None = None
+        self._status_label: ui.label | None = None
 
         self._event_bus.subscribe(FileSelectionChanged, self._on_file_selection_changed)
         self._event_bus.subscribe(ChannelSelectionChanged, self._on_channel_selection_changed)
         self._event_bus.subscribe(RoiSelectionChanged, self._on_roi_selection_changed)
+        self._event_bus.subscribe(AppStatusChanged, self._on_app_status_changed)
+        self._event_bus.subscribe(TaskProgressChanged, self._on_task_progress_changed)
 
     def build(self) -> None:
         """Create ``ui.footer`` with file, channel, and ROI labels.
@@ -98,6 +103,7 @@ class SelectionFooterView:
                 self._file_label = ui.label().classes("truncate max-w-[320px]")
                 self._channel_label = ui.label().classes("truncate")
                 self._roi_label = ui.label().classes("truncate")
+                self._status_label = ui.label("Status: —").classes("truncate grow text-right")
         self._refresh_labels()
 
     def _on_file_selection_changed(self, event: FileSelectionChanged) -> None:
@@ -125,3 +131,21 @@ class SelectionFooterView:
         self._file_label.text = f"File: {file_s}"
         self._channel_label.text = f"Channel: {ch_s}"
         self._roi_label.text = f"ROI: {roi_s}"
+
+    def _on_app_status_changed(self, event: AppStatusChanged) -> None:
+        """Render latest app-level status in footer."""
+        if self._status_label is None:
+            return
+        color = {
+            'info': 'text-blue-300',
+            'warning': 'text-yellow-300',
+            'error': 'text-red-300',
+        }.get(event.level.value, 'text-gray-200')
+        self._status_label.text = f"Status: {event.message}"
+        self._status_label.classes(replace=f"truncate grow text-right {color}")
+
+    def _on_task_progress_changed(self, event: TaskProgressChanged) -> None:
+        """Render latest task progress in footer (latest event wins)."""
+        if self._status_label is None:
+            return
+        self._status_label.text = f"Status: {event.task_label} - {event.message}"

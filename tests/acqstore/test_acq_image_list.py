@@ -153,3 +153,46 @@ def test_build_file_list_rejects_non_positive_depth(tmp_path: Path) -> None:
 def test_acq_image_list_rejects_non_positive_folder_depth(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match='folder_depth'):
         AcqImageList(str(tmp_path), file_factory=_FakeAcqImage, folder_depth=0)
+
+
+def test_load_safe_csv_rel_path_parent_resolution_and_warnings(tmp_path: Path) -> None:
+    csv_dir = tmp_path / 'csvroot'
+    csv_dir.mkdir()
+    valid = csv_dir / 'ok.tif'
+    valid.write_text('')
+    csv_path = csv_dir / 'list.csv'
+    csv_path.write_text(
+        'rel_path\n'
+        'ok.tif\n'
+        '   \n'
+        'missing.tif\n',
+        encoding='utf-8',
+    )
+
+    result = AcqImageList.load_safe(
+        str(csv_path),
+        kind='csv',
+        file_factory=_FakeAcqImage,
+    )
+    assert len(result.acq_image_list) == 1
+    assert Path(result.acq_image_list.get_files()[0].file_id).name == 'ok.tif'
+    assert len(result.warnings) == 2
+    assert any('blank rel_path' in warning.message for warning in result.warnings)
+    assert any('does not exist' in warning.message for warning in result.warnings)
+
+
+def test_load_safe_csv_missing_required_column_warns(tmp_path: Path) -> None:
+    csv_path = tmp_path / 'bad.csv'
+    csv_path.write_text('path\nfoo.tif\n', encoding='utf-8')
+    result = AcqImageList.load_safe(str(csv_path), kind='csv', file_factory=_FakeAcqImage)
+    assert len(result.acq_image_list) == 0
+    assert len(result.warnings) == 1
+    assert 'missing required column "rel_path"' in result.warnings[0].message
+
+
+def test_load_safe_file_missing_returns_warning_not_exception(tmp_path: Path) -> None:
+    missing = tmp_path / 'missing.tif'
+    result = AcqImageList.load_safe(str(missing), kind='file', file_factory=_FakeAcqImage)
+    assert len(result.acq_image_list) == 0
+    assert len(result.warnings) == 1
+    assert 'does not exist' in result.warnings[0].message

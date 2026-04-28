@@ -1,53 +1,19 @@
-"""Tests for home-page startup config loading helpers."""
+"""Tests for home-page path-kind inference helpers."""
 
 from __future__ import annotations
 
-from cloudscope.gui.app_config import AppConfig
-from cloudscope.gui.home_page import _load_initial_acq_image_list
+from cloudscope.gui.home_page import _infer_load_kind
 
 
-def test_load_initial_list_returns_none_when_last_path_unset(tmp_path) -> None:
-    cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
-    cfg.set_last_path('')
-
-    result = _load_initial_acq_image_list(cfg)
-    assert result is None
+def test_infer_load_kind_csv_suffix() -> None:
+    assert _infer_load_kind('/tmp/list.csv') == 'csv'
 
 
-def test_load_initial_list_warns_and_returns_none_on_failure(tmp_path, monkeypatch) -> None:
-    cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
-    cfg.set_last_path(tmp_path / 'bad.tif')
-    notify_calls: list[str] = []
-
-    class FailingAcqImageList:
-        def __init__(self, _path: str) -> None:
-            raise RuntimeError('boom')
-
-    def _notify(message: str, *, type: str) -> None:
-        notify_calls.append(f'{type}:{message}')
-
-    monkeypatch.setattr('cloudscope.gui.home_page.AcqImageList', FailingAcqImageList)
-    monkeypatch.setattr('cloudscope.gui.home_page.ui.notify', _notify)
-
-    result = _load_initial_acq_image_list(cfg)
-    assert result is None
-    assert len(notify_calls) == 1
-    assert 'warning:Could not load last path:' in notify_calls[0]
-
-
-def test_load_initial_list_updates_recent_folder_and_last_path(tmp_path, monkeypatch) -> None:
-    cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
+def test_infer_load_kind_folder(tmp_path) -> None:
     folder = tmp_path / 'folder'
     folder.mkdir()
-    cfg.set_last_path(folder)
+    assert _infer_load_kind(str(folder)) == 'folder'
 
-    class DummyAcqImageList:
-        def __init__(self, path: str) -> None:
-            self.path = path
-
-    monkeypatch.setattr('cloudscope.gui.home_page.AcqImageList', DummyAcqImageList)
-
-    result = _load_initial_acq_image_list(cfg)
-    assert result is not None
-    assert cfg.get_recent_folders()[-1] == str(folder.resolve())
-    assert cfg.get_last_path() == str(folder.resolve())
+def test_infer_load_kind_defaults_to_file(tmp_path) -> None:
+    missing = tmp_path / 'a.tif'
+    assert _infer_load_kind(str(missing)) == 'file'

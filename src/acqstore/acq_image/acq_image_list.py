@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import csv
 from collections import deque
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
@@ -72,6 +73,14 @@ class SaveEvent(StrEnum):
     CANCELLED = 'cancelled'
 
 
+class PathKind(StrEnum):
+    """Supported input path kinds for file discovery/loading."""
+
+    FILE = 'file'
+    FOLDER = 'folder'
+    CSV = 'csv'
+
+
 @dataclass(frozen=True, slots=True)
 class SaveProgress:
     """Progress event emitted while iterating list saves.
@@ -89,6 +98,23 @@ class SaveProgress:
     file_id: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class LoadWarning:
+    """Non-fatal warning collected during safe loading."""
+
+    message: str
+    path: str | None = None
+    row_index: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class LoadResult:
+    """Result payload for safe load operations."""
+
+    acq_image_list: AcqImageList
+    warnings: tuple[LoadWarning, ...]
+
+
 class AcqImageList:
     """Backend-facing ordered collection of acquisition files."""
 
@@ -98,6 +124,7 @@ class AcqImageList:
         *,
         file_factory: Callable[[str], AcqImage] | None = None,
         folder_depth: int = 4,
+        path_kind: PathKind | str | None = None,
     ):
         """Load one file or discover files under a directory.
 
@@ -109,13 +136,28 @@ class AcqImageList:
                 search (>= 1). Depth ``1`` is only the given folder; each increment
                 includes one more level of child directories. Ignored when ``path`` is
                 a file.
+            path_kind: Optional explicit source type (`file`, `folder`, `csv`).
+                When omitted, the constructor infers kind from path suffix and
+                filesystem checks.
         """
         self.path = str(path)
         if folder_depth < 1:
             raise ValueError(f'folder_depth must be >= 1, got {folder_depth}')
 
-        if os.path.isdir(path):
+        detected_kind: PathKind | str | None = path_kind
+        if detected_kind is None:
+            path_obj = Path(path)
+            if path_obj.suffix.lower() == '.csv':
+                detected_kind = PathKind.CSV
+            elif os.path.isdir(path):
+                detected_kind = PathKind.FOLDER
+            else:
+                detected_kind = PathKind.FILE
+
+        if detected_kind == PathKind.FOLDER:
             self.file_list = _build_file_list(path, get_allowed_import_extensions(), folder_depth=folder_depth)
+        elif detected_kind == PathKind.CSV:
+            self.file_list = self._build_file_list_from_csv(path)
         else:
             self.file_list = [str(Path(path).resolve())]
 
@@ -125,6 +167,143 @@ class AcqImageList:
             file_factory = AcqImage
         self._files = [file_factory(file_path) for file_path in self.file_list]
         self._files_by_id = {acq_file.file_id: acq_file for acq_file in self._files}
+
+    @classmethod
+    def load_safe(
+        cls,
+        path: str,
+        *,
+        kind: PathKind | str,
+        file_factory: Callable[[str], AcqImage] | None = None,
+        folder_depth: int = 4,
+    ) -> LoadResult:
+        """Safely load acquisition files for file/folder/csv without raising.
+
+        Args:
+            path: Input path supplied by user or caller.
+            kind: Explicit source kind (`file`, `folder`, or `csv`).
+            file_factory: Optional file-construction callback for tests/injection.
+            folder_depth: Maximum folder traversal depth for folder loads.
+
+        Returns:
+            Structured result with loaded list and non-fatal warnings.
+        """
+        warnings: list[LoadWarning] = []
+        path_obj = Path(path).expanduser()
+        base_path = str(path_obj.resolve(strict=False))
+        if isinstance(kind, str):
+            try:
+                kind = PathKind(kind)
+            except ValueError:
+                warnings.append(LoadWarning(message=f'Unsupported load kind: {kind}', path=base_path))
+                obj = cls.__new__(cls)
+                obj.path = base_path
+                obj.file_list = []
+                obj._files = []
+                obj._files_by_id = {}
+                return LoadResult(acq_image_list=obj, warnings=tuple(warnings))
+
+        candidate_paths: list[str] = []
+        if kind == PathKind.FOLDER:
+            if not path_obj.exists() or not path_obj.is_dir():
+                warnings.append(LoadWarning(message='Folder does not exist or is not a directory', path=base_path))
+            else:
+                candidate_paths = _build_file_list(path_obj, get_allowed_import_extensions(), folder_depth=folder_depth)
+        elif kind == PathKind.FILE:
+            if not path_obj.exists() or not path_obj.is_file():
+                warnings.append(LoadWarning(message='File does not exist or is not a file', path=base_path))
+            else:
+                candidate_paths = [str(path_obj.resolve())]
+        elif kind == PathKind.CSV:
+            csv_paths, csv_warnings = cls._build_file_list_from_csv_safe(path_obj)
+            candidate_paths = csv_paths
+            warnings.extend(csv_warnings)
+        else:
+            warnings.append(LoadWarning(message=f'Unsupported load kind: {kind}', path=base_path))
+
+        files: list[AcqImage] = []
+        for candidate in candidate_paths:
+            try:
+                if file_factory is None:
+                    from acqstore.acq_image.acq_image import AcqImage
+
+                    built = AcqImage(candidate)
+                else:
+                    built = file_factory(candidate)
+                files.append(built)
+            except Exception as exc:
+                warnings.append(LoadWarning(message=f'Failed to load file: {exc}', path=str(Path(candidate).resolve(strict=False))))
+
+        obj = cls.__new__(cls)
+        obj.path = base_path
+        obj.file_list = [file.file_id for file in files]
+        obj._files = files
+        obj._files_by_id = {acq_file.file_id: acq_file for acq_file in files}
+        return LoadResult(acq_image_list=obj, warnings=tuple(warnings))
+
+    @staticmethod
+    def _build_file_list_from_csv_safe(csv_path: Path) -> tuple[list[str], list[LoadWarning]]:
+        """Parse CSV ``rel_path`` rows with per-row warnings."""
+        warnings: list[LoadWarning] = []
+        result: list[str] = []
+        if not csv_path.exists() or not csv_path.is_file():
+            return ([], [LoadWarning(message='CSV file does not exist', path=str(csv_path.resolve(strict=False)))])
+
+        csv_parent = csv_path.parent.resolve(strict=False)
+        try:
+            with csv_path.open('r', encoding='utf-8', newline='') as handle:
+                reader = csv.DictReader(handle)
+                if reader.fieldnames is None or 'rel_path' not in reader.fieldnames:
+                    warnings.append(
+                        LoadWarning(
+                            message='CSV is missing required column "rel_path"',
+                            path=str(csv_path.resolve(strict=False)),
+                        )
+                    )
+                    return ([], warnings)
+                for index, row in enumerate(reader, start=2):
+                    raw_value = row.get('rel_path')
+                    if raw_value is None or not str(raw_value).strip():
+                        warnings.append(
+                            LoadWarning(
+                                message='CSV row has blank rel_path',
+                                path=str(csv_path.resolve(strict=False)),
+                                row_index=index,
+                            )
+                        )
+                        continue
+                    rel_value = str(raw_value).strip()
+                    candidate = (csv_parent / rel_value).resolve(strict=False)
+                    if not candidate.exists() or not candidate.is_file():
+                        warnings.append(
+                            LoadWarning(
+                                message='CSV rel_path target does not exist',
+                                path=str(candidate),
+                                row_index=index,
+                            )
+                        )
+                        continue
+                    result.append(str(candidate))
+        except Exception as exc:
+            warnings.append(LoadWarning(message=f'Failed to parse CSV: {exc}', path=str(csv_path.resolve(strict=False))))
+            return ([], warnings)
+
+        unique: list[str] = []
+        seen: set[str] = set()
+        for item in result:
+            if item in seen:
+                continue
+            seen.add(item)
+            unique.append(item)
+        return (unique, warnings)
+
+    def _build_file_list_from_csv(self, path: str | Path) -> list[str]:
+        """Strict CSV parser used by constructor path-kind csv mode."""
+        paths, warnings = self._build_file_list_from_csv_safe(Path(path))
+        if warnings:
+            first = warnings[0]
+            raise ValueError(first.message)
+        return paths
 
     def __len__(self) -> int:
         """Return number of files in the collection."""

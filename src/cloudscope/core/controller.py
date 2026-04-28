@@ -93,7 +93,12 @@ class HomePageController:
         """
         self._state.acq_image_list = acq_image_list
         self._state.file_ids = [acq_file.file_id for acq_file in acq_image_list.get_files()]
-        self._event_bus.publish(FileListChanged(file_ids=list(self._state.file_ids)))
+        self._event_bus.publish(
+            FileListChanged(
+                file_ids=list(self._state.file_ids),
+                rows=acq_image_list.get_schema_rows(),
+            )
+        )
 
         file_id, channel, roi_id = acq_image_list.get_default_selection()
         self._state.selection = PrimarySelection(
@@ -114,7 +119,7 @@ class HomePageController:
         """
         self._state.acq_image_list = None
         self._state.file_ids = list(file_ids)
-        self._event_bus.publish(FileListChanged(file_ids=list(self._state.file_ids)))
+        self._event_bus.publish(FileListChanged(file_ids=list(self._state.file_ids), rows=[]))
 
         default_file_id = self._state.file_ids[0] if self._state.file_ids else None
         self._state.selection = PrimarySelection(
