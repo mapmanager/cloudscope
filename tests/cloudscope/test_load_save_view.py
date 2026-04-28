@@ -1,0 +1,112 @@
+"""Tests for load/save toolbar view logic."""
+
+from __future__ import annotations
+
+from cloudscope.core.event_bus import EventBus
+from cloudscope.core.events import (
+    AppStatusChanged,
+    FileSelectionChanged,
+    StatusLevel,
+    StatusSource,
+    TaskKind,
+    TaskProgressChanged,
+    TaskStatus,
+)
+from cloudscope.gui.app_config import AppConfig
+from cloudscope.gui.load_save_view import LoadSaveView
+
+
+class _ToggleButton:
+    def __init__(self) -> None:
+        self.disabled = False
+
+    def disable(self) -> None:
+        self.disabled = True
+
+    def enable(self) -> None:
+        self.disabled = False
+
+
+class _Dialog:
+    def __init__(self) -> None:
+        self.opened = False
+
+    def open(self) -> None:
+        self.opened = True
+
+    def close(self) -> None:
+        self.opened = False
+
+
+class _Label:
+    def __init__(self) -> None:
+        self.text = ''
+
+
+class _Progress:
+    def __init__(self) -> None:
+        self.value = 0.0
+
+
+def test_save_selected_disabled_without_dirty_selection(tmp_path) -> None:
+    bus = EventBus()
+    cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
+    view = LoadSaveView(event_bus=bus, app_config=cfg)
+    view._save_selected_button = _ToggleButton()
+    view._save_all_button = _ToggleButton()
+
+    bus.publish(FileSelectionChanged(file_id=None, acq_image=None, channel=None, roi_id=None))
+    assert view._save_selected_button.disabled is True
+
+
+def test_task_progress_opens_and_closes_dialog(tmp_path) -> None:
+    bus = EventBus()
+    cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
+    view = LoadSaveView(event_bus=bus, app_config=cfg)
+    view._progress_dialog = _Dialog()
+    view._progress_bar = _Progress()
+    view._progress_label = _Label()
+    view._progress_message = _Label()
+    view._save_selected_button = _ToggleButton()
+    view._save_all_button = _ToggleButton()
+
+    bus.publish(
+        TaskProgressChanged(
+            task_kind=TaskKind.LOAD,
+            task_id='1',
+            task_label='Load file',
+            status=TaskStatus.RUNNING,
+            current=1,
+            total=4,
+            message='Step',
+        )
+    )
+    assert view._progress_dialog.opened is True
+    assert view._progress_bar.value == 0.25
+
+    bus.publish(
+        TaskProgressChanged(
+            task_kind=TaskKind.LOAD,
+            task_id='1',
+            task_label='Load file',
+            status=TaskStatus.COMPLETED,
+            current=4,
+            total=4,
+            message='Done',
+        )
+    )
+    assert view._progress_dialog.opened is False
+
+
+def test_status_event_calls_notify(tmp_path, monkeypatch) -> None:
+    bus = EventBus()
+    cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
+    _view = LoadSaveView(event_bus=bus, app_config=cfg)
+    notify_calls: list[str] = []
+
+    def _notify(msg: str, *, type: str) -> None:
+        notify_calls.append(f'{type}:{msg}')
+
+    monkeypatch.setattr('cloudscope.gui.load_save_view.ui.notify', _notify)
+    bus.publish(AppStatusChanged(level=StatusLevel.INFO, message='ok', source=StatusSource.SYSTEM))
+    assert notify_calls == ['info:ok']
