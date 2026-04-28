@@ -4,15 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from acqstore.acq_image.acq_image_list import AcqImageList
+
 from .event_bus import EventBus
 from .events import (
     FileListChanged,
-    IntentEvent,
     PrimarySelectionChanged,
     SelectChannelIntent,
     SelectFileIntent,
     SelectRoiIntent,
-    StateEvent,
 )
 from .state import PrimarySelection
 
@@ -21,21 +21,23 @@ from .state import PrimarySelection
 class HomePageState:
     """Application state for the CloudScope home page.
 
-    Attributes:
+    Args:
         file_ids: Stable file identifiers in display order.
         selection: Current primary selection state.
+        acq_image_list: Current backend file list, if loaded.
     """
 
     file_ids: list[str]
     selection: PrimarySelection
+    acq_image_list: AcqImageList | None = None
 
 
 class HomePageController:
     """Coordinate intent events and publish resulting state events.
 
-    This controller owns mutation of page-level state. Views should publish
-    intent events and subscribe to state events instead of directly mutating
-    shared state or calling each other.
+    This controller owns mutation of page-level state. Views publish intent
+    events and subscribe to state events instead of directly mutating shared
+    state or calling each other.
     """
 
     def __init__(self, event_bus: EventBus, initial_state: HomePageState | None = None) -> None:
@@ -51,25 +53,60 @@ class HomePageController:
         self._state = initial_state or HomePageState(
             file_ids=[],
             selection=PrimarySelection(),
+            acq_image_list=None,
         )
 
     @property
     def state(self) -> HomePageState:
-        """Return the current controller state."""
+        """Return the current controller state.
+
+        Returns:
+            Current home-page state object.
+        """
         return self._state
 
     def bind(self) -> None:
-        """Subscribe controller handlers to intent events."""
+        """Subscribe controller handlers to intent events.
+
+        Returns:
+            None.
+        """
         self._event_bus.subscribe(SelectFileIntent, self._on_select_file)
         self._event_bus.subscribe(SelectChannelIntent, self._on_select_channel)
         self._event_bus.subscribe(SelectRoiIntent, self._on_select_roi)
+
+    def load_acq_image_list(self, acq_image_list: AcqImageList) -> None:
+        """Replace the current file list with a backend AcqImageList.
+
+        Args:
+            acq_image_list: Backend acquisition-image list to use as the source
+                of truth for files and default selection.
+
+        Returns:
+            None.
+        """
+        self._state.acq_image_list = acq_image_list
+        self._state.file_ids = [acq_file.file_id for acq_file in acq_image_list.get_files()]
+        self._event_bus.publish(FileListChanged(file_ids=list(self._state.file_ids)))
+
+        file_id, channel, roi_id = acq_image_list.get_default_selection()
+        self._state.selection = PrimarySelection(
+            file_id=file_id,
+            channel=channel,
+            roi_id=roi_id,
+        )
+        self._publish_selection_changed()
 
     def load_demo_files(self, file_ids: list[str]) -> None:
         """Replace the current file list with demo data.
 
         Args:
             file_ids: File identifiers in display order.
+
+        Returns:
+            None.
         """
+        self._state.acq_image_list = None
         self._state.file_ids = list(file_ids)
         self._event_bus.publish(FileListChanged(file_ids=list(self._state.file_ids)))
 
@@ -86,12 +123,36 @@ class HomePageController:
 
         Args:
             event: Requested file selection intent.
+
+        Returns:
+            None.
+
+        Raises:
+            ValueError: If the requested file identifier is unknown.
         """
-        if event.file_id is not None and event.file_id not in self._state.file_ids:
+        if event.file_id is None:
+            self._state.selection = PrimarySelection()
+            self._publish_selection_changed()
+            return
+
+        if self._state.acq_image_list is not None:
+            acq_file = self._state.acq_image_list.get_file_by_id(event.file_id)
+            if acq_file is None:
+                raise ValueError(f"Unknown file_id: {event.file_id!r}")
+
+            self._state.selection = PrimarySelection(
+                file_id=acq_file.file_id,
+                channel=acq_file.get_default_channel(),
+                roi_id=acq_file.get_default_roi(),
+            )
+            self._publish_selection_changed()
+            return
+
+        if event.file_id not in self._state.file_ids:
             raise ValueError(f"Unknown file_id: {event.file_id!r}")
 
         self._state.selection.file_id = event.file_id
-        self._state.selection.channel = 0 if event.file_id is not None else None
+        self._state.selection.channel = 0
         self._state.selection.roi_id = None
         self._publish_selection_changed()
 
@@ -100,6 +161,9 @@ class HomePageController:
 
         Args:
             event: Requested channel selection intent.
+
+        Returns:
+            None.
         """
         if self._state.selection.file_id is None and event.channel is not None:
             raise ValueError("Cannot select a channel without a selected file")
@@ -112,6 +176,9 @@ class HomePageController:
 
         Args:
             event: Requested ROI selection intent.
+
+        Returns:
+            None.
         """
         if self._state.selection.file_id is None and event.roi_id is not None:
             raise ValueError("Cannot select an ROI without a selected file")
@@ -120,7 +187,11 @@ class HomePageController:
         self._publish_selection_changed()
 
     def _publish_selection_changed(self) -> None:
-        """Publish the current primary selection state."""
+        """Publish the current primary selection state.
+
+        Returns:
+            None.
+        """
         self._event_bus.publish(
             PrimarySelectionChanged(
                 file_id=self._state.selection.file_id,

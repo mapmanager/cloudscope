@@ -6,84 +6,24 @@ from dataclasses import dataclass
 
 from nicegui import ui
 
+from acqstore.acq_image.acq_image_list import AcqImageList
 from cloudscope.core.controller import HomePageController
 from cloudscope.core.event_bus import EventBus
-from cloudscope.core.events import FileListChanged, PrimarySelectionChanged, SelectChannelIntent, SelectFileIntent, SelectRoiIntent
-
-
-class FileListPanel:
-    """Simple file list view that emits file-selection intents."""
-
-    _my_name = 'FileListPanel'
-
-    def __init__(self, event_bus: EventBus) -> None:
-        self._event_bus = event_bus
-        self._select: ui.select | None = None
-        self._event_bus.subscribe(FileListChanged, self._on_file_list_changed)
-        self._event_bus.subscribe(PrimarySelectionChanged, self._on_selection_changed)
-
-    def build(self) -> None:
-        with ui.card().classes('w-72'):
-            ui.label(self._my_name).classes('text-lg font-medium')
-            self._select = ui.select(
-                options={},
-                label='Selected file',
-                on_change=lambda e: self._event_bus.publish(SelectFileIntent(file_id=e.value)),
-            ).classes('w-full')
-
-    def _on_file_list_changed(self, event: FileListChanged) -> None:
-        if self._select is None:
-            return
-        self._select.options = {file_id: file_id for file_id in event.file_ids}
-        self._select.update()
-
-    def _on_selection_changed(self, event: PrimarySelectionChanged) -> None:
-        if self._select is None:
-            return
-        self._select.value = event.file_id
-        self._select.update()
-
-
-class SelectionToolbar:
-    """Toolbar for channel and ROI selections."""
-
-    _my_name = 'SelectionToolbar'
-
-    def __init__(self, event_bus: EventBus) -> None:
-        self._event_bus = event_bus
-        self._channel: ui.radio | None = None
-        self._roi: ui.select | None = None
-        self._event_bus.subscribe(PrimarySelectionChanged, self._on_selection_changed)
-
-    def build(self) -> None:
-        with ui.card().classes('w-full'):
-            ui.label(self._my_name).classes('text-lg font-medium')
-            with ui.row().classes('items-center gap-6 w-full'):
-                self._channel = ui.radio(
-                    options={0: '1', 1: '2', 2: '3'},
-                    value=0,
-                    on_change=lambda e: self._event_bus.publish(SelectChannelIntent(channel=e.value)),
-                )
-                self._roi = ui.select(
-                    options={'roi-1': 'ROI 1', 'roi-2': 'ROI 2', None: 'None'},
-                    label='ROI',
-                    value=None,
-                    on_change=lambda e: self._event_bus.publish(SelectRoiIntent(roi_id=e.value)),
-                ).classes('w-48')
-
-    def _on_selection_changed(self, event: PrimarySelectionChanged) -> None:
-        if self._channel is not None:
-            self._channel.value = event.channel
-            self._channel.update()
-        if self._roi is not None:
-            self._roi.value = event.roi_id
-            self._roi.update()
+from cloudscope.core.events import PrimarySelectionChanged
+from cloudscope.gui.file_list_view import AcqImageListTableView, DEFAULT_ACQ_IMAGE_FOLDER
+from cloudscope.gui.image_toolbar_view import ImageToolbarView
 
 
 class PlotlyImagePanel:
     """Minimal Plotly-backed image panel."""
 
     def __init__(self, event_bus: EventBus, title: str) -> None:
+        """Create the image panel.
+
+        Args:
+            event_bus: CloudScope event bus.
+            title: Panel title.
+        """
         self._event_bus = event_bus
         self._title = title
         self._plot = None
@@ -91,15 +31,30 @@ class PlotlyImagePanel:
         self._event_bus.subscribe(PrimarySelectionChanged, self._on_selection_changed)
 
     def build(self) -> None:
-        with ui.card().classes('w-full'):
-            ui.label(self._title).classes('text-lg font-medium')
-            self._summary = ui.label('No selection').classes('text-sm text-gray-600')
-            self._plot = ui.plotly(self._make_figure(file_id=None, channel=None, roi_id=None)).classes('w-full h-80')
+        """Build the panel UI.
+
+        Returns:
+            None.
+        """
+        with ui.card().classes("w-full"):
+            ui.label(self._title).classes("text-lg font-medium")
+            self._summary = ui.label("No selection").classes("text-sm text-gray-600")
+            self._plot = ui.plotly(
+                self._make_figure(file_id=None, channel=None, roi_id=None)
+            ).classes("w-full h-80")
 
     def _on_selection_changed(self, event: PrimarySelectionChanged) -> None:
+        """Update panel display from selection state.
+
+        Args:
+            event: Current primary selection.
+
+        Returns:
+            None.
+        """
         if self._summary is not None:
             self._summary.text = (
-                f'file={event.file_id!r}, channel={event.channel!r}, roi={event.roi_id!r}'
+                f"file={event.file_id!r}, channel={event.channel!r}, roi={event.roi_id!r}"
             )
         if self._plot is not None:
             self._plot.figure = self._make_figure(
@@ -110,25 +65,35 @@ class PlotlyImagePanel:
             self._plot.update()
 
     def _make_figure(self, file_id: str | None, channel: int | None, roi_id: int | None) -> dict:
+        """Build a placeholder Plotly figure.
+
+        Args:
+            file_id: Selected file identifier.
+            channel: Selected channel.
+            roi_id: Selected ROI identifier.
+
+        Returns:
+            Plotly figure dictionary.
+        """
         x_values = [0, 1, 2, 3, 4]
         base = 0 if channel is None else channel + 1
         y_values = [base, base + 1, base + 0.5, base + 1.5, base + 1]
-        title = f'{self._title}: {file_id or "no file"}'
+        title = f"{self._title}: {file_id or 'no file'}"
         if roi_id is not None:
-            title += f' / {roi_id}'
+            title += f" / {roi_id}"
         return {
-            'data': [
+            "data": [
                 {
-                    'type': 'scatter',
-                    'mode': 'lines+markers',
-                    'x': x_values,
-                    'y': y_values,
-                    'name': file_id or 'none',
+                    "type": "scatter",
+                    "mode": "lines+markers",
+                    "x": x_values,
+                    "y": y_values,
+                    "name": file_id or "none",
                 }
             ],
-            'layout': {
-                'title': {'text': title},
-                'margin': {'l': 40, 'r': 20, 't': 40, 'b': 40},
+            "layout": {
+                "title": {"text": title},
+                "margin": {"l": 40, "r": 20, "t": 40, "b": 40},
             },
         }
 
@@ -141,28 +106,46 @@ class HomePage:
     event_bus: EventBus
 
     def build(self) -> None:
-        """Build the page UI and load initial demo state."""
-        file_list_panel = FileListPanel(self.event_bus)
-        selection_toolbar = SelectionToolbar(self.event_bus)
-        primary_image = PlotlyImagePanel(self.event_bus, title='Primary image')
-        reference_image = PlotlyImagePanel(self.event_bus, title='Reference image')
+        """Build the page UI and load initial AcqStore state.
 
-        with ui.column().classes('w-full gap-4 p-4'):
-            ui.label('CloudScope').classes('text-2xl font-bold')
-            with ui.row().classes('w-full items-start gap-4'):
-                file_list_panel.build()
-                with ui.column().classes('flex-1 gap-4'):
-                    selection_toolbar.build()
-                    primary_image.build()
-                    reference_image.build()
+        Returns:
+            None.
+        """
+        acq_image_list = AcqImageList(DEFAULT_ACQ_IMAGE_FOLDER)
+
+        file_list_panel = AcqImageListTableView(
+            event_bus=self.event_bus,
+            acq_image_list=acq_image_list,
+        )
+        image_toolbar = ImageToolbarView(
+            event_bus=self.event_bus,
+            acq_image_list=acq_image_list,
+        )
+        primary_image = PlotlyImagePanel(self.event_bus, title="Primary image")
+        reference_image = PlotlyImagePanel(self.event_bus, title="Reference image")
+
+        with ui.column().classes("w-full gap-4 p-4"):
+            ui.label("CloudScope").classes("text-2xl font-bold")
+            with ui.row().classes("w-full items-start gap-4"):
+                with ui.card().classes("w-full").style("height: 32rem;"):
+                    ui.label("Files").classes("text-lg font-medium")
+                    file_list_panel.build()
+                with ui.card().classes("w-full"):
+                    image_toolbar.build()
+                primary_image.build()
+                reference_image.build()
 
         self.controller.bind()
-        self.controller.load_demo_files(['file-001', 'file-002', 'file-003'])
+        self.controller.load_acq_image_list(acq_image_list)
 
 
-@ui.page('/')
+@ui.page("/")
 def home_page() -> None:
-    """Create all per-page objects for the CloudScope home page."""
+    """Create all per-page objects for the CloudScope home page.
+
+    Returns:
+        None.
+    """
     event_bus = EventBus()
     controller = HomePageController(event_bus=event_bus)
     page = HomePage(controller=controller, event_bus=event_bus)
