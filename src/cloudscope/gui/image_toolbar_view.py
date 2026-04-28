@@ -7,9 +7,14 @@ from typing import Protocol
 from nicegui import ui
 
 from acqstore.acq_image.acq_image import AcqImage
-from acqstore.acq_image.acq_image_list import AcqImageList
 from cloudscope.core.event_bus import EventBus
-from cloudscope.core.events import PrimarySelectionChanged, SelectChannelIntent, SelectRoiIntent
+from cloudscope.core.events import (
+    ChannelSelectionChanged,
+    FileSelectionChanged,
+    RoiSelectionChanged,
+    SelectChannelIntent,
+    SelectRoiIntent,
+)
 from nicewidgets.image_toolbar_widget.image_toolbar_widget import ImageToolbarWidget
 from nicewidgets.image_toolbar_widget.intent import (
     ImageToolbarIntent,
@@ -70,21 +75,16 @@ class ImageToolbarView:
 
     Args:
         event_bus: CloudScope event bus used to publish selection intents and
-            consume primary-selection state events.
-        acq_image_list: Backend file list used to derive channel and ROI options
-            for the selected file.
+            consume selection state events.
     """
 
-    def __init__(
-        self,
-        event_bus: EventBus,
-        acq_image_list: AcqImageList,
-    ) -> None:
+    def __init__(self, event_bus: EventBus) -> None:
         self._event_bus = event_bus
-        self._acq_image_list = acq_image_list
         self._toolbar: ImageToolbarWidget | None = None
 
-        self._event_bus.subscribe(PrimarySelectionChanged, self._on_selection_changed)
+        self._event_bus.subscribe(FileSelectionChanged, self._on_file_selection_changed)
+        self._event_bus.subscribe(ChannelSelectionChanged, self._on_channel_selection_changed)
+        self._event_bus.subscribe(RoiSelectionChanged, self._on_roi_selection_changed)
 
     def build(self, parent: ui.element | None = None) -> ImageToolbarWidget:
         """Build and return the underlying NiceWidgets image toolbar.
@@ -104,17 +104,6 @@ class ImageToolbarView:
             self._toolbar = ImageToolbarWidget(on_intent=self._on_toolbar_intent)
             return self._toolbar
 
-    def set_data(self, acq_image_list: AcqImageList) -> None:
-        """Replace the backend file list used by the toolbar.
-
-        Args:
-            acq_image_list: New backend file list.
-
-        Returns:
-            None.
-        """
-        self._acq_image_list = acq_image_list
-
     def _on_toolbar_intent(self, intent: ImageToolbarIntent) -> None:
         """Translate NiceWidgets toolbar intents into CloudScope intents.
 
@@ -132,15 +121,8 @@ class ImageToolbarView:
             self._event_bus.publish(SelectRoiIntent(roi_id=intent.roi_id))
             return
 
-    def _on_selection_changed(self, event: PrimarySelectionChanged) -> None:
-        """Update toolbar state from CloudScope primary-selection state.
-
-        Args:
-            event: Current primary selection.
-
-        Returns:
-            None.
-        """
+    def _on_file_selection_changed(self, event: FileSelectionChanged) -> None:
+        """Update toolbar file, option lists, and channel/ROI from file selection."""
         if self._toolbar is None:
             return
 
@@ -154,14 +136,15 @@ class ImageToolbarView:
             )
             return
 
-        acq_image = self._acq_image_list.get_file_by_id(event.file_id)
+        acq_image = event.acq_image
         if acq_image is None:
+            ch_opts, r_opts = self._synthetic_options_for_demo(event.channel, event.roi_id)
             self._toolbar.set_file_ext(
-                None,
-                None,
-                None,
-                channel_options=[],
-                roi_options=[],
+                event.file_id,
+                event.channel,
+                event.roi_id,
+                channel_options=ch_opts,
+                roi_options=r_opts,
             )
             return
 
@@ -172,3 +155,29 @@ class ImageToolbarView:
             channel_options=channel_options_for_acq_image(acq_image),
             roi_options=roi_options_for_acq_image(acq_image),
         )
+
+    def _on_channel_selection_changed(self, event: ChannelSelectionChanged) -> None:
+        """Sync toolbar channel without rebuilding option lists."""
+        if self._toolbar is None:
+            return
+        self._toolbar.set_channel_ext(event.channel)
+
+    def _on_roi_selection_changed(self, event: RoiSelectionChanged) -> None:
+        """Sync toolbar ROI without rebuilding option lists."""
+        if self._toolbar is None:
+            return
+        self._toolbar.set_roi_ext(event.roi_id)
+
+    @staticmethod
+    def _synthetic_options_for_demo(
+        channel: int | None,
+        roi_id: int | None,
+    ) -> tuple[list[str], list[int]]:
+        """Build minimal option lists when no ``AcqImage`` is loaded (demo mode)."""
+        ch_opts: list[str] = []
+        if channel is not None:
+            ch_opts = [str(channel)]
+        r_opts: list[int] = []
+        if roi_id is not None:
+            r_opts = [roi_id]
+        return ch_opts, r_opts

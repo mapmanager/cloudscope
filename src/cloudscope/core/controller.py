@@ -10,9 +10,11 @@ from acqstore.acq_image.metadata import ExperimentMetadata
 from .event_bus import EventBus
 from .events import (
     ApplyMetadataIntent,
+    ChannelSelectionChanged,
     FileListChanged,
+    FileSelectionChanged,
     MetadataChanged,
-    PrimarySelectionChanged,
+    RoiSelectionChanged,
     SelectChannelIntent,
     SelectFileIntent,
     SelectRoiIntent,
@@ -99,7 +101,7 @@ class HomePageController:
             channel=channel,
             roi_id=roi_id,
         )
-        self._publish_selection_changed()
+        self._publish_file_selection_changed()
 
     def load_demo_files(self, file_ids: list[str]) -> None:
         """Replace the current file list with demo data.
@@ -120,7 +122,7 @@ class HomePageController:
             channel=0 if default_file_id is not None else None,
             roi_id=None,
         )
-        self._publish_selection_changed()
+        self._publish_file_selection_changed()
 
     def _on_select_file(self, event: SelectFileIntent) -> None:
         """Handle file selection changes.
@@ -136,7 +138,7 @@ class HomePageController:
         """
         if event.file_id is None:
             self._state.selection = PrimarySelection()
-            self._publish_selection_changed()
+            self._publish_file_selection_changed()
             return
 
         if self._state.acq_image_list is not None:
@@ -149,7 +151,7 @@ class HomePageController:
                 channel=acq_file.get_default_channel(),
                 roi_id=acq_file.get_default_roi(),
             )
-            self._publish_selection_changed()
+            self._publish_file_selection_changed()
             return
 
         if event.file_id not in self._state.file_ids:
@@ -158,7 +160,7 @@ class HomePageController:
         self._state.selection.file_id = event.file_id
         self._state.selection.channel = 0
         self._state.selection.roi_id = None
-        self._publish_selection_changed()
+        self._publish_file_selection_changed()
 
     def _on_select_channel(self, event: SelectChannelIntent) -> None:
         """Handle channel selection changes.
@@ -173,7 +175,7 @@ class HomePageController:
             raise ValueError("Cannot select a channel without a selected file")
 
         self._state.selection.channel = event.channel
-        self._publish_selection_changed()
+        self._event_bus.publish(ChannelSelectionChanged(channel=self._state.selection.channel))
 
     def _on_select_roi(self, event: SelectRoiIntent) -> None:
         """Handle ROI selection changes.
@@ -188,7 +190,7 @@ class HomePageController:
             raise ValueError("Cannot select an ROI without a selected file")
 
         self._state.selection.roi_id = event.roi_id
-        self._publish_selection_changed()
+        self._event_bus.publish(RoiSelectionChanged(roi_id=self._state.selection.roi_id))
 
     def _on_apply_metadata(self, event: ApplyMetadataIntent) -> None:
         """Apply in-memory metadata patch for one file section.
@@ -228,15 +230,20 @@ class HomePageController:
             )
         )
 
-    def _publish_selection_changed(self) -> None:
-        """Publish the current primary selection state.
+    def _publish_file_selection_changed(self) -> None:
+        """Publish file selection (includes default channel and ROI for that file).
 
         Returns:
             None.
         """
+        acq_image = None
+        fid = self._state.selection.file_id
+        if fid is not None and self._state.acq_image_list is not None:
+            acq_image = self._state.acq_image_list.get_file_by_id(fid)
         self._event_bus.publish(
-            PrimarySelectionChanged(
-                file_id=self._state.selection.file_id,
+            FileSelectionChanged(
+                file_id=fid,
+                acq_image=acq_image,
                 channel=self._state.selection.channel,
                 roi_id=self._state.selection.roi_id,
             )

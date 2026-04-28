@@ -101,9 +101,10 @@ Intent events include:
 
 State events include:
 
-- `PrimarySelectionChanged`
-- `RoiSelectionChanged`
 - `FileListChanged`
+- `FileSelectionChanged`
+- `ChannelSelectionChanged`
+- `RoiSelectionChanged`
 - `MetadataChanged`
 - `AnalysisFinished`
 

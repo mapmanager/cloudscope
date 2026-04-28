@@ -10,6 +10,7 @@ def main() -> None:
     ui.run(
         title='CloudScope',
         reload=False,
+        native=True,
         storage_secret='cloudscope-dev-secret',
     )
 

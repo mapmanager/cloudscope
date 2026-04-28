@@ -8,7 +8,7 @@ from nicegui import ui
 
 from acqstore.acq_image.acq_image_list import AcqImageList
 from cloudscope.core.event_bus import EventBus
-from cloudscope.core.events import MetadataChanged, PrimarySelectionChanged, SelectFileIntent
+from cloudscope.core.events import FileSelectionChanged, MetadataChanged, SelectFileIntent
 from cloudscope.gui.schema_adapters import schema_to_column_defs
 from nicewidgets.table_widget.config import TableWidgetConfig
 from nicewidgets.table_widget.table_widget import TableWidget
@@ -22,7 +22,7 @@ class AcqImageListTableView:
 
     Args:
         event_bus: CloudScope event bus used to publish file-selection intents
-            and consume primary-selection state events.
+            and consume file-selection state events.
         acq_image_list: Backend file list to display.
         row_id_field: Row field used as the stable table row identifier. For
             current AcqStore rows, this should remain ``"path"`` because
@@ -41,7 +41,7 @@ class AcqImageListTableView:
         self._row_id_field = row_id_field
         self._table: TableWidget | None = None
 
-        self._event_bus.subscribe(PrimarySelectionChanged, self._on_selection_changed)
+        self._event_bus.subscribe(FileSelectionChanged, self._on_file_selection_changed)
         self._event_bus.subscribe(MetadataChanged, self._on_metadata_changed)
 
     def build(self, parent: ui.element | None = None) -> ui.column:
@@ -105,11 +105,11 @@ class AcqImageListTableView:
             )
         self._event_bus.publish(SelectFileIntent(file_id=file_id))
 
-    def _on_selection_changed(self, event: PrimarySelectionChanged) -> None:
-        """Reflect controller selection state in the table selection.
+    def _on_file_selection_changed(self, event: FileSelectionChanged) -> None:
+        """Reflect controller file selection in the table selection.
 
         Args:
-            event: Current primary selection state.
+            event: Current file selection state.
 
         Returns:
             None.
