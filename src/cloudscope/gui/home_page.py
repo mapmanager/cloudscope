@@ -156,13 +156,13 @@ class HomePage:
         metadata_view = MetadataView(event_bus=self.event_bus)
         primary_image = PlotlyImagePanel(self.event_bus, title="Primary image")
         reference_image = PlotlyImagePanel(self.event_bus, title="Reference image")
-        selection_footer = FooterView(event_bus=self.event_bus)
-        # KymFlow ``HomePage.render`` order: ``build_header``, ``_footer_view.render()``,
+        footer = FooterView(event_bus=self.event_bus)
+        # KymFlow ``HomePage.render`` order: ``build_header``, footer ``build()``,
         # then main body (splitter/column). Header + footer must be top-level layout
         # elements before nested content — see NiceGUI page layout / Quasar ``q-layout``.
         ui.page_title("CloudScope")
         build_main_header(title="CloudScope")
-        selection_footer.build()
+        footer.build()
 
         with ui.splitter(value=28).classes("w-full min-h-screen") as splitter:
 
