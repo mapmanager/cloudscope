@@ -111,8 +111,14 @@ def get_logger(name: str | None = None) -> logging.Logger:
     Returns:
         A standard Python logger.
     """
-    return logging.getLogger(name or APP_NAME)
-
+    # return logging.getLogger(name or APP_NAME)
+    if not name or name == '__main__':
+        resolved_name = APP_NAME
+    elif name == APP_NAME or name.startswith(f'{APP_NAME}.'):
+        resolved_name = name
+    else:
+        resolved_name = f'{APP_NAME}.{name}'
+    return logging.getLogger(resolved_name)
 
 def get_log_file_path() -> Path | None:
     """Return the active log file path.

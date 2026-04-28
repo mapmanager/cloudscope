@@ -13,6 +13,15 @@ from acqstore.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+def _tif_dims_from_ndim(ndim: int) -> tuple[str, ...]:
+    """Map TIFF array rank to axis labels (explicit; extend here for new policies)."""
+    if ndim == 2:
+        return ("Y", "X")
+    if ndim == 3:
+        return ("Z", "Y", "X")
+    if ndim == 4:
+        return ("C", "Z", "Y", "X")
+    raise ValueError(f"Unsupported TIFF ndim {ndim}; expected 2, 3, or 4")
 
 class TiffFileLoader(BaseFileLoader):
     """TIFF reader using ``tifffile.imread``; header from pixels and/or Olympus sidecar ``.txt``.
@@ -82,7 +91,7 @@ class TiffFileLoader(BaseFileLoader):
         # did not get tif header -> expensive load all data to make header
         arr = self._read_tif_array()
         ndim = arr.ndim
-        dims = ImageHeader.dims_from_ndim(ndim)
+        dims = _tif_dims_from_ndim(ndim)
         shape = tuple(int(x) for x in arr.shape)
         sizes = {dims[i]: shape[i] for i in range(ndim)}
         dtype = np.dtype(arr.dtype)

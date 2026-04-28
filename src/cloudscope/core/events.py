@@ -40,7 +40,7 @@ class SelectChannelIntent(IntentEvent):
 @dataclass(frozen=True)
 class SelectRoiIntent(IntentEvent):
     """Request to select an ROI."""
-    roi_id: str | None
+    roi_id: int | None
 
 
 # -----------------------------
@@ -58,4 +58,4 @@ class PrimarySelectionChanged(StateEvent):
     """Emitted when (file, channel, roi) selection changes."""
     file_id: str | None
     channel: int | None
-    roi_id: str | None
+    roi_id: int | None

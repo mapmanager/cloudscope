@@ -24,7 +24,7 @@ class AcqAnalysisProtocol(Protocol):
         self,
         kind: AnalysisKind,
         channel: int | None = None,
-        roi_id: str | None = None,
+        roi_id: int | None = None,
     ) -> bool:
         """Return whether a result already exists for the requested scope.
 
@@ -41,7 +41,7 @@ class AcqAnalysisProtocol(Protocol):
         self,
         kind: AnalysisKind,
         channel: int | None = None,
-        roi_id: str | None = None,
+        roi_id: int | None = None,
     ) -> Any | None:
         """Return an existing analysis result for the requested scope.
 
@@ -59,7 +59,7 @@ class AcqAnalysisProtocol(Protocol):
         self,
         kind: AnalysisKind,
         channel: int | None = None,
-        roi_id: str | None = None,
+        roi_id: int | None = None,
         **kwargs: Any,
     ) -> Any:
         """Run analysis and return the resulting backend-defined object.

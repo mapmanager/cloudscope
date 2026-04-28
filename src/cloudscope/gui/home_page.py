@@ -109,7 +109,7 @@ class PlotlyImagePanel:
             )
             self._plot.update()
 
-    def _make_figure(self, file_id: str | None, channel: int | None, roi_id: str | None) -> dict:
+    def _make_figure(self, file_id: str | None, channel: int | None, roi_id: int | None) -> dict:
         x_values = [0, 1, 2, 3, 4]
         base = 0 if channel is None else channel + 1
         y_values = [base, base + 1, base + 0.5, base + 1.5, base + 1]

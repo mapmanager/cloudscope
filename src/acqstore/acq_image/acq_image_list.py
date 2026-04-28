@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from pathlib import Path
+import os
+from collections import deque
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-import os
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from acqstore.schema import (
@@ -18,26 +19,48 @@ from .supported_import_extensions import get_allowed_import_extensions
 if TYPE_CHECKING:
     from acqstore.acq_image.acq_image import AcqImage
 
-def _build_file_list(path: str | Path, file_types: Sequence[str]) -> list[str]:
-    """Build a list of files in the given path.
 
-    Recursively traverse into path and build a list of files with the given types.
+def _build_file_list(path: str | Path, file_types: Sequence[str], *, folder_depth: int = 4) -> list[str]:
+    """Build a list of files under ``path`` up to a bounded directory depth.
+
+    Depth is 1-based from ``path``: depth ``1`` collects only files directly in
+    ``path``; depth ``2`` also includes files in immediate child directories; and so
+    on, up to ``folder_depth``.
 
     Args:
-        path: The path to traverse.
-        file_types: The types of files to include in the list (no dot extension)
+        path: Directory to traverse (must be a directory when called from
+            :class:`AcqImageList`).
+        file_types: Extensions to include (no leading dot).
+        folder_depth: Maximum directory depth to visit (must be >= 1).
 
     Returns:
-        A list of absolute file paths.
-    """
-    allowed_exts = {f".{ext.lower().lstrip('.')}" for ext in file_types}
-    result: list[str] = []
+        Sorted list of absolute file paths.
 
-    for root, _dirs, filenames in os.walk(str(path)):
-        for filename in filenames:
-            file_path = Path(root) / filename
-            if file_path.suffix.lower() in allowed_exts:
-                result.append(str(file_path.resolve()))
+    Raises:
+        ValueError: If ``folder_depth`` is less than 1.
+    """
+    if folder_depth < 1:
+        raise ValueError(f'folder_depth must be >= 1, got {folder_depth}')
+    allowed_exts = {f'.{ext.lower().lstrip(".")}' for ext in file_types}
+    result: list[str] = []
+    root = Path(path).resolve()
+    queue: deque[tuple[Path, int]] = deque()
+    queue.append((root, 1))
+    while queue:
+        current, depth = queue.popleft()
+        if not current.is_dir():
+            continue
+        try:
+            entries = sorted(current.iterdir(), key=lambda p: p.name.lower())
+        except OSError:
+            continue
+        for p in entries:
+            if p.is_file():
+                if p.suffix.lower() in allowed_exts:
+                    result.append(str(p.resolve()))
+            elif p.is_dir():
+                if depth < folder_depth:
+                    queue.append((p, depth + 1))
     return sorted(result)
 
 
@@ -65,6 +88,7 @@ class SaveProgress:
     total: int
     file_id: str | None
 
+
 class AcqImageList:
     """Backend-facing ordered collection of acquisition files."""
 
@@ -73,18 +97,25 @@ class AcqImageList:
         path: str,
         *,
         file_factory: Callable[[str], AcqImage] | None = None,
+        folder_depth: int = 4,
     ):
-        """Load one file or recursively load a directory of files.
+        """Load one file or discover files under a directory.
 
         Args:
             path: Filesystem path to one file or directory.
             file_factory: Optional factory for creating file objects. Defaults to
                 ``AcqImage``.
+            folder_depth: When ``path`` is a directory, maximum directory depth to
+                search (>= 1). Depth ``1`` is only the given folder; each increment
+                includes one more level of child directories. Ignored when ``path`` is
+                a file.
         """
         self.path = str(path)
+        if folder_depth < 1:
+            raise ValueError(f'folder_depth must be >= 1, got {folder_depth}')
 
         if os.path.isdir(path):
-            self.file_list = _build_file_list(path, get_allowed_import_extensions())
+            self.file_list = _build_file_list(path, get_allowed_import_extensions(), folder_depth=folder_depth)
         else:
             self.file_list = [str(Path(path).resolve())]
 
@@ -138,7 +169,7 @@ class AcqImageList:
 
     def get_default_file_id(self) -> str | None:
         """Return the default file identifier in stable display order.
-        
+
         Returns first file in list."""
         if not self._files:
             return None
@@ -146,7 +177,7 @@ class AcqImageList:
 
     def get_default_selection(self) -> tuple[str | None, int | None, int | None]:
         """Return default primary selection for initial app state.
-        
+
         Returns:
             Tuple of (file_id, channel, roi) using backend-native values.
             Any tuple member may be None when no explicit default exists.

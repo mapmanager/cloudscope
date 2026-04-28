@@ -1,11 +1,8 @@
-"""Semantic schema definitions for AcqStore values and views.
-
-These schemas are backend-owned and GUI-agnostic. They describe values that can
-be rendered in table views, card views, or both.
-"""
+"""Semantic schema definitions for AcqStore values."""
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from enum import StrEnum
 from typing import Any
@@ -22,53 +19,6 @@ class ValueType(StrEnum):
     ENUM = 'enum'
 
 
-class CardControl(StrEnum):
-    """Supported semantic card control hints."""
-
-    READONLY = 'readonly'
-    TEXT = 'text'
-    TEXTAREA = 'textarea'
-    NUMBER = 'number'
-    CHECKBOX = 'checkbox'
-    SELECT = 'select'
-
-
-class SemanticKind(StrEnum):
-    """Higher-level semantic hint for generic GUI behavior."""
-
-    ID = 'id'
-    NAME = 'name'
-    PATH = 'path'
-    COUNT = 'count'
-    STATUS = 'status'
-    METRIC = 'metric'
-    OTHER = 'other'
-
-
-@dataclass(frozen=True, slots=True)
-class TableHint:
-    """Table/grid presentation hints."""
-
-    visible: bool = True
-    editable: bool = False
-    sortable: bool = True
-    filterable: bool = True
-    width: int | None = None
-    pinned: bool = False
-    display_format: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class CardHint:
-    """Card/form presentation hints."""
-
-    visible: bool = True
-    editable: bool = False
-    control: CardControl = CardControl.READONLY
-    group: str | None = None
-    multiline: bool = False
-
-
 @dataclass(frozen=True, slots=True)
 class FieldSchema:
     """Semantic schema for one backend value."""
@@ -76,23 +26,25 @@ class FieldSchema:
     name: str
     display_name: str
     value_type: ValueType = ValueType.STR
-    semantic_kind: SemanticKind = SemanticKind.OTHER
     description: str = ''
     unit: str | None = None
     required: bool = False
     default: Any | None = None
     choices: tuple[Any, ...] | None = None
-    table: TableHint = TableHint()
-    card: CardHint = CardHint()
+    visible: bool = True
+    editable: bool = False
+    group: str | None = None
 
     def __post_init__(self) -> None:
-        """Validate schema consistency."""
+        """Validate field consistency."""
         if not self.name:
             raise ValueError('FieldSchema.name must not be empty')
         if not self.display_name:
             raise ValueError('FieldSchema.display_name must not be empty')
-        if self.card.control is CardControl.SELECT and not self.choices:
-            raise ValueError(f"FieldSchema {self.name!r} uses SELECT but has no choices")
+        if self.value_type is ValueType.ENUM and not self.choices:
+            raise ValueError(
+                f'FieldSchema {self.name!r} has value_type=ENUM but no choices'
+            )
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable dictionary."""
@@ -100,28 +52,14 @@ class FieldSchema:
             'name': self.name,
             'display_name': self.display_name,
             'value_type': self.value_type.value,
-            'semantic_kind': self.semantic_kind.value,
             'description': self.description,
             'unit': self.unit,
             'required': self.required,
             'default': self.default,
             'choices': list(self.choices) if self.choices is not None else None,
-            'table': {
-                'visible': self.table.visible,
-                'editable': self.table.editable,
-                'sortable': self.table.sortable,
-                'filterable': self.table.filterable,
-                'width': self.table.width,
-                'pinned': self.table.pinned,
-                'display_format': self.table.display_format,
-            },
-            'card': {
-                'visible': self.card.visible,
-                'editable': self.card.editable,
-                'control': self.card.control.value,
-                'group': self.card.group,
-                'multiline': self.card.multiline,
-            },
+            'visible': self.visible,
+            'editable': self.editable,
+            'group': self.group,
         }
 
     @classmethod
@@ -132,46 +70,39 @@ class FieldSchema:
         """
         allowed = {field.name for field in fields(cls)}
         filtered = {key: value for key, value in data.items() if key in allowed}
-
         if 'value_type' in filtered:
             filtered['value_type'] = ValueType(str(filtered['value_type']))
-        if 'semantic_kind' in filtered:
-            filtered['semantic_kind'] = SemanticKind(str(filtered['semantic_kind']))
         if 'choices' in filtered and filtered['choices'] is not None:
             filtered['choices'] = tuple(filtered['choices'])
-        if 'table' in filtered and filtered['table'] is not None:
-            filtered['table'] = TableHint(**filtered['table'])
-        if 'card' in filtered and filtered['card'] is not None:
-            card_data = dict(filtered['card'])
-            if 'control' in card_data:
-                card_data['control'] = CardControl(str(card_data['control']))
-            filtered['card'] = CardHint(**card_data)
-
         return cls(**filtered)
 
 
 @dataclass(frozen=True, slots=True)
 class SchemaDefinition:
-    """Schema envelope for versioned backend contracts."""
+    """Versioned collection of field schemas."""
 
     schema_id: str
     version: int
     fields: tuple[FieldSchema, ...]
 
     def __post_init__(self) -> None:
-        """Validate schema identifier and duplicate fields."""
+        """Validate schema metadata and field names."""
         if not self.schema_id:
             raise ValueError('SchemaDefinition.schema_id must not be empty')
         if self.version < 1:
             raise ValueError('SchemaDefinition.version must be >= 1')
+        validate_schema_field_names(self)
 
-        names = [field.name for field in self.fields]
-        duplicates = sorted({name for name in names if names.count(name) > 1})
-        if duplicates:
-            raise ValueError(f'Duplicate schema field names: {duplicates}')
+    def visible_fields(self) -> tuple[FieldSchema, ...]:
+        """Return visible fields in schema order."""
+        return tuple(field for field in self.fields if field.visible)
+
+    def field_names(self) -> tuple[str, ...]:
+        """Return field names in schema order."""
+        return tuple(field.name for field in self.fields)
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-serializable dictionary."""
+        """Return a JSON-serializable schema dictionary."""
         return {
             'schema_id': self.schema_id,
             'version': self.version,
@@ -182,33 +113,69 @@ class SchemaDefinition:
     def from_dict(cls, data: dict[str, Any]) -> SchemaDefinition:
         """Create a schema definition from a dictionary.
 
-        Unknown keys are ignored for forward compatibility.
+        Unknown top-level keys are ignored for forward compatibility.
         """
-        schema_id = str(data.get('schema_id', ''))
-        version = int(data.get('version', 1))
-        raw_fields = data.get('fields', [])
-        parsed_fields = tuple(
-            FieldSchema.from_dict(item)
-            for item in raw_fields
-            if isinstance(item, dict)
+        return cls(
+            schema_id=str(data['schema_id']),
+            version=int(data['version']),
+            fields=tuple(
+                FieldSchema.from_dict(field_data)
+                for field_data in data['fields']
+            ),
         )
-        return cls(schema_id=schema_id, version=version, fields=parsed_fields)
 
-    def table_fields(self) -> tuple[FieldSchema, ...]:
-        """Return fields visible in table/grid views."""
-        return tuple(field for field in self.fields if field.table.visible)
 
-    def card_fields(self) -> tuple[FieldSchema, ...]:
-        """Return fields visible in card/form views."""
-        return tuple(field for field in self.fields if field.card.visible)
+def validate_schema_field_names(schema: SchemaDefinition) -> None:
+    """Validate that schema field names are unique."""
+    names = schema.field_names()
+    duplicates = sorted({name for name in names if names.count(name) > 1})
+    if duplicates:
+        raise ValueError(f'Duplicate schema field names: {duplicates}')
 
-    def card_groups(self) -> tuple[str | None, ...]:
-        """Return card groups in first-seen order."""
-        groups: list[str | None] = []
-        for field in self.card_fields():
-            if field.card.group not in groups:
-                groups.append(field.card.group)
-        return tuple(groups)
+
+def validate_values_for_schema(
+    schema: SchemaDefinition,
+    values: Mapping[str, object],
+    *,
+    require_visible_fields: bool = True,
+    allow_extra_values: bool = False,
+) -> None:
+    """Validate values against a schema definition."""
+    validate_schema_field_names(schema)
+    required_names = (
+        {field.name for field in schema.visible_fields()}
+        if require_visible_fields
+        else set(schema.field_names())
+    )
+    value_names = set(values.keys())
+    missing = sorted(required_names - value_names)
+    if missing:
+        raise KeyError(f'Values missing schema keys: {missing}')
+
+    if not allow_extra_values:
+        schema_names = set(schema.field_names())
+        extra = sorted(value_names - schema_names)
+        if extra:
+            raise ValueError(f'Values contain keys not declared by schema: {extra}')
+
+
+def validate_patch_for_schema(schema: SchemaDefinition, patch: Mapping[str, object]) -> None:
+    """Validate edit patches against declared editable schema fields."""
+    fields_by_name = {field.name: field for field in schema.fields}
+    for name in patch:
+        if name not in fields_by_name:
+            raise KeyError(f'Unknown schema field: {name}')
+        if not fields_by_name[name].editable:
+            raise ValueError(f'Field is not editable: {name}')
+
+
+def card_groups(schema: SchemaDefinition) -> tuple[str | None, ...]:
+    """Return visible card groups in first-seen order."""
+    groups: list[str | None] = []
+    for field in schema.visible_fields():
+        if field.group not in groups:
+            groups.append(field.group)
+    return tuple(groups)
 
 
 ACQ_FILE_LIST_SCHEMA = SchemaDefinition(
@@ -216,28 +183,32 @@ ACQ_FILE_LIST_SCHEMA = SchemaDefinition(
     version=1,
     fields=(
         FieldSchema(
+            name='name',
+            display_name='Name',
+            value_type=ValueType.STR,
+            description='Short display name for the file.',
+            group='File',
+        ),
+        FieldSchema(
             name='path',
             display_name='Path',
             value_type=ValueType.PATH,
-            semantic_kind=SemanticKind.PATH,
-            table=TableHint(width=380),
-            card=CardHint(control=CardControl.READONLY, group='File'),
+            description='Absolute file path.',
+            group='File',
         ),
         FieldSchema(
             name='num_channels',
             display_name='Channels',
             value_type=ValueType.INT,
-            semantic_kind=SemanticKind.COUNT,
-            table=TableHint(width=120),
-            card=CardHint(control=CardControl.READONLY, group='Image'),
+            description='Number of image channels.',
+            group='Image',
         ),
         FieldSchema(
             name='num_rois',
             display_name='ROIs',
             value_type=ValueType.INT,
-            semantic_kind=SemanticKind.COUNT,
-            table=TableHint(width=120),
-            card=CardHint(control=CardControl.READONLY, group='ROI'),
+            description='Number of ROIs associated with this file.',
+            group='ROI',
         ),
     ),
 )

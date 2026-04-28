@@ -8,7 +8,6 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from nicegui import events, ui
-from nicegui.events import ValueChangeEventArguments
 
 from nicewidgets.table_widget.column_def import ColumnDef
 from nicewidgets.table_widget.config import SelectionMode, TableWidgetConfig
@@ -102,8 +101,6 @@ class TableWidget:
         self._root: ui.column | None = None
         self._grid: ui.aggrid | None = None
         self._context_menu: ui.context_menu | None = None
-        self._column_menu_checks: dict[str, ui.checkbox] = {}
-        self._menu_sync_suppress = False
 
         ui.on(self._evt_select, self._on_select_emitted)
         ui.on(self._evt_edit, self._on_edit_emitted)
@@ -119,6 +116,7 @@ class TableWidget:
                 self._context_menu = ui.context_menu()
                 with self._context_menu:
                     self._build_context_menu_content()
+                self._root.on('contextmenu', self._on_context_menu_event)
                 self._grid = ui.aggrid(
                     self._build_aggrid_options(),
                     auto_size_columns=self._config.auto_size_columns,
@@ -233,13 +231,6 @@ class TableWidget:
         col = self._find_column_def(field)
         col['hide'] = not visible
         self._apply_column_defs_to_grid()
-        cb = self._column_menu_checks.get(field)
-        if cb is not None:
-            self._menu_sync_suppress = True
-            try:
-                cb.value = visible
-            finally:
-                self._menu_sync_suppress = False
 
     def toggle_column_visible(self, field: str) -> None:
         """Toggle one column by field."""
@@ -307,31 +298,23 @@ class TableWidget:
         self._grid.update()
 
     def _build_context_menu_content(self) -> None:
-        self._column_menu_checks.clear()
+        check = '✓'
         for c in self._column_defs:
             field = str(c['field'])
             header = str(c.get('headerName', field))
             visible = not bool(c.get('hide', False))
-
-            def make_handler(f: str) -> Callable[[ValueChangeEventArguments], None]:
-                def _on_change(e: ValueChangeEventArguments) -> None:
-                    if self._menu_sync_suppress:
-                        return
-                    self._apply_visibility_from_menu(f, bool(e.value))
-
-                return _on_change
-
-            cb = ui.checkbox(header, value=visible, on_change=make_handler(field))
-            self._column_menu_checks[field] = cb
+            label = f'{check} {header}' if visible else f'  {header}'
+            ui.menu_item(label, on_click=lambda f=field: self.toggle_column_visible(f))
 
         if self._on_build_context_menu is not None:
             ui.separator()
             self._on_build_context_menu(self)
 
-    def _apply_visibility_from_menu(self, field: str, visible: bool) -> None:
-        col = self._find_column_def(field)
-        col['hide'] = not visible
-        self._apply_column_defs_to_grid()
+    def _on_context_menu_event(self, _e: events.GenericEventArguments) -> None:
+        if self._context_menu is None:
+            return
+        with self._context_menu.clear():
+            self._build_context_menu_content()
 
     def _on_select_emitted(self, e: events.GenericEventArguments) -> None:
         if self._config.selection_mode == 'none':

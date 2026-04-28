@@ -1,6 +1,6 @@
 from contextlib import contextmanager
 from collections.abc import Iterator
-from typing import BinaryIO, Any
+from typing import Any
 from datetime import datetime
 
 import numpy as np
@@ -170,7 +170,7 @@ class OirFileLoader(BaseFileLoader):
     def _read_oir_header(self) -> ImageHeader:
         logical = self.path
         with self._open_oir() as oir_file:
-            return self._image_header_from_scene(logical, oir_file, num_scenes=1)
+            return _image_header_from_scene(logical, oir_file, num_scenes=1)
 
     def _load_full_image_array(self) -> np.ndarray:
         logger.info('')

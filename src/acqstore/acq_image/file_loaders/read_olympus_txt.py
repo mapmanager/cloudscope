@@ -22,7 +22,7 @@ def _dtype_from_olympus_bits(bits: int | None) -> np.dtype:
         return np.dtype(np.uint16)
     return np.dtype(np.uint32)
 
-def image_header_from_olympus_dict(path: str, d: dict[str, Any]) -> ImageHeader:
+def _image_header_from_olympus_dict(path: str, d: dict[str, Any]) -> ImageHeader:
     """Build :class:`ImageHeader` from :func:`~olympus_txt_kym.read_olympus_txt_dict` output.
 
     Kymograph axes: ``Y`` = lines (time), ``X`` = pixels (space), matching 2D TIFF policy.

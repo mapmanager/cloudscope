@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from acqstore.acq_image.acq_image_list import AcqImageList, SaveEvent
+import pytest
+
+from acqstore.acq_image.acq_image_list import AcqImageList, SaveEvent, _build_file_list
+from acqstore.acq_image.supported_import_extensions import get_allowed_import_extensions
 
 
 class _FakeAcqImage:
@@ -109,3 +112,44 @@ def test_get_schema_rows_match_backend_schema(tmp_path: Path) -> None:
 
     rows = file_list.get_schema_rows()
     assert list(rows[0].keys()) == ['name', 'path', 'num_channels', 'num_rois']
+
+
+def test_build_file_list_folder_depth_one_skips_subdirs(tmp_path: Path) -> None:
+    (tmp_path / 'root.tif').write_text('')
+    sub = tmp_path / 'sub'
+    sub.mkdir()
+    (sub / 'nested.tif').write_text('')
+
+    exts = get_allowed_import_extensions()
+    shallow = _build_file_list(tmp_path, exts, folder_depth=1)
+    assert [Path(p).name for p in shallow] == ['root.tif']
+
+    deeper = _build_file_list(tmp_path, exts, folder_depth=2)
+    assert {Path(p).name for p in deeper} == {'nested.tif', 'root.tif'}
+
+
+def test_build_file_list_folder_depth_three_reaches_two_levels_down(tmp_path: Path) -> None:
+    (tmp_path / 'a.tif').write_text('')
+    sub = tmp_path / 'sub'
+    sub.mkdir()
+    (sub / 'b.tif').write_text('')
+    deep = sub / 'deep'
+    deep.mkdir()
+    (deep / 'c.tif').write_text('')
+
+    exts = get_allowed_import_extensions()
+    two = _build_file_list(tmp_path, exts, folder_depth=2)
+    assert {Path(p).name for p in two} == {'a.tif', 'b.tif'}
+
+    three = _build_file_list(tmp_path, exts, folder_depth=3)
+    assert {Path(p).name for p in three} == {'a.tif', 'b.tif', 'c.tif'}
+
+
+def test_build_file_list_rejects_non_positive_depth(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match='folder_depth'):
+        _build_file_list(tmp_path, ['tif'], folder_depth=0)
+
+
+def test_acq_image_list_rejects_non_positive_folder_depth(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match='folder_depth'):
+        AcqImageList(str(tmp_path), file_factory=_FakeAcqImage, folder_depth=0)
