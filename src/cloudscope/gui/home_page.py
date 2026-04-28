@@ -3,22 +3,49 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from nicegui import ui
 
 from acqstore.acq_image.acq_image_list import AcqImageList
 from cloudscope.core.controller import HomePageController
 from cloudscope.core.event_bus import EventBus
+from cloudscope.core.utils.logging import get_logger
 from cloudscope.core.events import (
     ChannelSelectionChanged,
     FileSelectionChanged,
     RoiSelectionChanged,
 )
-from cloudscope.gui.file_list_view import AcqImageListTableView, DEFAULT_ACQ_IMAGE_FOLDER
+from cloudscope.gui.app_config import AppConfig
+from cloudscope.gui.file_list_view import AcqImageListTableView
 from cloudscope.gui.image_toolbar_view import ImageToolbarView
 from cloudscope.gui.metadata_widget.metadata_view import MetadataView
 from cloudscope.gui.header_view import build_main_header
 from cloudscope.gui.selection_footer_view import SelectionFooterView
+
+logger = get_logger(__name__)
+
+
+def _load_initial_acq_image_list(app_config: AppConfig) -> AcqImageList | None:
+    """Load initial list from config last-path, or return ``None`` if unset/invalid."""
+    last_path = app_config.get_last_path().strip()
+    if not last_path:
+        return None
+
+    try:
+        acq_image_list = AcqImageList(last_path)
+    except Exception as exc:
+        logger.warning('Failed to load last_path "%s": %s', last_path, exc)
+        ui.notify(f'Could not load last path: {last_path}', type='warning')
+        return None
+
+    path_obj = Path(last_path)
+    if path_obj.is_dir():
+        app_config.push_recent_folder(last_path)
+    else:
+        app_config.push_recent_file(last_path)
+    app_config.set_last_path(last_path)
+    return acq_image_list
 
 
 class PlotlyImagePanel:
@@ -133,7 +160,8 @@ class HomePage:
         Returns:
             None.
         """
-        acq_image_list = AcqImageList(DEFAULT_ACQ_IMAGE_FOLDER)
+        app_config = AppConfig.load(create_if_missing=False)
+        acq_image_list = _load_initial_acq_image_list(app_config)
 
         file_list_panel = AcqImageListTableView(
             event_bus=self.event_bus,
@@ -174,7 +202,10 @@ class HomePage:
                     reference_image.build()
 
         self.controller.bind()
-        self.controller.load_acq_image_list(acq_image_list)
+        if acq_image_list is None:
+            self.controller.load_demo_files([])
+        else:
+            self.controller.load_acq_image_list(acq_image_list)
 
 
 @ui.page("/")

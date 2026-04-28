@@ -7,6 +7,7 @@ from typing import Any
 from nicegui import ui
 
 from acqstore.acq_image.acq_image_list import AcqImageList
+from acqstore.schema import ACQ_FILE_LIST_SCHEMA
 from cloudscope.core.event_bus import EventBus
 from cloudscope.core.events import FileSelectionChanged, MetadataChanged, SelectFileIntent
 from cloudscope.gui.schema_adapters import schema_to_column_defs
@@ -14,7 +15,7 @@ from nicewidgets.table_widget.config import TableWidgetConfig
 from nicewidgets.table_widget.table_widget import TableWidget
 
 
-DEFAULT_ACQ_IMAGE_FOLDER = "/Users/cudmore/Sites/cloudscope/tests/acqstore/data/oir-samples"
+# DEFAULT_ACQ_IMAGE_FOLDER = "/Users/cudmore/Sites/cloudscope/tests/acqstore/data/oir-samples"
 
 
 class AcqImageListTableView:
@@ -32,7 +33,7 @@ class AcqImageListTableView:
     def __init__(
         self,
         event_bus: EventBus,
-        acq_image_list: AcqImageList,
+        acq_image_list: AcqImageList | None = None,
         *,
         row_id_field: str = "path",
     ) -> None:
@@ -55,9 +56,9 @@ class AcqImageListTableView:
             Root NiceGUI column element created by ``TableWidget``.
         """
         self._table = TableWidget(
-            columns=schema_to_column_defs(self._acq_image_list.get_schema()),
+            columns=schema_to_column_defs(ACQ_FILE_LIST_SCHEMA),
             row_id_field=self._row_id_field,
-            rows=self._acq_image_list.get_schema_rows(),
+            rows=self._acq_image_list.get_schema_rows() if self._acq_image_list is not None else [],
             on_row_selected=self._on_row_selected,
             config=TableWidgetConfig(
                 selection_mode="single",
