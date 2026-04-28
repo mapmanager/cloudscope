@@ -7,7 +7,7 @@ from pathlib import Path
 
 from nicegui import ui
 
-from cloudscope.core.controller import HomePageController
+from cloudscope.core.home_page_controller import HomePageController
 from cloudscope.core.event_bus import EventBus
 from cloudscope.core.events import (
     ChannelSelectionChanged,
@@ -23,7 +23,7 @@ from cloudscope.gui.image_toolbar_view import ImageToolbarView
 from cloudscope.gui.load_save_view import LoadSaveView
 from cloudscope.gui.metadata_widget.metadata_view import MetadataView
 from cloudscope.gui.header_view import build_main_header
-from cloudscope.gui.selection_footer_view import SelectionFooterView
+from cloudscope.gui.footer_view import FooterView
 
 
 class PlotlyImagePanel:
@@ -156,7 +156,7 @@ class HomePage:
         metadata_view = MetadataView(event_bus=self.event_bus)
         primary_image = PlotlyImagePanel(self.event_bus, title="Primary image")
         reference_image = PlotlyImagePanel(self.event_bus, title="Reference image")
-        selection_footer = SelectionFooterView(event_bus=self.event_bus)
+        selection_footer = FooterView(event_bus=self.event_bus)
         # KymFlow ``HomePage.render`` order: ``build_header``, ``_footer_view.render()``,
         # then main body (splitter/column). Header + footer must be top-level layout
         # elements before nested content — see NiceGUI page layout / Quasar ``q-layout``.

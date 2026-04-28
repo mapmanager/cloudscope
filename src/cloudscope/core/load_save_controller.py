@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from uuid import uuid4
 
 from acqstore.acq_image.acq_image_list import AcqImageList
-from cloudscope.core.controller import HomePageController
+from nicegui import run
+from cloudscope.core.home_page_controller import HomePageController
 from cloudscope.core.event_bus import EventBus
 from cloudscope.core.events import (
     AppStatusChanged,
@@ -44,6 +46,10 @@ class LoadSaveController:
         self.event_bus.subscribe(ClearRecentPathsIntent, self._on_clear_recent_paths)
 
     def _on_load_path(self, event: LoadPathIntent) -> None:
+        """Schedule async load path orchestration."""
+        self._schedule(self._on_load_path_async(event))
+
+    async def _on_load_path_async(self, event: LoadPathIntent) -> None:
         """Load path via backend safe loader and push state events."""
         task_id = str(uuid4())
         task_label = f'Load {event.kind}'
@@ -58,7 +64,7 @@ class LoadSaveController:
         )
         logger.info('load path intent kind=%s path=%s', event.kind, event.path)
 
-        result = AcqImageList.load_safe(event.path, kind=event.kind)
+        result = await run.io_bound(AcqImageList.load_safe, event.path, kind=event.kind)
         warning_count = len(result.warnings)
         if warning_count:
             for warning in result.warnings:
@@ -94,6 +100,10 @@ class LoadSaveController:
         )
 
     def _on_save_selected(self, _event: SaveSelectedIntent) -> None:
+        """Schedule async save-selected orchestration."""
+        self._schedule(self._on_save_selected_async())
+
+    async def _on_save_selected_async(self) -> None:
         """Save currently selected file if dirty."""
         task_id = str(uuid4())
         task_label = 'Save selected'
@@ -112,11 +122,15 @@ class LoadSaveController:
 
         self._publish_task(TaskKind.SAVE, task_id, task_label, TaskStatus.RUNNING, 0, 1, f'Saving {selection.file_id}')
         logger.info('saving selected file_id=%s', selection.file_id)
-        acq_file.save()
+        await run.io_bound(acq_file.save)
         self._publish_task(TaskKind.SAVE, task_id, task_label, TaskStatus.COMPLETED, 1, 1, f'Saved {selection.file_id}')
         self._publish_status(level=StatusLevel.INFO, source=StatusSource.SAVE, message='Saved selected file')
 
     def _on_save_all(self, _event: SaveAllIntent) -> None:
+        """Schedule async save-all orchestration."""
+        self._schedule(self._on_save_all_async())
+
+    async def _on_save_all_async(self) -> None:
         """Save all dirty files and publish progress."""
         acq_list = self.home_controller.state.acq_image_list
         if acq_list is None:
@@ -134,18 +148,18 @@ class LoadSaveController:
         self._publish_task(TaskKind.SAVE, task_id, task_label, TaskStatus.RUNNING, 0, total, 'Saving dirty files')
         logger.info('saving all dirty files total=%d', total)
         completed = 0
-        for progress in acq_list.iter_save_all():
-            if progress.event.value == 'saved':
-                completed = progress.completed
-                self._publish_task(
-                    TaskKind.SAVE,
-                    task_id,
-                    task_label,
-                    TaskStatus.RUNNING,
-                    completed,
-                    total,
-                    f'Saved {completed}/{total}',
-                )
+        for acq_file in dirty_files:
+            await run.io_bound(acq_file.save)
+            completed += 1
+            self._publish_task(
+                TaskKind.SAVE,
+                task_id,
+                task_label,
+                TaskStatus.RUNNING,
+                completed,
+                total,
+                f'Saved {completed}/{total}',
+            )
         self._publish_task(TaskKind.SAVE, task_id, task_label, TaskStatus.COMPLETED, total, total, f'Saved {total}/{total}')
         self._publish_status(level=StatusLevel.INFO, source=StatusSource.SAVE, message='Save all completed')
 
@@ -206,3 +220,12 @@ class LoadSaveController:
                 message=message,
             )
         )
+
+    @staticmethod
+    def _schedule(coro: object) -> None:
+        """Run coroutine in active loop, or directly when no loop exists."""
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(coro)
+        except RuntimeError:
+            asyncio.run(coro)

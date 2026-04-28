@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from acqstore.acq_image.acq_image_list import LoadResult, LoadWarning
-from cloudscope.core.controller import HomePageController
+from cloudscope.core.home_page_controller import HomePageController
 from cloudscope.core.event_bus import EventBus
 from cloudscope.core.events import (
     AppStatusChanged,

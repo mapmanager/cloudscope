@@ -8,7 +8,7 @@ import pytest
 
 from acqstore.acq_image.acq_image_list import AcqImageList
 from acqstore.schema import ACQ_FILE_LIST_SCHEMA
-from cloudscope.core.controller import HomePageController
+from cloudscope.core.home_page_controller import HomePageController
 from cloudscope.core.event_bus import EventBus
 from cloudscope.core.events import ApplyMetadataIntent, MetadataChanged
 
