@@ -28,7 +28,7 @@ def test_select_file_resets_channel_and_roi() -> None:
     controller.bind()
     controller.load_demo_files(['file-a', 'file-b'])
     controller.state.selection.channel = 2
-    controller.state.selection.roi_id = 'roi-1'
+    controller.state.selection.roi_id = 1
 
     published: list[PrimarySelectionChanged] = []
     event_bus.subscribe(PrimarySelectionChanged, published.append)
@@ -49,7 +49,7 @@ def test_select_channel_and_roi_publish_state_changes() -> None:
     event_bus.subscribe(PrimarySelectionChanged, published.append)
 
     event_bus.publish(SelectChannelIntent(channel=2))
-    event_bus.publish(SelectRoiIntent(roi_id='roi-2'))
+    event_bus.publish(SelectRoiIntent(roi_id=2))
 
     assert published[0].channel == 2
-    assert published[1].roi_id == 'roi-2'
+    assert published[1].roi_id == 2

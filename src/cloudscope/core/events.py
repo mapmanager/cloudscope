@@ -43,6 +43,15 @@ class SelectRoiIntent(IntentEvent):
     roi_id: int | None
 
 
+@dataclass(frozen=True)
+class ApplyMetadataIntent(IntentEvent):
+    """Request to apply edited metadata for one file section (in-memory only)."""
+
+    file_id: str
+    section_id: str
+    patch: dict[str, object]
+
+
 # -----------------------------
 # State Events
 # -----------------------------
@@ -59,3 +68,15 @@ class PrimarySelectionChanged(StateEvent):
     file_id: str | None
     channel: int | None
     roi_id: int | None
+
+
+@dataclass(frozen=True)
+class MetadataChanged(StateEvent):
+    """Emitted after metadata values were applied for one file.
+
+    ``row`` is a shallow snapshot: keys match ``ACQ_FILE_LIST_SCHEMA`` exactly.
+    """
+
+    file_id: str
+    section_id: str
+    row: dict[str, object]

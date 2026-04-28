@@ -72,6 +72,16 @@ class AcqImage:
     def rois(self) -> RoiSet:
         """Return ROI helper for this file."""
         return self._rois
+
+    @property
+    def experimental_metadata(self) -> ExperimentMetadata:
+        """Return user-editable experiment metadata for this file."""
+        return self._experimental_metadata
+
+    def get_metadata_sections(self) -> tuple[ExperimentMetadata, ...]:
+        """Return metadata section objects exposed for schema-driven UIs."""
+        return (self._experimental_metadata,)
+
     @property
     # def analysis(self) -> list["AcqAnalysis"]:
     def analysis(self) -> AcqAnalysis:

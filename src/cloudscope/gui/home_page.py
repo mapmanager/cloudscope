@@ -12,6 +12,7 @@ from cloudscope.core.event_bus import EventBus
 from cloudscope.core.events import PrimarySelectionChanged
 from cloudscope.gui.file_list_view import AcqImageListTableView, DEFAULT_ACQ_IMAGE_FOLDER
 from cloudscope.gui.image_toolbar_view import ImageToolbarView
+from cloudscope.gui.metadata_widget.metadata_view import MetadataView
 
 
 class PlotlyImagePanel:
@@ -121,6 +122,7 @@ class HomePage:
             event_bus=self.event_bus,
             acq_image_list=acq_image_list,
         )
+        metadata_view = MetadataView(event_bus=self.event_bus, acq_image_list=acq_image_list)
         primary_image = PlotlyImagePanel(self.event_bus, title="Primary image")
         reference_image = PlotlyImagePanel(self.event_bus, title="Reference image")
 
@@ -132,6 +134,8 @@ class HomePage:
                     file_list_panel.build()
                 with ui.card().classes("w-full"):
                     image_toolbar.build()
+                with ui.card().classes("w-full max-w-xl"):
+                    metadata_view.build()
                 primary_image.build()
                 reference_image.build()
 

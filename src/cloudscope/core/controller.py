@@ -5,10 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from acqstore.acq_image.acq_image_list import AcqImageList
+from acqstore.acq_image.metadata import ExperimentMetadata
 
 from .event_bus import EventBus
 from .events import (
+    ApplyMetadataIntent,
     FileListChanged,
+    MetadataChanged,
     PrimarySelectionChanged,
     SelectChannelIntent,
     SelectFileIntent,
@@ -74,6 +77,7 @@ class HomePageController:
         self._event_bus.subscribe(SelectFileIntent, self._on_select_file)
         self._event_bus.subscribe(SelectChannelIntent, self._on_select_channel)
         self._event_bus.subscribe(SelectRoiIntent, self._on_select_roi)
+        self._event_bus.subscribe(ApplyMetadataIntent, self._on_apply_metadata)
 
     def load_acq_image_list(self, acq_image_list: AcqImageList) -> None:
         """Replace the current file list with a backend AcqImageList.
@@ -185,6 +189,44 @@ class HomePageController:
 
         self._state.selection.roi_id = event.roi_id
         self._publish_selection_changed()
+
+    def _on_apply_metadata(self, event: ApplyMetadataIntent) -> None:
+        """Apply in-memory metadata patch for one file section.
+
+        Args:
+            event: Apply request with file id, section id, and field patch.
+
+        Raises:
+            RuntimeError: If no ``AcqImageList`` is loaded.
+            ValueError: If the file or metadata section is unknown.
+        """
+        if self._state.acq_image_list is None:
+            raise RuntimeError('Cannot apply metadata without a loaded AcqImageList')
+
+        acq_image = self._state.acq_image_list.get_file_by_id(event.file_id)
+        if acq_image is None:
+            raise ValueError(f'Unknown file_id: {event.file_id!r}')
+
+        section: ExperimentMetadata | None = None
+        for sec in acq_image.get_metadata_sections():
+            sid = getattr(type(sec), 'section_id', None)
+            if sid == event.section_id:
+                if not isinstance(sec, ExperimentMetadata):
+                    raise TypeError(f'Unsupported metadata section type: {type(sec).__name__}')
+                section = sec
+                break
+        if section is None:
+            raise ValueError(f'Unknown metadata section_id: {event.section_id!r}')
+
+        section.update_values(dict(event.patch))
+        row = dict(acq_image.get_schema_row())
+        self._event_bus.publish(
+            MetadataChanged(
+                file_id=event.file_id,
+                section_id=event.section_id,
+                row=row,
+            )
+        )
 
     def _publish_selection_changed(self) -> None:
         """Publish the current primary selection state.

@@ -8,7 +8,7 @@ from nicegui import ui
 
 from acqstore.acq_image.acq_image_list import AcqImageList
 from cloudscope.core.event_bus import EventBus
-from cloudscope.core.events import PrimarySelectionChanged, SelectFileIntent
+from cloudscope.core.events import MetadataChanged, PrimarySelectionChanged, SelectFileIntent
 from cloudscope.gui.schema_adapters import schema_to_column_defs
 from nicewidgets.table_widget.config import TableWidgetConfig
 from nicewidgets.table_widget.table_widget import TableWidget
@@ -42,6 +42,7 @@ class AcqImageListTableView:
         self._table: TableWidget | None = None
 
         self._event_bus.subscribe(PrimarySelectionChanged, self._on_selection_changed)
+        self._event_bus.subscribe(MetadataChanged, self._on_metadata_changed)
 
     def build(self, parent: ui.element | None = None) -> ui.column:
         """Build and return the file-list table UI.
@@ -121,3 +122,9 @@ class AcqImageListTableView:
             return
 
         self._table.set_selected_row_ids([event.file_id], origin="state")
+
+    def _on_metadata_changed(self, event: MetadataChanged) -> None:
+        """Refresh one table row after metadata apply (row keys match file-list schema)."""
+        if self._table is None:
+            return
+        self._table.update_row(event.file_id, dict(event.row))

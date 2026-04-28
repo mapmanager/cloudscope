@@ -1,14 +1,141 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, fields, asdict, MISSING
-from typing import Any
+from typing import Any, ClassVar
 import itertools
 
 import pandas as pd
 
+from acqstore.schema import (
+    FieldSchema,
+    SchemaDefinition,
+    ValueType,
+    validate_patch_for_schema,
+    validate_values_for_schema,
+)
 from acqstore.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+EXPERIMENT_METADATA_SCHEMA = SchemaDefinition(
+    schema_id='experiment_metadata',
+    version=1,
+    fields=(
+        FieldSchema(
+            name='species',
+            display_name='Species',
+            value_type=ValueType.STR,
+            description='Animal species (e.g., mouse, rat).',
+            editable=True,
+            group='Animal',
+        ),
+        FieldSchema(
+            name='sex',
+            display_name='Sex',
+            value_type=ValueType.STR,
+            description='Biological sex or experimental sex label.',
+            editable=True,
+            group='Animal',
+        ),
+        FieldSchema(
+            name='genotype',
+            display_name='Genotype',
+            value_type=ValueType.STR,
+            description='Genotype or strain label.',
+            editable=True,
+            group='Animal',
+        ),
+        FieldSchema(
+            name='region',
+            display_name='Region',
+            value_type=ValueType.STR,
+            description='Brain region or anatomical location.',
+            editable=True,
+            group='Sample',
+        ),
+        FieldSchema(
+            name='cell_type',
+            display_name='Cell type',
+            value_type=ValueType.STR,
+            description='Type of cell or vessel being imaged.',
+            editable=True,
+            group='Sample',
+        ),
+        FieldSchema(
+            name='depth',
+            display_name='Depth',
+            value_type=ValueType.FLOAT,
+            description='Imaging depth in micrometers.',
+            editable=True,
+            group='Sample',
+        ),
+        FieldSchema(
+            name='branch_order',
+            display_name='Branch order',
+            value_type=ValueType.INT,
+            description='Branch order for vascular structures.',
+            editable=True,
+            group='Sample',
+        ),
+        FieldSchema(
+            name='direction',
+            display_name='Direction',
+            value_type=ValueType.STR,
+            description='Flow direction or vessel orientation.',
+            editable=True,
+            group='Sample',
+        ),
+        FieldSchema(
+            name='condition',
+            display_name='Condition',
+            value_type=ValueType.STR,
+            description='Experimental condition or treatment.',
+            editable=True,
+            group='Experiment',
+        ),
+        FieldSchema(
+            name='condition2',
+            display_name='Condition 2',
+            value_type=ValueType.STR,
+            description='Second condition field.',
+            editable=True,
+            group='Experiment',
+        ),
+        FieldSchema(
+            name='treatment',
+            display_name='Treatment',
+            value_type=ValueType.STR,
+            description='Treatment applied.',
+            editable=True,
+            group='Experiment',
+        ),
+        FieldSchema(
+            name='treatment2',
+            display_name='Treatment 2',
+            value_type=ValueType.STR,
+            description='Second treatment field.',
+            editable=True,
+            group='Experiment',
+        ),
+        FieldSchema(
+            name='date',
+            display_name='Date',
+            value_type=ValueType.STR,
+            description='User-editable date (e.g., experiment date).',
+            editable=True,
+            group='Experiment',
+        ),
+        FieldSchema(
+            name='note',
+            display_name='Note',
+            value_type=ValueType.STR,
+            description='Free-form notes or comments.',
+            editable=True,
+            group='Notes',
+        ),
+    ),
+)
 
 @dataclass
 class FieldMetadata:
@@ -155,12 +282,11 @@ def _generateDocs(dc: type, print_markdown: bool = True) -> pd.DataFrame:
 
 @dataclass
 class ExperimentMetadata:
-    """User-provided experimental metadata for kymograph files.
+    """User-provided experimental metadata for acquisition files.
 
-    Contains structured fields for documenting experimental conditions,
-    sample information, and notes. All fields are optional and have default
-    values. Unknown keys in dictionaries are silently ignored when loading
-    from dict to maintain strict schema validation.
+    Field definitions and validation are driven by ``EXPERIMENT_METADATA_SCHEMA``.
+    String fields are stored as ``str`` and never ``None`` (empty string is used
+    for "no value"). ``depth`` and ``branch_order`` may be ``None``.
 
     Attributes:
         species: Animal species (e.g., "mouse", "rat").
@@ -179,211 +305,113 @@ class ExperimentMetadata:
         note: Free-form notes or comments.
     """
 
-    species: str | None = field(
-        default="",
-        metadata=field_metadata(
-            editable=True,
-            label="Species",
-            widget_type="text",
-            grid_span=1,
-        ),
-    )
-    region: str | None = field(
-        default="",
-        metadata=field_metadata(
-            editable=True,
-            label="Region",
-            widget_type="text",
-            grid_span=1,
-        ),
-    )
-    cell_type: str | None = field(
-        default="",
-        metadata=field_metadata(
-            editable=True,
-            label="Cell type",
-            widget_type="text",
-            grid_span=1,
-        ),
-    )
-    depth: float | None = field(
-        default=None,
-        metadata=field_metadata(
-            editable=True,
-            label="Depth",
-            widget_type="number",
-            grid_span=1,
-        ),
-    )
-    branch_order: int | None = field(
-        default=None,
-        metadata=field_metadata(
-            editable=True,
-            label="Branch Order",
-            widget_type="number",
-            grid_span=1,
-        ),
-    )
-    direction: str | None = field(
-        default="",
-        metadata=field_metadata(
-            editable=True,
-            label="Direction",
-            widget_type="text",
-            grid_span=1,
-        ),
-    )
-    sex: str | None = field(
-        default="",
-        metadata=field_metadata(
-            editable=True,
-            label="Sex",
-            widget_type="text",
-            grid_span=1,
-        ),
-    )
-    genotype: str | None = field(
-        default="",
-        metadata=field_metadata(
-            editable=True,
-            label="Genotype",
-            widget_type="text",
-            grid_span=1,
-        ),
-    )
-    condition: str | None = field(
-        default="",
-        metadata=field_metadata(
-            editable=True,
-            label="Condition",
-            widget_type="text",
-            grid_span=1,
-        ),
-    )
-    condition2: str | None = field(
-        default="",
-        metadata=field_metadata(
-            editable=True,
-            label="Condition 2",
-            widget_type="text",
-            grid_span=1,
-        ),
-    )
-    treatment: str | None = field(
-        default="",
-        metadata=field_metadata(
-            editable=True,
-            label="Treatment",
-            widget_type="text",
-            grid_span=1,
-        ),
-    )
-    treatment2: str | None = field(
-        default="",
-        metadata=field_metadata(
-            editable=True,
-            label="Treatment 2",
-            widget_type="text",
-            grid_span=1,
-        ),
-    )
-    date: str | None = field(
-        default="",
-        metadata=field_metadata(
-            editable=True,
-            label="Date",
-            widget_type="text",
-            grid_span=1,
-        ),
-    )
-    note: str | None = field(
-        default="",
-        metadata=field_metadata(
-            editable=True,
-            label="Note",
-            widget_type="text",
-            grid_span=2,
-        ),
-    )
+    section_id: ClassVar[str] = 'experiment_metadata'
+    display_section_title: ClassVar[str] = 'Experiment Metadata'
+
+    species: str = ''
+    region: str = ''
+    cell_type: str = ''
+    depth: float | None = None
+    branch_order: int | None = None
+    direction: str = ''
+    sex: str = ''
+    genotype: str = ''
+    condition: str = ''
+    condition2: str = ''
+    treatment: str = ''
+    treatment2: str = ''
+    date: str = ''
+    note: str = ''
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any] | None) -> ExperimentMetadata:
         """Create instance from dictionary, ignoring unknown keys.
 
-        Only fields defined in the dataclass are extracted from the payload.
-        Unknown keys are silently ignored to maintain strict schema validation.
+        String fields accept ``None`` in the payload and coerce to ``""``.
 
         Args:
             payload: Dictionary containing metadata fields. Can be None or empty.
 
         Returns:
-            ExperimentMetadata instance with values from payload, or defaults
+            ``ExperimentMetadata`` instance with values from payload, or defaults
             if payload is None or empty.
         """
         payload = payload or {}
         valid = {f.name for f in fields(cls) if f.init}
-        known = {k: payload[k] for k in payload.keys() & valid}
-        # Unknown keys are silently ignored (strict schema-only strategy)
+        known: dict[str, Any] = {}
+        for k in payload.keys() & valid:
+            v = payload[k]
+            if k in {
+                'species',
+                'region',
+                'cell_type',
+                'direction',
+                'sex',
+                'genotype',
+                'condition',
+                'condition2',
+                'treatment',
+                'treatment2',
+                'date',
+                'note',
+            }:
+                known[k] = '' if v is None else str(v)
+            else:
+                known[k] = v
         return cls(**known)
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary with standardized key names.
-
-        Returns:
-            Dictionary with all field values. All fields are included
-            automatically, including depth and branch_order.
-        """
+        """Return all field values as a plain dictionary (not schema-validated)."""
         return asdict(self)
 
-    @classmethod
-    def form_schema(cls) -> list[dict[str, Any]]:
-        """Return field schema for form generation.
+    def get_schema(self) -> SchemaDefinition:
+        """Return the semantic schema for this metadata section."""
+        return EXPERIMENT_METADATA_SCHEMA
 
-        Generates a list of field definitions with metadata extracted from
-        the dataclass field definitions. Used by GUI frameworks to dynamically
-        generate forms without hardcoding field information.
-
-        Returns:
-            List of dictionaries, each containing field name, label, editability,
-            widget type, grid span, visibility, and field type information.
-        """
-        schema: list[dict[str, Any]] = []
-        for field_obj in fields(cls):
-            meta = field_obj.metadata
-            schema.append(
-                {
-                    "name": field_obj.name,
-                    "label": meta.get(
-                        "label", field_obj.name.replace("_", " ").title()
-                    ),
-                    "editable": meta.get("editable", True),
-                    "widget_type": meta.get("widget_type", "text"),
-                    "grid_span": meta.get("grid_span", 1),
-                    "visible": meta.get("visible", True),
-                    "field_type": str(field_obj.type),
-                }
-            )
-
-        # order is determined by the order of the fields in the dataclass
-        return schema
-
-    def get_editable_values(self) -> dict[str, str]:
-        """Get current values for editable fields only.
-
-        Returns:
-            Dictionary mapping field names to string representations of their
-            current values. Only includes fields marked as editable in the
-            form schema. None values are converted to empty strings.
-        """
-        schema = self.form_schema()
-        values = {}
-        for field_def in schema:
-            if field_def["editable"]:
-                field_name = field_def["name"]
-                val = getattr(self, field_name)
-                # Convert to string: None -> "", otherwise str(val)
-                values[field_name] = "" if val is None else str(val)
+    def get_values(self) -> dict[str, object]:
+        """Return values keyed by ``FieldSchema.name`` for ``get_schema()``."""
+        values: dict[str, object] = {}
+        for fs in self.get_schema().fields:
+            raw = getattr(self, fs.name)
+            if fs.value_type is ValueType.STR:
+                values[fs.name] = '' if raw is None else str(raw)
+            else:
+                values[fs.name] = raw
+        validate_values_for_schema(self.get_schema(), values)
         return values
+
+    @staticmethod
+    def _coerce_patch_value(fs: FieldSchema, value: object) -> object:
+        """Coerce a single patch value to a type suitable for ``setattr``."""
+        if fs.value_type is ValueType.STR:
+            return '' if value is None else str(value)
+        if fs.value_type is ValueType.INT:
+            if value is None or value == '':
+                return None
+            return int(value)  # type: ignore[arg-type]
+        if fs.value_type is ValueType.FLOAT:
+            if value is None or value == '':
+                return None
+            return float(value)  # type: ignore[arg-type]
+        return value
+
+    def update_values(self, patch: dict[str, object]) -> None:
+        """Apply an edit patch to editable fields only.
+
+        Args:
+            patch: Mapping from schema field names to new values.
+
+        Raises:
+            KeyError: If a patch key is not declared by the schema.
+            ValueError: If a patch targets a non-editable field.
+        """
+        schema = self.get_schema()
+        validate_patch_for_schema(schema, patch)
+        fields_by_name = {f.name: f for f in schema.fields}
+        for name, value in patch.items():
+            coerced = self._coerce_patch_value(fields_by_name[name], value)
+            setattr(self, name, coerced)
+
 
 @dataclass
 class AcqImgHeader:

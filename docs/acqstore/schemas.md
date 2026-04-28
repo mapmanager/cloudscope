@@ -60,3 +60,16 @@ Fields:
 2. `path` (`value_type=path`)
 3. `num_channels` (`value_type=int`)
 4. `num_rois` (`value_type=int`)
+
+## v1: `experiment_metadata`
+
+Defined in `acqstore.acq_image.metadata` as `EXPERIMENT_METADATA_SCHEMA` (`schema_id="experiment_metadata"`, version `1`).
+
+`ExperimentMetadata` is the owning dataclass. Use:
+
+- `ExperimentMetadata.get_schema()` / `get_values()` — row keys match schema field names; `validate_values_for_schema` runs on `get_values()`.
+- `ExperimentMetadata.update_values(patch)` — uses `validate_patch_for_schema` then applies coerced values.
+
+**String fields:** stored as `str`, never `None`. Empty means `""`. `get_values()` and `update_values()` coerce `None` to `""` for `ValueType.STR`.
+
+**Follow-up:** `AcqImgHeader` still uses the older `field_metadata` / `form_schema()` pattern; align it with this schema style in a separate ticket.
