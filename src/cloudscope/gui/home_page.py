@@ -24,6 +24,7 @@ from cloudscope.gui.load_save_view import LoadSaveView
 from cloudscope.gui.metadata_widget.metadata_view import MetadataView
 from cloudscope.gui.header_view import build_main_header
 from cloudscope.gui.footer_view import FooterView
+from cloudscope.gui.primary_image_view import PrimaryImageView
 
 
 class PlotlyImagePanel:
@@ -154,7 +155,7 @@ class HomePage:
         load_save_view = LoadSaveView(event_bus=self.event_bus, app_config=self.app_config)
         image_toolbar = ImageToolbarView(event_bus=self.event_bus)
         metadata_view = MetadataView(event_bus=self.event_bus)
-        primary_image = PlotlyImagePanel(self.event_bus, title="Primary image")
+        primary_image = PrimaryImageView(self.event_bus, title='Primary image')
         reference_image = PlotlyImagePanel(self.event_bus, title="Reference image")
         footer = FooterView(event_bus=self.event_bus)
         # KymFlow ``HomePage.render`` order: ``build_header``, footer ``build()``,
