@@ -26,6 +26,7 @@ EXPERIMENT_METADATA_SCHEMA = SchemaDefinition(
             name='species',
             display_name='Species',
             value_type=ValueType.STR,
+            default_value='',
             description='Animal species (e.g., mouse, rat).',
             editable=True,
             group='Animal',
@@ -34,6 +35,7 @@ EXPERIMENT_METADATA_SCHEMA = SchemaDefinition(
             name='sex',
             display_name='Sex',
             value_type=ValueType.STR,
+            default_value='',
             description='Biological sex or experimental sex label.',
             editable=True,
             group='Animal',
@@ -42,6 +44,7 @@ EXPERIMENT_METADATA_SCHEMA = SchemaDefinition(
             name='genotype',
             display_name='Genotype',
             value_type=ValueType.STR,
+            default_value='',
             description='Genotype or strain label.',
             editable=True,
             group='Animal',
@@ -50,6 +53,7 @@ EXPERIMENT_METADATA_SCHEMA = SchemaDefinition(
             name='region',
             display_name='Region',
             value_type=ValueType.STR,
+            default_value='',
             description='Brain region or anatomical location.',
             editable=True,
             group='Sample',
@@ -58,6 +62,7 @@ EXPERIMENT_METADATA_SCHEMA = SchemaDefinition(
             name='cell_type',
             display_name='Cell type',
             value_type=ValueType.STR,
+            default_value='',
             description='Type of cell or vessel being imaged.',
             editable=True,
             group='Sample',
@@ -66,6 +71,7 @@ EXPERIMENT_METADATA_SCHEMA = SchemaDefinition(
             name='depth',
             display_name='Depth',
             value_type=ValueType.FLOAT,
+            default_value=None,
             description='Imaging depth in micrometers.',
             editable=True,
             group='Sample',
@@ -74,6 +80,7 @@ EXPERIMENT_METADATA_SCHEMA = SchemaDefinition(
             name='branch_order',
             display_name='Branch order',
             value_type=ValueType.INT,
+            default_value=None,
             description='Branch order for vascular structures.',
             editable=True,
             group='Sample',
@@ -82,6 +89,7 @@ EXPERIMENT_METADATA_SCHEMA = SchemaDefinition(
             name='direction',
             display_name='Direction',
             value_type=ValueType.STR,
+            default_value='',
             description='Flow direction or vessel orientation.',
             editable=True,
             group='Sample',
@@ -90,6 +98,7 @@ EXPERIMENT_METADATA_SCHEMA = SchemaDefinition(
             name='condition',
             display_name='Condition',
             value_type=ValueType.STR,
+            default_value='',
             description='Experimental condition or treatment.',
             editable=True,
             group='Experiment',
@@ -98,6 +107,7 @@ EXPERIMENT_METADATA_SCHEMA = SchemaDefinition(
             name='condition2',
             display_name='Condition 2',
             value_type=ValueType.STR,
+            default_value='',
             description='Second condition field.',
             editable=True,
             group='Experiment',
@@ -106,6 +116,7 @@ EXPERIMENT_METADATA_SCHEMA = SchemaDefinition(
             name='treatment',
             display_name='Treatment',
             value_type=ValueType.STR,
+            default_value='',
             description='Treatment applied.',
             editable=True,
             group='Experiment',
@@ -114,6 +125,7 @@ EXPERIMENT_METADATA_SCHEMA = SchemaDefinition(
             name='treatment2',
             display_name='Treatment 2',
             value_type=ValueType.STR,
+            default_value='',
             description='Second treatment field.',
             editable=True,
             group='Experiment',
@@ -122,6 +134,7 @@ EXPERIMENT_METADATA_SCHEMA = SchemaDefinition(
             name='date',
             display_name='Date',
             value_type=ValueType.STR,
+            default_value='',
             description='User-editable date (e.g., experiment date).',
             editable=True,
             group='Experiment',
@@ -130,6 +143,7 @@ EXPERIMENT_METADATA_SCHEMA = SchemaDefinition(
             name='note',
             display_name='Note',
             value_type=ValueType.STR,
+            default_value='',
             description='Free-form notes or comments.',
             editable=True,
             group='Notes',
@@ -211,6 +225,43 @@ def field_metadata(
     ).to_dict()
 
 
+def generate_schema_docs(schema: SchemaDefinition, print_markdown: bool = True) -> pd.DataFrame:
+    """Generate documentation DataFrame from a SchemaDefinition.
+    Args:
+        schema: Semantic schema to document.
+        print_markdown: If True, print markdown table to console.
+    Returns:
+        DataFrame with schema field documentation.
+    """
+    rows: list[dict[str, object]] = []
+    for fs in schema.fields:
+        rows.append(
+            {
+                'name': fs.name,
+                'display_name': fs.display_name or fs.name,
+                'value_type': fs.value_type.value,
+                'default_value': repr(fs.default_value),
+                'editable': fs.editable,
+                'group': fs.group or '',
+                'description': fs.description or '',
+            }
+        )
+    df = pd.DataFrame(
+        rows,
+        columns=['name', 'display_name', 'value_type', 'default_value', 'editable', 'group', 'description'],
+    )
+    if print_markdown:
+        try:
+            print(f'\n## {schema.schema_id} (v{schema.version})\n')
+            print(df.to_markdown(index=False))
+            print()
+        except ImportError as exc:
+            print(df.to_string(index=False))
+            print("\nNote: Install 'tabulate' for markdown table format")
+            print(f'  -->> e:{exc}')
+            print()
+    return df
+    
 def _generateDocs(dc: type, print_markdown: bool = True) -> pd.DataFrame:
     """Generate documentation DataFrame from a dataclass.
 

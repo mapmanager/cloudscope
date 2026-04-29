@@ -37,6 +37,39 @@ def test_field_schema_to_from_dict_round_trip() -> None:
     assert restored == field
 
 
+def test_field_schema_from_dict_maps_legacy_default_key() -> None:
+    restored = FieldSchema.from_dict(
+        {
+            'name': 'species',
+            'display_name': 'Species',
+            'value_type': 'str',
+            'default': '',
+        }
+    )
+    assert restored.default_value == ''
+
+
+def test_field_schema_rejects_invalid_default_value_type() -> None:
+    with pytest.raises(TypeError, match='default_value'):
+        FieldSchema(
+            name='depth',
+            display_name='Depth',
+            value_type=ValueType.FLOAT,
+            default_value='not-a-number',
+        )
+
+
+def test_field_schema_enum_default_must_be_choice() -> None:
+    with pytest.raises(ValueError, match='choices'):
+        FieldSchema(
+            name='kind',
+            display_name='Kind',
+            value_type=ValueType.ENUM,
+            choices=('a', 'b'),
+            default_value='c',
+        )
+
+
 def test_schema_definition_rejects_duplicate_fields() -> None:
     with pytest.raises(ValueError, match='Duplicate schema field names'):
         SchemaDefinition(

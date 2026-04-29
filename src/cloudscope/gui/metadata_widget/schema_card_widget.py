@@ -47,7 +47,7 @@ class SchemaCardWidget:
                     ui.separator()
                     ui.label(str(group_name)).classes('text-sm font-semibold opacity-70')
                 for field in field_list:
-                    raw = self._values.get(field.name, field.default)
+                    raw = self._values.get(field.name, field.default_value)
                     self._build_field(field, raw)
             if self._show_apply_button and self._has_editable_fields() and self._on_apply is not None:
                 ui.button('Apply', on_click=self._apply).props('color=primary')

@@ -29,7 +29,7 @@ class FieldSchema:
     description: str = ''
     unit: str | None = None
     required: bool = False
-    default: Any | None = None
+    default_value: Any | None = None
     choices: tuple[Any, ...] | None = None
     visible: bool = True
     editable: bool = False
@@ -45,6 +45,40 @@ class FieldSchema:
             raise ValueError(
                 f'FieldSchema {self.name!r} has value_type=ENUM but no choices'
             )
+        if self.default_value is not None:
+            self._validate_default_value()
+
+    @property
+    def default(self) -> Any | None:
+        """Backward-compatible alias for older callsites."""
+        return self.default_value
+
+    def _validate_default_value(self) -> None:
+        """Validate that default value is compatible with ``value_type``."""
+        value = self.default_value
+        if self.value_type in {ValueType.STR, ValueType.PATH}:
+            if not isinstance(value, str):
+                raise TypeError(f'FieldSchema {self.name!r} default_value must be str')
+            return
+        if self.value_type is ValueType.INT:
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise TypeError(f'FieldSchema {self.name!r} default_value must be int')
+            return
+        if self.value_type is ValueType.FLOAT:
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise TypeError(f'FieldSchema {self.name!r} default_value must be float-compatible')
+            return
+        if self.value_type is ValueType.BOOL:
+            if not isinstance(value, bool):
+                raise TypeError(f'FieldSchema {self.name!r} default_value must be bool')
+            return
+        if self.value_type is ValueType.ENUM:
+            assert self.choices is not None
+            if value not in self.choices:
+                raise ValueError(
+                    f'FieldSchema {self.name!r} default_value must be one of choices: {self.choices!r}'
+                )
+            return
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable dictionary."""
@@ -55,7 +89,7 @@ class FieldSchema:
             'description': self.description,
             'unit': self.unit,
             'required': self.required,
-            'default': self.default,
+            'default_value': self.default_value,
             'choices': list(self.choices) if self.choices is not None else None,
             'visible': self.visible,
             'editable': self.editable,
@@ -72,6 +106,8 @@ class FieldSchema:
         filtered = {key: value for key, value in data.items() if key in allowed}
         if 'value_type' in filtered:
             filtered['value_type'] = ValueType(str(filtered['value_type']))
+        if 'default_value' not in filtered and 'default' in data:
+            filtered['default_value'] = data['default']
         if 'choices' in filtered and filtered['choices'] is not None:
             filtered['choices'] = tuple(filtered['choices'])
         return cls(**filtered)
