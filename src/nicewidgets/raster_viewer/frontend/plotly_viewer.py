@@ -1,0 +1,454 @@
+"""Thin NiceGUI Plotly adapter for raster viewing."""
+
+from __future__ import annotations
+
+import json
+from typing import TYPE_CHECKING
+from uuid import uuid4
+from pprint import pprint
+
+import numpy as np
+
+from nicegui import ui
+
+from nicewidgets.raster_viewer.backend.image_model import (
+    BackendImage,
+    RasterDisplayStyle,
+    RasterGridSpec,
+    RenderResponse,
+    RowColBounds,
+)
+from nicewidgets.raster_viewer.backend.pyramid import ImagePyramid
+from nicewidgets.raster_viewer.backend.raster_service import RasterViewService
+from nicewidgets.raster_viewer.frontend.plotly_coord_transform import (
+    PlotlyCoordTransform,
+    merge_partial_relayout,
+)
+from nicewidgets.raster_viewer.frontend.plotly_protocol import (
+    DEFAULT_HEATMAP_COLORSCALE,
+    RASTER_VIEWER_PLOTLY_CONFIG,
+    PlotlyViewportPayload,
+    build_plotly_figure,
+    parse_relayout_payload,
+)
+
+from cloudscope.core.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from nicegui.element import Element
+
+logger = get_logger(__name__)
+
+
+class PlotlyRasterViewer:
+    """Small frontend adapter around :class:`RasterViewService`.
+
+    Converts Plotly/NiceGUI events to the backend service API. Row/column
+    bounds live in the backend; plot coordinates use :class:`PlotlyCoordTransform`.
+    """
+
+    def __init__(self) -> None:
+        self._plot: Element | None = None
+        self._service: RasterViewService | None = None
+        self._plotly_dict: dict[str, object] = {}
+        self._current_bounds = RowColBounds(
+            row_min=0.0,
+            row_max=1.0,
+            col_min=0.0,
+            col_max=1.0,
+        )
+        self._transform: PlotlyCoordTransform | None = None
+        self._uirevision = self._new_uirevision()
+        self._heatmap_colorscale: str = DEFAULT_HEATMAP_COLORSCALE
+        self._contrast_zmin: float | None = None
+        self._contrast_zmax: float | None = None
+
+    def _js_plotly_graph_div(self) -> str:
+        """Resolve the Plotly graph div from NiceGUI; bail out if missing (cf. ``el.data`` guard)."""
+        if self._plot is None:
+            return 'return;'
+        plot_id = self._plot.id
+        return f"""const host = getElement({plot_id}).$el;
+if (!host) return;
+const plotDiv = host.querySelector('.js-plotly-plot') || host;
+if (!plotDiv || !plotDiv.data) return;
+"""
+
+    def _layout_pin_xy_ranges(self, *, x_lo: float, x_hi: float, y_top: float, y_bot: float) -> None:
+        """Mirror axis state in :attr:`_plotly_dict` for the next full figure push (like ``plot_dict`` sync)."""
+        layout = self._plotly_dict.setdefault('layout', {})
+        xaxis = layout.setdefault('xaxis', {})
+        yaxis = layout.setdefault('yaxis', {})
+        xaxis['autorange'] = False
+        yaxis['autorange'] = False
+        xaxis['range'] = [x_lo, x_hi]
+        yaxis['range'] = [y_top, y_bot]
+
+    @property
+    def current_bounds(self) -> RowColBounds:
+        """Return the most recent backend row/column bounds."""
+        return self._current_bounds
+
+    @property
+    def has_data(self) -> bool:
+        """Return ``True`` when a dataset has been set."""
+        return self._service is not None
+
+    @property
+    def plot(self) -> 'Element | None':
+        """Return the NiceGUI Plotly element."""
+        return self._plot
+
+    @property
+    def figure(self) -> dict[str, object]:
+        """Return the current figure dictionary."""
+        return self._plotly_dict
+
+    def build(self) -> 'Element':
+        """Create the NiceGUI Plotly element."""
+        self._plotly_dict = self._build_initial_figure()
+
+        self._plot = ui.plotly(self._plotly_dict)
+        self._plot.on('plotly_relayout', self._on_plotly_relayout)
+        self._plot.on('plotly_autosize', self._on_plotly_autosize)
+        self._plot.on('plotly_doubleclick', self._on_plotly_doubleclick)
+
+        return self._plot
+
+    async def set_data(self, data: np.ndarray, *, grid: RasterGridSpec) -> RenderResponse:
+        """Set a new 2D dataset and fully refresh the plot.
+
+        Args:
+            data: New full-resolution 2D array ``(rows, columns)``.
+            grid: Physical spacing and axis labels (``dx``/``dy`` must be positive).
+
+        Returns:
+            Initial full-image PNG response for the new dataset.
+        """
+        source = BackendImage(data, grid=grid)
+        pyramid = ImagePyramid(source)
+        self._service = RasterViewService(
+            source=source,
+            pyramid=pyramid,
+        )
+        self._transform = PlotlyCoordTransform(
+            nrows=source.height,
+            ncols=source.width,
+            grid=grid,
+        )
+        self._current_bounds = self._transform.full_row_col_bounds()
+        self._uirevision = self._new_uirevision()
+        self._heatmap_colorscale = DEFAULT_HEATMAP_COLORSCALE
+        self._contrast_zmin = None
+        self._contrast_zmax = None
+
+        response = self._service.full_image_png(display_style=self._display_style())
+        self._current_bounds = response.bounds
+        self._plotly_dict = build_plotly_figure(
+            response=response,
+            uirevision=self._uirevision,
+            heatmap_colorscale=self._heatmap_colorscale,
+        )
+
+        if self._plot is not None:
+            self._plot.figure = self._plotly_dict
+            self._plot.update()
+        return response
+
+    async def apply_response(self, response: RenderResponse) -> None:
+        """Apply a backend response to the browser-side Plotly plot."""
+        if self._plot is None:
+            raise RuntimeError('Viewer must be built before applying responses.')
+
+        self._current_bounds = response.bounds
+        self._plotly_dict = build_plotly_figure(
+            response=response,
+            uirevision=self._uirevision,
+            heatmap_colorscale=self._heatmap_colorscale,
+        )
+
+        self._plot.figure = self._plotly_dict
+        self._plot.update()
+
+    def request_from_plotly(self, payload: PlotlyViewportPayload):
+        """Build a backend request from a browser relayout payload (merged axes)."""
+        if self._service is None:
+            raise RuntimeError('No data set. Call set_data() before requesting renders.')
+        if self._transform is None:
+            raise RuntimeError('Coordinate transform missing; call set_data() first.')
+        merged = merge_partial_relayout(
+            payload.relayout,
+            self._transform,
+            self._current_bounds,
+        )
+        merged_payload = PlotlyViewportPayload(
+            relayout=merged,
+            width_px=payload.width_px,
+            height_px=payload.height_px,
+        )
+        return parse_relayout_payload(merged_payload, self._transform, self._current_bounds)
+
+    async def rerender_from_plotly(self, payload: PlotlyViewportPayload) -> RenderResponse:
+        """Render and apply an updated view from a relayout payload."""
+        if self._service is None:
+            raise RuntimeError('No data set. Call set_data() before requesting renders.')
+        request = self.request_from_plotly(payload)
+        response = self._service.render(request, display_style=self._display_style())
+        await self.apply_response(response)
+        return response
+
+    async def set_axis_ranges(
+        self,
+        *,
+        x_min: float,
+        x_max: float,
+        y_min: float,
+        y_max: float,
+    ) -> None:
+        """Set visible axis ranges in **plot physical** coordinates (Plotly space)."""
+        if self._plot is None or self._transform is None:
+            raise RuntimeError('Viewer must be built and data set before setting axis ranges.')
+
+        self._current_bounds = self._transform.plot_xy_ranges_to_row_col(
+            x_min,
+            x_max,
+            y_min,
+            y_max,
+        )
+
+        x_lo = float(min(x_min, x_max))
+        x_hi = float(max(x_min, x_max))
+        y_top = float(max(y_min, y_max))
+        y_bot = float(min(y_min, y_max))
+        self._layout_pin_xy_ranges(x_lo=x_lo, x_hi=x_hi, y_top=y_top, y_bot=y_bot)
+
+        js = f"""
+{self._js_plotly_graph_div()}
+Plotly.relayout(plotDiv, {{
+  'xaxis.range': [{json.dumps(x_lo)}, {json.dumps(x_hi)}],
+  'xaxis.autorange': false,
+  'yaxis.range': [{json.dumps(y_top)}, {json.dumps(y_bot)}],
+  'yaxis.autorange': false
+}});
+"""
+        await ui.run_javascript(js, timeout=2.0)
+
+    async def set_x_axis_range(self, *, x_min: float, x_max: float) -> None:
+        """Set visible **x** (plot row / physical-x) axis range; y extent unchanged."""
+        if self._plot is None or self._transform is None:
+            raise RuntimeError('Viewer must be built and data set before setting axis ranges.')
+
+        fy_top, fy_bot = self._transform.row_col_to_plot_y_range_layout(self._current_bounds)
+        x_lo = float(min(x_min, x_max))
+        x_hi = float(max(x_min, x_max))
+        self._current_bounds = self._transform.plot_xy_ranges_to_row_col(
+            x_lo,
+            x_hi,
+            fy_top,
+            fy_bot,
+        )
+
+        self._layout_pin_xy_ranges(x_lo=x_lo, x_hi=x_hi, y_top=fy_top, y_bot=fy_bot)
+
+        js = f"""
+{self._js_plotly_graph_div()}
+Plotly.relayout(plotDiv, {{
+  'xaxis.range': [{json.dumps(x_lo)}, {json.dumps(x_hi)}],
+  'xaxis.autorange': false,
+  'yaxis.range': [{json.dumps(fy_top)}, {json.dumps(fy_bot)}],
+  'yaxis.autorange': false
+}});
+"""
+        await ui.run_javascript(js, timeout=2.0)
+
+    async def set_heatmap_contrast(self, *, zmin: float, zmax: float) -> None:
+        """Pin intensity window for heatmap (``Plotly.restyle``) and PNG overview (re-encode)."""
+        z_lo, z_hi = (float(min(zmin, zmax)), float(max(zmin, zmax)))
+        self._contrast_zmin = z_lo
+        self._contrast_zmax = z_hi
+
+        if self._heatmap_trace_active():
+            data = self._plotly_dict.get('data', [])
+            skip_restyle = False
+            if isinstance(data, list) and data and isinstance(data[0], dict):
+                trace0 = data[0]
+                if trace0.get('zmin') == z_lo and trace0.get('zmax') == z_hi:
+                    skip_restyle = True
+                else:
+                    trace0['zmin'] = z_lo
+                    trace0['zmax'] = z_hi
+            if not skip_restyle:
+                js = f"""
+{self._js_plotly_graph_div()}
+Plotly.restyle(plotDiv, {{
+  zmin: [{json.dumps(z_lo)}],
+  zmax: [{json.dumps(z_hi)}]
+}}, [0]);
+"""
+                await ui.run_javascript(js, timeout=2.0)
+        elif self._image_trace_active():
+            await self._refresh_full_png()
+        else:
+            raise RuntimeError('No raster trace to style. Load data and show a heatmap or overview image first.')
+
+    async def set_heatmap_colorscale(self, colorscale: str) -> None:
+        """Set Plotly colorscale name for heatmap and for PNG overview LUT encoding."""
+        self._heatmap_colorscale = str(colorscale)
+
+        if self._heatmap_trace_active():
+            data = self._plotly_dict.get('data', [])
+            skip_restyle = False
+            if isinstance(data, list) and data and isinstance(data[0], dict):
+                trace0 = data[0]
+                if trace0.get('colorscale') == self._heatmap_colorscale:
+                    skip_restyle = True
+                else:
+                    trace0['colorscale'] = self._heatmap_colorscale
+            if not skip_restyle:
+                js = f"""
+{self._js_plotly_graph_div()}
+Plotly.restyle(plotDiv, {{
+  colorscale: [{json.dumps(self._heatmap_colorscale)}]
+}}, [0]);
+"""
+                await ui.run_javascript(js, timeout=2.0)
+        elif self._image_trace_active():
+            await self._refresh_full_png()
+        else:
+            raise RuntimeError('No raster trace to style. Load data and show a heatmap or overview image first.')
+
+    async def _on_plotly_doubleclick(self, event) -> None:
+        """Reset to full overview PNG (same path as initial load)."""
+        if self._service is None or self._plot is None:
+            return
+
+        logger.info('')
+
+        self._uirevision = self._new_uirevision()
+        response = self._service.full_image_png(display_style=self._display_style())
+        await self.apply_response(response)
+
+    async def _on_plotly_autosize(self, event) -> None:
+        """Handle NiceGUI Plotly autosize events (no-op for now)."""
+        return
+
+    async def _on_plotly_relayout(self, event) -> None:
+        """Handle Plotly relayout: pan, wheel, or axis zoom (partial keys merged)."""
+        if self._service is None or self._plot is None or self._transform is None:
+            return
+
+        args = dict(getattr(event, 'args', {}) or {})
+
+        logger.info('args is:')
+        pprint(args, indent=4, sort_dicts=False)
+
+        if not any(k.startswith('xaxis.range') or k.startswith('yaxis.range') for k in args):
+            return
+
+        merged = merge_partial_relayout(args, self._transform, self._current_bounds)
+        viewport = await self._build_viewport_payload(relayout=merged)
+        if viewport is None:
+            return
+
+        await self.rerender_from_plotly(viewport)
+
+    async def _build_viewport_payload(
+        self,
+        *,
+        relayout: dict[str, object],
+    ) -> PlotlyViewportPayload | None:
+        """Build relayout payload with current browser viewport size."""
+        if self._plot is None:
+            return None
+
+        js = f"""
+const host = getElement({self._plot.id}).$el;
+if (!host) return null;
+const plotDiv = host.querySelector('.js-plotly-plot') || host;
+const rect = plotDiv.getBoundingClientRect();
+return {{
+  width_px: Math.max(1, Math.round(rect.width)),
+  height_px: Math.max(1, Math.round(rect.height)),
+}};
+"""
+        try:
+            result = await ui.run_javascript(js, timeout=2.0)
+        except TimeoutError:
+            return None
+
+        if not isinstance(result, dict):
+            return None
+
+        width_px = int(result.get('width_px', 0) or 0)
+        height_px = int(result.get('height_px', 0) or 0)
+        if width_px <= 0 or height_px <= 0:
+            return None
+
+        return PlotlyViewportPayload(
+            relayout=relayout,
+            width_px=width_px,
+            height_px=height_px,
+        )
+
+    def _build_initial_figure(self) -> dict:
+        """Return the figure shown before or after data is set."""
+        if self._service is None or self._transform is None:
+            return {
+                'data': [],
+                'layout': {
+                    'margin': {'l': 40, 'r': 20, 't': 20, 'b': 40},
+                    'uirevision': self._uirevision,
+                    'autosize': True,
+                    'xaxis': {'range': [0.0, 1.0]},
+                    'yaxis': {'range': [1.0, 0.0]},
+                    'dragmode': 'zoom',
+                },
+                'config': dict(RASTER_VIEWER_PLOTLY_CONFIG),
+            }
+        response = self._service.full_image_png(display_style=self._display_style())
+        self._current_bounds = response.bounds
+        return build_plotly_figure(
+            response=response,
+            uirevision=self._uirevision,
+            heatmap_colorscale=self._heatmap_colorscale,
+        )
+
+    def _display_style(self) -> RasterDisplayStyle:
+        """Return backend PNG / heatmap styling derived from viewer state."""
+        return RasterDisplayStyle(
+            colorscale=self._heatmap_colorscale,
+            zmin=self._contrast_zmin,
+            zmax=self._contrast_zmax,
+        )
+
+    async def _refresh_full_png(self) -> None:
+        """Re-run full-image PNG render with :meth:`_display_style` and push to the plot."""
+        if self._service is None or self._plot is None:
+            raise RuntimeError('Viewer must be built with data before refreshing the overview.')
+        response = self._service.full_image_png(display_style=self._display_style())
+        await self.apply_response(response)
+
+    def _heatmap_trace_active(self) -> bool:
+        """Return ``True`` when the figure's first trace is a heatmap."""
+        if self._plot is None:
+            return False
+        data = self._plotly_dict.get('data', [])
+        if not isinstance(data, list) or not data:
+            return False
+        trace = data[0]
+        return isinstance(trace, dict) and trace.get('type') == 'heatmap'
+
+    def _image_trace_active(self) -> bool:
+        """Return ``True`` when the figure's first trace is a raster ``image``."""
+        if self._plot is None:
+            return False
+        data = self._plotly_dict.get('data', [])
+        if not isinstance(data, list) or not data:
+            return False
+        trace = data[0]
+        return isinstance(trace, dict) and trace.get('type') == 'image'
+
+    @staticmethod
+    def _new_uirevision() -> str:
+        """Return a new Plotly UI revision token."""
+        return uuid4().hex
