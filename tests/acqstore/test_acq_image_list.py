@@ -46,6 +46,7 @@ class _FakeAcqImage:
             'path': self.path,
             'parent': parent,
             'grandparent': grandparent,
+            'genotype': '',
             'num_channels': 1,
             'num_rois': 0 if self._default_roi is None else 1,
             'accept': True,

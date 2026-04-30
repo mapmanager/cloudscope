@@ -12,7 +12,7 @@ from cloudscope.core.events import (
     TaskProgressChanged,
     TaskStatus,
 )
-from cloudscope.gui.app_config import AppConfig
+from cloudscope.gui.app_config import AppConfig, normalize_stored_path
 from cloudscope.gui.load_save_view import LoadSaveView
 
 
@@ -96,6 +96,26 @@ def test_task_progress_opens_and_closes_dialog(tmp_path) -> None:
         )
     )
     assert view._progress_dialog.opened is False
+
+
+def test_recent_item_matches_app_path_respects_last_path(tmp_path) -> None:
+    bus = EventBus()
+    cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
+    file_path = tmp_path / 'doc.tif'
+    file_path.write_text('x', encoding='utf-8')
+    cfg.set_last_path(str(file_path))
+    view = LoadSaveView(event_bus=bus, app_config=cfg)
+    assert view._recent_item_matches_app_path(str(file_path))
+    assert view._recent_item_matches_app_path(normalize_stored_path(str(file_path)))
+    assert not view._recent_item_matches_app_path(str(tmp_path / 'other.tif'))
+
+
+def test_recent_item_matches_app_path_false_when_last_path_empty(tmp_path) -> None:
+    bus = EventBus()
+    cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
+    view = LoadSaveView(event_bus=bus, app_config=cfg)
+    assert cfg.get_last_path() == ''
+    assert not view._recent_item_matches_app_path('/any/path')
 
 
 def test_status_event_calls_notify(tmp_path, monkeypatch) -> None:

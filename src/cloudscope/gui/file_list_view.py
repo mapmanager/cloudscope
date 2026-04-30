@@ -12,7 +12,7 @@ from cloudscope.core.event_bus import EventBus
 from cloudscope.core.events import FileListChanged, FileSelectionChanged, MetadataChanged, SelectFileIntent
 from cloudscope.gui.app_config import AppConfig
 from cloudscope.gui.schema_adapters import schema_to_column_defs
-from nicewidgets.table_widget.config import TableWidgetConfig
+from nicewidgets.table_widget.config import TableWidgetConfig, scaled_row_header_heights_px
 from nicewidgets.table_widget.table_widget import TableWidget
 
 
@@ -60,6 +60,8 @@ class AcqImageListTableView:
         Returns:
             Root NiceGUI column element created by ``TableWidget``.
         """
+        font_px = int(self._app_config.data.table_font_size_px)
+        row_h, header_h = scaled_row_header_heights_px(font_px)
         self._table = TableWidget(
             columns=schema_to_column_defs(ACQ_FILE_LIST_SCHEMA),
             row_id_field=self._row_id_field,
@@ -68,7 +70,9 @@ class AcqImageListTableView:
             config=TableWidgetConfig(
                 selection_mode="single",
                 auto_size_columns=True,
-                cell_font_size_px=int(self._app_config.data.table_font_size_px),
+                cell_font_size_px=font_px,
+                row_height=row_h,
+                header_height=header_h,
             ),
         )
         return self._table.build(parent=parent)

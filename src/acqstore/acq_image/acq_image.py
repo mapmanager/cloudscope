@@ -194,6 +194,7 @@ class AcqImage:
             'path': self.path,
             'parent': parent,
             'grandparent': grandparent,
+            'genotype': self._experimental_metadata.genotype,
             'num_channels': self.images.num_channels,
             'num_rois': self.rois.num_rois,
             'accept': self._accept,

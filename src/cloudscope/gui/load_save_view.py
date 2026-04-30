@@ -25,7 +25,7 @@ from cloudscope.core.events import (
     TaskProgressChanged,
 )
 from cloudscope.gui._py_web_view import _prompt_for_path, _prompt_for_save_path
-from cloudscope.gui.app_config import AppConfig
+from cloudscope.gui.app_config import AppConfig, normalize_stored_path
 from cloudscope.core.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -141,19 +141,28 @@ class LoadSaveView:
             self._fill_recent_menu(menu)
         self._update_history_button_enabled()
 
+    def _recent_item_matches_app_path(self, path: str) -> bool:
+        """True when ``path`` is the same as persisted ``last_path`` (folder or file)."""
+        last = self.app_config.get_last_path().strip()
+        if not last:
+            return False
+        return normalize_stored_path(path) == normalize_stored_path(last)
+
     def _fill_recent_menu(self, menu: ui.menu) -> None:
         recent_folders = self.app_config.get_recent_folders()
         recent_files = self.app_config.get_recent_files()
         logger.info('recent_folders=%s recent_files=%s', recent_folders, recent_files)
         with menu:
             for item in recent_folders:
-                label = f'{_path_display(item)}'
+                mark = '✓ ' if self._recent_item_matches_app_path(item) else ''
+                label = f'{mark}{_path_display(item)}'
                 ui.menu_item(label, lambda p=item: self._load_recent(p, LoadPathKind.FOLDER))
             if recent_folders and recent_files:
                 ui.separator()
             for item in recent_files:
                 kind = LoadPathKind.CSV if item.lower().endswith('.csv') else LoadPathKind.FILE
-                label = f'{_path_display(item)}'
+                mark = '✓ ' if self._recent_item_matches_app_path(item) else ''
+                label = f'{mark}{_path_display(item)}'
                 ui.menu_item(label, lambda p=item, k=kind: self._load_recent(p, k))
             if recent_folders or recent_files:
                 ui.separator()

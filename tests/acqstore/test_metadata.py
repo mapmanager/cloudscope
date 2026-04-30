@@ -71,7 +71,16 @@ def test_experiment_metadata_from_dict_coerces_str_none() -> None:
 
 def test_acq_file_list_schema_field_names_stable() -> None:
     names = ACQ_FILE_LIST_SCHEMA.field_names()
-    assert names == ('name', 'path', 'parent', 'grandparent', 'num_channels', 'num_rois', 'accept')
+    assert names == (
+        'name',
+        'path',
+        'parent',
+        'grandparent',
+        'genotype',
+        'num_channels',
+        'num_rois',
+        'accept',
+    )
 
 
 def test_experiment_metadata_schema_defaults_match_dataclass_defaults() -> None:

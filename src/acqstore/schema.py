@@ -250,6 +250,14 @@ ACQ_FILE_LIST_SCHEMA = SchemaDefinition(
             group='File',
         ),
         FieldSchema(
+            name='genotype',
+            display_name='Genotype',
+            value_type=ValueType.STR,
+            description='Genotype or strain label.',
+            default_value='',
+            group='Animal',
+        ),
+        FieldSchema(
             name='num_channels',
             display_name='Channels',
             value_type=ValueType.INT,
@@ -267,6 +275,7 @@ ACQ_FILE_LIST_SCHEMA = SchemaDefinition(
             name='accept',
             display_name='Accept',
             value_type=ValueType.BOOL,
+            editable=False,
             description='Acceptance status of this file.',
             group='File',
         ),

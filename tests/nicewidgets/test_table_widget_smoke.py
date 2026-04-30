@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from nicewidgets.table_widget.column_def import ColumnDef
-from nicewidgets.table_widget.config import TableWidgetConfig
+from nicewidgets.table_widget.config import TableWidgetConfig, scaled_row_header_heights_px
 from nicewidgets.table_widget.js_hooks import (
     js_on_cell_double_clicked_start_editing,
     js_on_cell_editing_stopped_emit_change,
@@ -70,6 +70,38 @@ def test_table_widget_config_defaults() -> None:
     assert cfg.index_field == 'table_row_index'
     assert cfg.index_header == 'Index'
     assert cfg.cell_font_size_px is None
+    assert cfg.row_height is None
+    assert cfg.header_height is None
+
+
+def test_scaled_row_header_heights_px_clamped() -> None:
+    r, h = scaled_row_header_heights_px(13)
+    assert r == 38 and h == 37
+    r8, h8 = scaled_row_header_heights_px(8)
+    assert r8 == 28
+    r99, _ = scaled_row_header_heights_px(99)
+    assert r99 == 64
+
+
+def test_build_aggrid_options_applies_row_and_header_height() -> None:
+    cols = (ColumnDef(field='id', headerName='ID'),)
+    tw = TableWidget(
+        cols,
+        'id',
+        rows=[{'id': 'a'}],
+        config=TableWidgetConfig(row_height=36, header_height=34),
+    )
+    opts = tw._build_aggrid_options()
+    assert opts['rowHeight'] == 36
+    assert opts['headerHeight'] == 34
+
+
+def test_build_aggrid_options_omits_row_header_height_when_none() -> None:
+    cols = (ColumnDef(field='id', headerName='ID'),)
+    tw = TableWidget(cols, 'id', rows=[{'id': 'a'}], config=TableWidgetConfig())
+    opts = tw._build_aggrid_options()
+    assert 'rowHeight' not in opts
+    assert 'headerHeight' not in opts
 
 
 def test_build_aggrid_options_applies_cell_font_size_px() -> None:

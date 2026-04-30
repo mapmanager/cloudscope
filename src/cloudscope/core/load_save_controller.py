@@ -103,7 +103,7 @@ class LoadSaveController:
         if stale_recent:
             self._remove_recent_path_entry(event.path, event.kind)
         else:
-            self._update_recents(path=event.path, kind=event.kind)
+            self._update_recents(path=event.path, kind=event.kind, from_recent=event.from_recent)
         self._publish_task(
             task_kind=TaskKind.LOAD,
             task_id=task_id,
@@ -216,12 +216,17 @@ class LoadSaveController:
                 return True
         return False
 
-    def _update_recents(self, *, path: str, kind: LoadPathKind) -> None:
-        """Update app config recents and last path after a load action."""
-        if kind == LoadPathKind.FOLDER:
-            self.app_config.push_recent_folder(path)
-        else:
-            self.app_config.push_recent_file(path)
+    def _update_recents(self, *, path: str, kind: LoadPathKind, from_recent: bool = False) -> None:
+        """Update app config recents and last path after a load action.
+
+        When ``from_recent`` is true, the path already came from the recents list, so
+        we only refresh ``last_path`` and do not re-order recent file/folder lists.
+        """
+        if not from_recent:
+            if kind == LoadPathKind.FOLDER:
+                self.app_config.push_recent_folder(path)
+            else:
+                self.app_config.push_recent_file(path)
         self.app_config.set_last_path(path)
         self.app_config.save()
         self._publish_recent_paths()

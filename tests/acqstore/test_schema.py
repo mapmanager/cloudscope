@@ -91,11 +91,12 @@ def test_schema_definition_helpers() -> None:
         'name',
         'parent',
         'grandparent',
+        'genotype',
         'num_channels',
         'num_rois',
         'accept',
     ]
-    assert card_groups(schema) == ('File', 'Image', 'ROI')
+    assert card_groups(schema) == ('File', 'Animal', 'Image', 'ROI')
 
 
 def test_field_schema_from_dict_ignores_unknown_keys() -> None:
@@ -126,6 +127,7 @@ def test_validate_values_for_schema_rejects_extra_keys_by_default() -> None:
                 'path': '/tmp/a.tif',
                 'parent': '',
                 'grandparent': '',
+                'genotype': '',
                 'num_channels': 2,
                 'num_rois': 0,
                 'accept': True,
@@ -142,6 +144,7 @@ def test_validate_values_for_schema_allows_extra_values_when_enabled() -> None:
             'path': '/tmp/a.tif',
             'parent': '',
             'grandparent': '',
+            'genotype': '',
             'num_channels': 2,
             'num_rois': 0,
             'accept': True,
@@ -149,6 +152,27 @@ def test_validate_values_for_schema_allows_extra_values_when_enabled() -> None:
         },
         allow_extra_values=True,
     )
+
+
+def test_acq_file_list_schema_has_validating_minimal_row() -> None:
+    """Every declared field must be satisfiable; catches schema vs row drift."""
+    values: dict[str, object] = {}
+    for field in ACQ_FILE_LIST_SCHEMA.fields:
+        if field.default_value is not None:
+            values[field.name] = field.default_value
+            continue
+        vt = field.value_type
+        if vt is ValueType.STR:
+            values[field.name] = 'n'
+        elif vt is ValueType.PATH:
+            values[field.name] = '/tmp/row.tif'
+        elif vt is ValueType.INT:
+            values[field.name] = 0
+        elif vt is ValueType.BOOL:
+            values[field.name] = True
+        else:
+            raise AssertionError(f'Unhandled value_type in test: {field.name} {vt!r}')
+    validate_values_for_schema(ACQ_FILE_LIST_SCHEMA, values)
 
 
 def test_validate_patch_for_schema_rejects_unknown_or_noneditable_fields() -> None:

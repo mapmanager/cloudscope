@@ -53,6 +53,7 @@ class _FakeFile:
             'path': self.file_id,
             'parent': parent,
             'grandparent': grandparent,
+            'genotype': '',
             'num_channels': 1,
             'num_rois': 0,
             'accept': True,
@@ -148,6 +149,56 @@ def test_load_folder_passes_app_config_folder_depth(tmp_path, monkeypatch) -> No
     monkeypatch.setattr('cloudscope.core.load_save_controller.AcqImageList.load_safe', _load_safe)
     bus.publish(LoadPathIntent(path=str(tmp_path), kind=LoadPathKind.FOLDER))
     assert captured.get('folder_depth') == 7
+
+
+def test_load_from_recent_does_not_reorder_file_recents(tmp_path, monkeypatch) -> None:
+    bus = EventBus()
+    cfg = AppConfig.load(config_path=tmp_path / 'cfg.json')
+    fa = tmp_path / 'a.tif'
+    fb = tmp_path / 'b.tif'
+    fa.write_text('x', encoding='utf-8')
+    fb.write_text('y', encoding='utf-8')
+    cfg.push_recent_file(str(fa))
+    cfg.push_recent_file(str(fb))
+    cfg.save()
+    order_before = list(cfg.get_recent_files())
+    home = HomePageController(event_bus=bus)
+    controller = LoadSaveController(event_bus=bus, home_controller=home, app_config=cfg)
+    controller.bind()
+    fake_list = _FakeList([_FakeFile(str(fb))])
+
+    def _load_safe(_path: str, *, kind: str, **_kwargs):
+        return LoadResult(acq_image_list=fake_list, warnings=())
+
+    monkeypatch.setattr('cloudscope.core.load_save_controller.AcqImageList.load_safe', _load_safe)
+    bus.publish(LoadPathIntent(path=str(fb), kind=LoadPathKind.FILE, from_recent=True))
+    assert cfg.get_recent_files() == order_before
+    assert normalize_stored_path(cfg.get_last_path()) == normalize_stored_path(str(fb))
+
+
+def test_load_not_from_recent_moves_file_to_end_of_recents(tmp_path, monkeypatch) -> None:
+    bus = EventBus()
+    cfg = AppConfig.load(config_path=tmp_path / 'cfg.json')
+    fa = tmp_path / 'a.tif'
+    fb = tmp_path / 'b.tif'
+    fa.write_text('x', encoding='utf-8')
+    fb.write_text('y', encoding='utf-8')
+    cfg.push_recent_file(str(fa))
+    cfg.push_recent_file(str(fb))
+    cfg.save()
+    home = HomePageController(event_bus=bus)
+    controller = LoadSaveController(event_bus=bus, home_controller=home, app_config=cfg)
+    controller.bind()
+    fake_list = _FakeList([_FakeFile(str(fa))])
+
+    def _load_safe(_path: str, *, kind: str, **_kwargs):
+        return LoadResult(acq_image_list=fake_list, warnings=())
+
+    monkeypatch.setattr('cloudscope.core.load_save_controller.AcqImageList.load_safe', _load_safe)
+    bus.publish(LoadPathIntent(path=str(fa), kind=LoadPathKind.FILE, from_recent=False))
+    files = cfg.get_recent_files()
+    assert len(files) == 2
+    assert files[-1].endswith('a.tif')
 
 
 def test_remove_recent_path_intent_removes_file_entry(tmp_path) -> None:

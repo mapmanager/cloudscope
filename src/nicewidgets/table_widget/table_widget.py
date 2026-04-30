@@ -314,6 +314,22 @@ class TableWidget:
             ':getRowId': _get_row_id_js_expression(self._row_id_field),
             ':onRowClicked': js_on_row_clicked(emit_event=self._evt_select, row_id_field=self._row_id_field),
         }
+        rh = self._config.row_height
+        if rh is not None:
+            try:
+                rh_i = int(rh)
+            except (TypeError, ValueError):
+                rh_i = 0
+            if rh_i >= 1:
+                base['rowHeight'] = rh_i
+        hh = self._config.header_height
+        if hh is not None:
+            try:
+                hh_i = int(hh)
+            except (TypeError, ValueError):
+                hh_i = 0
+            if hh_i >= 1:
+                base['headerHeight'] = hh_i
         if self._config.stop_editing_when_cells_lose_focus:
             base['stopEditingWhenCellsLoseFocus'] = True
         row_sel = self._row_selection_object(self._config.selection_mode)
