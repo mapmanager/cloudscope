@@ -30,16 +30,23 @@ def test_apply_metadata_intent_updates_experiment_metadata_and_emits_state() -> 
     bus.subscribe(MetadataChanged, lambda e: seen.append(e))
 
     fid = acq.file_id
-    bus.publish(ApplyMetadataIntent(file_id=fid, section_id='experiment_metadata', patch={'species': 'mouse'}))
+    bus.publish(
+        ApplyMetadataIntent(
+            file_id=fid,
+            metadata_section_id='experiment_metadata',
+            patch={'species': 'mouse'},
+        )
+    )
 
-    assert acq.experimental_metadata.species == 'mouse'
+    exp = acq.get_metadata_section('experiment_metadata')
+    assert exp.get_values()['species'] == 'mouse'
     assert len(seen) == 1
     ev = seen[0]
     assert ev.file_id == fid
-    assert ev.section_id == 'experiment_metadata'
-    assert isinstance(ev.row, dict)
-    assert tuple(ev.row.keys()) == ACQ_FILE_LIST_SCHEMA.field_names()
-    assert ev.row['name'] == Path(fid).name
+    assert ev.metadata_section_id == 'experiment_metadata'
+    assert isinstance(ev.file_list_row, dict)
+    assert tuple(ev.file_list_row.keys()) == ACQ_FILE_LIST_SCHEMA.field_names()
+    assert ev.file_list_row['name'] == Path(fid).name
 
 
 def test_apply_metadata_unknown_section_raises_with_list() -> None:
@@ -52,7 +59,13 @@ def test_apply_metadata_unknown_section_raises_with_list() -> None:
     ctrl.load_acq_image_list(lst)
     fid = lst.get_file_by_index(0).file_id
     with pytest.raises(ValueError, match='Unknown metadata section'):
-        bus.publish(ApplyMetadataIntent(file_id=fid, section_id='wrong_section', patch={'species': 'x'}))
+        bus.publish(
+            ApplyMetadataIntent(
+                file_id=fid,
+                metadata_section_id='wrong_section',  # type: ignore[arg-type]
+                patch={'species': 'x'},
+            )
+        )
 
 
 def test_apply_metadata_without_list_raises() -> None:
@@ -61,4 +74,10 @@ def test_apply_metadata_without_list_raises() -> None:
     ctrl.bind()
     ctrl.load_demo_files(['a'])
     with pytest.raises(RuntimeError, match='AcqImageList'):
-        bus.publish(ApplyMetadataIntent(file_id='a', section_id='experiment_metadata', patch={'species': 'x'}))
+        bus.publish(
+            ApplyMetadataIntent(
+                file_id='a',
+                metadata_section_id='experiment_metadata',
+                patch={'species': 'x'},
+            )
+        )

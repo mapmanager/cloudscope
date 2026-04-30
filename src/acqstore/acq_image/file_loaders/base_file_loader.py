@@ -1,5 +1,5 @@
 from typing import Any
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 import math
 import numpy as np
 from typing import BinaryIO, Self
@@ -78,6 +78,60 @@ class ImageHeader:
         units = tuple(1.0 for _ in range(n))
         labels = tuple("Pixels" for _ in range(n))
         return units, labels
+
+    def with_coerced_physical_calibration(self) -> "ImageHeader":
+        """Return a copy with physical units and labels aligned to :attr:`dims`.
+
+        This is the canonical place where invalid or missing per-axis calibration
+        from the file is mapped to defaults (finite ``> 0`` steps and non-empty
+        labels). Callers such as :class:`BaseFileLoader` apply this so GUI and
+        other layers do not duplicate silent coercion.
+
+        Rules:
+            - ``physical_units`` has length ``len(dims)``. Missing indices are
+              treated as invalid and become ``1.0``.
+            - Each step is coerced to ``float``; non-finite values or ``<= 0``
+              become ``1.0``.
+            - ``physical_units_labels`` has length ``len(dims)``; empty strings
+              become ``\"Pixels\"``.
+
+        Returns:
+            ``self`` if already normalized; otherwise a new :class:`ImageHeader`.
+        """
+        n = len(self.dims)
+        raw_u = list(self.physical_units)
+        raw_l = list(self.physical_units_labels)
+        while len(raw_u) < n:
+            raw_u.append(None)
+        while len(raw_l) < n:
+            raw_l.append("")
+        new_units: list[float] = []
+        new_labels: list[str] = []
+        for i in range(n):
+            u = raw_u[i]
+            try:
+                v = float(u)
+                if math.isnan(v) or math.isinf(v) or v <= 0.0:
+                    v = 1.0
+            except (TypeError, ValueError):
+                v = 1.0
+            new_units.append(v)
+            lab = raw_l[i] if i < len(raw_l) else ""
+            new_labels.append(str(lab) if lab else "Pixels")
+        new_units_t = tuple(new_units)
+        new_labels_t = tuple(new_labels)
+        if (
+            len(self.physical_units) == n
+            and len(self.physical_units_labels) == n
+            and new_units_t == self.physical_units
+            and new_labels_t == self.physical_units_labels
+        ):
+            return self
+        return replace(
+            self,
+            physical_units=new_units_t,
+            physical_units_labels=new_labels_t,
+        )
 
     def _physical_step_for_dim(self, dim: str) -> float | None:
         """Return a finite positive calibration step for ``dim``, or ``None`` if unknown."""
@@ -162,12 +216,31 @@ class BaseFileLoader:
         # Look up '_squeeze' on the class or instance; default to True
         self._squeeze = getattr(self, "_squeeze", True)
         
-        # Ensure the header is always initialized
+        # Ensure the header is always initialized and physical calibration coerced.
         if header is None:
-            self._header = self.read_header()
+            self._header = self.read_header().with_coerced_physical_calibration()
         else:
-            self._header = header
-            
+            self._header = header.with_coerced_physical_calibration()
+
+    def replace_header(self, header: ImageHeader) -> None:
+        """Replace the loader header at runtime (e.g. edited calibration).
+
+        The only header fields expected to change after load are
+        ``physical_units`` and ``physical_units_labels``. The replacement is
+        normalized via :meth:`ImageHeader.with_coerced_physical_calibration`.
+
+        Args:
+            header: New header; must refer to the same logical file as this loader.
+
+        Raises:
+            ValueError: If ``header.path`` does not match this loader's ``path``.
+        """
+        if header.path != self.path:
+            raise ValueError(
+                f"Header path {header.path!r} does not match loader path {self.path!r}"
+            )
+        self._header = header.with_coerced_physical_calibration()
+
     @property
     def header(self) -> ImageHeader:
         """Header read at construction or injected."""

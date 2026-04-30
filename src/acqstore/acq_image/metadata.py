@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field, fields, asdict, MISSING
+from dataclasses import dataclass, field, fields, asdict, MISSING, replace
+from collections.abc import Callable
 from typing import Any, ClassVar
-import itertools
 
 import pandas as pd
+from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader
 
 from acqstore.schema import (
     FieldSchema,
@@ -356,7 +357,7 @@ class ExperimentMetadata:
         note: Free-form notes or comments.
     """
 
-    section_id: ClassVar[str] = 'experiment_metadata'
+    metadata_section_id: ClassVar[str] = 'experiment_metadata'
     display_section_title: ClassVar[str] = 'Experiment Metadata'
 
     species: str = ''
@@ -373,6 +374,7 @@ class ExperimentMetadata:
     treatment2: str = ''
     date: str = ''
     note: str = ''
+    _is_dirty: bool = field(default=False, init=False, repr=False)
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any] | None) -> ExperimentMetadata:
@@ -414,6 +416,14 @@ class ExperimentMetadata:
     def to_dict(self) -> dict[str, Any]:
         """Return all field values as a plain dictionary (not schema-validated)."""
         return asdict(self)
+
+    def is_dirty(self) -> bool:
+        """Return whether metadata was edited since last ``set_clean``."""
+        return self._is_dirty
+
+    def set_clean(self) -> None:
+        """Reset dirty flag after persisting metadata changes."""
+        self._is_dirty = False
 
     def get_schema(self) -> SchemaDefinition:
         """Return the semantic schema for this metadata section."""
@@ -459,345 +469,203 @@ class ExperimentMetadata:
         schema = self.get_schema()
         validate_patch_for_schema(schema, patch)
         fields_by_name = {f.name: f for f in schema.fields}
+        changed = False
         for name, value in patch.items():
             coerced = self._coerce_patch_value(fields_by_name[name], value)
+            if getattr(self, name) != coerced:
+                changed = True
             setattr(self, name, coerced)
+        if changed:
+            self._is_dirty = True
 
 
-@dataclass
-class AcqImgHeader:
-    """Header metadata for acquired images.
-    
-    Contains all header-related fields that can be set from metadata without
-    loading the full image data. This enables lazy loading of image data while
-    still providing access to essential metadata.
-    
-    Attributes:
-        shape: Image shape tuple (e.g., (1000, 500) for 2D, (100, 1000, 500) for 3D).
-        ndim: Number of dimensions (2 or 3).
-        voxels: Physical unit of each voxel (e.g., [0.001, 0.284] for time and space).
-        voxels_units: Units for each voxel (e.g., ['s', 'um']).
-        labels: Labels for each dimension (e.g., ['time (s)', 'space (um)']).
-        physical_size: Physical size along each dimension (shape[i] * voxels[i]).
-        date_str: Acquisition date string from Olympus header (read-only, if available).
-        time_str: Acquisition time string from Olympus header (read-only, if available).
+IMAGE_HEADER_METADATA_SCHEMA = SchemaDefinition(
+    schema_id='acq_image_header',
+    version=1,
+    fields=(
+        FieldSchema(
+            name='shape', display_name='Shape', value_type=ValueType.STR, default_value='', editable=False, group='Header'
+        ),
+        FieldSchema(
+            name='dims', display_name='Dims', value_type=ValueType.STR, default_value='', editable=False, group='Header'
+        ),
+        FieldSchema(
+            name='sizes', display_name='Sizes', value_type=ValueType.STR, default_value='', editable=False, group='Header'
+        ),
+        FieldSchema(
+            name='dtype', display_name='DType', value_type=ValueType.STR, default_value='', editable=False, group='Header'
+        ),
+        FieldSchema(
+            name='num_channels',
+            display_name='Channels',
+            value_type=ValueType.INT,
+            default_value=0,
+            editable=False,
+            group='Header',
+        ),
+        FieldSchema(
+            name='num_scenes',
+            display_name='Scenes',
+            value_type=ValueType.INT,
+            default_value=0,
+            editable=False,
+            group='Header',
+        ),
+        FieldSchema(
+            name='date', display_name='Date', value_type=ValueType.STR, default_value='', editable=False, group='Header'
+        ),
+        FieldSchema(
+            name='time', display_name='Time', value_type=ValueType.STR, default_value='', editable=False, group='Header'
+        ),
+        FieldSchema(
+            name='physical_unit_y',
+            display_name='Physical Unit Y',
+            value_type=ValueType.FLOAT,
+            default_value=1.0,
+            editable=True,
+            group='Calibration',
+        ),
+        FieldSchema(
+            name='physical_unit_x',
+            display_name='Physical Unit X',
+            value_type=ValueType.FLOAT,
+            default_value=1.0,
+            editable=True,
+            group='Calibration',
+        ),
+        FieldSchema(
+            name='physical_label_y',
+            display_name='Physical Label Y',
+            value_type=ValueType.STR,
+            default_value='Pixels',
+            editable=True,
+            group='Calibration',
+        ),
+        FieldSchema(
+            name='physical_label_x',
+            display_name='Physical Label X',
+            value_type=ValueType.STR,
+            default_value='Pixels',
+            editable=True,
+            group='Calibration',
+        ),
+    ),
+)
+
+
+class ImageHeaderMetadata:
+    """Schema-driven metadata adapter for ``ImageHeader``.
+
+    Exposes loader header details as read-only schema fields, while allowing
+    editing of Y/X physical unit and label calibration.
     """
-    
-    # Note: Many fields are list/tuple types; the metadata here is mainly to
-    # support future UI/schema usage (e.g., forms, column configs).
-    shape: tuple[int, ...] | None = field(
-        default=None,
-        metadata=field_metadata(
-            editable=False,
-            label="Shape",
-            widget_type="text",
-            grid_span=1,
-        ),
-    )
-    ndim: int | None = field(
-        default=None,
-        metadata=field_metadata(
-            editable=False,
-            label="Dimensions",
-            widget_type="number",
-            grid_span=1,
-        ),
-    )
-    voxels: list[float] | None = field(
-        default=None,
-        metadata=field_metadata(
-            editable=False,
-            label="Voxel Size",
-            widget_type="text",
-            grid_span=1,
-        ),
-    )
-    voxels_units: list[str] | None = field(
-        default=None,
-        metadata=field_metadata(
-            editable=False,
-            label="Voxel Units",
-            widget_type="text",
-            grid_span=1,
-        ),
-    )
-    labels: list[str] | None = field(
-        default=None,
-        metadata=field_metadata(
-            editable=False,
-            label="Axis Labels",
-            widget_type="text",
-            grid_span=1,
-        ),
-    )
-    physical_size: list[float] | None = field(
-        default=None,
-        metadata=field_metadata(
-            editable=False,
-            label="Physical Size",
-            widget_type="text",
-            grid_span=1,
-        ),
-    )
-    date_str: str | None = field(
-        default=None,
-        metadata=field_metadata(
-            editable=False,
-            label="Acquisition Date",
-            widget_type="text",
-            grid_span=1,
-        ),
-    )
-    time_str: str | None = field(
-        default=None,
-        metadata=field_metadata(
-            editable=False,
-            label="Acquisition Time",
-            widget_type="text",
-            grid_span=1,
-        ),
-    )
-    
-    def __post_init__(self) -> None:
-        """Validate consistency after initialization.
-        
-        Checks that all fields are consistent with ndim if ndim is set.
-        This is optional validation - fields can be set incrementally and
-        validated explicitly when needed.
-        """
-        if self.ndim is not None:
-            self._validate_consistency()
-    
-    def _validate_consistency(self) -> None:
-        """Validate that all fields are consistent with ndim.
-        
-        Raises:
-            ValueError: If any field length doesn't match ndim.
-        """
-        if self.ndim is None:
-            return
-        
-        if self.ndim not in (2, 3):
-            raise ValueError(f"ndim must be 2 or 3, got {self.ndim}")
-        
-        # Validate shape
-        if self.shape is not None and len(self.shape) != self.ndim:
-            raise ValueError(f"shape length {len(self.shape)} doesn't match ndim {self.ndim}")
-        
-        # Validate voxels
-        if self.voxels is not None and len(self.voxels) != self.ndim:
-            raise ValueError(f"voxels length {len(self.voxels)} doesn't match ndim {self.ndim}")
-        
-        # Validate voxels_units
-        if self.voxels_units is not None and len(self.voxels_units) != self.ndim:
-            raise ValueError(f"voxels_units length {len(self.voxels_units)} doesn't match ndim {self.ndim}")
-        
-        # Validate labels
-        if self.labels is not None and len(self.labels) != self.ndim:
-            raise ValueError(f"labels length {len(self.labels)} doesn't match ndim {self.ndim}")
-    
-    def validate_ndim(self, ndim: int) -> bool:
-        """Validate that ndim is consistent with existing header fields.
-        
-        Args:
-            ndim: Number of dimensions to validate.
-            
-        Returns:
-            True if ndim is valid and consistent with existing fields.
-        """
-        if ndim not in (2, 3):
-            return False
-        
-        # Check consistency with shape
-        if self.shape is not None and len(self.shape) != ndim:
-            return False
-        
-        # Check consistency with voxels
-        if self.voxels is not None and len(self.voxels) != ndim:
-            return False
-        
-        # Check consistency with voxels_units
-        if self.voxels_units is not None and len(self.voxels_units) != ndim:
-            return False
-        
-        # Check consistency with labels
-        if self.labels is not None and len(self.labels) != ndim:
-            return False
-        
-        return True
-    
-    def validate_shape(self, shape: tuple[int, ...]) -> bool:
-        """Validate that shape is consistent with existing header fields.
-        
-        Args:
-            shape: Shape tuple to validate.
-            
-        Returns:
-            True if shape is valid and consistent with existing fields.
-        """
-        if not shape or len(shape) not in (2, 3):
-            return False
-        
-        ndim = len(shape)
-        
-        # Check consistency with ndim
-        if self.ndim is not None and self.ndim != ndim:
-            return False
-        
-        # Check consistency with voxels
-        if self.voxels is not None and len(self.voxels) != ndim:
-            return False
-        
-        # Check consistency with voxels_units
-        if self.voxels_units is not None and len(self.voxels_units) != ndim:
-            return False
-        
-        # Check consistency with labels
-        if self.labels is not None and len(self.labels) != ndim:
-            return False
-        
-        return True
-    
-    def compute_physical_size(self) -> list[float] | None:
-        """Compute physical size from shape and voxels.
-        
-        Returns:
-            List of physical sizes (shape[i] * voxels[i]) for each dimension,
-            or None if shape or voxels are not set.
-        """
-        if self.shape is None or self.voxels is None:
-            return None
-        
-        if len(self.shape) != len(self.voxels):
-            return None
-        
-        return [s * v for s, v in itertools.zip(self.shape, self.voxels)]
-    
-    # ------------------------------------------------------------------
-    # New helper methods for AcqImage
-    # ------------------------------------------------------------------
-    def set_shape_ndim(self, shape: tuple[int, ...] | None, ndim: int | None) -> None:
-        """Set shape and ndim with consistency validation."""
-        if shape is not None:
-            self.shape = shape
-            if ndim is None:
-                ndim = len(shape)
-        self.ndim = ndim
-        # Validate current state
-        self._validate_consistency()
 
-    def init_defaults_from_shape(self) -> None:
-        """Initialize default voxels/units/labels based on ndim if not set."""
-        if self.ndim is None:
-            return
-        # Only initialize if currently None
-        if self.voxels is None:
-            self.voxels = [1.0] * self.ndim
-        if self.voxels_units is None:
-            self.voxels_units = ["px"] * self.ndim
-        if self.labels is None:
-            self.labels = [""] * self.ndim
-        # Compute physical size
-        self.physical_size = self.compute_physical_size()
-        # Validate
-        self._validate_consistency()
+    metadata_section_id: ClassVar[str] = 'acq_image_header'
+    display_section_title: ClassVar[str] = 'Image Header'
 
-    def to_dict(self) -> dict[str, Any]:
-        """Serialize header to a dictionary for metadata save."""
-        result = {
-            "shape": list(self.shape) if self.shape is not None else None,
-            "ndim": self.ndim,
-            "voxels": self.voxels,
-            "voxels_units": self.voxels_units,
-            "labels": self.labels,
-            "physical_size": self.physical_size,
+    def __init__(self, image_header: ImageHeader, apply_header: Callable[[ImageHeader], None]) -> None:
+        """Construct adapter around a snapshot header.
+
+        The header is normalized with
+        :meth:`ImageHeader.with_coerced_physical_calibration` so displayed values
+        match loader/header defaults rather than ad hoc coercion in this layer.
+
+        Args:
+            image_header: Current ``ImageHeader`` (typically from a file loader).
+            apply_header: Callback invoked after calibration edits; must persist
+                the header on the backing loader (for example
+                :meth:`BaseFileLoader.replace_header`).
+        """
+        self._header = image_header.with_coerced_physical_calibration()
+        self._apply_header = apply_header
+        self._is_dirty = False
+
+    def is_dirty(self) -> bool:
+        """Return whether metadata was edited since last ``set_clean``."""
+        return self._is_dirty
+
+    def set_clean(self) -> None:
+        """Reset dirty flag after persisting metadata changes."""
+        self._is_dirty = False
+
+    def get_schema(self) -> SchemaDefinition:
+        """Return schema for the header metadata section."""
+        return IMAGE_HEADER_METADATA_SCHEMA
+
+    def _dim_index(self, dim: str) -> int:
+        if dim not in self._header.dims:
+            raise ValueError(f'Image header missing required {dim!r} dim: {self._header.dims!r}')
+        return self._header.dims.index(dim)
+
+    def _header_unit(self, dim: str) -> float:
+        idx = self._dim_index(dim)
+        return float(self._header.physical_units[idx])
+
+    def _header_label(self, dim: str) -> str:
+        idx = self._dim_index(dim)
+        return str(self._header.physical_units_labels[idx])
+
+    def get_values(self) -> dict[str, object]:
+        """Return header values keyed by schema field names."""
+        values: dict[str, object] = {
+            'shape': str(self._header.shape),
+            'dims': str(self._header.dims),
+            'sizes': str(self._header.sizes),
+            'dtype': str(self._header.dtype),
+            'num_channels': int(self._header.num_channels),
+            'num_scenes': int(self._header.num_scenes),
+            'date': str(self._header.date),
+            'time': str(self._header.time),
+            'physical_unit_y': self._header_unit('Y'),
+            'physical_unit_x': self._header_unit('X'),
+            'physical_label_y': self._header_label('Y'),
+            'physical_label_x': self._header_label('X'),
         }
-        # Include date_str and time_str if they are not None
-        if self.date_str is not None:
-            result["date_str"] = self.date_str
-        if self.time_str is not None:
-            result["time_str"] = self.time_str
-        return result
+        validate_values_for_schema(self.get_schema(), values)
+        return values
 
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> AcqImgHeader:
-        """Deserialize header from a dictionary."""
-        header = cls()
-        if not data:
-            return header
-        if "shape" in data:
-            header.shape = tuple(data["shape"]) if data["shape"] is not None else None
-        if "ndim" in data:
-            header.ndim = data["ndim"]
-        if "voxels" in data:
-            header.voxels = data["voxels"]
-        if "voxels_units" in data:
-            header.voxels_units = data["voxels_units"]
-        if "labels" in data:
-            header.labels = data["labels"]
-        if "physical_size" in data:
-            header.physical_size = data["physical_size"]
-        if "date_str" in data:
-            header.date_str = data["date_str"]
-        if "time_str" in data:
-            header.time_str = data["time_str"]
-        # If physical_size missing but shape+voxels present, compute
-        if header.physical_size is None:
-            header.physical_size = header.compute_physical_size()
-        # Validate consistency
-        header._validate_consistency()
-        return header
+    def update_values(self, patch: dict[str, object]) -> None:
+        """Apply editable calibration patch and write back to loader header."""
+        schema = self.get_schema()
+        validate_patch_for_schema(schema, patch)
+        if not patch:
+            return
+        current = self.get_values()
+        merged = dict(current)
+        merged.update(patch)
+        unit_y = float(merged['physical_unit_y'])  # raises on invalid
+        unit_x = float(merged['physical_unit_x'])
+        if unit_y <= 0 or unit_x <= 0:
+            raise ValueError('physical_unit_y and physical_unit_x must be > 0')
+        label_y = '' if merged['physical_label_y'] is None else str(merged['physical_label_y'])
+        label_x = '' if merged['physical_label_x'] is None else str(merged['physical_label_x'])
 
-    # ------------------------------------------------------------------
-    # Optional schema helper for UI (similar to ExperimentMetadata)
-    # ------------------------------------------------------------------
-    @classmethod
-    def form_schema(cls) -> list[dict[str, Any]]:
-        """Return field schema for form generation.
+        units = list(self._header.physical_units)
+        labels = list(self._header.physical_units_labels)
+        y_idx = self._dim_index('Y')
+        x_idx = self._dim_index('X')
+        changed = False
+        if float(units[y_idx]) != unit_y:
+            units[y_idx] = unit_y
+            changed = True
+        if float(units[x_idx]) != unit_x:
+            units[x_idx] = unit_x
+            changed = True
+        if str(labels[y_idx]) != label_y:
+            labels[y_idx] = label_y
+            changed = True
+        if str(labels[x_idx]) != label_x:
+            labels[x_idx] = label_x
+            changed = True
+        if not changed:
+            return
 
-        Mirrors the pattern used in ExperimentMetadata.form_schema(). This can
-        be used by GUI code to dynamically build an AcqImageHeader form.
-        """
-        from dataclasses import fields
+        self._header = replace(
+            self._header,
+            physical_units=tuple(units),
+            physical_units_labels=tuple(labels),
+        )
+        self._apply_header(self._header)
+        self._is_dirty = True
 
-        schema: list[dict[str, Any]] = []
-        for field_obj in fields(cls):
-            meta = field_obj.metadata
-            schema.append(
-                {
-                    "name": field_obj.name,
-                    "label": meta.get(
-                        "label", field_obj.name.replace("_", " ").title()
-                    ),
-                    "editable": meta.get("editable", False),
-                    "widget_type": meta.get("widget_type", "text"),
-                    "grid_span": meta.get("grid_span", 1),
-                    "visible": meta.get("visible", True),
-                    "field_type": str(field_obj.type),
-                }
-            )
-        return schema
-
-    @classmethod
-    def from_data(cls, shape: tuple[int, ...], ndim: int) -> AcqImgHeader:
-        """Create header from image data shape and ndim.
-        
-        Initializes default values for voxels, voxels_units, and labels.
-        
-        Args:
-            shape: Image shape tuple.
-            ndim: Number of dimensions.
-            
-        Returns:
-            AcqImgHeader instance with shape and ndim set, and default values
-            for other fields.
-        """
-        header = cls()
-        header.shape = shape
-        header.ndim = ndim
-        header.voxels = [1.0] * ndim
-        header.voxels_units = ["px"] * ndim
-        header.labels = [""] * ndim
-        header.physical_size = header.compute_physical_size()
-        return header
 

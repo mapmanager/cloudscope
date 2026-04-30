@@ -17,6 +17,7 @@ from cloudscope.core.events import (
     LoadPathKind,
     LoadPathIntent,
     RecentPathsChanged,
+    RemoveRecentPathIntent,
     SaveAllIntent,
     SaveSelectedIntent,
     StatusLevel,
@@ -30,6 +31,29 @@ from cloudscope.core.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
+def _recent_target_exists(path: str, kind: LoadPathKind) -> bool:
+    """Return whether ``path`` exists on disk in the shape expected for ``kind``."""
+    p = Path(path).expanduser()
+    try:
+        resolved = p.resolve(strict=False)
+    except OSError:
+        resolved = p
+    if kind == LoadPathKind.FOLDER:
+        return resolved.is_dir()
+    return resolved.is_file()
+
+
+def _path_display(path: str) -> str:
+    """Shorten absolute paths under the user home to ``~/…`` for menu labels."""
+    try:
+        p = Path(path).expanduser()
+        home = Path.home()
+        rel = p.resolve(strict=False).relative_to(home.resolve(strict=False))
+        return str(Path('~') / rel)
+    except (ValueError, OSError, RuntimeError):
+        return path
+
+
 @dataclass
 class LoadSaveView:
     """Toolbar that emits load/save intents and renders recents/progress UI."""
@@ -38,7 +62,7 @@ class LoadSaveView:
     app_config: AppConfig
 
     def __post_init__(self) -> None:
-        self._path_input: ui.input | None = None
+        # self._path_input: ui.input | None = None
         self._save_selected_button: ui.button | None = None
         self._save_all_button: ui.button | None = None
         self._current_file_id: str | None = None
@@ -48,6 +72,9 @@ class LoadSaveView:
         self._progress_label: ui.label | None = None
         self._progress_message: ui.label | None = None
         self._client = None
+        self._history_menu_container: ui.element | None = None
+        self._history_button: ui.button | None = None
+        self._recent_menu: ui.menu | None = None
 
         self.event_bus.subscribe(FileSelectionChanged, self._on_file_selection_changed)
         self.event_bus.subscribe(RecentPathsChanged, self._on_recent_paths_changed)
@@ -58,27 +85,34 @@ class LoadSaveView:
         """Build toolbar UI."""
         self._client = ui.context.client
         with ui.row().classes('w-full items-center gap-2'):
-            self._path_input = ui.input(
-                label='Path',
-                placeholder='Enter file/folder/csv path then click load button',
-            ).classes('grow')
 
-            with ui.button(icon='history').props('flat dense'):
-                with ui.menu() as menu:
-                    self._build_recent_menu(menu)
+            # self._path_input = ui.input(
+            #     label='Path',
+            #     placeholder='Enter file/folder/csv path then click load button',
+            # ).classes('grow')
 
-            ui.button('Load File', on_click=lambda: self._on_load_clicked(LoadPathKind.FILE)).props('dense')
-            ui.button('Load Folder', on_click=lambda: self._on_load_clicked(LoadPathKind.FOLDER)).props('dense')
-            ui.button('Load CSV', on_click=lambda: self._on_load_clicked(LoadPathKind.CSV)).props('dense')
+            # History control: button + menu as siblings in a wrapper (KymFlow-style) so
+            # the menu can be deleted/rebuilt when RecentPathsChanged fires.
+            with ui.element('div').classes('inline-flex items-center shrink-0') as hist_wrap:
+                self._history_menu_container = hist_wrap
+                self._history_button = ui.button(
+                    icon='menu',
+                    on_click=self._open_recent_menu,
+                ).props('flat')
+                self._build_recent_menu()
+
+            ui.button('Load File', on_click=lambda: self._on_load_clicked(LoadPathKind.FILE))
+            ui.button('Load Folder', on_click=lambda: self._on_load_clicked(LoadPathKind.FOLDER))
+            ui.button('Load CSV', on_click=lambda: self._on_load_clicked(LoadPathKind.CSV))
 
             self._save_selected_button = ui.button(
                 'Save Selected',
                 on_click=self._on_save_selected_clicked,
-            ).props('dense')
+            )
             self._save_all_button = ui.button(
                 'Save All',
                 on_click=self._on_save_all_clicked,
-            ).props('dense')
+            )
 
         self._build_progress_dialog()
         self._update_button_states()
@@ -90,31 +124,79 @@ class LoadSaveView:
             self._progress_bar = ui.linear_progress(value=0.0).classes('w-full')
         self._progress_dialog = dialog
 
-    def _build_recent_menu(self, menu: ui.menu) -> None:
+    def _open_recent_menu(self) -> None:
+        """Open the recent-paths menu (used by the history button)."""
+        if self._recent_menu is not None:
+            self._recent_menu.open()
+
+    def _build_recent_menu(self) -> None:
+        """Create ``self._recent_menu`` as a sibling of the history button.
+
+        Call only while the NiceGUI slot is the history wrapper (see ``build()``).
+        """
+        if self._history_menu_container is None:
+            return
+        with ui.menu() as menu:
+            self._recent_menu = menu
+            self._fill_recent_menu(menu)
+        self._update_history_button_enabled()
+
+    def _fill_recent_menu(self, menu: ui.menu) -> None:
         recent_folders = self.app_config.get_recent_folders()
         recent_files = self.app_config.get_recent_files()
-        logger.info(f'recent_folders={recent_folders}')
-        logger.info(f'recent_files={recent_files}')
+        logger.info('recent_folders=%s recent_files=%s', recent_folders, recent_files)
         with menu:
             for item in recent_folders:
-                ui.menu_item(f'Folder: {item}', lambda p=item: self._load_recent(p, LoadPathKind.FOLDER))
+                label = f'{_path_display(item)}'
+                ui.menu_item(label, lambda p=item: self._load_recent(p, LoadPathKind.FOLDER))
             if recent_folders and recent_files:
                 ui.separator()
             for item in recent_files:
                 kind = LoadPathKind.CSV if item.lower().endswith('.csv') else LoadPathKind.FILE
-                ui.menu_item(f'File: {item}', lambda p=item, k=kind: self._load_recent(p, k))
+                label = f'{_path_display(item)}'
+                ui.menu_item(label, lambda p=item, k=kind: self._load_recent(p, k))
             if recent_folders or recent_files:
                 ui.separator()
                 ui.menu_item('Clear recents', lambda: self.event_bus.publish(ClearRecentPathsIntent()))
 
-    def _emit_load(self, kind: LoadPathKind) -> None:
-        if self._path_input is None:
+    def _rebuild_history_menu_impl(self) -> None:
+        """Close/delete the old menu and rebuild from ``app_config`` (KymFlow-style)."""
+        if self._history_menu_container is None or self._history_button is None:
             return
-        path = str(self._path_input.value or '').strip()
-        if not path:
-            ui.notify('Enter a path before loading', type='warning')
+        try:
+            if self._recent_menu is not None:
+                self._recent_menu.close()
+        except Exception:
+            logger.debug('recent menu close failed', exc_info=True)
+        try:
+            if self._recent_menu is not None:
+                self._recent_menu.delete()
+        except Exception:
+            logger.debug('recent menu delete failed', exc_info=True)
+        self._recent_menu = None
+        with self._history_menu_container:
+            with ui.menu() as menu:
+                self._recent_menu = menu
+                self._fill_recent_menu(menu)
+        self._update_history_button_enabled()
+
+    def _update_history_button_enabled(self) -> None:
+        if self._history_button is None:
             return
-        self.event_bus.publish(LoadPathIntent(path=path, kind=kind))
+        has_any = bool(self.app_config.get_recent_folders() or self.app_config.get_recent_files())
+        if has_any:
+            self._history_button.enable()
+        else:
+            self._history_button.disable()
+
+    # def _emit_load(self, kind: LoadPathKind) -> None:
+    #     if self._path_input is None:
+    #         return
+    #     path = str(self._path_input.value or '').strip()
+    #     if not path:
+    #         ui.notify('Enter a path before loading', type='warning')
+    #         return
+    #     self.event_bus.publish(LoadPathIntent(path=path, kind=kind))
 
     async def _on_load_clicked(self, kind: LoadPathKind) -> None:
         """Open native picker in native mode, else use text input path."""
@@ -122,11 +204,11 @@ class LoadSaveView:
             selected = await self._pick_load_path(kind)
             if selected is None:
                 return
-            if self._path_input is not None:
-                self._path_input.value = selected
-            self.event_bus.publish(LoadPathIntent(path=selected, kind=kind))
+            # if self._path_input is not None:
+            #     self._path_input.value = selected
+            self.event_bus.publish(LoadPathIntent(path=selected, kind=kind, from_recent=False))
             return
-        self._emit_load(kind)
+        # self._emit_load(kind)
 
     async def _pick_load_path(self, kind: LoadPathKind) -> str | None:
         """Open the correct native picker for requested load kind."""
@@ -176,9 +258,27 @@ class LoadSaveView:
         self.event_bus.publish(SaveAllIntent())
 
     def _load_recent(self, path: str, kind: LoadPathKind) -> None:
-        if self._path_input is not None:
-            self._path_input.value = path
-        self.event_bus.publish(LoadPathIntent(path=path, kind=kind))
+        if not _recent_target_exists(path, kind):
+            self._show_missing_recent_path_dialog(path)
+            self.event_bus.publish(RemoveRecentPathIntent(path=path, kind=kind))
+            return
+        self.event_bus.publish(LoadPathIntent(path=path, kind=kind, from_recent=True))
+
+    def _show_missing_recent_path_dialog(self, path: str) -> None:
+        """Show a KymFlow-style dialog when a recent menu path no longer exists."""
+        display = _path_display(path)
+
+        def open_dialog() -> None:
+            with ui.dialog() as dialog, ui.card().classes('w-[520px]'):
+                ui.label('Item does not exist').classes('text-lg font-semibold')
+                ui.label(display).classes('text-sm break-all text-gray-700')
+                if display != path:
+                    ui.label(path).classes('text-xs break-all text-gray-500')
+                with ui.row().classes('justify-end w-full'):
+                    ui.button('OK', on_click=dialog.close)
+            dialog.open()
+
+        self._run_ui(open_dialog)
 
     def _on_file_selection_changed(self, event: FileSelectionChanged) -> None:
         def apply() -> None:
@@ -189,8 +289,10 @@ class LoadSaveView:
         self._run_ui(apply)
 
     def _on_recent_paths_changed(self, _event: RecentPathsChanged) -> None:
-        # The menu is reconstructed on next page render; no immediate mutation needed.
-        pass
+        def apply() -> None:
+            self._rebuild_history_menu_impl()
+
+        self._run_ui(apply)
 
     def _on_status_changed(self, event: AppStatusChanged) -> None:
         self._notify_status(event.message, event.level.value)
@@ -233,8 +335,8 @@ class LoadSaveView:
     def _resolve_initial_directory(self) -> Path:
         """Resolve best-effort initial directory for native dialogs."""
         candidate = ''
-        if self._path_input is not None:
-            candidate = str(self._path_input.value or '').strip()
+        # if self._path_input is not None:
+        #     candidate = str(self._path_input.value or '').strip()
         if candidate:
             p = Path(candidate).expanduser()
             if p.is_dir():

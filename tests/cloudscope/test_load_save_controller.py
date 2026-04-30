@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
-from acqstore.acq_image.acq_image_list import LoadResult, LoadWarning
+from acqstore.acq_image.acq_image import parent_grandparent_folder_names
+from acqstore.acq_image.acq_image_list import AcqImageList, LoadResult, LoadWarning
 from cloudscope.core.home_page_controller import HomePageController
 from cloudscope.core.event_bus import EventBus
 from cloudscope.core.events import (
@@ -12,12 +14,13 @@ from cloudscope.core.events import (
     LoadPathKind,
     LoadPathIntent,
     RecentPathsChanged,
+    RemoveRecentPathIntent,
     SaveAllIntent,
     SaveSelectedIntent,
     TaskProgressChanged,
 )
 from cloudscope.core.load_save_controller import LoadSaveController
-from cloudscope.gui.app_config import AppConfig
+from cloudscope.gui.app_config import AppConfig, normalize_stored_path
 
 
 class _FakeFile:
@@ -41,11 +44,18 @@ class _FakeFile:
         return None
 
     def get_schema_row(self) -> dict[str, object]:
+        parent, grandparent = parent_grandparent_folder_names(
+            self.file_id,
+            loaded_from_stream=False,
+        )
         return {
             'name': Path(self.file_id).name,
             'path': self.file_id,
+            'parent': parent,
+            'grandparent': grandparent,
             'num_channels': 1,
             'num_rois': 0,
+            'accept': True,
         }
 
 
@@ -110,6 +120,78 @@ def test_load_path_emits_status_progress_and_recents(tmp_path, monkeypatch) -> N
     assert any(item.status == 'completed' for item in progress)
     assert statuses[-1].level == 'warning'
     assert recents[-1].recent_files[-1].endswith('a.tif')
+    saved = json.loads(cfg.path.read_text(encoding='utf-8'))
+    assert saved['last_path']
+    assert any(str(p).endswith('a.tif') for p in saved['recent_files'])
+
+
+def test_load_folder_passes_app_config_folder_depth(tmp_path, monkeypatch) -> None:
+    bus = EventBus()
+    cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
+    cfg.data.folder_depth = 7
+    cfg.save()
+    home = HomePageController(event_bus=bus)
+    controller = LoadSaveController(event_bus=bus, home_controller=home, app_config=cfg)
+    controller.bind()
+
+    captured: dict[str, object] = {}
+
+    def _load_safe(path: str, *, kind, **kwargs):
+        captured.update(kwargs)
+        obj = AcqImageList.__new__(AcqImageList)
+        obj.path = str(Path(path).resolve(strict=False))
+        obj.file_list = []
+        obj._files = []
+        obj._files_by_id = {}
+        return LoadResult(acq_image_list=obj, warnings=())
+
+    monkeypatch.setattr('cloudscope.core.load_save_controller.AcqImageList.load_safe', _load_safe)
+    bus.publish(LoadPathIntent(path=str(tmp_path), kind=LoadPathKind.FOLDER))
+    assert captured.get('folder_depth') == 7
+
+
+def test_remove_recent_path_intent_removes_file_entry(tmp_path) -> None:
+    fp = tmp_path / 'a.tif'
+    fp.write_text('x', encoding='utf-8')
+    bus = EventBus()
+    cfg = AppConfig.load(config_path=tmp_path / 'cfg.json')
+    cfg.push_recent_file(str(fp))
+    cfg.save()
+    home = HomePageController(event_bus=bus)
+    controller = LoadSaveController(event_bus=bus, home_controller=home, app_config=cfg)
+    controller.bind()
+    bus.publish(RemoveRecentPathIntent(path=str(fp), kind=LoadPathKind.FILE))
+    assert cfg.get_recent_files() == []
+
+
+def test_from_recent_missing_folder_prunes_without_repush(tmp_path, monkeypatch) -> None:
+    missing_dir = tmp_path / 'gone'
+    bus = EventBus()
+    cfg = AppConfig.load(config_path=tmp_path / 'cfg.json')
+    cfg.push_recent_folder(str(missing_dir))
+    cfg.save()
+    home = HomePageController(event_bus=bus)
+    controller = LoadSaveController(event_bus=bus, home_controller=home, app_config=cfg)
+    controller.bind()
+
+    def _load_safe(path: str, *, kind, **_kwargs):
+        obj = AcqImageList.__new__(AcqImageList)
+        obj.path = str(Path(path).resolve(strict=False))
+        obj.file_list = []
+        obj._files = []
+        obj._files_by_id = {}
+        wpath = normalize_stored_path(path)
+        return LoadResult(
+            acq_image_list=obj,
+            warnings=(
+                LoadWarning(message='Folder does not exist or is not a directory', path=wpath),
+            ),
+        )
+
+    monkeypatch.setattr('cloudscope.core.load_save_controller.AcqImageList.load_safe', _load_safe)
+    assert cfg.get_recent_folders()
+    bus.publish(LoadPathIntent(path=str(missing_dir), kind=LoadPathKind.FOLDER, from_recent=True))
+    assert cfg.get_recent_folders() == []
 
 
 def test_save_selected_requires_dirty_selected_file(tmp_path) -> None:

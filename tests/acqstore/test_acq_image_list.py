@@ -6,7 +6,9 @@ from pathlib import Path
 
 import pytest
 
+from acqstore.acq_image.acq_image import parent_grandparent_folder_names
 from acqstore.acq_image.acq_image_list import AcqImageList, SaveEvent, _build_file_list
+from acqstore.schema import ACQ_FILE_LIST_SCHEMA
 from acqstore.acq_image.supported_import_extensions import get_allowed_import_extensions
 
 
@@ -35,11 +37,18 @@ class _FakeAcqImage:
         return self._default_roi
 
     def get_schema_row(self) -> dict[str, object]:
+        parent, grandparent = parent_grandparent_folder_names(
+            self.path,
+            loaded_from_stream=False,
+        )
         return {
             'name': Path(self.path).name,
             'path': self.path,
+            'parent': parent,
+            'grandparent': grandparent,
             'num_channels': 1,
             'num_rois': 0 if self._default_roi is None else 1,
+            'accept': True,
         }
 
     @property
@@ -111,7 +120,7 @@ def test_get_schema_rows_match_backend_schema(tmp_path: Path) -> None:
     file_list = AcqImageList(str(file_path), file_factory=_FakeAcqImage)
 
     rows = file_list.get_schema_rows()
-    assert list(rows[0].keys()) == ['name', 'path', 'num_channels', 'num_rois']
+    assert list(rows[0].keys()) == list(ACQ_FILE_LIST_SCHEMA.field_names())
 
 
 def test_build_file_list_folder_depth_one_skips_subdirs(tmp_path: Path) -> None:

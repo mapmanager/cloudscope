@@ -66,6 +66,31 @@ def test_table_widget_config_defaults() -> None:
     assert cfg.clear_selection_on_set_data is True
     assert cfg.enable_edit_on_double_click is True
     assert cfg.enable_keyboard_row_nav is True
+    assert cfg.show_index_column is True
+    assert cfg.index_field == 'table_row_index'
+    assert cfg.index_header == 'Index'
+    assert cfg.cell_font_size_px is None
+
+
+def test_build_aggrid_options_applies_cell_font_size_px() -> None:
+    cols = (ColumnDef(field='id', headerName='ID'),)
+    tw = TableWidget(
+        cols,
+        'id',
+        rows=[{'id': 'a'}],
+        config=TableWidgetConfig(cell_font_size_px=11),
+    )
+    opts = tw._build_aggrid_options()
+    assert opts['defaultColDef']['cellStyle']['fontSize'] == '11px'
+    assert opts['defaultColDef']['headerStyle']['fontSize'] == '11px'
+
+
+def test_build_aggrid_options_omits_font_when_cell_font_size_px_none() -> None:
+    cols = (ColumnDef(field='id', headerName='ID'),)
+    tw = TableWidget(cols, 'id', rows=[{'id': 'a'}], config=TableWidgetConfig())
+    opts = tw._build_aggrid_options()
+    assert 'cellStyle' not in opts['defaultColDef']
+    assert 'headerStyle' not in opts['defaultColDef']
 
 
 def test_get_row_id_js_expression_escapes_field_name() -> None:
@@ -88,12 +113,12 @@ def test_table_widget_upsert_replace_and_insert() -> None:
         [{'id': 'a', 'v': 1}],
     )
     tw.upsert_row({'id': 'a', 'v': 99})
-    assert tw.get_rows() == [{'id': 'a', 'v': 99}]
+    assert tw.get_rows() == [{'id': 'a', 'v': 99, 'table_row_index': 1}]
     tw.upsert_row({'id': 'b', 'v': 2})
     rows = tw.get_rows()
     assert len(rows) == 2
-    assert {'id': 'a', 'v': 99} in rows
-    assert {'id': 'b', 'v': 2} in rows
+    assert {'id': 'a', 'v': 99, 'table_row_index': 1} in rows
+    assert {'id': 'b', 'v': 2, 'table_row_index': 2} in rows
 
 
 def test_table_widget_remove_row() -> None:
@@ -103,7 +128,7 @@ def test_table_widget_remove_row() -> None:
         [{'id': 'a'}, {'id': 'b'}],
     )
     tw.remove_row('a')
-    assert tw.get_rows() == [{'id': 'b'}]
+    assert tw.get_rows() == [{'id': 'b', 'table_row_index': 1}]
     with pytest.raises(ValueError, match='No row'):
         tw.remove_row('a')
 
@@ -111,14 +136,14 @@ def test_table_widget_remove_row() -> None:
 def test_table_widget_update_row() -> None:
     tw = TableWidget([ColumnDef(field='id', headerName='ID'), ColumnDef(field='v', headerName='V')], 'id', [{'id': 'a', 'v': 1}])
     tw.update_row('a', {'id': 'a', 'v': 5})
-    assert tw.get_rows() == [{'id': 'a', 'v': 5}]
+    assert tw.get_rows() == [{'id': 'a', 'v': 5, 'table_row_index': 1}]
 
 
 def test_programmatic_selection_single_mode() -> None:
     tw = TableWidget([ColumnDef(field='id', headerName='ID')], 'id', [{'id': 'a'}, {'id': 'b'}])
     tw.set_selected_row_ids(['a', 'b'])
     assert tw.get_selected_row_ids() == ['a']
-    assert tw.get_selected_rows() == [{'id': 'a'}]
+    assert tw.get_selected_rows() == [{'id': 'a', 'table_row_index': 1}]
     tw.clear_selection()
     assert tw.get_selected_row_ids() == []
 
@@ -140,6 +165,7 @@ def test_set_data_clears_selection_by_default() -> None:
     assert tw.get_selected_row_ids() == ['a']
     tw.set_data([{'id': 'z'}])
     assert tw.get_selected_row_ids() == []
+    assert tw.get_rows() == [{'id': 'z', 'table_row_index': 1}]
 
 
 def test_set_data_keeps_selection_when_configured() -> None:
@@ -164,7 +190,7 @@ def test_column_visibility_api_without_build() -> None:
         'id',
         [{'id': '1'}],
     )
-    assert tw.get_column_visibility() == {'a': True, 'b': False}
+    assert tw.get_column_visibility() == {'table_row_index': True, 'a': True, 'b': False}
     tw.set_column_visible('b', True)
     assert tw.get_column_visibility()['b'] is True
     tw.toggle_column_visible('a')
@@ -185,11 +211,38 @@ def test_on_edit_emitted_updates_internal_rows_and_callback() -> None:
     )
     tw._on_edit_emitted(
         SimpleNamespace(
-            args={'rowId': 'a', 'colId': 'kind', 'oldValue': 'tif', 'newValue': 'czi', 'data': {'id': 'a', 'kind': 'czi'}}
+            args={
+                'rowId': 'a',
+                'colId': 'kind',
+                'oldValue': 'tif',
+                'newValue': 'czi',
+                'data': {'id': 'a', 'kind': 'czi', 'table_row_index': 1},
+            }
         )
     )
     assert tw.get_rows()[0]['kind'] == 'czi'
     assert called and called[0][0] == 'a'
+
+
+def test_show_index_column_false_omits_synthetic_column() -> None:
+    tw = TableWidget(
+        [ColumnDef(field='id', headerName='ID')],
+        'id',
+        [{'id': 'a'}],
+        config=TableWidgetConfig(show_index_column=False),
+    )
+    assert tw.get_rows() == [{'id': 'a'}]
+    assert tw.get_column_visibility() == {'id': True}
+    assert tw._index_field is None
+
+
+def test_index_field_conflict_with_column_raises() -> None:
+    with pytest.raises(ValueError, match='conflicts'):
+        TableWidget(
+            [ColumnDef(field='table_row_index', headerName='Dup'), ColumnDef(field='id', headerName='ID')],
+            'id',
+            [{'id': 'a', 'table_row_index': 0}],
+        )
 
 
 def test_on_select_emitted_updates_selection_state_and_callback() -> None:
@@ -199,6 +252,8 @@ def test_on_select_emitted_updates_selection_state_and_callback() -> None:
         got.append(row)
 
     tw = TableWidget([ColumnDef(field='id', headerName='ID')], 'id', [{'id': 'a'}], on_row_selected=_on_sel)
-    tw._on_select_emitted(SimpleNamespace(args={'rowId': 'a', 'rowIndex': 0, 'data': {'id': 'a'}}))
+    tw._on_select_emitted(
+        SimpleNamespace(args={'rowId': 'a', 'rowIndex': 0, 'data': {'id': 'a', 'table_row_index': 1}})
+    )
     assert tw.get_selected_row_ids() == ['a']
-    assert got == [{'id': 'a'}]
+    assert got == [{'id': 'a', 'table_row_index': 1}]

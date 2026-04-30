@@ -140,10 +140,8 @@ class PrimaryImageView:
             None.
         """
         self._client = ui.context.client
-        with ui.card().classes('w-full'):
-            ui.label(self._title).classes('text-lg font-medium')
-            plot = self._viewer.build()
-            plot.classes('w-full h-80')
+        plot = self._viewer.build()
+        plot.classes('w-full h-80')
         self._refresh_raster()
 
     def _run_ui(self, fn: Callable[[], None]) -> None:
@@ -195,6 +193,9 @@ class PrimaryImageView:
             return
 
         try:
+            logger.info('calling self._viewer.set_data:')
+            logger.info(f'  plane:{plane.shape} min:{plane.min()} max:{plane.max()}')
+            logger.info(f'  grid:{grid}')
             await self._viewer.set_data(plane, grid=grid)
         except RuntimeError as exc:
             logger.exception('set_data failed: %s', exc)

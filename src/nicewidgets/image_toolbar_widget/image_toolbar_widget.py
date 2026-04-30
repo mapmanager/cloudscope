@@ -81,29 +81,31 @@ class ImageToolbarWidget(ui.row):
 
             self._channel_select = ui.select(
                 options=[],
+                label='Channel',
                 value=None,
                 on_change=self._on_channel_change,
-            ).props('name=channel dense outlined')
+            ).props('name=channel outlined')
 
             self._roi_select = ui.select(
                 options=[],
+                label='ROI',
                 value=None,
                 on_change=self._on_roi_change,
-            ).props('name=roi dense outlined')
+            ).props('name=roi outlined')
 
-            self._add_btn = ui.button(icon='add', on_click=self._on_add_click).props('flat dense round')
+            self._add_btn = ui.button(icon='add', on_click=self._on_add_click).props('flat round')
             self._add_btn.tooltip('Add ROI')
-            self._delete_btn = ui.button(icon='remove', on_click=self._on_delete_click).props('flat dense round')
+            self._delete_btn = ui.button(icon='remove', on_click=self._on_delete_click).props('flat round')
             self._delete_btn.tooltip('Delete ROI')
-            self._edit_btn = ui.button(icon='edit', on_click=self._on_edit_click).props('flat dense round')
+            self._edit_btn = ui.button(icon='edit', on_click=self._on_edit_click).props('flat round')
             self._edit_btn.tooltip('Edit ROI')
-            self._full_width_btn = ui.button(icon='swap_horiz', on_click=self._on_full_width_click).props('flat dense round')
+            self._full_width_btn = ui.button(icon='swap_horiz', on_click=self._on_full_width_click).props('flat round')
             self._full_width_btn.tooltip('Full width')
-            self._full_height_btn = ui.button(icon='swap_vert', on_click=self._on_full_height_click).props('flat dense round')
+            self._full_height_btn = ui.button(icon='swap_vert', on_click=self._on_full_height_click).props('flat round')
             self._full_height_btn.tooltip('Full height')
-            self._ok_btn = ui.button('OK', on_click=self._on_ok_click).props('flat dense')
+            self._ok_btn = ui.button('OK', on_click=self._on_ok_click).props('flat')
             self._ok_btn.tooltip('Submit ROI edit')
-            self._cancel_btn = ui.button('Cancel', on_click=self._on_cancel_click).props('flat dense')
+            self._cancel_btn = ui.button('Cancel', on_click=self._on_cancel_click).props('flat')
             self._cancel_btn.tooltip('Cancel ROI edit')
 
         #

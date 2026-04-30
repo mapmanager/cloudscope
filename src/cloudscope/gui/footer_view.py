@@ -95,7 +95,7 @@ class FooterView:
         """
         self._client = ui.context.client
         with ui.footer().classes(
-            'w-full px-3 py-1 text-xs flex items-center bg-gray-900 text-gray-200'
+            'w-full px-3 py-1 flex items-center bg-gray-900 text-gray-200'
         ):
             with ui.row().classes('w-full items-center gap-6 min-w-0'):
                 self._file_label = ui.label().classes('truncate max-w-[320px]')

@@ -90,9 +90,37 @@ class TableWidget:
         self._evt_select = f'table_widget_select_{id(self)}'
         self._evt_edit = f'table_widget_edit_{id(self)}'
 
-        self._column_defs: list[dict[str, Any]] = [c.as_aggrid_column_def() for c in columns]
+        self._index_field: str | None = None
+        if self._config.show_index_column:
+            idx_f = str(self._config.index_field).strip()
+            if not idx_f:
+                raise ValueError('index_field must be non-empty when show_index_column is true')
+            for c in columns:
+                if c.field == idx_f:
+                    raise ValueError(
+                        f'Column field {idx_f!r} conflicts with TableWidgetConfig.index_field; '
+                        'rename the column or set a different index_field'
+                    )
+            self._index_field = idx_f
+            index_col = ColumnDef(
+                field=idx_f,
+                headerName=str(self._config.index_header),
+                extra={
+                    'editable': False,
+                    'sortable': True,
+                    'filter': False,
+                    'type': 'numericColumn',
+                    'maxWidth': 96,
+                },
+            )
+            built_columns = (index_col, *columns)
+        else:
+            built_columns = tuple(columns)
+
+        self._column_defs: list[dict[str, Any]] = [c.as_aggrid_column_def() for c in built_columns]
         self._rows: list[dict[str, Any]] = [dict(r) for r in (rows or ())]
         validate_rows_for_row_id_field(self._rows, self._row_id_field)
+        self._assign_row_indices()
 
         self._selected_row_ids: list[str] = []
         self._selected_rows: list[dict[str, Any]] = []
@@ -104,6 +132,13 @@ class TableWidget:
 
         ui.on(self._evt_select, self._on_select_emitted)
         ui.on(self._evt_edit, self._on_edit_emitted)
+
+    def _assign_row_indices(self) -> None:
+        """Set 1-based row index in row data for the synthetic index column."""
+        if self._index_field is None:
+            return
+        for i, row in enumerate(self._rows):
+            row[self._index_field] = i + 1
 
     def build(self, parent: ui.element | None = None) -> ui.column:
         """Create the wrapper + context menu + AG Grid under ``parent`` (or current slot)."""
@@ -175,6 +210,7 @@ class TableWidget:
         new_rows = [dict(r) for r in rows]
         validate_rows_for_row_id_field(new_rows, self._row_id_field)
         self._rows = new_rows
+        self._assign_row_indices()
         self._push_row_data_to_grid()
         if self._config.clear_selection_on_set_data:
             self.clear_selection()
@@ -190,6 +226,7 @@ class TableWidget:
                 break
         else:
             self._rows.append(replacement)
+        self._assign_row_indices()
         self._push_row_data_to_grid()
 
     def update_row(self, row_id: str, row: Mapping[str, Any]) -> None:
@@ -205,10 +242,11 @@ class TableWidget:
         if idx is None:
             raise ValueError(f'No row with id {rid!r}')
         self._rows[idx] = replacement
+        self._assign_row_indices()
         if self._grid is None:
             return
         try:
-            self._grid.run_row_method(rid, 'setData', replacement)
+            self._grid.run_row_method(rid, 'setData', dict(self._rows[idx]))
         except RuntimeError:
             self._push_row_data_to_grid()
 
@@ -220,6 +258,7 @@ class TableWidget:
         self._rows = [r for r in self._rows if r.get(self._row_id_field) != row_id]
         if len(self._rows) == before:
             raise ValueError(f'No row with id {row_id!r}')
+        self._assign_row_indices()
         self._push_row_data_to_grid()
         if row_id in self._selected_row_ids:
             self._selected_row_ids = [rid for rid in self._selected_row_ids if rid != row_id]
@@ -255,10 +294,23 @@ class TableWidget:
         return {'mode': 'multiRow', 'enableClickSelection': True, 'checkboxes': False}
 
     def _build_aggrid_options(self) -> dict[str, Any]:
+        default_col_def: dict[str, Any] = {'sortable': True, 'filter': True, 'resizable': True}
+        px = self._config.cell_font_size_px
+        if px is not None:
+            try:
+                n = int(px)
+            except (TypeError, ValueError):
+                n = None
+            else:
+                if n >= 1:
+                    fs = f'{n}px'
+                    default_col_def['cellStyle'] = {'fontSize': fs}
+                    default_col_def['headerStyle'] = {'fontSize': fs}
+
         base: dict[str, Any] = {
             'columnDefs': copy.deepcopy(self._column_defs),
             'rowData': [dict(r) for r in self._rows],
-            'defaultColDef': {'sortable': True, 'filter': True, 'resizable': True},
+            'defaultColDef': default_col_def,
             ':getRowId': _get_row_id_js_expression(self._row_id_field),
             ':onRowClicked': js_on_row_clicked(emit_event=self._evt_select, row_id_field=self._row_id_field),
         }

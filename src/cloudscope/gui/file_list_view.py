@@ -10,6 +10,7 @@ from acqstore.acq_image.acq_image_list import AcqImageList
 from acqstore.schema import ACQ_FILE_LIST_SCHEMA
 from cloudscope.core.event_bus import EventBus
 from cloudscope.core.events import FileListChanged, FileSelectionChanged, MetadataChanged, SelectFileIntent
+from cloudscope.gui.app_config import AppConfig
 from cloudscope.gui.schema_adapters import schema_to_column_defs
 from nicewidgets.table_widget.config import TableWidgetConfig
 from nicewidgets.table_widget.table_widget import TableWidget
@@ -25,6 +26,7 @@ class AcqImageListTableView:
         event_bus: CloudScope event bus used to publish file-selection intents
             and consume file-selection state events.
         acq_image_list: Backend file list to display.
+        app_config: Persisted GUI config (table font size, etc.).
         row_id_field: Row field used as the stable table row identifier. For
             current AcqStore rows, this should remain ``"path"`` because
             ``AcqImage.file_id`` is the absolute path.
@@ -35,10 +37,12 @@ class AcqImageListTableView:
         event_bus: EventBus,
         acq_image_list: AcqImageList | None = None,
         *,
+        app_config: AppConfig,
         row_id_field: str = "path",
     ) -> None:
         self._event_bus = event_bus
         self._acq_image_list = acq_image_list
+        self._app_config = app_config
         self._row_id_field = row_id_field
         self._table: TableWidget | None = None
 
@@ -64,6 +68,7 @@ class AcqImageListTableView:
             config=TableWidgetConfig(
                 selection_mode="single",
                 auto_size_columns=True,
+                cell_font_size_px=int(self._app_config.data.table_font_size_px),
             ),
         )
         return self._table.build(parent=parent)
@@ -129,7 +134,7 @@ class AcqImageListTableView:
         """Refresh one table row after metadata apply (row keys match file-list schema)."""
         if self._table is None:
             return
-        self._table.update_row(event.file_id, dict(event.row))
+        self._table.update_row(event.file_id, dict(event.file_list_row))
 
     def _on_file_list_changed(self, event: FileListChanged) -> None:
         """Replace table rows when controller publishes a new file list."""

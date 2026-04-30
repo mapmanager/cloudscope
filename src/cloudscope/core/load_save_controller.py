@@ -6,7 +6,7 @@ import asyncio
 from dataclasses import dataclass
 from uuid import uuid4
 
-from acqstore.acq_image.acq_image_list import AcqImageList
+from acqstore.acq_image.acq_image_list import AcqImageList, LoadResult
 from nicegui import run
 from cloudscope.core.home_page_controller import HomePageController
 from cloudscope.core.event_bus import EventBus
@@ -16,6 +16,7 @@ from cloudscope.core.events import (
     LoadPathKind,
     LoadPathIntent,
     RecentPathsChanged,
+    RemoveRecentPathIntent,
     SaveAllIntent,
     SaveSelectedIntent,
     StatusLevel,
@@ -25,7 +26,7 @@ from cloudscope.core.events import (
     TaskProgressChanged,
 )
 from cloudscope.core.utils.logging import get_logger
-from cloudscope.gui.app_config import AppConfig
+from cloudscope.gui.app_config import AppConfig, normalize_stored_path
 
 logger = get_logger(__name__)
 
@@ -41,6 +42,7 @@ class LoadSaveController:
     def bind(self) -> None:
         """Subscribe controller handlers to load/save intents."""
         self.event_bus.subscribe(LoadPathIntent, self._on_load_path)
+        self.event_bus.subscribe(RemoveRecentPathIntent, self._on_remove_recent_path)
         self.event_bus.subscribe(SaveSelectedIntent, self._on_save_selected)
         self.event_bus.subscribe(SaveAllIntent, self._on_save_all)
         self.event_bus.subscribe(ClearRecentPathsIntent, self._on_clear_recent_paths)
@@ -64,7 +66,16 @@ class LoadSaveController:
         )
         logger.info('load path intent kind=%s path=%s', event.kind, event.path)
 
-        result = await run.io_bound(AcqImageList.load_safe, event.path, kind=event.kind)
+        folder_depth = int(self.app_config.get_attribute('folder_depth'))
+        if event.kind == LoadPathKind.FOLDER:
+            result = await run.io_bound(
+                AcqImageList.load_safe,
+                event.path,
+                kind=event.kind,
+                folder_depth=folder_depth,
+            )
+        else:
+            result = await run.io_bound(AcqImageList.load_safe, event.path, kind=event.kind)
         warning_count = len(result.warnings)
         if warning_count:
             for warning in result.warnings:
@@ -88,7 +99,11 @@ class LoadSaveController:
         else:
             self.home_controller.load_acq_image_list(loaded)
 
-        self._update_recents(path=event.path, kind=event.kind)
+        stale_recent = event.from_recent and self._recent_nominal_target_missing(result, event.path, event.kind)
+        if stale_recent:
+            self._remove_recent_path_entry(event.path, event.kind)
+        else:
+            self._update_recents(path=event.path, kind=event.kind)
         self._publish_task(
             task_kind=TaskKind.LOAD,
             task_id=task_id,
@@ -166,8 +181,40 @@ class LoadSaveController:
     def _on_clear_recent_paths(self, _event: ClearRecentPathsIntent) -> None:
         """Clear recent file/folder paths and publish update."""
         self.app_config.clear_recent_paths()
+        self.app_config.save()
         self._publish_recent_paths()
         self._publish_status(level=StatusLevel.INFO, source=StatusSource.SYSTEM, message='Cleared recent paths')
+
+    def _on_remove_recent_path(self, event: RemoveRecentPathIntent) -> None:
+        """Drop one recent path from config and persist."""
+        self._remove_recent_path_entry(event.path, event.kind)
+
+    def _remove_recent_path_entry(self, path: str, kind: LoadPathKind) -> None:
+        if kind == LoadPathKind.FOLDER:
+            self.app_config.remove_recent_folder(path)
+        else:
+            self.app_config.remove_recent_file(path)
+        self.app_config.save()
+        self._publish_recent_paths()
+
+    @staticmethod
+    def _recent_nominal_target_missing(result: LoadResult, path: str, kind: LoadPathKind) -> bool:
+        """True when ``load_safe`` reported the nominal path missing or wrong type on disk."""
+        _ = kind
+        target = normalize_stored_path(path)
+        for w in result.warnings:
+            if w.path is None:
+                continue
+            if normalize_stored_path(w.path) != target:
+                continue
+            msg = (w.message or '').lower()
+            if (
+                'does not exist' in msg
+                or 'is not a directory' in msg
+                or 'is not a file' in msg
+            ):
+                return True
+        return False
 
     def _update_recents(self, *, path: str, kind: LoadPathKind) -> None:
         """Update app config recents and last path after a load action."""
@@ -176,6 +223,7 @@ class LoadSaveController:
         else:
             self.app_config.push_recent_file(path)
         self.app_config.set_last_path(path)
+        self.app_config.save()
         self._publish_recent_paths()
 
     def _publish_recent_paths(self) -> None:

@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from nicegui import ui
+from nicegui import app, ui
+
+from nicewidgets.gui_defaults import setUpGuiDefaults
 
 from cloudscope.core.home_page_controller import HomePageController
 from cloudscope.core.event_bus import EventBus
@@ -18,6 +20,7 @@ from cloudscope.core.events import (
 )
 from cloudscope.core.load_save_controller import LoadSaveController
 from cloudscope.gui.app_config import AppConfig
+from cloudscope.gui.app_config_view import AppConfigView
 from cloudscope.gui.file_list_view import AcqImageListTableView
 from cloudscope.gui.image_toolbar_view import ImageToolbarView
 from cloudscope.gui.load_save_view import LoadSaveView
@@ -26,6 +29,9 @@ from cloudscope.gui.header_view import build_main_header
 from cloudscope.gui.footer_view import FooterView
 from cloudscope.gui.primary_image_view import PrimaryImageView
 
+from cloudscope.core.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 class PlotlyImagePanel:
     """Minimal Plotly-backed image panel."""
@@ -55,8 +61,8 @@ class PlotlyImagePanel:
             None.
         """
         with ui.card().classes("w-full"):
-            ui.label(self._title).classes("text-lg font-medium")
-            self._summary = ui.label("No selection").classes("text-sm text-gray-600")
+            ui.label(self._title)
+            self._summary = ui.label("No selection")
             self._plot = ui.plotly(
                 self._make_figure(file_id=None, channel=None, roi_id=None)
             ).classes("w-full h-80")
@@ -148,13 +154,29 @@ class HomePage:
         Returns:
             None.
         """
+
+        # abb start add
+        #
+        # configure default classes (after app_config is loaded)
+        text_size = self.app_config.get_attribute("text_size")
+        setUpGuiDefaults(text_size)
+
+        self._install_shutdown_handlers()
+
+        app.native.on('resized', self._native_resize)
+        app.native.on('moved', self._native_moved)
+
+        # abb end add
+
         file_list_panel = AcqImageListTableView(
             event_bus=self.event_bus,
             acq_image_list=None,
+            app_config=self.app_config,
         )
         load_save_view = LoadSaveView(event_bus=self.event_bus, app_config=self.app_config)
         image_toolbar = ImageToolbarView(event_bus=self.event_bus)
         metadata_view = MetadataView(event_bus=self.event_bus)
+        app_config_view = AppConfigView(app_config=self.app_config)
         primary_image = PrimaryImageView(self.event_bus, title='Primary image')
         reference_image = PlotlyImagePanel(self.event_bus, title="Reference image")
         footer = FooterView(event_bus=self.event_bus)
@@ -162,7 +184,7 @@ class HomePage:
         # then main body (splitter/column). Header + footer must be top-level layout
         # elements before nested content — see NiceGUI page layout / Quasar ``q-layout``.
         ui.page_title("CloudScope")
-        build_main_header(title="CloudScope")
+        build_main_header(title="CloudScope", app_config=self.app_config)
         footer.build()
 
         with ui.splitter(value=28).classes("w-full min-h-screen") as splitter:
@@ -171,19 +193,19 @@ class HomePage:
                 with ui.column().classes("w-full gap-4 p-4"):
                     with ui.card().classes("w-full"):
                         metadata_view.build()
+                    with ui.card().classes("w-full"):
+                        app_config_view.build()
 
             with splitter.after:
                 with ui.column().classes("w-full gap-4 p-4"):
-                    ui.label("CloudScope").classes("text-2xl font-bold")
+                    # ui.label("CloudScope").classes("text-2xl font-bold")
                     load_save_view.build()
 
                     with ui.row().classes("w-full items-start gap-4"):
-                        with ui.card().classes("w-1/2").style("height: 32rem;"):
-                            ui.label("Files").classes("text-lg font-medium")
-                            file_list_panel.build()
+                        file_list_panel.build()
 
-                        with ui.card().classes("w-1/2"):
-                            image_toolbar.build()
+                    with ui.row().classes("w-full items-start gap-4"):
+                        image_toolbar.build()
 
                     primary_image.build()
                     reference_image.build()
@@ -197,6 +219,65 @@ class HomePage:
             kind = _infer_load_kind(last_path)
             self.event_bus.publish(LoadPathIntent(path=last_path, kind=kind))
 
+    # abb 20260323 pywebview native save png (clipboard)
+    def _native_resize(self, e):# we also can do this:
+        """
+        NativeEventArguments(type='resized', args={'width': 1221.0, 'height': 1538.0})
+        """
+        args = e.args
+        
+        # logger.info(f"  args is: {args}")
+
+        # cfg = AppConfig.load()
+        # logger.info(f"App config loaded from: {cfg.path}")
+
+        x, y, w, h = self.app_config.get_window_rect()
+
+        # logger.info(f"  old window size: w:{w}, h:{h}")
+        w = args['width']
+        h = args['height']  
+        # logger.info(f"  new window size: w:{w}, h:{h}")
+
+        self.app_config.set_window_rect(x, y, w, h)
+
+    def _native_moved(self, e):
+        """
+        NativeEventArguments(type='moved', args={'x': 2365.0, 'y': 545.0})
+        """
+        args = e.args
+
+        # logger.info(f"  args is: {args}")
+
+        # cfg = AppConfig.load()
+        # logger.info(f"App config loaded from: {cfg.path}")
+
+        x, y, w, h = self.app_config.get_window_rect()
+
+        # logger.info(f"  old window position: x:{x}, y:{y}")
+        x = args['x']
+        y = args['y']  
+        # logger.info(f"  new window position: x:{x}, y:{y}")
+
+        self.app_config.set_window_rect(x, y, w, h)
+
+    def _install_shutdown_handlers(self) -> None:
+        """Register app shutdown handlers for GUI v2.
+        
+        Only installs handlers when running in native mode (native=True).
+        In browser mode, configs are saved via other mechanisms.
+        """
+        native = getattr(app, "native", None)
+        if native is None:
+            logger.debug("skipping (not native mode)")
+            return
+        
+        # logger.info("installing (native mode detected)")
+
+        async def _persist_on_shutdown() -> None:
+            """Persist user and app config on shutdown without touching native window APIs."""
+            self.app_config.save()
+
+        app.on_shutdown(_persist_on_shutdown)
 
 @ui.page("/")
 def home_page() -> None:

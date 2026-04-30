@@ -229,7 +229,24 @@ ACQ_FILE_LIST_SCHEMA = SchemaDefinition(
             name='path',
             display_name='Path',
             value_type=ValueType.PATH,
+            visible=False,  # do not show path in the table
             description='Absolute file path.',
+            group='File',
+        ),
+        FieldSchema(
+            name='parent',
+            display_name='Parent',
+            value_type=ValueType.STR,
+            description='Immediate parent folder name when known from a filesystem path.',
+            default_value='',
+            group='File',
+        ),
+        FieldSchema(
+            name='grandparent',
+            display_name='Grandparent',
+            value_type=ValueType.STR,
+            description='Grandparent folder name when known from a filesystem path.',
+            default_value='',
             group='File',
         ),
         FieldSchema(
@@ -245,6 +262,13 @@ ACQ_FILE_LIST_SCHEMA = SchemaDefinition(
             value_type=ValueType.INT,
             description='Number of ROIs associated with this file.',
             group='ROI',
+        ),
+        FieldSchema(
+            name='accept',
+            display_name='Accept',
+            value_type=ValueType.BOOL,
+            description='Acceptance status of this file.',
+            group='File',
         ),
     ),
 )

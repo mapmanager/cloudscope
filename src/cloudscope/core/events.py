@@ -98,13 +98,22 @@ class ApplyMetadataIntent(IntentEvent):
     """Request to apply edited metadata for one file section (in-memory only)."""
 
     file_id: str
-    section_id: str
+    metadata_section_id: str
     patch: dict[str, object]
 
 
 @dataclass(frozen=True)
 class LoadPathIntent(IntentEvent):
     """Request to load files from a path source."""
+
+    path: str
+    kind: LoadPathKind
+    from_recent: bool = False
+
+
+@dataclass(frozen=True)
+class RemoveRecentPathIntent(IntentEvent):
+    """Remove one path from recent files or recent folders (e.g. stale menu pick)."""
 
     path: str
     kind: LoadPathKind
@@ -189,12 +198,12 @@ class RoiSelectionChanged(StateEvent):
 class MetadataChanged(StateEvent):
     """Emitted after metadata values were applied for one file.
 
-    ``row`` is a shallow snapshot: keys match ``ACQ_FILE_LIST_SCHEMA`` exactly.
+    ``file_list_row`` is a shallow snapshot: keys match ``ACQ_FILE_LIST_SCHEMA`` exactly.
     """
 
     file_id: str
-    section_id: str
-    row: dict[str, object]
+    metadata_section_id: str
+    file_list_row: dict[str, object]
 
 
 @dataclass(frozen=True)

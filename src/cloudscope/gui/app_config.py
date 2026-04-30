@@ -17,6 +17,11 @@ FILE_NAME = 'app_config.json'
 SCHEMA_VERSION = 1
 MAX_RECENTS = 15
 DEFAULT_WINDOW_RECT = (100, 100, 1200, 1000)  # x, y, w, h
+DEFAULT_FOLDER_DEPTH = 4
+DEFAULT_TEXT_SIZE = 'text-base'
+DEFAULT_TABLE_FONT_SIZE_PX = 13
+MIN_TABLE_FONT_SIZE_PX = 8
+MAX_TABLE_FONT_SIZE_PX = 32
 
 
 def _normalize_path(path: str | Path) -> str:
@@ -29,6 +34,11 @@ def _normalize_path(path: str | Path) -> str:
     return str(p)
 
 
+def normalize_stored_path(path: str | Path) -> str:
+    """Normalize a path the same way as stored config values (for comparisons)."""
+    return _normalize_path(path)
+
+
 @dataclass
 class AppConfigData:
     """JSON-serializable GUI config payload."""
@@ -38,6 +48,10 @@ class AppConfigData:
     recent_folders: list[str] = field(default_factory=list)
     last_path: str = ''
     window_rect: list[int] = field(default_factory=lambda: list(DEFAULT_WINDOW_RECT))
+    text_size: str = DEFAULT_TEXT_SIZE
+    folder_depth: int = DEFAULT_FOLDER_DEPTH
+    table_font_size_px: int = DEFAULT_TABLE_FONT_SIZE_PX
+    dark_mode: bool = False
 
     def to_json_dict(self) -> dict[str, object]:
         """Return payload as JSON-serializable dictionary."""
@@ -76,12 +90,41 @@ class AppConfigData:
             except Exception:
                 window_rect = list(DEFAULT_WINDOW_RECT)
 
+        text_size_raw = payload.get('text_size', DEFAULT_TEXT_SIZE)
+        text_size = (
+            str(text_size_raw).strip()
+            if isinstance(text_size_raw, str) and str(text_size_raw).strip()
+            else DEFAULT_TEXT_SIZE
+        )
+
+        folder_depth_raw = payload.get('folder_depth', DEFAULT_FOLDER_DEPTH)
+        try:
+            folder_depth = int(folder_depth_raw)
+        except Exception:
+            folder_depth = DEFAULT_FOLDER_DEPTH
+
+        table_font_raw = payload.get('table_font_size_px', DEFAULT_TABLE_FONT_SIZE_PX)
+        try:
+            table_font_size_px = int(table_font_raw)
+        except Exception:
+            table_font_size_px = DEFAULT_TABLE_FONT_SIZE_PX
+
+        dark_raw = payload.get('dark_mode', False)
+        if isinstance(dark_raw, bool):
+            dark_mode = dark_raw
+        else:
+            dark_mode = str(dark_raw).lower() in {'1', 'true', 'yes'}
+
         return cls(
             schema_version=schema_version,
             recent_files=recent_files,
             recent_folders=recent_folders,
             last_path=last_path,
             window_rect=window_rect,
+            text_size=text_size,
+            folder_depth=folder_depth,
+            table_font_size_px=table_font_size_px,
+            dark_mode=dark_mode,
         )
 
 
@@ -156,24 +199,33 @@ class AppConfig:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps(self.data.to_json_dict(), indent=2), encoding='utf-8')
 
+    def normalize_and_persist(self) -> None:
+        """Normalize in-memory fields (paths, rects, depth) then write config to disk."""
+        self._normalize_loaded_data()
+        self.save()
+
     def ensure_exists(self) -> None:
         """Create config file if it does not exist."""
         if not self.path.exists():
             self.save()
 
     def _normalize_loaded_data(self) -> None:
-        """Normalize loaded values and prune missing recent paths."""
+        """Normalize loaded values; keep recent paths even when missing on disk.
+
+        Recent file/folder lists are **not** pruned for missing targets at load time
+        so temporarily unavailable volumes or deleted-then-restored paths stay in
+        history until the user opens a missing item (handled in the GUI) or clears
+        recents. Entries are still deduplicated by normalized path and capped.
+        """
         normalized_files: list[str] = []
         seen_files: set[str] = set()
         for file_path in self.data.recent_files:
             normalized_path = _normalize_path(file_path)
+            if not normalized_path.strip():
+                continue
             if normalized_path in seen_files:
                 continue
             seen_files.add(normalized_path)
-            path_obj = Path(normalized_path)
-            if not path_obj.exists() or not path_obj.is_file():
-                logger.warning('Pruned missing recent file: %s', normalized_path)
-                continue
             normalized_files.append(normalized_path)
         self.data.recent_files = normalized_files[-MAX_RECENTS:]
 
@@ -181,13 +233,11 @@ class AppConfig:
         seen_folders: set[str] = set()
         for folder_path in self.data.recent_folders:
             normalized_path = _normalize_path(folder_path)
+            if not normalized_path.strip():
+                continue
             if normalized_path in seen_folders:
                 continue
             seen_folders.add(normalized_path)
-            path_obj = Path(normalized_path)
-            if not path_obj.exists() or not path_obj.is_dir():
-                logger.warning('Pruned missing recent folder: %s', normalized_path)
-                continue
             normalized_folders.append(normalized_path)
         self.data.recent_folders = normalized_folders[-MAX_RECENTS:]
 
@@ -208,6 +258,14 @@ class AppConfig:
                 self.data.window_rect = [int(rect[0]), int(rect[1]), int(rect[2]), int(rect[3])]
             except Exception:
                 self.data.window_rect = list(DEFAULT_WINDOW_RECT)
+
+        if self.data.folder_depth < 1:
+            self.data.folder_depth = DEFAULT_FOLDER_DEPTH
+
+        if self.data.table_font_size_px < MIN_TABLE_FONT_SIZE_PX:
+            self.data.table_font_size_px = MIN_TABLE_FONT_SIZE_PX
+        elif self.data.table_font_size_px > MAX_TABLE_FONT_SIZE_PX:
+            self.data.table_font_size_px = MAX_TABLE_FONT_SIZE_PX
 
     def get_recent_files(self) -> list[str]:
         """Return recent file paths."""
@@ -273,3 +331,19 @@ class AppConfig:
             return (int(rect[0]), int(rect[1]), int(rect[2]), int(rect[3]))
         except Exception:
             return DEFAULT_WINDOW_RECT
+
+    def get_attribute(self, key: str) -> object | None:
+        """Get attribute value by key.
+
+        Args:
+            key: Attribute name (e.g., ``text_size``, ``folder_depth``).
+
+        Returns:
+            Attribute value
+
+        Raises:
+            AttributeError: If key doesn't exist
+        """
+        if not hasattr(self.data, key):
+            raise AttributeError(f"AppConfig has no attribute '{key}'")
+        return getattr(self.data, key)

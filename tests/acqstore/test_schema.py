@@ -86,7 +86,15 @@ def test_schema_definition_helpers() -> None:
     schema = ACQ_FILE_LIST_SCHEMA
     assert schema.schema_id == 'acq_file_list'
     assert schema.version == 1
-    assert [field.name for field in schema.visible_fields()] == ['name', 'path', 'num_channels', 'num_rois']
+    # ``path`` remains in the schema for values/validation/table row keys but is hidden from UI.
+    assert [field.name for field in schema.visible_fields()] == [
+        'name',
+        'parent',
+        'grandparent',
+        'num_channels',
+        'num_rois',
+        'accept',
+    ]
     assert card_groups(schema) == ('File', 'Image', 'ROI')
 
 
@@ -116,8 +124,11 @@ def test_validate_values_for_schema_rejects_extra_keys_by_default() -> None:
             {
                 'name': 'a.tif',
                 'path': '/tmp/a.tif',
+                'parent': '',
+                'grandparent': '',
                 'num_channels': 2,
                 'num_rois': 0,
+                'accept': True,
                 'extra': True,
             },
         )
@@ -129,8 +140,11 @@ def test_validate_values_for_schema_allows_extra_values_when_enabled() -> None:
         {
             'name': 'a.tif',
             'path': '/tmp/a.tif',
+            'parent': '',
+            'grandparent': '',
             'num_channels': 2,
             'num_rois': 0,
+            'accept': True,
             'extra': True,
         },
         allow_extra_values=True,

@@ -45,7 +45,7 @@ class SchemaCardWidget:
             for group_name, field_list in self._group_visible_fields():
                 if group_name is not None:
                     ui.separator()
-                    ui.label(str(group_name)).classes('text-sm font-semibold opacity-70')
+                    ui.label(str(group_name)).classes('font-semibold opacity-70')
                 for field in field_list:
                     raw = self._values.get(field.name, field.default_value)
                     self._build_field(field, raw)
