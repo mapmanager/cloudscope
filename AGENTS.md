@@ -2,24 +2,28 @@
 
 ## Mission
 
-Build CloudScope as a thin frontend over a strong backend.
+Build CloudScope as a thin frontend over strong backend and reusable widget packages.
 
-CloudScope is split into two packages in this repository:
+CloudScope currently has three source packages in this repository:
 
 - `src/acqstore/`: backend acquisition/data-model code
+- `src/nicewidgets/`: reusable, general-purpose NiceGUI widgets
 - `src/cloudscope/`: CloudScope app code, contracts, controller/event/state logic, and GUI
 
 ---
 
 ## Package Boundaries (STRICT)
 
-- Backend acquisition models, file loaders, ROI models, metadata models, and analysis models belong in `src/acqstore/`.
-- CloudScope contracts, controller/event/state logic, app orchestration, and NiceGUI code belong in `src/cloudscope/`.
-- NiceGUI-specific code belongs only in `src/cloudscope/gui/`.
+- Backend acquisition models, file loaders, ROI models, metadata models, analysis models, schemas, and persistence helpers belong in `src/acqstore/`.
+- Reusable NiceGUI widgets that should not know about CloudScope belong in `src/nicewidgets/`.
+- CloudScope contracts, controller/event/state logic, app orchestration, adapters, and GUI composition belong in `src/cloudscope/`.
+- NiceGUI-specific CloudScope app code belongs in `src/cloudscope/gui/`.
 
 ### Boundary Rules
 
-- Do NOT move code across the `acqstore` / `cloudscope` boundary unless the ticket explicitly asks for it.
+- Do NOT move code across the `acqstore` / `nicewidgets` / `cloudscope` boundaries unless the ticket explicitly asks for it.
+- `acqstore` MUST NOT import from `cloudscope` or `nicewidgets`.
+- `nicewidgets` MUST NOT import from `cloudscope`.
 - Do NOT modify GUI code unless the ticket explicitly asks for GUI work.
 - Do NOT modify files outside the scope of the current ticket.
 - If a required change appears to require cross-cutting refactors, STOP and report instead of guessing.
@@ -34,6 +38,7 @@ CloudScope is split into two packages in this repository:
 - No hidden defaults.
 - Prefer fail-fast behavior over silent coercion.
 - Backend APIs must use backend-native values and must not leak GUI assumptions.
+- Keep package APIs explicit; avoid hiding imports or behavior in `__init__.py`.
 
 ---
 
@@ -41,11 +46,13 @@ CloudScope is split into two packages in this repository:
 
 - All public APIs must be fully typed.
 - All public APIs must have Google-style docstrings.
+- Docstrings must include Args, Returns, and Raises when applicable.
 - Keep implementations KISS and DRY.
 - Avoid speculative abstraction.
-- Avoid backward compatibility unless explicitly required.
+- Avoid backward compatibility unless explicitly required by the ticket.
 - Fail fast on invalid input with clear exceptions.
-- Do not invent APIs, behaviors, or file locations that are not specified by the ticket or existing source of truth.
+- Do not invent APIs, behaviors, file locations, or naming conventions that are not specified by the ticket or existing source of truth.
+- Keep `__init__.py` files minimal. Do not add re-export lists or import side effects unless the ticket explicitly asks for them.
 
 ---
 
@@ -66,7 +73,7 @@ CloudScope is split into two packages in this repository:
 Every ticket MUST create or update a report file under:
 
 ```text
-docs/tickets/reports/
+docs/codex_tickets/
 ```
 
 The report filename MUST include the ticket number and short title.
@@ -74,7 +81,7 @@ The report filename MUST include the ticket number and short title.
 Example:
 
 ```text
-docs/tickets/reports/001_add_import_path_discovery_report.md
+docs/codex_tickets/001_add_import_path_discovery_report.md
 ```
 
 The report file MUST include:
@@ -86,7 +93,7 @@ The report file MUST include:
 - Test results
 - Any concerns or follow-ups
 
-Do not treat a conversational summary as a substitute for the report file. The report must be a committed file in the repository.
+Do not treat a conversational summary as a substitute for the report file. The report must be a committed file in the repository unless the ticket explicitly says otherwise.
 
 ---
 
@@ -120,10 +127,12 @@ Rules:
 ```text
 src/
   acqstore/        # backend data/model layer
+  nicewidgets/     # reusable NiceGUI widgets
   cloudscope/      # app, contracts, controller, GUI
 
 tests/             # unit tests
 docs/              # architecture, tickets, review docs
+scripts/           # development and API exercise scripts
 ```
 
 ---
@@ -144,8 +153,9 @@ The report file is still mandatory even if this response is provided.
 
 ## Interaction with Code Review
 
-- Follow `docs/code_review.md` for quality standards.
+- Follow `docs/code_review.md` for quality standards when present.
 - Use it as validation before completing a task.
+- If `docs/code_review.md` is absent or conflicts with the ticket, follow the current ticket.
 
 ---
 

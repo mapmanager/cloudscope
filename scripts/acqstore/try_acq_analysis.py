@@ -62,7 +62,7 @@ def run_velocity_analysis(acq_image: AcqImage, channel: int, roi_id: int) -> Non
     Returns:
         None.
     """
-    analysis = acq_image.analysis.create(
+    analysis = acq_image.analysis_set.create(
         "velocity",
         channel=channel,
         roi_id=roi_id,
@@ -71,7 +71,7 @@ def run_velocity_analysis(acq_image: AcqImage, channel: int, roi_id: int) -> Non
     context = AnalysisRunContext(
         progress_callback=lambda fraction, message: print(f"velocity {fraction}: {message}")
     )
-    acq_image.analysis.run_analysis(analysis.key, context=context)
+    acq_image.analysis_set.run_analysis(analysis.key, context=context)
 
 
 def run_velocity_event_analysis(acq_image: AcqImage, channel: int, roi_id: int) -> None:
@@ -85,12 +85,12 @@ def run_velocity_event_analysis(acq_image: AcqImage, channel: int, roi_id: int) 
     Returns:
         None.
     """
-    analysis = acq_image.analysis.create(
+    analysis = acq_image.analysis_set.create(
         "velocity_event",
         channel=channel,
         roi_id=roi_id,
     )
-    acq_image.analysis.run_analysis(analysis.key)
+    acq_image.analysis_set.run_analysis(analysis.key)
 
 
 def save_acq_image(acq_image: AcqImage) -> None:
@@ -127,10 +127,10 @@ def print_analysis_summary(acq_image: AcqImage) -> None:
         None.
     """
     print("Analysis records:")
-    for record in acq_image.analysis.serialize_json_analysis():
+    for record in acq_image.analysis_set.serialize_json_analysis():
         print(record)
 
-    for analysis in acq_image.analysis.as_list():
+    for analysis in acq_image.analysis_set.as_list():
         print(
             analysis.key,
             "summary=",
@@ -148,6 +148,14 @@ def main() -> None:
     """
     path = str(Path(SOURCE_PATH).expanduser())
     acq_image = load_acq_image(path)
+
+    # add a default rect roi
+    new_rect_roi = acq_image.rois.create_rect_roi(
+        bounds=None,
+        name="phase1_rect",
+        note="created_by_try_create_roi",
+    )
+
     channel, roi_id = get_target(acq_image)
 
     run_velocity_analysis(acq_image, channel, roi_id)
