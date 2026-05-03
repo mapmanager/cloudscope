@@ -11,6 +11,8 @@ from acqstore.acq_image.analysis.model import (
     AnalysisResult,
     AnalysisRunContext,
     BaseAnalysis,
+    DetectionParamSchema,
+    DetectionValueType,
 )
 from acqstore.acq_image.analysis.registry import register_analysis_class
 
@@ -20,6 +22,15 @@ class VelocityAnalysis(BaseAnalysis):
     """Example velocity analysis with table output."""
 
     analysis_name = "velocity"
+    detection_schema = (
+        DetectionParamSchema(
+            name="window_width",
+            display_name="Window Width",
+            value_type=DetectionValueType.INT,
+            default=64,
+            choices=(16, 64, 128),
+        ),
+    )
 
     def run(
         self,
@@ -69,6 +80,21 @@ class DiameterAnalysis(BaseAnalysis):
     """Example diameter analysis with table output."""
 
     analysis_name = "diameter"
+    detection_schema = (
+        DetectionParamSchema(
+            name="threshold",
+            display_name="Threshold",
+            value_type=DetectionValueType.FLOAT,
+            default=0.5,
+        ),
+        DetectionParamSchema(
+            name="min_diameter_px",
+            display_name="Minimum Diameter",
+            value_type=DetectionValueType.FLOAT,
+            default=2.0,
+            unit="px",
+        ),
+    )
 
     def run(
         self,
@@ -109,6 +135,7 @@ class VelocityEventAnalysis(BaseAnalysis):
 
     analysis_name = "velocity_event"
     depends_on = ("velocity",)
+    detection_schema = ()
 
     def run(
         self,

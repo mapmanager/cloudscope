@@ -10,6 +10,7 @@ import json
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, ClassVar, TYPE_CHECKING
 
@@ -21,6 +22,43 @@ if TYPE_CHECKING:
 
 class AnalysisCancelled(RuntimeError):
     """Raised when an analysis run is cancelled."""
+
+
+class DetectionValueType(StrEnum):
+    """Supported value types for detection parameters."""
+
+    STR = "str"
+    INT = "int"
+    FLOAT = "float"
+    BOOL = "bool"
+    ENUM = "enum"
+
+
+@dataclass(frozen=True, slots=True)
+class DetectionParamSchema:
+    """Schema entry describing one detection parameter.
+
+    Args:
+        name: Stable parameter key stored in ``detection_params``.
+        display_name: Human-readable name for UI rendering.
+        value_type: Detection parameter value type.
+        default: Default value used when missing from user-supplied params.
+        description: Optional help text for UI rendering.
+        visible: Whether parameter should be shown in UI.
+        editable: Whether parameter should be editable in UI.
+        choices: Allowed choices for enum-like parameters.
+        unit: Optional unit string (for example, ``"px"``).
+    """
+
+    name: str
+    display_name: str
+    value_type: DetectionValueType
+    default: object
+    description: str = ""
+    visible: bool = True
+    editable: bool = True
+    choices: tuple[object, ...] | None = None
+    unit: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,6 +182,7 @@ class BaseAnalysis(ABC):
         )
         self.detection_params = self.get_default_detection_params()
         if detection_params is not None:
+            self.validate_detection_params(detection_params)
             self.detection_params.update(detection_params)
         self.result = AnalysisResult()
         self._dirty = False
@@ -173,20 +212,92 @@ class BaseAnalysis(ABC):
         self._dirty = False
 
     @classmethod
+    def get_detection_schema(cls) -> tuple[DetectionParamSchema, ...]:
+        """Return detection parameter schema.
+
+        Returns:
+            Tuple of ``DetectionParamSchema`` entries.
+
+        Raises:
+            TypeError: If the class ``detection_schema`` contains non-schema
+                entries.
+        """
+        schema: list[DetectionParamSchema] = []
+        for entry in cls.detection_schema:
+            if not isinstance(entry, DetectionParamSchema):
+                raise TypeError(
+                    f"{cls.__name__}.detection_schema must contain DetectionParamSchema "
+                    f"entries, got: {type(entry).__name__}"
+                )
+            schema.append(entry)
+        return tuple(schema)
+
+    @classmethod
     def get_default_detection_params(cls) -> dict[str, Any]:
         """Return default detection parameters from ``detection_schema``.
 
         Returns:
-            Mapping from parameter name to default value. Schema objects without
-            ``name`` and ``default`` attributes are ignored.
+            Mapping from parameter name to default value.
+
+        Raises:
+            ValueError: If the schema contains duplicate parameter names.
         """
         defaults: dict[str, Any] = {}
-        for field_schema in cls.detection_schema:
-            name = getattr(field_schema, "name", None)
-            if name is None:
-                continue
-            defaults[str(name)] = getattr(field_schema, "default", None)
+        for field_schema in cls.get_detection_schema():
+            if field_schema.name in defaults:
+                raise ValueError(
+                    f"Duplicate detection param schema name: {field_schema.name!r}"
+                )
+            defaults[field_schema.name] = field_schema.default
         return defaults
+
+    @classmethod
+    def validate_detection_params(cls, params: dict[str, Any]) -> None:
+        """Validate detection parameter mapping against schema.
+
+        Args:
+            params: Detection parameter mapping.
+
+        Returns:
+            None.
+
+        Raises:
+            KeyError: If any key is not present in the schema.
+            TypeError: If any value has the wrong type.
+            ValueError: If any enum value is not in ``choices``.
+        """
+        if not isinstance(params, dict):
+            raise TypeError(f"detection_params must be dict, got: {type(params).__name__}")
+
+        schema_by_name = {entry.name: entry for entry in cls.get_detection_schema()}
+        for key, value in params.items():
+            if key not in schema_by_name:
+                raise KeyError(f"Unknown detection param: {key!r}")
+
+            entry = schema_by_name[key]
+            match entry.value_type:
+                case DetectionValueType.INT:
+                    if isinstance(value, bool) or not isinstance(value, int):
+                        raise TypeError(f"{key!r} must be int, got: {type(value).__name__}")
+                case DetectionValueType.FLOAT:
+                    if isinstance(value, bool) or not isinstance(value, (int, float)):
+                        raise TypeError(
+                            f"{key!r} must be float or int, got: {type(value).__name__}"
+                        )
+                case DetectionValueType.BOOL:
+                    if not isinstance(value, bool):
+                        raise TypeError(f"{key!r} must be bool, got: {type(value).__name__}")
+                case DetectionValueType.STR:
+                    if not isinstance(value, str):
+                        raise TypeError(f"{key!r} must be str, got: {type(value).__name__}")
+                case DetectionValueType.ENUM:
+                    if entry.choices is None:
+                        raise ValueError(f"{key!r} has value_type=ENUM but no choices")
+                case _:
+                    raise ValueError(f"Unsupported detection value type: {entry.value_type!r}")
+
+            if entry.choices is not None and value not in entry.choices:
+                raise ValueError(f"{key!r} must be one of {entry.choices!r}, got: {value!r}")
 
     @abstractmethod
     def run(

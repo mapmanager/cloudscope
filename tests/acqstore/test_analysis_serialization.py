@@ -8,7 +8,7 @@ from acqstore.acq_image.analysis.model import AnalysisKey
 def test_serialize_json_analysis_returns_records() -> None:
     """serialize_json_analysis should return JSON-ready records."""
     analysis_set = AcqAnalysisSet("fake.tif")
-    analysis = VelocityAnalysis(channel=0, roi_id=1, detection_params={"window": 3})
+    analysis = VelocityAnalysis(channel=0, roi_id=1, detection_params={"window_width": 16})
     analysis.result.summary = {"mean_velocity": 2.5}
     analysis_set.add(analysis)
 
@@ -19,7 +19,7 @@ def test_serialize_json_analysis_returns_records() -> None:
             "analysis_name": "velocity",
             "channel": 0,
             "roi_id": 1,
-            "detection_params": {"window": 3},
+            "detection_params": {"window_width": 16},
             "summary": {"mean_velocity": 2.5},
         }
     ]
@@ -32,7 +32,7 @@ def test_load_json_analysis_reconstructs_analysis_and_sets_clean() -> None:
             "analysis_name": "velocity",
             "channel": 0,
             "roi_id": 1,
-            "detection_params": {"window": 3},
+            "detection_params": {"window_width": 16},
             "summary": {"mean_velocity": 2.5},
         }
     ]
@@ -41,6 +41,6 @@ def test_load_json_analysis_reconstructs_analysis_and_sets_clean() -> None:
     analysis_set.load_json_analysis(records)
 
     analysis = analysis_set.get_required(AnalysisKey("velocity", 0, 1))
-    assert analysis.detection_params == {"window": 3}
+    assert analysis.detection_params == {"window_width": 16}
     assert analysis.result.summary == {"mean_velocity": 2.5}
     assert not analysis_set.is_dirty()
