@@ -30,11 +30,11 @@ class AnalysisDataProvider(Protocol):
         """
         ...
 
-    def get_image_physical_units(self) -> tuple[object, object]:
+    def get_image_physical_units(self) -> tuple[float, float]:
         """Return physical units for the 2D image plane.
 
         Returns:
-            Tuple of physical units for the 2D image plane.
+            Per-pixel ``(step_y, step_x)`` for ``(Y, X)`` image data.
         """
         ...
 
@@ -61,10 +61,10 @@ class AcqImageAnalysisDataProvider:
         """
         return self._acq_image.get_roi_image(channel=channel, roi_id=roi_id)
 
-    def get_image_physical_units(self) -> tuple[object, object]:
+    def get_image_physical_units(self) -> tuple[float, float]:
         """Return physical units for the 2D image plane.
 
         Returns:
-            Tuple of physical units for the 2D image plane.
+            Per-pixel ``(step_y, step_x)`` for ``(Y, X)`` image data.
         """
         return self._acq_image.get_image_physical_units()

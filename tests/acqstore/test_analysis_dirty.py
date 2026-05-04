@@ -14,7 +14,7 @@ class FakeProvider:
 
         return np.array([[1.0, 2.0]])
 
-    def get_image_physical_units(self) -> tuple[object, object]:
+    def get_image_physical_units(self) -> tuple[float, float]:
         """Return fake physical units."""
         return (1.0, 1.0)
 

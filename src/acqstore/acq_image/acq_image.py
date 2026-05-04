@@ -1,11 +1,13 @@
 from pathlib import Path
 import json
 
+import numpy as np
+
 from acqstore.schema import ACQ_FILE_LIST_SCHEMA, SchemaDefinition, validate_values_for_schema
 from acqstore.utils.logging import get_logger
 from .file_loaders.base_file_loader import BaseFileLoader, ImageHeader
 from .metadata import ExperimentMetadata, ImageHeaderMetadata
-from .roi import ImageBounds, RoiSet
+from .roi import ImageBounds, LineROI, RectROI, RoiSet
 from .file_loaders.file_loader_factory import create_file_loader
 from .supported_import_extensions import (
     DEFAULT_IMPORT_EXTENSIONS,
@@ -343,6 +345,51 @@ class AcqImage:
         """
         roi_ids = self._rois.get_roi_ids()
         return roi_ids[0] if roi_ids else None
+
+    def get_roi_image(self, channel: int, roi_id: int) -> np.ndarray:
+        """Return image data for one channel cropped to one rectangular ROI.
+
+        Uses slice ``z=0`` and ``t=0`` only (see :meth:`BaseFileLoader.get_slice_data`).
+        ROI bounds are clamped to :attr:`rois.image_bounds`.
+
+        Args:
+            channel: Channel index.
+            roi_id: Identifier of a :class:`~acqstore.acq_image.roi.RectROI`.
+
+        Returns:
+            Two-dimensional ``(Y, X)`` ROI image data.
+
+        Raises:
+            ValueError: If ``roi_id`` is not present.
+            TypeError: If the ROI is not a rectangular ROI.
+        """
+        roi = self._rois.get(roi_id)
+        if roi is None:
+            raise ValueError(f'ROI {roi_id} not found')
+        if isinstance(roi, LineROI):
+            raise TypeError(
+                f'get_roi_image requires a rectangular ROI; got LineROI (roi_id={roi_id})'
+            )
+        if not isinstance(roi, RectROI):
+            raise TypeError(
+                f'get_roi_image requires a rectangular ROI; got {type(roi).__name__} (roi_id={roi_id})'
+            )
+        bounds = roi.bounds.clamped_to(self._rois.image_bounds)
+        return self._images.get_roi_rect_image(channel, bounds, z=0, t=0)
+
+    def get_image_physical_units(self) -> tuple[float, float]:
+        """Return per-pixel physical step along ``Y`` then ``X`` for 2D image data.
+
+        Same calibration applies to full slices from :attr:`images` and to
+        crops from :meth:`get_roi_image`.
+
+        Returns:
+            ``(step_y, step_x)`` aligned with ``(Y, X)`` arrays.
+
+        Raises:
+            ValueError: If the file header does not define a ``Y``/``X`` plane.
+        """
+        return self._images.get_image_physical_units()
 
     def _infer_image_bounds(self) -> ImageBounds:
         """Infer image bounds from loaded header information.

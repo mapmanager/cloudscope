@@ -4,6 +4,8 @@ import math
 import numpy as np
 from typing import BinaryIO, Self
 
+from ..roi import ImageBounds, RectRoiBounds
+
 @dataclass(frozen=True)
 class ImageHeader:
     """Header information for an imported image file.
@@ -397,6 +399,64 @@ class BaseFileLoader:
             z=z,
             t=t,
         )
+
+    def get_image_physical_units(self) -> tuple[float, float]:
+        """Return per-pixel physical step along ``Y`` then ``X`` for 2D ``(Y, X)`` arrays.
+
+        Values are taken from :attr:`header` after calibration coercion (invalid
+        steps become ``1.0``). The tuple matches the axis order of
+        :meth:`get_slice_data` (row spacing, then column spacing).
+
+        Returns:
+            ``(step_y, step_x)`` for the image plane.
+
+        Raises:
+            ValueError: If ``Y`` or ``X`` is missing from :attr:`header.dims`.
+        """
+        dims = self._header.dims
+        if 'Y' not in dims or 'X' not in dims:
+            raise ValueError(
+                f'Expected header dims to include Y and X for 2D plane calibration; got dims={dims!r}'
+            )
+        i_y = dims.index('Y')
+        i_x = dims.index('X')
+        uy = float(self._header.physical_units[i_y])
+        ux = float(self._header.physical_units[i_x])
+        return (uy, ux)
+
+    def get_roi_rect_image(
+        self,
+        channel: int,
+        bounds: RectRoiBounds,
+        *,
+        z: int = 0,
+        t: int = 0,
+    ) -> np.ndarray:
+        """Return a 2D ``(Y, X)`` crop of one slice for ``channel`` using rectangular bounds.
+
+        Loads pixel data on first use. ``bounds`` are clamped to the slice shape.
+
+        Args:
+            channel: Channel index along ``C`` (or ``0`` when there is no ``C`` axis).
+            bounds: ROI bounds in row/column indices (exclusive stops).
+            z: Index along ``Z`` if present; ignored if ``Z`` is absent.
+            t: Index along ``T`` if present; ignored if ``T`` is absent.
+
+        Returns:
+            Two-dimensional crop with dimensions ``(Y, X)``.
+
+        Raises:
+            IndexError: If ``channel``, ``z``, or ``t`` is out of range.
+            ValueError: If dims cannot be reduced to ``(Y, X)``.
+        """
+        slice_2d = self.get_slice_data(channel, z=z, t=t)
+        img_bounds = ImageBounds(
+            width=int(slice_2d.shape[1]),
+            height=int(slice_2d.shape[0]),
+            num_slices=1,
+        )
+        b = bounds.clamped_to(img_bounds)
+        return slice_2d[b.dim0_start : b.dim0_stop, b.dim1_start : b.dim1_stop]
 
     def get_channel_data(self, channel: int) -> np.ndarray:
         """Return the full array for one channel (``C`` axis removed).
