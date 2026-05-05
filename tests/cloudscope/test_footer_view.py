@@ -46,6 +46,7 @@ def test_footer_view_reacts_to_file_then_channel_and_roi() -> None:
     """View handlers update label text without calling ``build()`` (no NiceGUI slot)."""
     bus = EventBus()
     view = FooterView(bus)
+    view.subscribe_events()
     view._file_label = _TextSink()
     view._channel_label = _TextSink()
     view._roi_label = _TextSink()
@@ -72,6 +73,7 @@ def test_footer_view_reacts_to_file_then_channel_and_roi() -> None:
 def test_footer_view_clear_file_resets_display_to_placeholders() -> None:
     bus = EventBus()
     view = FooterView(bus)
+    view.subscribe_events()
     view._file_label = _TextSink()
     view._channel_label = _TextSink()
     view._roi_label = _TextSink()

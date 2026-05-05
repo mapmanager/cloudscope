@@ -12,6 +12,9 @@ from nicegui import ui
 
 from acqstore.schema import FieldSchema, SchemaDefinition, ValueType
 from cloudscope.app_config import AppConfig, DEFAULT_TABLE_FONT_SIZE_PX
+from cloudscope.event_bus import EventBus
+from cloudscope.views.base_view import BaseView
+from cloudscope.views.view_ids import ViewId
 from cloudscope.views.metadata_widget.schema_card_widget import SchemaCardWidget
 # from nicewidgets.gui_defaults import setUpGuiDefaults
 
@@ -63,19 +66,34 @@ APP_CONFIG_UI_SCHEMA = SchemaDefinition(
 )
 
 
-class AppConfigView:
-    """Build a schema-driven card bound to :class:`AppConfig` in-memory data."""
+class AppConfigView(BaseView):
+    """Build a schema-driven card bound to :class:`AppConfig` data.
 
-    def __init__(self, *, app_config: AppConfig) -> None:
-        """Create the view.
+    Args:
+        app_config: Shared app config instance.
+        event_bus: Page-scoped event bus.
+        initially_visible: Whether this view starts visible.
+    """
 
-        Args:
-            app_config: Shared app config instance (same as load/save and home page).
-        """
+    view_id = ViewId.APP_CONFIG
+
+    def __init__(
+        self,
+        *,
+        app_config: AppConfig,
+        event_bus: EventBus,
+        initially_visible: bool = False,
+    ) -> None:
+        super().__init__(event_bus=event_bus, app_state=None, initially_visible=initially_visible)
         self._app_config = app_config
+        self._card: SchemaCardWidget | None = None
 
     def _values_for_card(self) -> dict[str, object]:
-        """Map current ``AppConfigData`` fields used by :data:`APP_CONFIG_UI_SCHEMA`."""
+        """Map current ``AppConfigData`` fields used by :data:`APP_CONFIG_UI_SCHEMA`.
+
+        Returns:
+            Values keyed by app-config schema field name.
+        """
         data = self._app_config.data
         return {
             'text_size': data.text_size,
@@ -85,7 +103,14 @@ class AppConfigView:
         }
 
     def _on_apply(self, patch: Mapping[str, object]) -> None:
-        """Apply editable fields, normalize, persist, and refresh global text defaults."""
+        """Apply editable fields, normalize, and persist app config.
+
+        Args:
+            patch: Partial app-config values from the schema card.
+
+        Returns:
+            None.
+        """
         if 'text_size' in patch:
             raw = patch['text_size']
             choice = str(raw) if raw in _TEXT_SIZE_CHOICES else str(_TEXT_SIZE_CHOICES[2])
@@ -107,23 +132,46 @@ class AppConfigView:
             self._app_config.data.dark_mode = bool(patch['dark_mode'])
 
         self._app_config.normalize_and_persist()
-        # setUpGuiDefaults(self._app_config.data.text_size)
         ui.notify('App settings saved', type='positive')
 
-    def build(self, parent: ui.element | None = None) -> SchemaCardWidget:
-        """Build the settings card (optionally inside ``parent``).
+    def build(self, parent: ui.element | None = None) -> ui.element:
+        """Build the settings card.
 
         Args:
-            parent: Optional NiceGUI container to build inside.
+            parent: Optional NiceGUI parent to build inside.
 
         Returns:
-            The constructed :class:`SchemaCardWidget` instance.
+            Root element for this view.
         """
-        card = SchemaCardWidget(
+        if parent is None:
+            with ui.column().classes('w-full') as self.root:
+                self._build_card()
+        else:
+            with parent:
+                with ui.column().classes('w-full') as self.root:
+                    self._build_card()
+        self.after_build()
+        return self.root
+
+    def refresh_from_state(self) -> None:
+        """Refresh card values from current app config.
+
+        Returns:
+            None.
+        """
+        if self._card is not None:
+            self._card.update_values(self._values_for_card())
+
+    def _build_card(self) -> None:
+        """Build the schema card inside the current NiceGUI slot.
+
+        Returns:
+            None.
+        """
+        self._card = SchemaCardWidget(
             title='App settings',
             schema=APP_CONFIG_UI_SCHEMA,
             values=self._values_for_card(),
             on_apply=lambda p: self._on_apply(p),
         )
-        card.build(parent=parent)
-        return card
+        self._card.build()
