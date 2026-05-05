@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cloudscope.gui.image_toolbar_view import (
+from cloudscope.views.image_toolbar_view import (
     channel_options_for_acq_image,
     roi_options_for_acq_image,
 )

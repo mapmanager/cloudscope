@@ -8,10 +8,10 @@ from nicegui import ui
 
 from acqstore.acq_image.acq_image_list import AcqImageList
 from acqstore.schema import ACQ_FILE_LIST_SCHEMA
-from cloudscope.core.event_bus import EventBus
-from cloudscope.core.events import FileListChanged, FileSelectionChanged, MetadataChanged, SelectFileIntent
-from cloudscope.gui.app_config import AppConfig
-from cloudscope.gui.schema_adapters import schema_to_column_defs
+from cloudscope.event_bus import EventBus
+from cloudscope.events import FileListChanged, FileSelectionChanged, MetadataChanged, SelectFileIntent
+from cloudscope.app_config import AppConfig
+from cloudscope.schema_adapters import schema_to_column_defs
 from nicewidgets.table_widget.config import TableWidgetConfig, scaled_row_header_heights_px
 from nicewidgets.table_widget.table_widget import TableWidget
 

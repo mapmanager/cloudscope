@@ -11,8 +11,8 @@ from collections.abc import Mapping
 from nicegui import ui
 
 from acqstore.schema import FieldSchema, SchemaDefinition, ValueType
-from cloudscope.gui.app_config import AppConfig, DEFAULT_TABLE_FONT_SIZE_PX
-from cloudscope.gui.metadata_widget.schema_card_widget import SchemaCardWidget
+from cloudscope.app_config import AppConfig, DEFAULT_TABLE_FONT_SIZE_PX
+from cloudscope.views.metadata_widget.schema_card_widget import SchemaCardWidget
 # from nicewidgets.gui_defaults import setUpGuiDefaults
 
 # Tailwind classes supported by :func:`nicewidgets.gui_defaults.setUpGuiDefaults`.

@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import TypeVar
 
 from acqstore.acq_image.analysis.model import BaseAnalysis
+from acqstore.utils.logging import get_logger
+logger = get_logger(__name__)
 
 AnalysisType = TypeVar("AnalysisType", bound=BaseAnalysis)
 
@@ -46,7 +48,11 @@ def get_analysis_class(analysis_name: str) -> type[BaseAnalysis]:
     Raises:
         KeyError: If no class is registered for ``analysis_name``.
     """
-    return _ANALYSIS_REGISTRY[analysis_name]
+    try:
+        return _ANALYSIS_REGISTRY[analysis_name]
+    except KeyError:
+        logger.error(f'did not understand "{analysis_name}" available analysis names are {list(_ANALYSIS_REGISTRY.keys())}')
+        raise KeyError(f"No analysis class registered for {analysis_name!r}") from None
 
 
 def get_analysis_registry() -> dict[str, type[BaseAnalysis]]:

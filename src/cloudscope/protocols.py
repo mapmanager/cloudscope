@@ -1,6 +1,6 @@
 """Compatibility re-export layer for CloudScope contracts.
 
-Prefer importing from ``cloudscope.core.contracts`` in new code. This module is
+Prefer importing from ``cloudscope.contracts`` in new code. This module is
 kept as a temporary convenience while the project transitions to split contract
 files.
 """

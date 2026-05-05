@@ -18,13 +18,13 @@ from nicegui import run, ui
 
 from acqstore.acq_image.acq_image import AcqImage
 from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader
-from cloudscope.core.event_bus import EventBus
-from cloudscope.core.events import (
+from cloudscope.event_bus import EventBus
+from cloudscope.events import (
     ChannelSelectionChanged,
     FileSelectionChanged,
     RoiSelectionChanged,
 )
-from cloudscope.core.utils.logging import get_logger
+from cloudscope.utils.logging import get_logger
 from nicewidgets.raster_viewer.backend.image_model import RasterGridSpec
 from nicewidgets.raster_viewer.frontend.plotly_viewer import PlotlyRasterViewer
 

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import fields
 
-from cloudscope.gui.app_config import AppConfigData
-from cloudscope.gui.app_config_view import APP_CONFIG_UI_SCHEMA
+from cloudscope.app_config import AppConfigData
+from cloudscope.views.app_config_view import APP_CONFIG_UI_SCHEMA
 
 
 def test_app_config_ui_schema_field_names_exist_on_dataclass() -> None:

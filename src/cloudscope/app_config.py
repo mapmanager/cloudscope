@@ -8,7 +8,7 @@ from pathlib import Path
 
 from platformdirs import user_config_dir
 
-from cloudscope.core.utils.logging import get_logger
+from cloudscope.utils.logging import get_logger
 
 logger = get_logger(__name__)
 

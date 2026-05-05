@@ -9,27 +9,27 @@ from nicegui import app, ui
 
 from nicewidgets.gui_defaults import setUpGuiDefaults
 
-from cloudscope.core.home_page_controller import HomePageController
-from cloudscope.core.event_bus import EventBus
-from cloudscope.core.events import (
+from cloudscope.controllers.home_page_controller import HomePageController
+from cloudscope.event_bus import EventBus
+from cloudscope.events import (
     ChannelSelectionChanged,
     FileSelectionChanged,
     LoadPathKind,
     LoadPathIntent,
     RoiSelectionChanged,
 )
-from cloudscope.core.load_save_controller import LoadSaveController
-from cloudscope.gui.app_config import AppConfig
-from cloudscope.gui.app_config_view import AppConfigView
-from cloudscope.gui.file_list_view import AcqImageListTableView
-from cloudscope.gui.image_toolbar_view import ImageToolbarView
-from cloudscope.gui.load_save_view import LoadSaveView
-from cloudscope.gui.metadata_widget.metadata_view import MetadataView
-from cloudscope.gui.header_view import build_main_header
-from cloudscope.gui.footer_view import FooterView
-from cloudscope.gui.primary_image_view import PrimaryImageView
+from cloudscope.controllers.load_save_controller import LoadSaveController
+from cloudscope.app_config import AppConfig
+from cloudscope.views.app_config_view import AppConfigView
+from cloudscope.views.file_list_view import AcqImageListTableView
+from cloudscope.views.image_toolbar_view import ImageToolbarView
+from cloudscope.views.load_save_view import LoadSaveView
+from cloudscope.views.metadata_widget.metadata_view import MetadataView
+from cloudscope.views.header_view import build_main_header
+from cloudscope.views.footer_view import FooterView
+from cloudscope.views.primary_image_view import PrimaryImageView
 
-from cloudscope.core.utils.logging import get_logger
+from cloudscope.utils.logging import get_logger
 
 logger = get_logger(__name__)
 

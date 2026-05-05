@@ -18,6 +18,7 @@ from .supported_import_extensions import (
     set_allowed_import_extensions,
 )
 from .acq_analysis_set import AcqAnalysisSet
+from .analysis.data_provider import AcqImageAnalysisDataProvider
 
 logger = get_logger(__name__)
 
@@ -118,7 +119,10 @@ class AcqImage:
         self._experimental_metadata = ExperimentMetadata()
         self._image_header_metadata = ImageHeaderMetadata(self._images.header, self._apply_image_header)
         self._rois = RoiSet(self._infer_image_bounds())
-        self._acq_analysis_set = AcqAnalysisSet(self.path)
+        self._acq_analysis_set = AcqAnalysisSet(
+            self.path,
+            data_provider=AcqImageAnalysisDataProvider(self),
+        )
         
         self.load_sidecar_json()
 
@@ -330,6 +334,8 @@ class AcqImage:
     def get_default_channel(self) -> int | None:
         """Return the default channel index for this file.
 
+        Used by gui, generally not used in scripts.
+
         Returns:
             Zero-based channel index for the first channel, or ``None`` when the
             file exposes no channels.
@@ -338,6 +344,8 @@ class AcqImage:
 
     def get_default_roi(self) -> int | None:
         """Return the default ROI identifier for this file.
+
+        Used by gui, generally not used in scripts.
 
         Returns:
             First ROI identifier in creation order, or ``None`` when no ROI
@@ -363,6 +371,9 @@ class AcqImage:
             ValueError: If ``roi_id`` is not present.
             TypeError: If the ROI is not a rectangular ROI.
         """
+        # if not self.rois.has_roi(roi_id):
+        #     raise ValueError(f'ROI {roi_id} not found')
+
         roi = self._rois.get(roi_id)
         if roi is None:
             raise ValueError(f'ROI {roi_id} not found')

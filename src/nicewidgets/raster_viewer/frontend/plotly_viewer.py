@@ -32,7 +32,7 @@ from nicewidgets.raster_viewer.frontend.plotly_protocol import (
     parse_relayout_payload,
 )
 
-from cloudscope.core.utils.logging import get_logger
+from nicewidgets.utils.logging import get_logger
 
 if TYPE_CHECKING:
     from nicegui.element import Element

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cloudscope.gui.home_page import _infer_load_kind
+from cloudscope.pages.home_page import _infer_load_kind
 
 
 def test_infer_load_kind_csv_suffix() -> None:

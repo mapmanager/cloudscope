@@ -19,6 +19,7 @@ dependencies = [
     "platformdirs>=4.9.6",
     "pywebview>=6.2.1",
     "pillow>=12.2.0",
+    "scikit-image>=0.24.0",
 ]
 
 [build-system]

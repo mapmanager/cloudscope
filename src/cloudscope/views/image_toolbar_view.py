@@ -7,8 +7,8 @@ from typing import Protocol
 from nicegui import ui
 
 from acqstore.acq_image.acq_image import AcqImage
-from cloudscope.core.event_bus import EventBus
-from cloudscope.core.events import (
+from cloudscope.event_bus import EventBus
+from cloudscope.events import (
     ChannelSelectionChanged,
     FileSelectionChanged,
     RoiSelectionChanged,

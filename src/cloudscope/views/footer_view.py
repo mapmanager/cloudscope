@@ -7,15 +7,15 @@ from pathlib import Path
 
 from nicegui import ui
 
-from cloudscope.core.event_bus import EventBus
-from cloudscope.core.events import (
+from cloudscope.event_bus import EventBus
+from cloudscope.events import (
     AppStatusChanged,
     ChannelSelectionChanged,
     FileSelectionChanged,
     RoiSelectionChanged,
     TaskProgressChanged,
 )
-from cloudscope.core.utils.logging import get_logger
+from cloudscope.utils.logging import get_logger
 
 logger = get_logger(__name__)
 

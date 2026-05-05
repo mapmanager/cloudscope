@@ -7,7 +7,7 @@ import pytest
 
 from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader
 
-from cloudscope.gui.primary_image_view import (
+from cloudscope.views.primary_image_view import (
     _load_plane_payload,
     _placeholder_plane,
     raster_grid_spec_from_image_header,

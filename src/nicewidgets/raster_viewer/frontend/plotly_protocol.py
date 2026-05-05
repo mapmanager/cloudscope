@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from nicewidgets.raster_viewer.backend.image_model import RenderResponse, RowColBounds, ViewRequest, ViewportSize
 from nicewidgets.raster_viewer.frontend.plotly_coord_transform import PlotlyCoordTransform
 
-from cloudscope.core.utils.logging import get_logger
+from nicewidgets.utils.logging import get_logger
 
 logger = get_logger(__name__)
 

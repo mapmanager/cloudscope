@@ -8,9 +8,9 @@ import pytest
 
 from acqstore.acq_image.acq_image_list import AcqImageList
 from acqstore.schema import ACQ_FILE_LIST_SCHEMA
-from cloudscope.core.home_page_controller import HomePageController
-from cloudscope.core.event_bus import EventBus
-from cloudscope.core.events import ApplyMetadataIntent, MetadataChanged
+from cloudscope.controllers.home_page_controller import HomePageController
+from cloudscope.event_bus import EventBus
+from cloudscope.events import ApplyMetadataIntent, MetadataChanged
 
 _OIR_FIXTURE = Path(__file__).resolve().parents[2] / 'tests/acqstore/data/oir-samples/20251030_A106_0004.oir'
 

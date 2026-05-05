@@ -5,7 +5,7 @@ from typing import Literal
 
 from nicegui import app
 
-from cloudscope.core.utils.logging import get_logger
+from cloudscope.utils.logging import get_logger
 
 logger = get_logger(__name__)
 

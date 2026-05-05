@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 
-from cloudscope.gui.header_view import CLOUDSCOPE_GITHUB_URL, build_main_header
+from cloudscope.views.header_view import CLOUDSCOPE_GITHUB_URL, build_main_header
 
 
 def test_build_main_header_signature_accepts_title() -> None:

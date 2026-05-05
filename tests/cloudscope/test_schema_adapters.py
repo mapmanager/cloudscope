@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from acqstore.schema import FieldSchema, SchemaDefinition, ValueType
-from cloudscope.gui.schema_adapters import (
+from cloudscope.schema_adapters import (
     field_schema_to_column_def,
     schema_to_column_defs,
 )

@@ -7,9 +7,9 @@ from pathlib import Path
 
 from acqstore.acq_image.acq_image import parent_grandparent_folder_names
 from acqstore.acq_image.acq_image_list import AcqImageList, LoadResult, LoadWarning
-from cloudscope.core.home_page_controller import HomePageController
-from cloudscope.core.event_bus import EventBus
-from cloudscope.core.events import (
+from cloudscope.controllers.home_page_controller import HomePageController
+from cloudscope.event_bus import EventBus
+from cloudscope.events import (
     AppStatusChanged,
     LoadPathKind,
     LoadPathIntent,
@@ -19,8 +19,8 @@ from cloudscope.core.events import (
     SaveSelectedIntent,
     TaskProgressChanged,
 )
-from cloudscope.core.load_save_controller import LoadSaveController
-from cloudscope.gui.app_config import AppConfig, normalize_stored_path
+from cloudscope.controllers.load_save_controller import LoadSaveController
+from cloudscope.app_config import AppConfig, normalize_stored_path
 
 
 class _FakeFile:
@@ -108,7 +108,7 @@ def test_load_path_emits_status_progress_and_recents(tmp_path, monkeypatch) -> N
     def _load_safe(_path: str, *, kind: str, **_kwargs):
         return LoadResult(acq_image_list=fake_list, warnings=(LoadWarning(message='warn'),))
 
-    monkeypatch.setattr('cloudscope.core.load_save_controller.AcqImageList.load_safe', _load_safe)
+    monkeypatch.setattr('cloudscope.controllers.load_save_controller.AcqImageList.load_safe', _load_safe)
     statuses: list[AppStatusChanged] = []
     progress: list[TaskProgressChanged] = []
     recents: list[RecentPathsChanged] = []
@@ -146,7 +146,7 @@ def test_load_folder_passes_app_config_folder_depth(tmp_path, monkeypatch) -> No
         obj._files_by_id = {}
         return LoadResult(acq_image_list=obj, warnings=())
 
-    monkeypatch.setattr('cloudscope.core.load_save_controller.AcqImageList.load_safe', _load_safe)
+    monkeypatch.setattr('cloudscope.controllers.load_save_controller.AcqImageList.load_safe', _load_safe)
     bus.publish(LoadPathIntent(path=str(tmp_path), kind=LoadPathKind.FOLDER))
     assert captured.get('folder_depth') == 7
 
@@ -170,7 +170,7 @@ def test_load_from_recent_does_not_reorder_file_recents(tmp_path, monkeypatch) -
     def _load_safe(_path: str, *, kind: str, **_kwargs):
         return LoadResult(acq_image_list=fake_list, warnings=())
 
-    monkeypatch.setattr('cloudscope.core.load_save_controller.AcqImageList.load_safe', _load_safe)
+    monkeypatch.setattr('cloudscope.controllers.load_save_controller.AcqImageList.load_safe', _load_safe)
     bus.publish(LoadPathIntent(path=str(fb), kind=LoadPathKind.FILE, from_recent=True))
     assert cfg.get_recent_files() == order_before
     assert normalize_stored_path(cfg.get_last_path()) == normalize_stored_path(str(fb))
@@ -194,7 +194,7 @@ def test_load_not_from_recent_moves_file_to_end_of_recents(tmp_path, monkeypatch
     def _load_safe(_path: str, *, kind: str, **_kwargs):
         return LoadResult(acq_image_list=fake_list, warnings=())
 
-    monkeypatch.setattr('cloudscope.core.load_save_controller.AcqImageList.load_safe', _load_safe)
+    monkeypatch.setattr('cloudscope.controllers.load_save_controller.AcqImageList.load_safe', _load_safe)
     bus.publish(LoadPathIntent(path=str(fa), kind=LoadPathKind.FILE, from_recent=False))
     files = cfg.get_recent_files()
     assert len(files) == 2
@@ -239,7 +239,7 @@ def test_from_recent_missing_folder_prunes_without_repush(tmp_path, monkeypatch)
             ),
         )
 
-    monkeypatch.setattr('cloudscope.core.load_save_controller.AcqImageList.load_safe', _load_safe)
+    monkeypatch.setattr('cloudscope.controllers.load_save_controller.AcqImageList.load_safe', _load_safe)
     assert cfg.get_recent_folders()
     bus.publish(LoadPathIntent(path=str(missing_dir), kind=LoadPathKind.FOLDER, from_recent=True))
     assert cfg.get_recent_folders() == []

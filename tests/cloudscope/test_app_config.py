@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from cloudscope.gui.app_config import (
+from cloudscope.app_config import (
     AppConfig,
     DEFAULT_FOLDER_DEPTH,
     DEFAULT_TABLE_FONT_SIZE_PX,

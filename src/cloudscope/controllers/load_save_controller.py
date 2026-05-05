@@ -8,9 +8,9 @@ from uuid import uuid4
 
 from acqstore.acq_image.acq_image_list import AcqImageList, LoadResult
 from nicegui import run
-from cloudscope.core.home_page_controller import HomePageController
-from cloudscope.core.event_bus import EventBus
-from cloudscope.core.events import (
+from cloudscope.controllers.home_page_controller import HomePageController
+from cloudscope.event_bus import EventBus
+from cloudscope.events import (
     AppStatusChanged,
     ClearRecentPathsIntent,
     LoadPathKind,
@@ -25,8 +25,8 @@ from cloudscope.core.events import (
     TaskStatus,
     TaskProgressChanged,
 )
-from cloudscope.core.utils.logging import get_logger
-from cloudscope.gui.app_config import AppConfig, normalize_stored_path
+from cloudscope.utils.logging import get_logger
+from cloudscope.app_config import AppConfig, normalize_stored_path
 
 logger = get_logger(__name__)
 

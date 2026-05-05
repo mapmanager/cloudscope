@@ -655,6 +655,17 @@ class RoiSet:
         """
         return self._rois.get(roi_id)
 
+    def has_roi(self, roi_id: int) -> bool:
+        """Return whether a ROI exists.
+
+        Args:
+            roi_id: Identifier of the ROI to check.
+
+        Returns:
+            True if ``roi_id`` exists in this ROI set.
+        """
+        return roi_id in self._rois
+
     def get_roi_ids(self) -> list[int]:
         """Return ROI IDs in creation order.
 

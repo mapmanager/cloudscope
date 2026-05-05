@@ -132,6 +132,22 @@ class AcqAnalysisSet:
             raise KeyError(f"Analysis not found: {key}")
         return analysis
 
+    def remove(self, key: AnalysisKey) -> bool:
+        """Remove one analysis by key.
+
+        Args:
+            key: Analysis identity to remove.
+
+        Returns:
+            True if an analysis was removed, False if no analysis existed for
+            the key.
+        """
+        if key not in self._analyses:
+            return False
+        del self._analyses[key]
+        self.set_dirty()
+        return True
+
     def as_list(self) -> list[BaseAnalysis]:
         """Return analyses in insertion order.
 

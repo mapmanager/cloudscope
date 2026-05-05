@@ -1,8 +1,8 @@
 """Tests for the CloudScope home page controller."""
 
-from cloudscope.core.home_page_controller import HomePageController
-from cloudscope.core.event_bus import EventBus
-from cloudscope.core.events import (
+from cloudscope.controllers.home_page_controller import HomePageController
+from cloudscope.event_bus import EventBus
+from cloudscope.events import (
     ChannelSelectionChanged,
     FileListChanged,
     FileSelectionChanged,

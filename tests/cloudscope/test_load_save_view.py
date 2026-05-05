@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from cloudscope.core.event_bus import EventBus
-from cloudscope.core.events import (
+from cloudscope.event_bus import EventBus
+from cloudscope.events import (
     AppStatusChanged,
     FileSelectionChanged,
     StatusLevel,
@@ -12,8 +12,8 @@ from cloudscope.core.events import (
     TaskProgressChanged,
     TaskStatus,
 )
-from cloudscope.gui.app_config import AppConfig, normalize_stored_path
-from cloudscope.gui.load_save_view import LoadSaveView
+from cloudscope.app_config import AppConfig, normalize_stored_path
+from cloudscope.views.load_save_view import LoadSaveView
 
 
 class _ToggleButton:
@@ -127,6 +127,6 @@ def test_status_event_calls_notify(tmp_path, monkeypatch) -> None:
     def _notify(msg: str, *, type: str) -> None:
         notify_calls.append(f'{type}:{msg}')
 
-    monkeypatch.setattr('cloudscope.gui.load_save_view.ui.notify', _notify)
+    monkeypatch.setattr('cloudscope.views.load_save_view.ui.notify', _notify)
     bus.publish(AppStatusChanged(level=StatusLevel.INFO, message='ok', source=StatusSource.SYSTEM))
     assert notify_calls == ['info:ok']

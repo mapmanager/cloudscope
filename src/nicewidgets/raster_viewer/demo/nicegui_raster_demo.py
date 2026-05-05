@@ -18,7 +18,7 @@ from nicewidgets.raster_viewer.backend.image_model import RasterGridSpec
 from nicewidgets.raster_viewer.frontend.plotly_protocol import DEFAULT_HEATMAP_COLORSCALE
 from nicewidgets.raster_viewer.frontend.plotly_viewer import PlotlyRasterViewer
 
-from cloudscope.core.utils.logging import get_logger, setup_logging
+from nicewidgets.utils.logging import get_logger, setup_logging
 
 setup_logging(level='DEBUG')
 

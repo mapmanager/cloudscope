@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from cloudscope.core.event_bus import EventBus
-from cloudscope.core.events import (
+from cloudscope.event_bus import EventBus
+from cloudscope.events import (
     ChannelSelectionChanged,
     FileSelectionChanged,
     RoiSelectionChanged,
 )
-from cloudscope.gui.footer_view import FooterView, footer_display_values
+from cloudscope.views.footer_view import FooterView, footer_display_values
 
 # Same placeholder as the view module (em dash).
 _DASH = "—"

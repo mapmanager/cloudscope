@@ -7,9 +7,9 @@ from collections.abc import Callable
 from nicegui import ui
 
 from acqstore.acq_image.acq_image import AcqImage
-from cloudscope.core.event_bus import EventBus
-from cloudscope.core.events import ApplyMetadataIntent, FileSelectionChanged, MetadataChanged
-from cloudscope.gui.metadata_widget.schema_card_widget import SchemaCardWidget
+from cloudscope.event_bus import EventBus
+from cloudscope.events import ApplyMetadataIntent, FileSelectionChanged, MetadataChanged
+from cloudscope.views.metadata_widget.schema_card_widget import SchemaCardWidget
 
 
 class MetadataView:

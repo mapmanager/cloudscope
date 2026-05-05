@@ -16,7 +16,7 @@ from typing import Any
 from nicegui import app
 from nicegui import ui
 
-from cloudscope.gui.app_config import AppConfig
+from cloudscope.app_config import AppConfig
 
 CLOUDSCOPE_GITHUB_URL = "https://github.com/mapmanager/cloudscope"
 

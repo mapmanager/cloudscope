@@ -9,8 +9,8 @@ from pathlib import Path
 
 from nicegui import app, ui
 
-from cloudscope.core.event_bus import EventBus
-from cloudscope.core.events import (
+from cloudscope.event_bus import EventBus
+from cloudscope.events import (
     AppStatusChanged,
     ClearRecentPathsIntent,
     FileSelectionChanged,
@@ -24,9 +24,9 @@ from cloudscope.core.events import (
     StatusSource,
     TaskProgressChanged,
 )
-from cloudscope.gui._py_web_view import _prompt_for_path, _prompt_for_save_path
-from cloudscope.gui.app_config import AppConfig, normalize_stored_path
-from cloudscope.core.utils.logging import get_logger
+from cloudscope._py_web_view import _prompt_for_path, _prompt_for_save_path
+from cloudscope.app_config import AppConfig, normalize_stored_path
+from cloudscope.utils.logging import get_logger
 
 logger = get_logger(__name__)
 

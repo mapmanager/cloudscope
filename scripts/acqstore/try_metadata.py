@@ -1,6 +1,6 @@
 from acqstore.acq_image.metadata import ExperimentMetadata, generate_schema_docs
 
-from cloudscope.core.utils.logging import setup_logging
+from cloudscope.utils.logging import setup_logging
 
 setup_logging()
 

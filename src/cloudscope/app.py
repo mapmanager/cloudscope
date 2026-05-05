@@ -2,9 +2,9 @@
 
 from nicegui import app, ui
 
-from cloudscope.core.utils.logging import get_logger, setup_logging
-from cloudscope.gui.app_config import AppConfig
-from cloudscope.gui.home_page import home_page  # noqa: F401  # registers page route
+from cloudscope.utils.logging import get_logger, setup_logging
+from cloudscope.app_config import AppConfig
+from cloudscope.pages.home_page import home_page  # noqa: F401  # registers page route
 
 logger = get_logger(__name__)
 

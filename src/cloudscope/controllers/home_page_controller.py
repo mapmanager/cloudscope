@@ -6,8 +6,8 @@ from dataclasses import dataclass
 
 from acqstore.acq_image.acq_image_list import AcqImageList
 
-from .event_bus import EventBus
-from .events import (
+from cloudscope.event_bus import EventBus
+from cloudscope.events import (
     ApplyMetadataIntent,
     ChannelSelectionChanged,
     FileListChanged,
@@ -18,7 +18,7 @@ from .events import (
     SelectFileIntent,
     SelectRoiIntent,
 )
-from .state import PrimarySelection
+from cloudscope.state import PrimarySelection
 
 
 @dataclass(slots=True)

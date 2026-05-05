@@ -4,7 +4,7 @@ Application entry points should call :func:`setup_logging` once at startup.
 Library/module code should call :func:`get_logger`.
 
 Example:
-    from cloudscope.core.utils.logging import get_logger
+    from cloudscope.utils.logging import get_logger
 
     logger = get_logger(__name__)
     logger.info("Loaded file")

@@ -404,3 +404,12 @@ def test_unknown_roi_type_rejected() -> None:
 
     with pytest.raises(ValueError, match="Unsupported ROI type"):
         roi_from_dict(data)
+
+
+def test_roi_set_has_roi() -> None:
+    """RoiSet.has_roi should report ROI presence."""
+    roi_set = RoiSet(ImageBounds(width=10, height=20, num_slices=1))
+    roi = roi_set.create_rect_roi()
+
+    assert roi_set.has_roi(roi.roi_id)
+    assert not roi_set.has_roi(roi.roi_id + 100)

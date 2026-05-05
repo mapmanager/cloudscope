@@ -18,64 +18,6 @@ from acqstore.acq_image.analysis.registry import register_analysis_class
 
 
 @register_analysis_class
-class VelocityAnalysis(BaseAnalysis):
-    """Example velocity analysis with table output."""
-
-    analysis_name = "velocity"
-    detection_schema = (
-        DetectionParamSchema(
-            name="window_width",
-            display_name="Window Width",
-            value_type=DetectionValueType.INT,
-            default=64,
-            choices=(16, 64, 128),
-        ),
-    )
-
-    def run(
-        self,
-        data_provider: AnalysisDataProvider,
-        *,
-        context: AnalysisRunContext | None = None,
-        dependencies: dict[str, BaseAnalysis] | None = None,
-    ) -> AnalysisResult:
-        """Run example velocity analysis.
-
-        Args:
-            data_provider: Analysis data provider.
-            context: Optional progress/cancellation context.
-            dependencies: Dependency analyses.
-
-        Returns:
-            Analysis result.
-        """
-        context = context or AnalysisRunContext()
-        context.raise_if_cancelled()
-        context.report_progress(0.25, "Loading ROI image")
-
-        roi_image = data_provider.get_roi_image(
-            channel=self.key.channel,
-            roi_id=self.key.roi_id,
-        )
-        _ = data_provider.get_image_physical_units()
-
-        context.raise_if_cancelled()
-        context.report_progress(0.75, "Computing velocity")
-
-        mean_value = float(roi_image.mean()) if roi_image.size else 0.0
-        self.result.summary = {"mean_velocity": mean_value}
-        self.result.table = pd.DataFrame(
-            {
-                "time_s": [0.0, 1.0, 2.0],
-                "velocity": [mean_value, mean_value + 1.0, mean_value + 2.0],
-            }
-        )
-        self.set_dirty()
-        context.report_progress(1.0, "Done")
-        return self.result
-
-
-@register_analysis_class
 class DiameterAnalysis(BaseAnalysis):
     """Example diameter analysis with table output."""
 
@@ -134,7 +76,7 @@ class VelocityEventAnalysis(BaseAnalysis):
     """Example velocity-event analysis depending on velocity output."""
 
     analysis_name = "velocity_event"
-    depends_on = ("velocity",)
+    depends_on = ("radon_velocity",)
     detection_schema = ()
 
     def run(
@@ -158,9 +100,9 @@ class VelocityEventAnalysis(BaseAnalysis):
             ValueError: If velocity dependency is missing.
         """
         dependencies = dependencies or {}
-        velocity = dependencies.get("velocity")
+        velocity = dependencies.get("radon_velocity")
         if velocity is None:
-            raise ValueError("VelocityEventAnalysis requires velocity dependency")
+            raise ValueError("VelocityEventAnalysis requires radon_velocity dependency")
 
         velocities = velocity.get_column("velocity")
         events = [
@@ -234,7 +176,7 @@ class VelocityHeartRateAnalysis(BaseAnalysis):
     """Example heart-rate analysis depending on velocity output."""
 
     analysis_name = "velocity_heart_rate"
-    depends_on = ("velocity",)
+    depends_on = ("radon_velocity",)
 
     def run(
         self,
@@ -254,7 +196,7 @@ class VelocityHeartRateAnalysis(BaseAnalysis):
             Analysis result.
         """
         dependencies = dependencies or {}
-        velocity = dependencies["velocity"]
+        velocity = dependencies["radon_velocity"]
         values = velocity.get_column("velocity")
         self.result.summary = {"heart_rate_bpm": float(len(values) * 60)}
         self.result.table = None
