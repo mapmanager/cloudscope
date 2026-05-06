@@ -58,6 +58,7 @@ class FooterView(BaseView):
     """
 
     view_id = ViewId.FOOTER
+    disable_when_busy = False
 
     def __init__(
         self,

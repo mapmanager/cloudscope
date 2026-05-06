@@ -7,6 +7,7 @@ from typing import Any, ClassVar
 from nicegui import ui
 
 from cloudscope.event_bus import EventBus, EventSubscription
+from cloudscope.events import AppBusyChanged
 from cloudscope.views.view_ids import ViewId
 
 
@@ -25,6 +26,7 @@ class BaseView:
     """
 
     view_id: ClassVar[ViewId]
+    disable_when_busy: ClassVar[bool] = True
 
     def __init__(
         self,
@@ -48,6 +50,17 @@ class BaseView:
             True when the view is visible.
         """
         return self._visible
+
+    @property
+    def is_enabled(self) -> bool:
+        """Return whether this view is currently enabled.
+
+        Returns:
+            True when the root element is enabled or the view has not been built.
+        """
+        if self.root is None:
+            return True
+        return bool(getattr(self.root, "enabled", True))
 
     @property
     def is_built(self) -> bool:
@@ -131,6 +144,7 @@ class BaseView:
         Returns:
             None.
         """
+        self.add_subscription(self.event_bus.subscribe(AppBusyChanged, self._on_app_busy_changed))
         self.subscribe_events()
         self.refresh_from_state()
 
@@ -181,6 +195,46 @@ class BaseView:
         Returns:
             None.
         """
+
+    def set_enabled(self, enabled: bool) -> None:
+        """Enable or disable this view's root element.
+
+        Args:
+            enabled: Desired enabled state.
+
+        Returns:
+            None.
+        """
+        if self.root is None:
+            return
+        self.root.enabled = bool(enabled)
+        self.root.update()
+
+    def handle_app_busy_changed(self, event: AppBusyChanged) -> None:
+        """Handle app busy state.
+
+        The default behavior disables the entire root element while a task is
+        running. Views with custom busy behavior can override this method.
+
+        Args:
+            event: App busy state event.
+
+        Returns:
+            None.
+        """
+        if self.disable_when_busy:
+            self.set_enabled(not event.is_busy)
+
+    def _on_app_busy_changed(self, event: AppBusyChanged) -> None:
+        """Dispatch app busy events to the overridable handler.
+
+        Args:
+            event: App busy state event.
+
+        Returns:
+            None.
+        """
+        self.handle_app_busy_changed(event)
 
     def _apply_visible(self, visible: bool) -> None:
         """Apply visibility to the root UI element.

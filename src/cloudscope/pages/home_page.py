@@ -10,9 +10,11 @@ from nicegui import app, ui
 from nicewidgets.gui_defaults import setUpGuiDefaults
 
 from cloudscope.app_config import AppConfig
+from cloudscope.controllers.analysis_controller import AnalysisController
 from cloudscope.controllers.home_page_controller import HomePageController
 from cloudscope.controllers.load_save_controller import LoadSaveController
 from cloudscope.event_bus import EventBus
+from cloudscope.task_runner import TaskRunner
 from cloudscope.events import (
     ChannelSelectionChanged,
     FileSelectionChanged,
@@ -175,6 +177,12 @@ class HomePage:
         app.native.on('moved', self._native_moved)
 
         view_manager = ViewManager()
+        task_runner = TaskRunner(self.event_bus)
+        analysis_controller = AnalysisController(
+            event_bus=self.event_bus,
+            home_controller=self.controller,
+            task_runner=task_runner,
+        )
         app_state = self.controller.state
 
         file_list_panel = AcqImageListTableView(
@@ -252,6 +260,7 @@ class HomePage:
 
         self.controller.bind()
         self.load_save_controller.bind()
+        analysis_controller.bind()
         self.controller.load_demo_files([])
 
         last_path = self.app_config.get_last_path().strip()

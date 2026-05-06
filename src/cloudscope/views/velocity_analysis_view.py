@@ -7,7 +7,17 @@ from typing import Any
 from nicegui import ui
 
 from cloudscope.event_bus import EventBus
-from cloudscope.events import ChannelSelectionChanged, FileSelectionChanged, RoiSelectionChanged
+from cloudscope.events import (
+    AnalysisKind,
+    AppBusyChanged,
+    CancelTaskIntent,
+    ChannelSelectionChanged,
+    FileSelectionChanged,
+    RoiSelectionChanged,
+    RunAnalysisIntent,
+    TaskKind,
+)
+from cloudscope.state import PrimarySelection
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
 
@@ -28,10 +38,7 @@ def _load_radon_velocity_analysis_class() -> type[Any] | None:
 
 
 class VelocityAnalysisView(BaseView):
-    """Display Radon velocity detection params and a placeholder run button.
-
-    This pass intentionally does not run analysis. The run button is present so
-    the UI shape is ready for the next analysis-intent/controller ticket.
+    """Display Radon velocity controls and publish analysis intents.
 
     Args:
         event_bus: Page-scoped event bus.
@@ -54,6 +61,10 @@ class VelocityAnalysisView(BaseView):
         self._roi_id: int | None = None
         self._selection_label: ui.label | None = None
         self._params_container: ui.column | None = None
+        self._run_button: ui.button | None = None
+        self._cancel_button: ui.button | None = None
+        self._param_controls: dict[str, Any] = {}
+        self._current_task_id: str | None = None
 
     def build(self, parent: ui.element | None = None) -> ui.element:
         """Build the velocity analysis panel.
@@ -98,6 +109,26 @@ class VelocityAnalysisView(BaseView):
                 self._roi_id = selection.roi_id
         self._refresh_selection_label()
 
+    def handle_app_busy_changed(self, event: AppBusyChanged) -> None:
+        """Customize busy behavior so the Cancel button remains usable.
+
+        Args:
+            event: App busy state event.
+
+        Returns:
+            None.
+        """
+        is_analysis_busy = event.is_busy and event.task_kind is TaskKind.ANALYSIS
+        self._current_task_id = event.task_id if is_analysis_busy else None
+
+        if self._run_button is not None:
+            self._run_button.enabled = not event.is_busy
+            self._run_button.update()
+        if self._cancel_button is not None:
+            self._cancel_button.visible = is_analysis_busy
+            self._cancel_button.enabled = is_analysis_busy
+            self._cancel_button.update()
+
     def _build_content(self) -> None:
         """Build static panel content.
 
@@ -106,12 +137,14 @@ class VelocityAnalysisView(BaseView):
         """
         ui.label("Velocity analysis").classes("text-lg font-semibold")
         self._selection_label = ui.label("No file selected").classes("text-sm opacity-70")
-        self._params_container = ui.column().classes("w-full gap-1")
-        self._build_param_summary()
-        ui.button("Run Analysis", on_click=self._on_run_clicked).props("outline").classes("w-full")
+        self._params_container = ui.column().classes("w-full gap-2")
+        self._build_param_controls()
+        self._run_button = ui.button("Run Analysis", on_click=self._on_run_clicked).classes("w-full")
+        self._cancel_button = ui.button("Cancel Analysis", on_click=self._on_cancel_clicked).props("outline color=negative").classes("w-full")
+        self._cancel_button.visible = False
 
-    def _build_param_summary(self) -> None:
-        """Render detection parameter schema/defaults.
+    def _build_param_controls(self) -> None:
+        """Render editable detection parameter controls from analysis schema.
 
         Returns:
             None.
@@ -119,31 +152,105 @@ class VelocityAnalysisView(BaseView):
         if self._params_container is None:
             return
         self._params_container.clear()
+        self._param_controls.clear()
         with self._params_container:
             cls = _load_radon_velocity_analysis_class()
             if cls is None:
                 ui.label("Radon velocity analysis plugin is not available.").classes("text-sm text-orange-600")
                 return
             ui.label("Detection parameters").classes("text-sm font-medium")
+            defaults = cls.get_default_detection_params()
             for field in cls.get_detection_schema():
                 if not getattr(field, "visible", True):
                     continue
+                label = field.display_name
+                if getattr(field, "unit", None):
+                    label = f"{label} ({field.unit})"
                 choices = getattr(field, "choices", None)
-                suffix = f" choices={tuple(choices)!r}" if choices is not None else ""
+                if choices is not None:
+                    control = ui.select(
+                        label=label,
+                        options=list(choices),
+                        value=defaults.get(field.name),
+                    ).classes("w-full")
+                elif field.value_type.value == "bool":
+                    control = ui.checkbox(text=label, value=bool(defaults.get(field.name)))
+                elif field.value_type.value in {"int", "float"}:
+                    control = ui.number(label=label, value=defaults.get(field.name)).classes("w-full")
+                else:
+                    control = ui.input(label=label, value=str(defaults.get(field.name, ""))).classes("w-full")
+                if not getattr(field, "editable", True):
+                    control.props("readonly")
                 description = getattr(field, "description", "")
-                ui.label(
-                    f"{field.display_name}: default={field.default!r}{suffix}"
-                ).classes("text-xs")
                 if description:
                     ui.label(str(description)).classes("text-xs opacity-70")
+                self._param_controls[field.name] = control
+
+    def _current_detection_params(self) -> dict[str, object]:
+        """Return current detection parameter values from controls.
+
+        Returns:
+            Detection parameter mapping.
+
+        Raises:
+            RuntimeError: If the Radon analysis plugin is unavailable.
+        """
+        cls = _load_radon_velocity_analysis_class()
+        if cls is None:
+            raise RuntimeError("Radon velocity analysis plugin is not available")
+        params = cls.get_default_detection_params()
+        for name, control in self._param_controls.items():
+            params[name] = control.value
+        cls.validate_detection_params(params)
+        return params
+
+    def _selection_snapshot(self) -> PrimarySelection:
+        """Return a copied selection snapshot for an analysis intent.
+
+        Returns:
+            Copied primary selection.
+        """
+        return PrimarySelection(
+            file_id=self._file_id,
+            channel=self._channel,
+            roi_id=self._roi_id,
+        )
 
     def _on_run_clicked(self) -> None:
-        """Handle placeholder run-analysis button click.
+        """Publish a run-analysis intent for the current selection.
 
         Returns:
             None.
         """
-        ui.notify("Analysis execution will be wired in the analysis-controller ticket.", type="info")
+        selection = self._selection_snapshot()
+        if selection.file_id is None or selection.channel is None or selection.roi_id is None:
+            ui.notify("Select a file, channel, and ROI before running analysis.", type="warning")
+            return
+        try:
+            detection_params = self._current_detection_params()
+        except Exception as exc:
+            ui.notify(f"Invalid detection parameters: {exc}", type="negative")
+            return
+        self.event_bus.publish(
+            RunAnalysisIntent(
+                analysis_kind=AnalysisKind.RADON_VELOCITY,
+                selection=selection,
+                detection_params=detection_params,
+            )
+        )
+
+    def _on_cancel_clicked(self) -> None:
+        """Publish a cancel-analysis intent.
+
+        Returns:
+            None.
+        """
+        self.event_bus.publish(
+            CancelTaskIntent(
+                task_kind=TaskKind.ANALYSIS,
+                task_id=self._current_task_id,
+            )
+        )
 
     def _on_file_selection_changed(self, event: FileSelectionChanged) -> None:
         """Update selection cache from file-selection state.

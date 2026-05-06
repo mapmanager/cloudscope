@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from cloudscope.state import PrimarySelection
+
 if TYPE_CHECKING:
     from acqstore.acq_image.acq_image import AcqImage
 
@@ -42,6 +44,13 @@ class TaskKind(StrEnum):
     LOAD = 'load'
     SAVE = 'save'
     ANALYSIS = 'analysis'
+
+
+class AnalysisKind(StrEnum):
+    """Supported CloudScope analysis kinds."""
+
+    RADON_VELOCITY = 'radon_velocity'
+    DIAMETER = 'diameter'
 
 
 class TaskStatus(StrEnum):
@@ -134,6 +143,35 @@ class SaveAllIntent(IntentEvent):
     """Request to save all dirty files."""
 
 
+@dataclass(frozen=True)
+class RunAnalysisIntent(IntentEvent):
+    """Request to run one analysis for a selection snapshot.
+
+    Args:
+        analysis_kind: Analysis kind to run.
+        selection: File/channel/ROI snapshot captured at user click time.
+        detection_params: Analysis detection parameters keyed by schema field name.
+    """
+
+    analysis_kind: AnalysisKind
+    selection: PrimarySelection
+    detection_params: dict[str, object]
+
+
+@dataclass(frozen=True)
+class CancelTaskIntent(IntentEvent):
+    """Request cancellation of a running task.
+
+    Args:
+        task_kind: Task category to cancel.
+        task_id: Optional task identifier. If omitted, the active task of the
+            requested kind is cancelled.
+    """
+
+    task_kind: TaskKind
+    task_id: str | None = None
+
+
 # -----------------------------
 # State Events
 # -----------------------------
@@ -217,6 +255,40 @@ class TaskProgressChanged(StateEvent):
     current: int
     total: int
     message: str
+
+
+@dataclass(frozen=True)
+class AppBusyChanged(StateEvent):
+    """Emitted when the app enters or leaves a long-running task state.
+
+    Args:
+        is_busy: True while a task is running.
+        task_kind: Running task kind, or None when no task is active.
+        task_id: Running task id, or None when no task is active.
+        message: Human-readable task message.
+    """
+
+    is_busy: bool
+    task_kind: TaskKind | None
+    task_id: str | None
+    message: str
+
+
+@dataclass(frozen=True)
+class AnalysisCompleted(StateEvent):
+    """Emitted when an analysis task reaches a terminal state.
+
+    Args:
+        analysis_kind: Analysis kind that ran.
+        selection: Selection snapshot used by the analysis.
+        success: True when analysis completed successfully.
+        message: Human-readable completion, cancellation, or error message.
+    """
+
+    analysis_kind: AnalysisKind
+    selection: PrimarySelection
+    success: bool
+    message: str = ''
 
 
 @dataclass(frozen=True)
