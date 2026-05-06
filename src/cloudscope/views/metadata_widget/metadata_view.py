@@ -14,6 +14,9 @@ from cloudscope.views.base_view import BaseView
 from cloudscope.views.metadata_widget.schema_card_widget import SchemaCardWidget
 from cloudscope.views.view_ids import ViewId
 
+from cloudscope.utils.logging import get_logger
+logger = get_logger(__name__)
+
 
 class MetadataView(BaseView):
     """Wires ``SchemaCardWidget`` to file selection and apply intents.
@@ -80,6 +83,8 @@ class MetadataView(BaseView):
             self._render_no_file()
             return
 
+        logger.info('')
+        
         selection = getattr(self.app_state, "selection", None)
         file_id = getattr(selection, "file_id", None)
         acq_image = None
@@ -98,6 +103,8 @@ class MetadataView(BaseView):
         Returns:
             None.
         """
+        logger.info('')
+
         self._render_file(file_id=event.file_id, acq_image=event.acq_image, force=False)
 
     def _on_metadata_changed(self, event: MetadataChanged) -> None:

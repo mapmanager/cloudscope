@@ -120,6 +120,11 @@ class RemoveRecentPathIntent(IntentEvent):
 
 
 @dataclass(frozen=True)
+class ClearRecentPathsIntent(IntentEvent):
+    """Request to clear recent file and folder paths."""
+
+
+@dataclass(frozen=True)
 class SaveSelectedIntent(IntentEvent):
     """Request to save currently selected file."""
 
@@ -127,11 +132,6 @@ class SaveSelectedIntent(IntentEvent):
 @dataclass(frozen=True)
 class SaveAllIntent(IntentEvent):
     """Request to save all dirty files."""
-
-
-@dataclass(frozen=True)
-class ClearRecentPathsIntent(IntentEvent):
-    """Request to clear recent file and folder paths."""
 
 
 # -----------------------------

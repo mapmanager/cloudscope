@@ -6,6 +6,8 @@ from cloudscope.utils.logging import get_logger, setup_logging
 from cloudscope.app_config import AppConfig
 from cloudscope.pages.home_page import home_page  # noqa: F401  # registers page route
 
+setup_logging()
+
 logger = get_logger(__name__)
 
 def _native_init_window_position():
@@ -33,7 +35,8 @@ except Exception:
 
 def main() -> None:
     """Run the CloudScope NiceGUI application."""
-    setup_logging()
+
+    # setup_logging()
 
     # app_config = AppConfig.load(create_if_missing=False)
     # x, y, w, h = app_config.get_window_rect()

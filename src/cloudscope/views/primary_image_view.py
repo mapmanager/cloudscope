@@ -20,8 +20,8 @@ from acqstore.acq_image.acq_image import AcqImage
 from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader
 from cloudscope.event_bus import EventBus
 from cloudscope.events import (
-    ChannelSelectionChanged,
     FileSelectionChanged,
+    ChannelSelectionChanged,
     RoiSelectionChanged,
 )
 from cloudscope.utils.logging import get_logger

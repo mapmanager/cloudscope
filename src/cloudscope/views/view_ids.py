@@ -12,8 +12,10 @@ class ViewId(StrEnum):
     METADATA = "metadata"
     APP_CONFIG = "app_config"
     VELOCITY_ANALYSIS = "velocity_analysis"
+
+    # main page
+    LOAD_SAVE = "load_save"
     FILE_LIST = "file_list"
     IMAGE_TOOLBAR = "image_toolbar"
-    LOAD_SAVE = "load_save"
     PRIMARY_IMAGE = "primary_image"
     FOOTER = "footer"
