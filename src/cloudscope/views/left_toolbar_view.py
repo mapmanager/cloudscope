@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from nicegui import ui
 
+from cloudscope.app_config import AppConfig
 from cloudscope.event_bus import EventBus
+from cloudscope.views.app_config_view import AppConfigView
 from cloudscope.views.base_view import BaseView
+from cloudscope.views.metadata_widget.metadata_view import MetadataView
+from cloudscope.views.velocity_analysis_view import VelocityAnalysisView
 from cloudscope.views.view_ids import ViewId
 from cloudscope.views.view_manager import ViewManager
 
@@ -35,35 +40,57 @@ _LEFT_TOOLBAR_TABS: tuple[LeftToolbarTab, ...] = (
 
 
 class LeftToolbarView(BaseView):
-    """Always-visible vertical toolbar controlling left panel views.
+    """Composite left toolbar plus optional left-panel views.
 
-    Clicking an inactive tab shows the associated panel. Clicking the active tab
-    hides all left-panel views and returns to the no-active-tab state.
+    The toolbar owns its tab definitions and child panel views.  Clicking an
+    inactive tab shows the associated panel.  Clicking the active tab hides all
+    child panels and returns to the no-active-tab state.
 
     Args:
         event_bus: Page-scoped event bus.
-        view_manager: Manager containing the controlled panel views.
-        left_panel_root: Root container for the panel stack beside the toolbar.
+        app_state: Home-page state used by child views.
+        app_config: Shared app configuration used by the app config child view.
+        view_manager: Manager used to register and show/hide child views.
+        initially_visible: Whether the toolbar starts visible.
     """
 
     view_id = ViewId.LEFT_TOOLBAR
+    disable_when_busy = False
 
     def __init__(
         self,
         *,
         event_bus: EventBus,
+        app_state: Any,
+        app_config: AppConfig,
         view_manager: ViewManager,
-        left_panel_root: ui.element,
+        initially_visible: bool = True,
     ) -> None:
-        super().__init__(event_bus=event_bus, app_state=None, initially_visible=True)
+        super().__init__(event_bus=event_bus, app_state=app_state, initially_visible=initially_visible)
+        self._app_config = app_config
         self._view_manager = view_manager
-        self._left_panel_root = left_panel_root
         self._active_view_id: ViewId | None = None
         self._buttons: dict[ViewId, ui.button] = {}
+        self._left_panel_root: ui.element | None = None
+        self.metadata_view = MetadataView(
+            event_bus=event_bus,
+            app_state=app_state,
+            initially_visible=False,
+        )
+        self.velocity_analysis_view = VelocityAnalysisView(
+            event_bus=event_bus,
+            app_state=app_state,
+            initially_visible=False,
+        )
+        self.app_config_view = AppConfigView(
+            app_config=app_config,
+            event_bus=event_bus,
+            initially_visible=False,
+        )
 
     @property
     def active_view_id(self) -> ViewId | None:
-        """Return the currently active left-panel view id.
+        """Return the active left-panel view id.
 
         Returns:
             Active view id, or None when no panel is shown.
@@ -80,24 +107,44 @@ class LeftToolbarView(BaseView):
         return tuple(tab.view_id for tab in _LEFT_TOOLBAR_TABS)
 
     def build(self, parent: ui.element | None = None) -> ui.element:
-        """Build the vertical toolbar.
+        """Build the composite toolbar and child panel stack.
 
         Args:
             parent: Optional NiceGUI parent.
 
         Returns:
-            Root element for this view.
+            Root element for this composite view.
         """
+        def _build() -> None:
+            with ui.row().classes("w-full h-full items-start gap-0") as self.root:
+                with ui.column().classes("h-full shrink-0 items-center gap-1 p-1 bg-gray-100 dark:bg-gray-900"):
+                    self._build_buttons()
+                with ui.column().classes("h-full w-80 gap-3 p-3") as panel_root:
+                    self._left_panel_root = panel_root
+                    self.metadata_view.build()
+                    self.velocity_analysis_view.build()
+                    self.app_config_view.build()
+
         if parent is None:
-            with ui.column().classes("h-full items-center gap-1 p-1 bg-gray-100 dark:bg-gray-900") as self.root:
-                self._build_buttons()
+            _build()
         else:
             with parent:
-                with ui.column().classes("h-full items-center gap-1 p-1 bg-gray-100 dark:bg-gray-900") as self.root:
-                    self._build_buttons()
+                _build()
+
+        self._register_child_views()
         self.after_build()
         self._apply_active_view(None)
         return self.root
+
+    def _register_child_views(self) -> None:
+        """Register child panel views with the shared view manager.
+
+        Returns:
+            None.
+        """
+        for view in (self.metadata_view, self.velocity_analysis_view, self.app_config_view):
+            if view.view_id not in self._view_manager.view_ids():
+                self._view_manager.register(view)
 
     def _build_buttons(self) -> None:
         """Build toolbar tab buttons.
@@ -126,7 +173,7 @@ class LeftToolbarView(BaseView):
         self._apply_active_view(next_view_id)
 
     def _apply_active_view(self, view_id: ViewId | None) -> None:
-        """Apply active panel state to views and panel container.
+        """Apply active panel state to child views and panel container.
 
         Args:
             view_id: Panel view to show, or None to hide all panels.
@@ -136,8 +183,9 @@ class LeftToolbarView(BaseView):
         """
         self._active_view_id = view_id
         self._view_manager.show_only(view_id, self.panel_view_ids)
-        self._left_panel_root.visible = view_id is not None
-        self._left_panel_root.update()
+        if self._left_panel_root is not None:
+            self._left_panel_root.visible = view_id is not None
+            self._left_panel_root.update()
         self._refresh_button_state()
 
     def _refresh_button_state(self) -> None:

@@ -47,3 +47,17 @@ def test_channel_options_for_acq_image_returns_string_options() -> None:
 def test_roi_options_for_acq_image_returns_int_options() -> None:
     """Toolbar ROI options should remain integer backend ROI ids."""
     assert roi_options_for_acq_image(FakeAcqImage()) == [10, 20]
+
+from cloudscope.event_bus import EventBus
+from cloudscope.views.base_view import BaseView
+from cloudscope.views.image_toolbar_view import ImageToolbarView
+from cloudscope.views.view_ids import ViewId
+
+
+def test_image_toolbar_view_is_base_view() -> None:
+    """ImageToolbarView should participate in BaseView lifecycle."""
+    view = ImageToolbarView(event_bus=EventBus())
+
+    assert isinstance(view, BaseView)
+    assert view.view_id is ViewId.IMAGE_TOOLBAR
+    assert view.disable_when_busy is True

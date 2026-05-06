@@ -22,16 +22,13 @@ from cloudscope.events import (
     LoadPathIntent,
     RoiSelectionChanged,
 )
-from cloudscope.views.app_config_view import AppConfigView
 from cloudscope.views.file_list_view import AcqImageListTableView
 from cloudscope.views.footer_view import FooterView
 from cloudscope.views.header_view import build_main_header
 from cloudscope.views.image_toolbar_view import ImageToolbarView
 from cloudscope.views.left_toolbar_view import LeftToolbarView
 from cloudscope.views.load_save_view import LoadSaveView
-from cloudscope.views.metadata_widget.metadata_view import MetadataView
 from cloudscope.views.primary_image_view import PrimaryImageView
-from cloudscope.views.velocity_analysis_view import VelocityAnalysisView
 from cloudscope.views.view_manager import ViewManager
 
 from cloudscope.utils.logging import get_logger
@@ -192,24 +189,20 @@ class HomePage:
             app_state=app_state,
             initially_visible=True,
         )
-        load_save_view = LoadSaveView(event_bus=self.event_bus, app_config=self.app_config)
-        image_toolbar = ImageToolbarView(event_bus=self.event_bus)
-        metadata_view = MetadataView(
+        load_save_view = LoadSaveView(
             event_bus=self.event_bus,
-            app_state=app_state,
-            initially_visible=False,
-        )
-        velocity_analysis_view = VelocityAnalysisView(
-            event_bus=self.event_bus,
-            app_state=app_state,
-            initially_visible=False,
-        )
-        app_config_view = AppConfigView(
             app_config=self.app_config,
-            event_bus=self.event_bus,
-            initially_visible=False,
+            initially_visible=True,
         )
-        primary_image = PrimaryImageView(self.event_bus, title='Primary image')
+        image_toolbar = ImageToolbarView(
+            event_bus=self.event_bus,
+            initially_visible=True,
+        )
+        primary_image = PrimaryImageView(
+            self.event_bus,
+            title='Primary image',
+            initially_visible=True,
+        )
         reference_image = PlotlyImagePanel(self.event_bus, title="Reference image")
         footer = FooterView(
             event_bus=self.event_bus,
@@ -224,29 +217,20 @@ class HomePage:
 
         with ui.splitter(value=8).classes("w-full min-h-screen") as splitter:
             with splitter.before:
-                with ui.row().classes("w-full h-full items-start gap-0"):
-                    with ui.column().classes("h-full shrink-0") as toolbar_container:
-                        pass
-                    with ui.column().classes("h-full w-80 gap-3 p-3") as left_panel_root:
-                        metadata_view.build()
-                        velocity_analysis_view.build()
-                        app_config_view.build()
-
-                    view_manager.register(metadata_view)
-                    view_manager.register(velocity_analysis_view)
-                    view_manager.register(app_config_view)
-
-                    left_toolbar = LeftToolbarView(
-                        event_bus=self.event_bus,
-                        view_manager=view_manager,
-                        left_panel_root=left_panel_root,
-                    )
-                    left_toolbar.build(parent=toolbar_container)
-                    view_manager.register(left_toolbar)
+                left_toolbar = LeftToolbarView(
+                    event_bus=self.event_bus,
+                    app_state=app_state,
+                    app_config=self.app_config,
+                    view_manager=view_manager,
+                    initially_visible=True,
+                )
+                left_toolbar.build()
+                view_manager.register(left_toolbar)
 
             with splitter.after:
                 with ui.column().classes("w-full gap-4 p-4"):
                     load_save_view.build()
+                    view_manager.register(load_save_view)
 
                     with ui.row().classes("w-full items-start gap-4"):
                         file_list_panel.build()
@@ -254,8 +238,11 @@ class HomePage:
 
                     with ui.row().classes("w-full items-start gap-4"):
                         image_toolbar.build()
+                    view_manager.register(image_toolbar)
 
                     primary_image.build()
+                    view_manager.register(primary_image)
+
                     reference_image.build()
 
         self.controller.bind()

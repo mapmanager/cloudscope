@@ -52,6 +52,7 @@ def test_save_selected_disabled_without_dirty_selection(tmp_path) -> None:
     bus = EventBus()
     cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
     view = LoadSaveView(event_bus=bus, app_config=cfg)
+    view.subscribe_events()
     view._save_selected_button = _ToggleButton()
     view._save_all_button = _ToggleButton()
 
@@ -63,6 +64,7 @@ def test_task_progress_opens_and_closes_dialog(tmp_path) -> None:
     bus = EventBus()
     cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
     view = LoadSaveView(event_bus=bus, app_config=cfg)
+    view.subscribe_events()
     view._progress_dialog = _Dialog()
     view._progress_bar = _Progress()
     view._progress_label = _Label()
@@ -121,7 +123,8 @@ def test_recent_item_matches_app_path_false_when_last_path_empty(tmp_path) -> No
 def test_status_event_calls_notify(tmp_path, monkeypatch) -> None:
     bus = EventBus()
     cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
-    _view = LoadSaveView(event_bus=bus, app_config=cfg)
+    view = LoadSaveView(event_bus=bus, app_config=cfg)
+    view.subscribe_events()
     notify_calls: list[str] = []
 
     def _notify(msg: str, *, type: str) -> None:

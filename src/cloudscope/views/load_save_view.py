@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
 import json
 from pathlib import Path
 
@@ -27,6 +26,8 @@ from cloudscope.events import (
 from cloudscope._py_web_view import _prompt_for_path, _prompt_for_save_path
 from cloudscope.app_config import AppConfig, normalize_stored_path
 from cloudscope.utils.logging import get_logger
+from cloudscope.views.base_view import BaseView
+from cloudscope.views.view_ids import ViewId
 
 logger = get_logger(__name__)
 
@@ -54,15 +55,27 @@ def _path_display(path: str) -> str:
         return path
 
 
-@dataclass
-class LoadSaveView:
-    """Toolbar that emits load/save intents and renders recents/progress UI."""
+class LoadSaveView(BaseView):
+    """Toolbar that emits load/save intents and renders recents/progress UI.
 
-    event_bus: EventBus
-    app_config: AppConfig
+    Args:
+        event_bus: Page-scoped event bus.
+        app_config: Shared app configuration for recents and native dialog defaults.
+        initially_visible: Whether the view starts visible.
+    """
 
-    def __post_init__(self) -> None:
-        # self._path_input: ui.input | None = None
+    view_id = ViewId.LOAD_SAVE
+    disable_when_busy = True
+
+    def __init__(
+        self,
+        *,
+        event_bus: EventBus,
+        app_config: AppConfig,
+        initially_visible: bool = True,
+    ) -> None:
+        super().__init__(event_bus=event_bus, app_state=None, initially_visible=initially_visible)
+        self.app_config = app_config
         self._save_selected_button: ui.button | None = None
         self._save_all_button: ui.button | None = None
         self._current_file_id: str | None = None
@@ -76,46 +89,66 @@ class LoadSaveView:
         self._history_button: ui.button | None = None
         self._recent_menu: ui.menu | None = None
 
-        self.event_bus.subscribe(FileSelectionChanged, self._on_file_selection_changed)
-        self.event_bus.subscribe(RecentPathsChanged, self._on_recent_paths_changed)
-        self.event_bus.subscribe(TaskProgressChanged, self._on_task_progress_changed)
-        self.event_bus.subscribe(AppStatusChanged, self._on_status_changed)
+    def build(self, parent: ui.element | None = None) -> ui.element:
+        """Build toolbar UI.
 
-    def build(self) -> None:
-        """Build toolbar UI."""
+        Args:
+            parent: Optional NiceGUI parent.
+
+        Returns:
+            Root element for this view.
+        """
         self._client = ui.context.client
-        with ui.row().classes('w-full items-center gap-2'):
-
-            # self._path_input = ui.input(
-            #     label='Path',
-            #     placeholder='Enter file/folder/csv path then click load button',
-            # ).classes('grow')
-
-            # History control: button + menu as siblings in a wrapper (KymFlow-style) so
-            # the menu can be deleted/rebuilt when RecentPathsChanged fires.
-            with ui.element('div').classes('inline-flex items-center shrink-0') as hist_wrap:
-                self._history_menu_container = hist_wrap
-                self._history_button = ui.button(
-                    icon='menu',
-                    on_click=self._open_recent_menu,
-                ).props('flat')
-                self._build_recent_menu()
-
-            ui.button('Load File', on_click=lambda: self._on_load_clicked(LoadPathKind.FILE))
-            ui.button('Load Folder', on_click=lambda: self._on_load_clicked(LoadPathKind.FOLDER))
-            ui.button('Load CSV', on_click=lambda: self._on_load_clicked(LoadPathKind.CSV))
-
-            self._save_selected_button = ui.button(
-                'Save Selected',
-                on_click=self._on_save_selected_clicked,
-            )
-            self._save_all_button = ui.button(
-                'Save All',
-                on_click=self._on_save_all_clicked,
-            )
+        if parent is None:
+            with ui.row().classes('w-full items-center gap-2') as self.root:
+                self._build_toolbar_contents()
+        else:
+            with parent:
+                with ui.row().classes('w-full items-center gap-2') as self.root:
+                    self._build_toolbar_contents()
 
         self._build_progress_dialog()
         self._update_button_states()
+        self.after_build()
+        return self.root
+
+    def subscribe_events(self) -> None:
+        """Subscribe to load/save events while this view is visible.
+
+        Returns:
+            None.
+        """
+        self.add_subscription(self.event_bus.subscribe(FileSelectionChanged, self._on_file_selection_changed))
+        self.add_subscription(self.event_bus.subscribe(RecentPathsChanged, self._on_recent_paths_changed))
+        self.add_subscription(self.event_bus.subscribe(TaskProgressChanged, self._on_task_progress_changed))
+        self.add_subscription(self.event_bus.subscribe(AppStatusChanged, self._on_status_changed))
+
+    def _build_toolbar_contents(self) -> None:
+        """Build toolbar controls inside the current NiceGUI slot.
+
+        Returns:
+            None.
+        """
+        with ui.element('div').classes('inline-flex items-center shrink-0') as hist_wrap:
+            self._history_menu_container = hist_wrap
+            self._history_button = ui.button(
+                icon='menu',
+                on_click=self._open_recent_menu,
+            ).props('flat')
+            self._build_recent_menu()
+
+        ui.button('Load File', on_click=lambda: self._on_load_clicked(LoadPathKind.FILE))
+        ui.button('Load Folder', on_click=lambda: self._on_load_clicked(LoadPathKind.FOLDER))
+        ui.button('Load CSV', on_click=lambda: self._on_load_clicked(LoadPathKind.CSV))
+
+        self._save_selected_button = ui.button(
+            'Save Selected',
+            on_click=self._on_save_selected_clicked,
+        )
+        self._save_all_button = ui.button(
+            'Save All',
+            on_click=self._on_save_all_clicked,
+        )
 
     def _build_progress_dialog(self) -> None:
         with ui.dialog() as dialog, ui.card().classes('w-[460px]'):

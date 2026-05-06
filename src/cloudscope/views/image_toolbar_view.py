@@ -8,6 +8,8 @@ from nicegui import ui
 
 from acqstore.acq_image.acq_image import AcqImage
 from cloudscope.event_bus import EventBus
+from cloudscope.views.base_view import BaseView
+from cloudscope.views.view_ids import ViewId
 from cloudscope.events import (
     ChannelSelectionChanged,
     FileSelectionChanged,
@@ -65,7 +67,7 @@ def roi_options_for_acq_image(acq_image: AcqImage) -> list[int]:
     return list(rois.get_roi_ids())
 
 
-class ImageToolbarView:
+class ImageToolbarView(BaseView):
     """CloudScope view wrapper around ``nicewidgets.ImageToolbarWidget``.
 
     The wrapped widget emits NiceWidgets intent dataclasses. This view converts
@@ -78,31 +80,42 @@ class ImageToolbarView:
             consume selection state events.
     """
 
-    def __init__(self, event_bus: EventBus) -> None:
-        self._event_bus = event_bus
+    view_id = ViewId.IMAGE_TOOLBAR
+    disable_when_busy = True
+
+    def __init__(self, event_bus: EventBus, *, initially_visible: bool = True) -> None:
+        super().__init__(event_bus=event_bus, app_state=None, initially_visible=initially_visible)
         self._toolbar: ImageToolbarWidget | None = None
 
-        self._event_bus.subscribe(FileSelectionChanged, self._on_file_selection_changed)
-        self._event_bus.subscribe(ChannelSelectionChanged, self._on_channel_selection_changed)
-        self._event_bus.subscribe(RoiSelectionChanged, self._on_roi_selection_changed)
-
-    def build(self, parent: ui.element | None = None) -> ImageToolbarWidget:
-        """Build and return the underlying NiceWidgets image toolbar.
+    def build(self, parent: ui.element | None = None) -> ui.element:
+        """Build the image toolbar view.
 
         Args:
             parent: Optional NiceGUI parent element. If omitted, the widget is
                 built in the current slot.
 
         Returns:
-            Created ``ImageToolbarWidget``.
+            Root element for this view.
         """
         if parent is None:
-            self._toolbar = ImageToolbarWidget(on_intent=self._on_toolbar_intent)
-            return self._toolbar
+            with ui.row().classes("w-full") as self.root:
+                self._toolbar = ImageToolbarWidget(on_intent=self._on_toolbar_intent)
+        else:
+            with parent:
+                with ui.row().classes("w-full") as self.root:
+                    self._toolbar = ImageToolbarWidget(on_intent=self._on_toolbar_intent)
+        self.after_build()
+        return self.root
 
-        with parent:
-            self._toolbar = ImageToolbarWidget(on_intent=self._on_toolbar_intent)
-            return self._toolbar
+    def subscribe_events(self) -> None:
+        """Subscribe to toolbar state events while visible.
+
+        Returns:
+            None.
+        """
+        self.add_subscription(self.event_bus.subscribe(FileSelectionChanged, self._on_file_selection_changed))
+        self.add_subscription(self.event_bus.subscribe(ChannelSelectionChanged, self._on_channel_selection_changed))
+        self.add_subscription(self.event_bus.subscribe(RoiSelectionChanged, self._on_roi_selection_changed))
 
     def _on_toolbar_intent(self, intent: ImageToolbarIntent) -> None:
         """Translate NiceWidgets toolbar intents into CloudScope intents.
@@ -114,11 +127,11 @@ class ImageToolbarView:
             None.
         """
         if isinstance(intent, ImageToolbarSelectChannelIntent):
-            self._event_bus.publish(SelectChannelIntent(channel=intent.channel))
+            self.event_bus.publish(SelectChannelIntent(channel=intent.channel))
             return
 
         if isinstance(intent, ImageToolbarSelectRoiIntent):
-            self._event_bus.publish(SelectRoiIntent(roi_id=intent.roi_id))
+            self.event_bus.publish(SelectRoiIntent(roi_id=intent.roi_id))
             return
 
     def _on_file_selection_changed(self, event: FileSelectionChanged) -> None:

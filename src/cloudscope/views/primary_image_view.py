@@ -25,6 +25,8 @@ from cloudscope.events import (
     RoiSelectionChanged,
 )
 from cloudscope.utils.logging import get_logger
+from cloudscope.views.base_view import BaseView
+from cloudscope.views.view_ids import ViewId
 from nicewidgets.raster_viewer.backend.image_model import RasterGridSpec
 from nicewidgets.raster_viewer.frontend.plotly_viewer import PlotlyRasterViewer
 
@@ -107,7 +109,7 @@ def _schedule_coro(coro: Coroutine[Any, Any, None]) -> None:
         asyncio.run(coro)
 
 
-class PrimaryImageView:
+class PrimaryImageView(BaseView):
     """NiceGUI primary image panel driven by selection events and ``PlotlyRasterViewer``.
 
     Subscribes to ``FileSelectionChanged``, ``ChannelSelectionChanged``, and
@@ -119,8 +121,17 @@ class PrimaryImageView:
         title: Card title.
     """
 
-    def __init__(self, event_bus: EventBus, *, title: str = 'Primary image') -> None:
-        self._event_bus = event_bus
+    view_id = ViewId.PRIMARY_IMAGE
+    disable_when_busy = False
+
+    def __init__(
+        self,
+        event_bus: EventBus,
+        *,
+        title: str = 'Primary image',
+        initially_visible: bool = True,
+    ) -> None:
+        super().__init__(event_bus=event_bus, app_state=None, initially_visible=initially_visible)
         self._title = title
         self._client: Any = None
         self._viewer = PlotlyRasterViewer()
@@ -129,20 +140,42 @@ class PrimaryImageView:
         self._channel: int | None = None
         self._roi_id: int | None = None
 
-        self._event_bus.subscribe(FileSelectionChanged, self._on_file_selection_changed)
-        self._event_bus.subscribe(ChannelSelectionChanged, self._on_channel_selection_changed)
-        self._event_bus.subscribe(RoiSelectionChanged, self._on_roi_selection_changed)
-
-    def build(self) -> None:
+    def build(self, parent: ui.element | None = None) -> ui.element:
         """Create the card, title, and Plotly raster element.
+
+        Args:
+            parent: Optional NiceGUI parent.
+
+        Returns:
+            Root element for this view.
+        """
+        self._client = ui.context.client
+
+        def _build() -> None:
+            with ui.card().classes("w-full") as self.root:
+                ui.label(self._title).classes("text-lg font-medium")
+                plot = self._viewer.build()
+                plot.classes('w-full h-80')
+
+        if parent is None:
+            _build()
+        else:
+            with parent:
+                _build()
+
+        self.after_build()
+        self._refresh_raster()
+        return self.root
+
+    def subscribe_events(self) -> None:
+        """Subscribe to primary-image selection events while visible.
 
         Returns:
             None.
         """
-        self._client = ui.context.client
-        plot = self._viewer.build()
-        plot.classes('w-full h-80')
-        self._refresh_raster()
+        self.add_subscription(self.event_bus.subscribe(FileSelectionChanged, self._on_file_selection_changed))
+        self.add_subscription(self.event_bus.subscribe(ChannelSelectionChanged, self._on_channel_selection_changed))
+        self.add_subscription(self.event_bus.subscribe(RoiSelectionChanged, self._on_roi_selection_changed))
 
     def _run_ui(self, fn: Callable[[], None]) -> None:
         """Run UI updates; remarshal via ``Client.safe_invoke`` when slot context is missing."""

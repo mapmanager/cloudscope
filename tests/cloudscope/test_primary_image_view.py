@@ -82,3 +82,17 @@ def test_load_plane_payload_placeholder_without_acq() -> None:
 def test_placeholder_plane_returns_float32() -> None:
     plane, _ = _placeholder_plane()
     assert plane.dtype == np.float32
+
+from cloudscope.event_bus import EventBus
+from cloudscope.views.base_view import BaseView
+from cloudscope.views.primary_image_view import PrimaryImageView
+from cloudscope.views.view_ids import ViewId
+
+
+def test_primary_image_view_is_base_view_and_not_disabled_when_busy() -> None:
+    """PrimaryImageView should be display-only for app busy handling."""
+    view = PrimaryImageView(EventBus())
+
+    assert isinstance(view, BaseView)
+    assert view.view_id is ViewId.PRIMARY_IMAGE
+    assert view.disable_when_busy is False
