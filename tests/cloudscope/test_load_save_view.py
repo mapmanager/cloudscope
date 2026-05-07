@@ -8,99 +8,62 @@ from cloudscope.events import (
     FileSelectionChanged,
     StatusLevel,
     StatusSource,
-    TaskKind,
-    TaskProgressChanged,
-    TaskStatus,
 )
 from cloudscope.app_config import AppConfig, normalize_stored_path
 from cloudscope.views.load_save_view import LoadSaveView
 
 
 class _ToggleButton:
+    """Fake button tracking enable/disable calls."""
+
     def __init__(self) -> None:
         self.disabled = False
 
     def disable(self) -> None:
+        """Mark disabled."""
         self.disabled = True
 
     def enable(self) -> None:
+        """Mark enabled."""
         self.disabled = False
 
 
-class _Dialog:
-    def __init__(self) -> None:
-        self.opened = False
+class _DirtyAcqImage:
+    """Fake acquisition image exposing dirty state."""
 
-    def open(self) -> None:
-        self.opened = True
-
-    def close(self) -> None:
-        self.opened = False
-
-
-class _Label:
-    def __init__(self) -> None:
-        self.text = ''
-
-
-class _Progress:
-    def __init__(self) -> None:
-        self.value = 0.0
+    is_dirty = True
 
 
 def test_save_selected_disabled_without_dirty_selection(tmp_path) -> None:
+    """Selection state tracked by BaseView should drive save-selected state."""
     bus = EventBus()
     cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
     view = LoadSaveView(event_bus=bus, app_config=cfg)
-    view.subscribe_events()
     view._save_selected_button = _ToggleButton()
     view._save_all_button = _ToggleButton()
+    view.on_show()
 
     bus.publish(FileSelectionChanged(file_id=None, acq_image=None, channel=None, roi_id=None))
+
     assert view._save_selected_button.disabled is True
 
 
-def test_task_progress_opens_and_closes_dialog(tmp_path) -> None:
+def test_save_selected_enabled_with_dirty_selection(tmp_path) -> None:
+    """Dirty selected AcqImage should enable Save Selected."""
     bus = EventBus()
     cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
     view = LoadSaveView(event_bus=bus, app_config=cfg)
-    view.subscribe_events()
-    view._progress_dialog = _Dialog()
-    view._progress_bar = _Progress()
-    view._progress_label = _Label()
-    view._progress_message = _Label()
     view._save_selected_button = _ToggleButton()
     view._save_all_button = _ToggleButton()
+    view.on_show()
 
-    bus.publish(
-        TaskProgressChanged(
-            task_kind=TaskKind.LOAD,
-            task_id='1',
-            task_label='Load file',
-            status=TaskStatus.RUNNING,
-            current=1,
-            total=4,
-            message='Step',
-        )
-    )
-    assert view._progress_dialog.opened is True
-    assert view._progress_bar.value == 0.25
+    bus.publish(FileSelectionChanged(file_id='/tmp/a.oir', acq_image=_DirtyAcqImage(), channel=0, roi_id=1))
 
-    bus.publish(
-        TaskProgressChanged(
-            task_kind=TaskKind.LOAD,
-            task_id='1',
-            task_label='Load file',
-            status=TaskStatus.COMPLETED,
-            current=4,
-            total=4,
-            message='Done',
-        )
-    )
-    assert view._progress_dialog.opened is False
+    assert view._save_selected_button.disabled is False
 
 
 def test_recent_item_matches_app_path_respects_last_path(tmp_path) -> None:
+    """Recent path comparison should normalize the persisted last path."""
     bus = EventBus()
     cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
     file_path = tmp_path / 'doc.tif'
@@ -113,6 +76,7 @@ def test_recent_item_matches_app_path_respects_last_path(tmp_path) -> None:
 
 
 def test_recent_item_matches_app_path_false_when_last_path_empty(tmp_path) -> None:
+    """Empty last path should never match a recent item."""
     bus = EventBus()
     cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
     view = LoadSaveView(event_bus=bus, app_config=cfg)
@@ -121,6 +85,7 @@ def test_recent_item_matches_app_path_false_when_last_path_empty(tmp_path) -> No
 
 
 def test_status_event_calls_notify(tmp_path, monkeypatch) -> None:
+    """LoadSaveView should still forward app status notifications."""
     bus = EventBus()
     cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
     view = LoadSaveView(event_bus=bus, app_config=cfg)

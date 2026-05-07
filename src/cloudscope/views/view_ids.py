@@ -19,3 +19,4 @@ class ViewId(StrEnum):
     IMAGE_TOOLBAR = "image_toolbar"
     PRIMARY_IMAGE = "primary_image"
     FOOTER = "footer"
+    TASK_PROGRESS_DIALOG = "task_progress_dialog"

@@ -9,7 +9,7 @@ from nicegui import ui
 
 from acqstore.acq_image.acq_image import AcqImage
 from cloudscope.event_bus import EventBus
-from cloudscope.events import ApplyMetadataIntent, FileSelectionChanged, MetadataChanged
+from cloudscope.events import ApplyMetadataIntent, MetadataChanged
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.metadata_widget.schema_card_widget import SchemaCardWidget
 from cloudscope.views.view_ids import ViewId
@@ -70,42 +70,31 @@ class MetadataView(BaseView):
         Returns:
             None.
         """
-        self.add_subscription(self.event_bus.subscribe(FileSelectionChanged, self._on_file_selection_changed))
         self.add_subscription(self.event_bus.subscribe(MetadataChanged, self._on_metadata_changed))
 
     def refresh_from_state(self) -> None:
-        """Refresh metadata cards from current home-page state.
+        """Refresh metadata cards from cached BaseView selection state.
 
         Returns:
             None.
         """
-        if self.app_state is None:
-            self._render_no_file()
-            return
+        self._render_file(
+            file_id=self.current_selection.file_id,
+            acq_image=self.current_acq_image,
+            force=True,
+        )
 
-        logger.info('')
-        
-        selection = getattr(self.app_state, "selection", None)
-        file_id = getattr(selection, "file_id", None)
-        acq_image = None
-        acq_image_list = getattr(self.app_state, "acq_image_list", None)
-        if file_id is not None and acq_image_list is not None:
-            acq_image = acq_image_list.get_file_by_id(file_id)
-
-        self._render_file(file_id=file_id, acq_image=acq_image, force=True)
-
-    def _on_file_selection_changed(self, event: FileSelectionChanged) -> None:
-        """Handle selected-file state changes.
-
-        Args:
-            event: Current file-selection state.
+    def on_primary_selection_changed(self) -> None:
+        """Refresh metadata cards after the primary selection changes.
 
         Returns:
             None.
         """
-        logger.info('')
-
-        self._render_file(file_id=event.file_id, acq_image=event.acq_image, force=False)
+        self._render_file(
+            file_id=self.current_selection.file_id,
+            acq_image=self.current_acq_image,
+            force=False,
+        )
 
     def _on_metadata_changed(self, event: MetadataChanged) -> None:
         """Refresh changed card values after controller applied a patch.

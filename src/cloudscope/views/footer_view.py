@@ -11,9 +11,6 @@ from nicegui import ui
 from cloudscope.event_bus import EventBus
 from cloudscope.events import (
     AppStatusChanged,
-    ChannelSelectionChanged,
-    FileSelectionChanged,
-    RoiSelectionChanged,
     TaskProgressChanged,
 )
 from cloudscope.utils.logging import get_logger
@@ -104,25 +101,39 @@ class FooterView(BaseView):
         Returns:
             None.
         """
-        self.add_subscription(self.event_bus.subscribe(FileSelectionChanged, self._on_file_selection_changed))
-        self.add_subscription(self.event_bus.subscribe(ChannelSelectionChanged, self._on_channel_selection_changed))
-        self.add_subscription(self.event_bus.subscribe(RoiSelectionChanged, self._on_roi_selection_changed))
         self.add_subscription(self.event_bus.subscribe(AppStatusChanged, self._on_app_status_changed))
         self.add_subscription(self.event_bus.subscribe(TaskProgressChanged, self._on_task_progress_changed))
 
     def refresh_from_state(self) -> None:
-        """Refresh footer selection text from current app state.
+        """Refresh footer selection text from cached BaseView state.
 
         Returns:
             None.
         """
-        if self.app_state is not None:
-            selection = getattr(self.app_state, "selection", None)
-            if selection is not None:
-                self._file_id = selection.file_id
-                self._channel = selection.channel
-                self._roi_id = selection.roi_id
+        self._sync_selection_from_base()
         self._refresh_labels()
+
+    def on_primary_selection_changed(self) -> None:
+        """Refresh footer labels after the primary selection changes.
+
+        Returns:
+            None.
+        """
+        def apply() -> None:
+            self._sync_selection_from_base()
+            self._refresh_labels()
+
+        self._run_ui(apply)
+
+    def _sync_selection_from_base(self) -> None:
+        """Copy BaseView cached selection into footer display fields.
+
+        Returns:
+            None.
+        """
+        self._file_id = self.current_selection.file_id
+        self._channel = self.current_selection.channel
+        self._roi_id = self.current_selection.roi_id
 
     def _run_ui(self, fn: Callable[[], None]) -> None:
         """Run UI updates, remarshal via ``Client.safe_invoke`` when needed.
@@ -144,52 +155,8 @@ class FooterView(BaseView):
                 return
             self._client.safe_invoke(fn)
 
-    def _on_file_selection_changed(self, event: FileSelectionChanged) -> None:
-        """Sync cache from a file switch.
 
-        Args:
-            event: File selection state event.
 
-        Returns:
-            None.
-        """
-        def apply() -> None:
-            self._file_id = event.file_id
-            self._channel = event.channel
-            self._roi_id = event.roi_id
-            self._refresh_labels()
-
-        self._run_ui(apply)
-
-    def _on_channel_selection_changed(self, event: ChannelSelectionChanged) -> None:
-        """Update channel text.
-
-        Args:
-            event: Channel selection state event.
-
-        Returns:
-            None.
-        """
-        def apply() -> None:
-            self._channel = event.channel
-            self._refresh_labels()
-
-        self._run_ui(apply)
-
-    def _on_roi_selection_changed(self, event: RoiSelectionChanged) -> None:
-        """Update ROI text.
-
-        Args:
-            event: ROI selection state event.
-
-        Returns:
-            None.
-        """
-        def apply() -> None:
-            self._roi_id = event.roi_id
-            self._refresh_labels()
-
-        self._run_ui(apply)
 
     def _refresh_labels(self) -> None:
         """Push cached selection into footer labels.

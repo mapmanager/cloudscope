@@ -6,17 +6,9 @@ from typing import Any
 
 from nicegui import ui
 
+from acqstore.acq_image.analysis.model import AnalysisKey
 from cloudscope.event_bus import EventBus
-from cloudscope.events import (
-    AnalysisKind,
-    AppBusyChanged,
-    CancelTaskIntent,
-    ChannelSelectionChanged,
-    FileSelectionChanged,
-    RoiSelectionChanged,
-    RunAnalysisIntent,
-    TaskKind,
-)
+from cloudscope.events import AnalysisKind, RunAnalysisIntent
 from cloudscope.state import PrimarySelection
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
@@ -56,15 +48,11 @@ class VelocityAnalysisView(BaseView):
         initially_visible: bool = False,
     ) -> None:
         super().__init__(event_bus=event_bus, app_state=app_state, initially_visible=initially_visible)
-        self._file_id: str | None = None
-        self._channel: int | None = None
-        self._roi_id: int | None = None
         self._selection_label: ui.label | None = None
         self._params_container: ui.column | None = None
+        self._results_container: ui.column | None = None
         self._run_button: ui.button | None = None
-        self._cancel_button: ui.button | None = None
         self._param_controls: dict[str, Any] = {}
-        self._current_task_id: str | None = None
 
     def build(self, parent: ui.element | None = None) -> ui.element:
         """Build the velocity analysis panel.
@@ -85,49 +73,21 @@ class VelocityAnalysisView(BaseView):
         self.after_build()
         return self.root
 
-    def subscribe_events(self) -> None:
-        """Subscribe to selection events while the view is visible.
-
-        Returns:
-            None.
-        """
-        self.add_subscription(self.event_bus.subscribe(FileSelectionChanged, self._on_file_selection_changed))
-        self.add_subscription(self.event_bus.subscribe(ChannelSelectionChanged, self._on_channel_selection_changed))
-        self.add_subscription(self.event_bus.subscribe(RoiSelectionChanged, self._on_roi_selection_changed))
-
     def refresh_from_state(self) -> None:
-        """Refresh selection label from current app state.
+        """Refresh UI from the cached primary selection.
 
         Returns:
             None.
         """
-        if self.app_state is not None:
-            selection = getattr(self.app_state, "selection", None)
-            if selection is not None:
-                self._file_id = selection.file_id
-                self._channel = selection.channel
-                self._roi_id = selection.roi_id
-        self._refresh_selection_label()
+        self._refresh_selection_dependent_ui()
 
-    def handle_app_busy_changed(self, event: AppBusyChanged) -> None:
-        """Customize busy behavior so the Cancel button remains usable.
-
-        Args:
-            event: App busy state event.
+    def on_primary_selection_changed(self) -> None:
+        """Refresh selection-dependent UI after BaseView updates selection.
 
         Returns:
             None.
         """
-        is_analysis_busy = event.is_busy and event.task_kind is TaskKind.ANALYSIS
-        self._current_task_id = event.task_id if is_analysis_busy else None
-
-        if self._run_button is not None:
-            self._run_button.enabled = not event.is_busy
-            self._run_button.update()
-        if self._cancel_button is not None:
-            self._cancel_button.visible = is_analysis_busy
-            self._cancel_button.enabled = is_analysis_busy
-            self._cancel_button.update()
+        self._refresh_selection_dependent_ui()
 
     def _build_content(self) -> None:
         """Build static panel content.
@@ -139,9 +99,10 @@ class VelocityAnalysisView(BaseView):
         self._selection_label = ui.label("No file selected").classes("text-sm opacity-70")
         self._params_container = ui.column().classes("w-full gap-2")
         self._build_param_controls()
-        self._run_button = ui.button("Run Analysis", on_click=self._on_run_clicked).classes("w-full")
-        self._cancel_button = ui.button("Cancel Analysis", on_click=self._on_cancel_clicked).props("outline color=negative").classes("w-full")
-        self._cancel_button.visible = False
+        self._results_container = ui.column().classes("w-full gap-2")
+        self._build_results_controls()
+        self._run_button = ui.button("Run Radon Analysis", on_click=self._on_run_clicked).classes("w-full")
+        self._refresh_run_button()
 
     def _build_param_controls(self) -> None:
         """Render editable detection parameter controls from analysis schema.
@@ -186,6 +147,44 @@ class VelocityAnalysisView(BaseView):
                     ui.label(str(description)).classes("text-xs opacity-70")
                 self._param_controls[field.name] = control
 
+    def _build_results_controls(self) -> None:
+        """Render a compact summary of existing Radon velocity results.
+
+        Returns:
+            None.
+        """
+        if self._results_container is None:
+            return
+        self._results_container.clear()
+        acq_image = self.current_acq_image
+        selection = self.current_selection
+        with self._results_container:
+            ui.label("Results").classes("text-sm font-medium")
+            if acq_image is None:
+                ui.label("No AcqImage selected.").classes("text-xs opacity-70")
+                return
+            if selection.channel is None or selection.roi_id is None:
+                ui.label("Select a channel and ROI to inspect results.").classes("text-xs opacity-70")
+                return
+            analysis_set = getattr(acq_image, "analysis_set", None)
+            if analysis_set is None:
+                ui.label("Selected AcqImage has no analysis set.").classes("text-xs opacity-70")
+                return
+            key = AnalysisKey(
+                analysis_name=AnalysisKind.RADON_VELOCITY.value,
+                channel=int(selection.channel),
+                roi_id=int(selection.roi_id),
+            )
+            analysis = analysis_set.get(key)
+            if analysis is None:
+                ui.label("No Radon velocity result for this channel/ROI.").classes("text-xs opacity-70")
+                return
+            summary = getattr(analysis.result, "summary", {})
+            table = getattr(analysis.result, "table", None)
+            ui.label(f"Summary: {summary}").classes("text-xs break-all")
+            if table is not None:
+                ui.label(f"Rows: {len(table)}").classes("text-xs opacity-70")
+
     def _current_detection_params(self) -> dict[str, object]:
         """Return current detection parameter values from controls.
 
@@ -211,9 +210,9 @@ class VelocityAnalysisView(BaseView):
             Copied primary selection.
         """
         return PrimarySelection(
-            file_id=self._file_id,
-            channel=self._channel,
-            roi_id=self._roi_id,
+            file_id=self.current_selection.file_id,
+            channel=self.current_selection.channel,
+            roi_id=self.current_selection.roi_id,
         )
 
     def _on_run_clicked(self) -> None:
@@ -239,56 +238,30 @@ class VelocityAnalysisView(BaseView):
             )
         )
 
-    def _on_cancel_clicked(self) -> None:
-        """Publish a cancel-analysis intent.
+    def _refresh_selection_dependent_ui(self) -> None:
+        """Refresh all UI that depends on current selection.
 
         Returns:
             None.
         """
-        self.event_bus.publish(
-            CancelTaskIntent(
-                task_kind=TaskKind.ANALYSIS,
-                task_id=self._current_task_id,
-            )
+        self._refresh_selection_label()
+        self._refresh_run_button()
+        self._build_results_controls()
+
+    def _refresh_run_button(self) -> None:
+        """Refresh run button state.
+
+        Returns:
+            None.
+        """
+        if self._run_button is None:
+            return
+        self._run_button.enabled = (
+            self.current_selection.file_id is not None
+            and self.current_selection.channel is not None
+            and self.current_selection.roi_id is not None
         )
-
-    def _on_file_selection_changed(self, event: FileSelectionChanged) -> None:
-        """Update selection cache from file-selection state.
-
-        Args:
-            event: File selection state event.
-
-        Returns:
-            None.
-        """
-        self._file_id = event.file_id
-        self._channel = event.channel
-        self._roi_id = event.roi_id
-        self._refresh_selection_label()
-
-    def _on_channel_selection_changed(self, event: ChannelSelectionChanged) -> None:
-        """Update selected channel.
-
-        Args:
-            event: Channel selection state event.
-
-        Returns:
-            None.
-        """
-        self._channel = event.channel
-        self._refresh_selection_label()
-
-    def _on_roi_selection_changed(self, event: RoiSelectionChanged) -> None:
-        """Update selected ROI.
-
-        Args:
-            event: ROI selection state event.
-
-        Returns:
-            None.
-        """
-        self._roi_id = event.roi_id
-        self._refresh_selection_label()
+        self._run_button.update()
 
     def _refresh_selection_label(self) -> None:
         """Refresh selection text.
@@ -298,9 +271,10 @@ class VelocityAnalysisView(BaseView):
         """
         if self._selection_label is None:
             return
-        if self._file_id is None:
+        selection = self.current_selection
+        if selection.file_id is None:
             self._selection_label.text = "No file selected"
             return
         self._selection_label.text = (
-            f"file={self._file_id}, channel={self._channel}, roi={self._roi_id}"
+            f"file={selection.file_id}, channel={selection.channel}, roi={selection.roi_id}"
         )

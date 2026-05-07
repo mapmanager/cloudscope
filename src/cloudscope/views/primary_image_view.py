@@ -19,11 +19,6 @@ from nicegui import run, ui
 from acqstore.acq_image.acq_image import AcqImage
 from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader
 from cloudscope.event_bus import EventBus
-from cloudscope.events import (
-    FileSelectionChanged,
-    ChannelSelectionChanged,
-    RoiSelectionChanged,
-)
 from cloudscope.utils.logging import get_logger
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
@@ -112,9 +107,8 @@ def _schedule_coro(coro: Coroutine[Any, Any, None]) -> None:
 class PrimaryImageView(BaseView):
     """NiceGUI primary image panel driven by selection events and ``PlotlyRasterViewer``.
 
-    Subscribes to ``FileSelectionChanged``, ``ChannelSelectionChanged``, and
-    ``RoiSelectionChanged``. ROI id is cached for future drawing tickets; it does not
-    change the raster in v1.
+    Uses BaseView primary-selection tracking. ROI id is cached for future drawing
+    tickets; it does not change the raster in v1.
 
     Args:
         event_bus: Page-scoped event bus.
@@ -168,14 +162,13 @@ class PrimaryImageView(BaseView):
         return self.root
 
     def subscribe_events(self) -> None:
-        """Subscribe to primary-image selection events while visible.
+        """Subscribe to primary-image-specific events while visible.
+
+        BaseView already subscribes to primary selection events.
 
         Returns:
             None.
         """
-        self.add_subscription(self.event_bus.subscribe(FileSelectionChanged, self._on_file_selection_changed))
-        self.add_subscription(self.event_bus.subscribe(ChannelSelectionChanged, self._on_channel_selection_changed))
-        self.add_subscription(self.event_bus.subscribe(RoiSelectionChanged, self._on_roi_selection_changed))
 
     def _run_ui(self, fn: Callable[[], None]) -> None:
         """Run UI updates; remarshal via ``Client.safe_invoke`` when slot context is missing."""
@@ -190,19 +183,29 @@ class PrimaryImageView(BaseView):
                 return
             self._client.safe_invoke(fn)
 
-    def _on_file_selection_changed(self, event: FileSelectionChanged) -> None:
-        self._file_id = event.file_id
-        self._acq_image = event.acq_image
-        self._channel = event.channel
-        self._roi_id = event.roi_id
+    def on_primary_selection_changed(self) -> None:
+        """Refresh raster after BaseView updates the primary selection.
+
+        Returns:
+            None.
+        """
+        self._file_id = self.current_selection.file_id
+        self._acq_image = self.current_acq_image
+        self._channel = self.current_selection.channel
+        self._roi_id = self.current_selection.roi_id
         self._refresh_raster()
 
-    def _on_channel_selection_changed(self, event: ChannelSelectionChanged) -> None:
-        self._channel = event.channel
-        self._refresh_raster()
+    def refresh_from_state(self) -> None:
+        """Refresh raster from cached BaseView selection.
 
-    def _on_roi_selection_changed(self, event: RoiSelectionChanged) -> None:
-        self._roi_id = event.roi_id
+        Returns:
+            None.
+        """
+        self._file_id = self.current_selection.file_id
+        self._acq_image = self.current_acq_image
+        self._channel = self.current_selection.channel
+        self._roi_id = self.current_selection.roi_id
+        self._refresh_raster()
 
     def _refresh_raster(self) -> None:
         """Schedule async reload of the raster from current selection."""

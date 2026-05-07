@@ -9,7 +9,7 @@ Run:
 
 from __future__ import annotations
 
-from pathlib import Path
+# from pathlib import Path
 
 from acqstore.acq_image.acq_image import AcqImage
 from acqstore.acq_image.analysis.model import AnalysisKey, AnalysisRunContext, BaseAnalysis
@@ -21,33 +21,6 @@ from acqstore.utils.logging import get_logger, setup_logging
 logger = get_logger(__name__)
 
 setup_logging()
-
-
-def load_acq_image(path: str) -> AcqImage:
-    """Load an acquisition image.
-
-    Args:
-        path: Acquisition file path.
-
-    Returns:
-        Loaded acquisition image.
-    """
-    return AcqImage(path)
-
-
-def print_detection_schema() -> None:
-    """Print available Radon velocity detection parameters.
-
-    Returns:
-        None.
-    """
-    print("Radon velocity detection schema:")
-    for field in RadonVelocityAnalysis.get_detection_schema():
-        print(
-            f"  {field.name}: default={field.default!r}, "
-            f"type={field.value_type.value}, choices={field.choices}, "
-            f"description={field.description}"
-        )
 
 
 def run_radon_analysis(acq_image: AcqImage) -> RadonVelocityAnalysis:
@@ -103,7 +76,7 @@ def run_radon_analysis(acq_image: AcqImage) -> RadonVelocityAnalysis:
     # )
 
     context = AnalysisRunContext(
-        progress_callback=lambda fraction, message: print(f"progress={fraction}: {message}")
+        progress_callback=lambda fraction, message: print(f"  === progress={fraction}: {message}")
     )
 
     logger.info(f'running analysis')
@@ -135,60 +108,52 @@ def plot_radon_velocity(analysis: BaseAnalysis) -> None:
     plt.show()
 
 
-def reload_acq_image(path: str) -> AcqImage:
-    """Reload an acquisition image from disk.
-
-    Args:
-        path: Acquisition file path.
-
-    Returns:
-        Reloaded acquisition image.
-    """
-    return AcqImage(path)
-
-
-def print_analysis_summary(analysis: BaseAnalysis) -> None:
-    """Print summary and table columns for one analysis.
-
-    Args:
-        analysis: Analysis to inspect.
-
-    Returns:
-        None.
-    """
-    print("Analysis key:", analysis.key)
-    print("Summary:", analysis.result.summary)
-    print("Columns:", analysis.get_table_columns())
-
-
 def main() -> None:
     """Run the manual single-file Radon velocity workflow.
 
     Returns:
         None.
     """
-    # abb load a folder of oir and grab first oir path
-    path = '/Users/cudmore/Sites/cloudscope/tests/acqstore/data/oir-samples'
+    # load a folder of oir and grab first oir path
+    path = '/Users/cudmore/Sites/cloudscope/example-data'
     from acqstore.acq_image.acq_image_list import AcqImageList
     acq_image_list = AcqImageList(path)
-    path = acq_image_list.file_list[0]
-    # path = str(Path(SOURCE_PATH).expanduser())
+    path = acq_image_list.file_list[1]
     
-    print_detection_schema()
+    print("Radon velocity detection schema (available):")
+    for field in RadonVelocityAnalysis.get_detection_schema():
+        print(
+            f"  {field.name}: default={field.default!r}, "
+            f"type={field.value_type.value}, choices={field.choices}, "
+            f"description={field.description}"
+        )
 
-    acq_image = load_acq_image(path)
+    acq_image = AcqImage(path)
+
     analysis = run_radon_analysis(acq_image)
-    print_analysis_summary(analysis)
     
+    print("Analysis key:", analysis.key)
+    print("Summary:", analysis.result.summary)
+    print("Columns:", analysis.get_table_columns())
+    
+    logger.info('saving')
+    acq_image.save()
+
     plot_radon_velocity(analysis)
 
-    if 0:
-        acq_image.save()
-        reloaded = reload_acq_image(path)
-        loaded = reloaded.analysis_set.get_required(analysis.key)
-        print("Reloaded:")
-        print_analysis_summary(loaded)
+    if 1:
 
+        logger.info('reloading ...')
+        reloaded = AcqImage(path)
+        loaded = reloaded.analysis_set.get_required(analysis.key)
+        print("  Reloaded:")
+        print("  Analysis key:", loaded.key)
+        print("  Summary:", loaded.result.summary)
+        print("  Columns:", loaded.get_table_columns())
+
+
+    # add a new roi with no analysis
+    new_roi = acq_image.rois.create_rect_roi(name='test_no_analysis', note='note_test_no_analysis')
 
 if __name__ == "__main__":
     main()

@@ -7,16 +7,28 @@ from typing import Any, ClassVar
 from nicegui import ui
 
 from cloudscope.event_bus import EventBus, EventSubscription
-from cloudscope.events import AppBusyChanged
+from cloudscope.events import (
+    AppBusyChanged,
+    ChannelSelectionChanged,
+    FileSelectionChanged,
+    RoiSelectionChanged,
+)
+from cloudscope.state import PrimarySelection
 from cloudscope.views.view_ids import ViewId
 
 
 class BaseView:
-    """Base class for views with visibility and event-subscription lifecycle.
+    """Base class for views with lifecycle, busy, and selection state.
 
     Views are built once, kept in memory, and then shown/hidden repeatedly.
     Visible views subscribe to events and refresh from app state. Hidden views
     unsubscribe from events and do not consume event traffic.
+
+    Every visible ``BaseView`` tracks the current primary selection from
+    ``FileSelectionChanged``, ``ChannelSelectionChanged``, and
+    ``RoiSelectionChanged``. Derived views can use ``current_selection`` and
+    ``current_acq_image`` and override ``on_primary_selection_changed`` when they
+    need to redraw after a selection change.
 
     Args:
         event_bus: Page-scoped event bus.
@@ -41,6 +53,8 @@ class BaseView:
         self._built = False
         self.root: ui.element | None = None
         self._subscriptions: list[EventSubscription] = []
+        self.current_selection = PrimarySelection()
+        self.current_acq_image: Any | None = None
 
     @property
     def is_visible(self) -> bool:
@@ -145,6 +159,10 @@ class BaseView:
             None.
         """
         self.add_subscription(self.event_bus.subscribe(AppBusyChanged, self._on_app_busy_changed))
+        self.add_subscription(self.event_bus.subscribe(FileSelectionChanged, self._on_file_selection_changed))
+        self.add_subscription(self.event_bus.subscribe(ChannelSelectionChanged, self._on_channel_selection_changed))
+        self.add_subscription(self.event_bus.subscribe(RoiSelectionChanged, self._on_roi_selection_changed))
+        self._refresh_primary_selection_from_state()
         self.subscribe_events()
         self.refresh_from_state()
 
@@ -160,7 +178,8 @@ class BaseView:
         """Subscribe to events needed while visible.
 
         Subclasses override this and call ``add_subscription`` for each
-        subscription.
+        subscription. Selection and busy-state events are handled by ``BaseView``
+        and should not be re-subscribed by derived classes.
 
         Returns:
             None.
@@ -191,6 +210,18 @@ class BaseView:
         """Refresh this view from current app state.
 
         Subclasses override when they can rebuild themselves from ``app_state``.
+        ``BaseView`` already refreshes ``current_selection`` before this method
+        is called during ``on_show``.
+
+        Returns:
+            None.
+        """
+
+    def on_primary_selection_changed(self) -> None:
+        """Handle a primary selection change.
+
+        Called after ``current_selection`` and ``current_acq_image`` are updated.
+        Derived views override when they need to refresh selection-dependent UI.
 
         Returns:
             None.
@@ -235,6 +266,72 @@ class BaseView:
             None.
         """
         self.handle_app_busy_changed(event)
+
+    def _on_file_selection_changed(self, event: FileSelectionChanged) -> None:
+        """Update cached primary selection from a file-selection state event.
+
+        Args:
+            event: File selection state event.
+
+        Returns:
+            None.
+        """
+        self.current_selection = PrimarySelection(
+            file_id=event.file_id,
+            channel=event.channel,
+            roi_id=event.roi_id,
+        )
+        self.current_acq_image = event.acq_image
+        self.on_primary_selection_changed()
+
+    def _on_channel_selection_changed(self, event: ChannelSelectionChanged) -> None:
+        """Update cached channel from a channel-selection state event.
+
+        Args:
+            event: Channel selection state event.
+
+        Returns:
+            None.
+        """
+        self.current_selection.channel = event.channel
+        self.on_primary_selection_changed()
+
+    def _on_roi_selection_changed(self, event: RoiSelectionChanged) -> None:
+        """Update cached ROI from an ROI-selection state event.
+
+        Args:
+            event: ROI selection state event.
+
+        Returns:
+            None.
+        """
+        self.current_selection.roi_id = event.roi_id
+        self.on_primary_selection_changed()
+
+    def _refresh_primary_selection_from_state(self) -> None:
+        """Refresh cached selection from ``app_state`` when available.
+
+        Returns:
+            None.
+        """
+        if self.app_state is None:
+            return
+        selection = getattr(self.app_state, "selection", None)
+        if selection is None:
+            return
+        self.current_selection = PrimarySelection(
+            file_id=getattr(selection, "file_id", None),
+            channel=getattr(selection, "channel", None),
+            roi_id=getattr(selection, "roi_id", None),
+        )
+        acq_image = None
+        acq_image_list = getattr(self.app_state, "acq_image_list", None)
+        if acq_image_list is not None and self.current_selection.file_id is not None:
+            get_file_by_id = getattr(acq_image_list, "get_file_by_id", None)
+            if callable(get_file_by_id):
+                acq_image = get_file_by_id(self.current_selection.file_id)
+        self.current_acq_image = acq_image
+        self.on_primary_selection_changed()
 
     def _apply_visible(self, visible: bool) -> None:
         """Apply visibility to the root UI element.

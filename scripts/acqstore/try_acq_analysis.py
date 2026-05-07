@@ -146,6 +146,13 @@ def main() -> None:
     Returns:
         None.
     """
+
+    # load from folder path
+    # path = '/Users/cudmore/Sites/cloudscope/example-data'
+    # from acqstore.acq_image.acq_image_list import AcqImageList
+    # acq_image_list = AcqImageList(path)
+    # path = acq_image_list.file_list[0]
+
     path = str(Path(SOURCE_PATH).expanduser())
     acq_image = load_acq_image(path)
 

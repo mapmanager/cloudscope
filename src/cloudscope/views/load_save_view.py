@@ -12,7 +12,6 @@ from cloudscope.event_bus import EventBus
 from cloudscope.events import (
     AppStatusChanged,
     ClearRecentPathsIntent,
-    FileSelectionChanged,
     LoadPathKind,
     LoadPathIntent,
     RecentPathsChanged,
@@ -21,7 +20,6 @@ from cloudscope.events import (
     SaveSelectedIntent,
     StatusLevel,
     StatusSource,
-    TaskProgressChanged,
 )
 from cloudscope._py_web_view import _prompt_for_path, _prompt_for_save_path
 from cloudscope.app_config import AppConfig, normalize_stored_path
@@ -80,10 +78,6 @@ class LoadSaveView(BaseView):
         self._save_all_button: ui.button | None = None
         self._current_file_id: str | None = None
         self._current_file_dirty: bool = False
-        self._progress_dialog: ui.dialog | None = None
-        self._progress_bar: ui.linear_progress | None = None
-        self._progress_label: ui.label | None = None
-        self._progress_message: ui.label | None = None
         self._client = None
         self._history_menu_container: ui.element | None = None
         self._history_button: ui.button | None = None
@@ -107,7 +101,6 @@ class LoadSaveView(BaseView):
                 with ui.row().classes('w-full items-center gap-2') as self.root:
                     self._build_toolbar_contents()
 
-        self._build_progress_dialog()
         self._update_button_states()
         self.after_build()
         return self.root
@@ -118,9 +111,7 @@ class LoadSaveView(BaseView):
         Returns:
             None.
         """
-        self.add_subscription(self.event_bus.subscribe(FileSelectionChanged, self._on_file_selection_changed))
         self.add_subscription(self.event_bus.subscribe(RecentPathsChanged, self._on_recent_paths_changed))
-        self.add_subscription(self.event_bus.subscribe(TaskProgressChanged, self._on_task_progress_changed))
         self.add_subscription(self.event_bus.subscribe(AppStatusChanged, self._on_status_changed))
 
     def _build_toolbar_contents(self) -> None:
@@ -149,13 +140,6 @@ class LoadSaveView(BaseView):
             'Save All',
             on_click=self._on_save_all_clicked,
         )
-
-    def _build_progress_dialog(self) -> None:
-        with ui.dialog() as dialog, ui.card().classes('w-[460px]'):
-            self._progress_label = ui.label('Task').classes('text-lg font-semibold')
-            self._progress_message = ui.label('').classes('text-sm text-gray-600')
-            self._progress_bar = ui.linear_progress(value=0.0).classes('w-full')
-        self._progress_dialog = dialog
 
     def _open_recent_menu(self) -> None:
         """Open the recent-paths menu (used by the history button)."""
@@ -322,10 +306,17 @@ class LoadSaveView(BaseView):
 
         self._run_ui(open_dialog)
 
-    def _on_file_selection_changed(self, event: FileSelectionChanged) -> None:
+    def on_primary_selection_changed(self) -> None:
+        """Update save-button state from the cached primary selection.
+
+        Returns:
+            None.
+        """
         def apply() -> None:
-            self._current_file_id = event.file_id
-            self._current_file_dirty = bool(event.acq_image is not None and event.acq_image.is_dirty)
+            self._current_file_id = self.current_selection.file_id
+            self._current_file_dirty = bool(
+                self.current_acq_image is not None and self.current_acq_image.is_dirty
+            )
             self._update_button_states()
 
         self._run_ui(apply)
@@ -338,27 +329,6 @@ class LoadSaveView(BaseView):
 
     def _on_status_changed(self, event: AppStatusChanged) -> None:
         self._notify_status(event.message, event.level.value)
-
-    def _on_task_progress_changed(self, event: TaskProgressChanged) -> None:
-        def apply() -> None:
-            if (
-                self._progress_dialog is None
-                or self._progress_bar is None
-                or self._progress_label is None
-                or self._progress_message is None
-            ):
-                return
-            self._progress_label.text = event.task_label
-            self._progress_message.text = event.message
-            denom = 1 if event.total <= 0 else event.total
-            self._progress_bar.value = min(1.0, max(0.0, event.current / denom))
-            if event.status.value in {'queued', 'running'}:
-                self._progress_dialog.open()
-            else:
-                self._progress_dialog.close()
-            self._update_button_states()
-
-        self._run_ui(apply)
 
     def _update_button_states(self) -> None:
         if self._save_selected_button is not None:

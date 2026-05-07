@@ -89,3 +89,21 @@ def test_hide_unsubscribes_from_events() -> None:
     assert view.events == []
     assert view.root is not None
     assert view.root.visible is False
+
+from cloudscope.events import ChannelSelectionChanged, FileSelectionChanged, RoiSelectionChanged
+
+
+def test_base_view_tracks_primary_selection_for_all_views() -> None:
+    """BaseView should cache file/channel/ROI selection while visible."""
+    bus = EventBus()
+    view = FakeView(bus)
+    view.build()
+
+    bus.publish(FileSelectionChanged(file_id="/tmp/a.oir", acq_image="image", channel=0, roi_id=1))
+    bus.publish(ChannelSelectionChanged(channel=2))
+    bus.publish(RoiSelectionChanged(roi_id=3))
+
+    assert view.current_selection.file_id == "/tmp/a.oir"
+    assert view.current_selection.channel == 2
+    assert view.current_selection.roi_id == 3
+    assert view.current_acq_image == "image"

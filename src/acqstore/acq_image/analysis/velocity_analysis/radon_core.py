@@ -311,13 +311,14 @@ def run_radon_velocity(
         columns=list(RADON_VELOCITY_COLUMNS),
     )
     summary = {
-        "window_width": int(window_width),
+        # "window_width": int(window_width),  # not needed, stored in detection_params
         "num_windows": int(len(table)),
-        "mean_velocity": float(np.nanmean(velocity)) if len(velocity) else float("nan"),
-        "median_velocity": float(np.nanmedian(velocity)) if len(velocity) else float("nan"),
-        "elapsed_s": float(time.time() - start_time),
-        "use_multiprocessing": bool(use_multiprocessing),
-        "processes": None if processes is None else int(processes),
+        "velocity_mean": float(np.nanmean(velocity)) if len(velocity) else float("nan"),
+        "velocity_median": float(np.nanmedian(velocity)) if len(velocity) else float("nan"),
+        "velocity_cv": float(np.nanstd(velocity)) / float(np.nanmean(velocity)) if len(velocity) else float("nan"),
+        # "elapsed_s": float(time.time() - start_time),  # time the algorithm took
+        # "use_multiprocessing": bool(use_multiprocessing),
+        # "processes": None if processes is None else int(processes),
     }
     return RadonVelocityCoreResult(
         summary=summary,

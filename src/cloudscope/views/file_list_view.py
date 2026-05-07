@@ -10,7 +10,7 @@ from acqstore.acq_image.acq_image_list import AcqImageList
 from acqstore.schema import ACQ_FILE_LIST_SCHEMA
 from cloudscope.app_config import AppConfig
 from cloudscope.event_bus import EventBus
-from cloudscope.events import FileListChanged, FileSelectionChanged, MetadataChanged, SelectFileIntent
+from cloudscope.events import FileListChanged, MetadataChanged, SelectFileIntent
 from cloudscope.schema_adapters import schema_to_column_defs
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
@@ -83,7 +83,6 @@ class AcqImageListTableView(BaseView):
         Returns:
             None.
         """
-        self.add_subscription(self.event_bus.subscribe(FileSelectionChanged, self._on_file_selection_changed))
         self.add_subscription(self.event_bus.subscribe(FileListChanged, self._on_file_list_changed))
         self.add_subscription(self.event_bus.subscribe(MetadataChanged, self._on_metadata_changed))
 
@@ -144,21 +143,19 @@ class AcqImageListTableView(BaseView):
             )
         self.event_bus.publish(SelectFileIntent(file_id=file_id))
 
-    def _on_file_selection_changed(self, event: FileSelectionChanged) -> None:
-        """Reflect controller file selection in the table selection.
-
-        Args:
-            event: Current file selection state.
+    def on_primary_selection_changed(self) -> None:
+        """Reflect cached primary selection in the table selection.
 
         Returns:
             None.
         """
         if self._table is None:
             return
-        if event.file_id is None:
+        file_id = self.current_selection.file_id
+        if file_id is None:
             self._table.clear_selection()
             return
-        self._table.set_selected_row_ids([event.file_id], origin="state")
+        self._table.set_selected_row_ids([file_id], origin="state")
 
     def _on_metadata_changed(self, event: MetadataChanged) -> None:
         """Refresh one table row after metadata apply.

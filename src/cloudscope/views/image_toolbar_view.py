@@ -11,9 +11,6 @@ from cloudscope.event_bus import EventBus
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
 from cloudscope.events import (
-    ChannelSelectionChanged,
-    FileSelectionChanged,
-    RoiSelectionChanged,
     SelectChannelIntent,
     SelectRoiIntent,
 )
@@ -108,14 +105,13 @@ class ImageToolbarView(BaseView):
         return self.root
 
     def subscribe_events(self) -> None:
-        """Subscribe to toolbar state events while visible.
+        """Subscribe to toolbar-specific events while visible.
+
+        BaseView already subscribes to primary selection events.
 
         Returns:
             None.
         """
-        self.add_subscription(self.event_bus.subscribe(FileSelectionChanged, self._on_file_selection_changed))
-        self.add_subscription(self.event_bus.subscribe(ChannelSelectionChanged, self._on_channel_selection_changed))
-        self.add_subscription(self.event_bus.subscribe(RoiSelectionChanged, self._on_roi_selection_changed))
 
     def _on_toolbar_intent(self, intent: ImageToolbarIntent) -> None:
         """Translate NiceWidgets toolbar intents into CloudScope intents.
@@ -134,12 +130,36 @@ class ImageToolbarView(BaseView):
             self.event_bus.publish(SelectRoiIntent(roi_id=intent.roi_id))
             return
 
-    def _on_file_selection_changed(self, event: FileSelectionChanged) -> None:
-        """Update toolbar file, option lists, and channel/ROI from file selection."""
+    def on_primary_selection_changed(self) -> None:
+        """Sync toolbar state after BaseView updates the primary selection.
+
+        Returns:
+            None.
+        """
+        self._sync_toolbar_from_selection()
+
+    def refresh_from_state(self) -> None:
+        """Refresh toolbar state from cached BaseView selection.
+
+        Returns:
+            None.
+        """
+        self._sync_toolbar_from_selection()
+
+    def _sync_toolbar_from_selection(self) -> None:
+        """Apply cached selection and AcqImage data to the toolbar widget.
+
+        Returns:
+            None.
+        """
         if self._toolbar is None:
             return
 
-        if event.file_id is None:
+        file_id = self.current_selection.file_id
+        channel = self.current_selection.channel
+        roi_id = self.current_selection.roi_id
+
+        if file_id is None:
             self._toolbar.set_file_ext(
                 None,
                 None,
@@ -149,37 +169,25 @@ class ImageToolbarView(BaseView):
             )
             return
 
-        acq_image = event.acq_image
+        acq_image = self.current_acq_image
         if acq_image is None:
-            ch_opts, r_opts = self._synthetic_options_for_demo(event.channel, event.roi_id)
+            ch_opts, r_opts = self._synthetic_options_for_demo(channel, roi_id)
             self._toolbar.set_file_ext(
-                event.file_id,
-                event.channel,
-                event.roi_id,
+                file_id,
+                channel,
+                roi_id,
                 channel_options=ch_opts,
                 roi_options=r_opts,
             )
             return
 
         self._toolbar.set_file_ext(
-            event.file_id,
-            event.channel,
-            event.roi_id,
+            file_id,
+            channel,
+            roi_id,
             channel_options=channel_options_for_acq_image(acq_image),
             roi_options=roi_options_for_acq_image(acq_image),
         )
-
-    def _on_channel_selection_changed(self, event: ChannelSelectionChanged) -> None:
-        """Sync toolbar channel without rebuilding option lists."""
-        if self._toolbar is None:
-            return
-        self._toolbar.set_channel_ext(event.channel)
-
-    def _on_roi_selection_changed(self, event: RoiSelectionChanged) -> None:
-        """Sync toolbar ROI without rebuilding option lists."""
-        if self._toolbar is None:
-            return
-        self._toolbar.set_roi_ext(event.roi_id)
 
     @staticmethod
     def _synthetic_options_for_demo(

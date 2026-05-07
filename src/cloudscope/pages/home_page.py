@@ -29,6 +29,7 @@ from cloudscope.views.image_toolbar_view import ImageToolbarView
 from cloudscope.views.left_toolbar_view import LeftToolbarView
 from cloudscope.views.load_save_view import LoadSaveView
 from cloudscope.views.primary_image_view import PrimaryImageView
+from cloudscope.views.task_progress_dialog_view import TaskProgressDialogView
 from cloudscope.views.view_manager import ViewManager
 
 from cloudscope.utils.logging import get_logger
@@ -209,11 +210,17 @@ class HomePage:
             app_state=app_state,
             initially_visible=True,
         )
+        task_progress_dialog = TaskProgressDialogView(
+            event_bus=self.event_bus,
+            initially_visible=True,
+        )
 
         ui.page_title("CloudScope")
         build_main_header(title="CloudScope", app_config=self.app_config)
         footer.build()
         view_manager.register(footer)
+        task_progress_dialog.build()
+        view_manager.register(task_progress_dialog)
 
         with ui.splitter(value=8).classes("w-full min-h-screen") as splitter:
             with splitter.before:
