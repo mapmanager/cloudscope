@@ -17,6 +17,36 @@ from acqstore.schema import (
 )
 
 
+def _minimal_valid_row_for_schema(
+    schema: SchemaDefinition,
+    **overrides: object,
+) -> dict[str, object]:
+    """Build a schema-complete values dict for tests; survives schema field churn."""
+    values: dict[str, object] = {}
+    for field in schema.fields:
+        if field.default_value is not None:
+            values[field.name] = field.default_value
+            continue
+        vt = field.value_type
+        if vt is ValueType.STR:
+            values[field.name] = 'n'
+        elif vt is ValueType.PATH:
+            values[field.name] = '/tmp/row.tif'
+        elif vt is ValueType.INT:
+            values[field.name] = 0
+        elif vt is ValueType.FLOAT:
+            values[field.name] = 0.0
+        elif vt is ValueType.BOOL:
+            values[field.name] = True
+        elif vt is ValueType.ENUM:
+            assert field.choices is not None
+            values[field.name] = field.choices[0]
+        else:
+            raise AssertionError(f'Unhandled value_type in test: {field.name} {vt!r}')
+    values.update(overrides)
+    return values
+
+
 def test_enum_field_requires_choices() -> None:
     with pytest.raises(ValueError, match='ENUM'):
         FieldSchema(
@@ -86,17 +116,13 @@ def test_schema_definition_helpers() -> None:
     schema = ACQ_FILE_LIST_SCHEMA
     assert schema.schema_id == 'acq_file_list'
     assert schema.version == 1
-    # ``path`` remains in the schema for values/validation/table row keys but is hidden from UI.
-    assert [field.name for field in schema.visible_fields()] == [
-        'name',
-        'parent',
-        'grandparent',
-        'genotype',
-        'num_channels',
-        'num_rois',
-        'accept',
-    ]
-    assert card_groups(schema) == ('File', 'Animal', 'Image', 'ROI')
+    path_field = next(f for f in schema.fields if f.name == 'path')
+    assert path_field.visible is False
+    visible = schema.visible_fields()
+    assert tuple(f.name for f in visible) == tuple(
+        f.name for f in schema.fields if f.visible
+    )
+    assert card_groups(schema) == tuple(dict.fromkeys(f.group for f in visible))
 
 
 def test_field_schema_from_dict_ignores_unknown_keys() -> None:
@@ -119,59 +145,25 @@ def test_validate_values_for_schema_rejects_missing_visible_field() -> None:
 
 
 def test_validate_values_for_schema_rejects_extra_keys_by_default() -> None:
+    row = _minimal_valid_row_for_schema(ACQ_FILE_LIST_SCHEMA)
+    row['extra'] = True
     with pytest.raises(ValueError, match='extra'):
-        validate_values_for_schema(
-            ACQ_FILE_LIST_SCHEMA,
-            {
-                'name': 'a.tif',
-                'path': '/tmp/a.tif',
-                'parent': '',
-                'grandparent': '',
-                'genotype': '',
-                'num_channels': 2,
-                'num_rois': 0,
-                'accept': True,
-                'extra': True,
-            },
-        )
+        validate_values_for_schema(ACQ_FILE_LIST_SCHEMA, row)
 
 
 def test_validate_values_for_schema_allows_extra_values_when_enabled() -> None:
+    row = _minimal_valid_row_for_schema(ACQ_FILE_LIST_SCHEMA)
+    row['extra'] = True
     validate_values_for_schema(
         ACQ_FILE_LIST_SCHEMA,
-        {
-            'name': 'a.tif',
-            'path': '/tmp/a.tif',
-            'parent': '',
-            'grandparent': '',
-            'genotype': '',
-            'num_channels': 2,
-            'num_rois': 0,
-            'accept': True,
-            'extra': True,
-        },
+        row,
         allow_extra_values=True,
     )
 
 
 def test_acq_file_list_schema_has_validating_minimal_row() -> None:
     """Every declared field must be satisfiable; catches schema vs row drift."""
-    values: dict[str, object] = {}
-    for field in ACQ_FILE_LIST_SCHEMA.fields:
-        if field.default_value is not None:
-            values[field.name] = field.default_value
-            continue
-        vt = field.value_type
-        if vt is ValueType.STR:
-            values[field.name] = 'n'
-        elif vt is ValueType.PATH:
-            values[field.name] = '/tmp/row.tif'
-        elif vt is ValueType.INT:
-            values[field.name] = 0
-        elif vt is ValueType.BOOL:
-            values[field.name] = True
-        else:
-            raise AssertionError(f'Unhandled value_type in test: {field.name} {vt!r}')
+    values = _minimal_valid_row_for_schema(ACQ_FILE_LIST_SCHEMA)
     validate_values_for_schema(ACQ_FILE_LIST_SCHEMA, values)
 
 

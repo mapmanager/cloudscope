@@ -256,6 +256,68 @@ class BaseView:
         if self.disable_when_busy:
             self.set_enabled(not event.is_busy)
 
+
+    def get_acq_image_list(self) -> Any | None:
+        """Return the current AcqImageList from app state.
+
+        Returns:
+            Current acquisition image list, or None when no app state is
+            attached or no list is loaded.
+        """
+        if self.app_state is None:
+            return None
+        return self.app_state.acq_image_list
+
+    def get_acq_image_by_file_id(self, file_id: str | None) -> Any | None:
+        """Return an AcqImage by file id from the current AcqImageList.
+
+        Args:
+            file_id: Stable acquisition file identifier.
+
+        Returns:
+            Matching AcqImage when available, otherwise None.
+        """
+        if file_id is None:
+            return None
+        acq_image_list = self.get_acq_image_list()
+        if acq_image_list is None:
+            return None
+        return acq_image_list.get_file_by_id(file_id)
+
+    def get_selected_acq_image(self) -> Any | None:
+        """Return the AcqImage for the current primary selection.
+
+        Returns:
+            Currently selected AcqImage when available, otherwise None.
+        """
+        if self.current_acq_image is not None:
+            return self.current_acq_image
+        return self.get_acq_image_by_file_id(self.current_selection.file_id)
+
+    def has_valid_primary_selection(self) -> bool:
+        """Return whether file, channel, and ROI are all selected.
+
+        Returns:
+            True when the cached primary selection is complete enough for
+            channel/ROI-based operations.
+        """
+        return (
+            self.current_selection.file_id is not None
+            and self.current_selection.channel is not None
+            and self.current_selection.roi_id is not None
+        )
+
+    def selected_acq_image_is_dirty(self) -> bool:
+        """Return whether the selected AcqImage has unsaved changes.
+
+        Returns:
+            True when the selected AcqImage exists and is dirty.
+        """
+        selected_acq_image = self.get_selected_acq_image()
+        if selected_acq_image is None:
+            return False
+        return selected_acq_image.is_dirty
+
     def _on_app_busy_changed(self, event: AppBusyChanged) -> None:
         """Dispatch app busy events to the overridable handler.
 
@@ -316,21 +378,13 @@ class BaseView:
         """
         if self.app_state is None:
             return
-        selection = getattr(self.app_state, "selection", None)
-        if selection is None:
-            return
+        selection = self.app_state.selection
         self.current_selection = PrimarySelection(
-            file_id=getattr(selection, "file_id", None),
-            channel=getattr(selection, "channel", None),
-            roi_id=getattr(selection, "roi_id", None),
+            file_id=selection.file_id,
+            channel=selection.channel,
+            roi_id=selection.roi_id,
         )
-        acq_image = None
-        acq_image_list = getattr(self.app_state, "acq_image_list", None)
-        if acq_image_list is not None and self.current_selection.file_id is not None:
-            get_file_by_id = getattr(acq_image_list, "get_file_by_id", None)
-            if callable(get_file_by_id):
-                acq_image = get_file_by_id(self.current_selection.file_id)
-        self.current_acq_image = acq_image
+        self.current_acq_image = self.get_acq_image_by_file_id(self.current_selection.file_id)
         self.on_primary_selection_changed()
 
     def _apply_visible(self, visible: bool) -> None:

@@ -115,6 +115,10 @@ class LoadResult:
     warnings: tuple[LoadWarning, ...]
 
 
+class LoadCancelled(RuntimeError):
+    """Raised when a cooperative load operation is cancelled."""
+
+
 class AcqImageList:
     """Backend-facing ordered collection of acquisition files."""
 
@@ -176,6 +180,8 @@ class AcqImageList:
         kind: PathKind | str,
         file_factory: Callable[[str], AcqImage] | None = None,
         folder_depth: int = 4,
+        progress_callback: Callable[[int, int, str], None] | None = None,
+        should_cancel: Callable[[], bool] | None = None,
     ) -> LoadResult:
         """Safely load acquisition files for file/folder/csv without raising.
 
@@ -184,9 +190,17 @@ class AcqImageList:
             kind: Explicit source kind (`file`, `folder`, or `csv`).
             file_factory: Optional file-construction callback for tests/injection.
             folder_depth: Maximum folder traversal depth for folder loads.
+            progress_callback: Optional callback called as
+                ``progress_callback(completed, total, message)`` after file
+                discovery and after each successfully attempted file load.
+            should_cancel: Optional callback checked between file loads. Return
+                True to cancel loading.
 
         Returns:
             Structured result with loaded list and non-fatal warnings.
+
+        Raises:
+            LoadCancelled: If ``should_cancel`` requests cancellation.
         """
         warnings: list[LoadWarning] = []
         path_obj = Path(path).expanduser()
@@ -222,7 +236,12 @@ class AcqImageList:
             warnings.append(LoadWarning(message=f'Unsupported load kind: {kind}', path=base_path))
 
         files: list[AcqImage] = []
+        total = len(candidate_paths)
+        if progress_callback is not None:
+            progress_callback(0, total, f'Discovered {total} file(s)')
         for candidate in candidate_paths:
+            if should_cancel is not None and should_cancel():
+                raise LoadCancelled('Load cancelled')
             try:
                 if file_factory is None:
                     from acqstore.acq_image.acq_image import AcqImage
@@ -233,6 +252,8 @@ class AcqImageList:
                 files.append(built)
             except Exception as exc:
                 warnings.append(LoadWarning(message=f'Failed to load file: {exc}', path=str(Path(candidate).resolve(strict=False))))
+            if progress_callback is not None:
+                progress_callback(len(files), total, f'Loaded {len(files)}/{total}')
 
         obj = cls.__new__(cls)
         obj.path = base_path

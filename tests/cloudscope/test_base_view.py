@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from cloudscope.event_bus import EventBus
+from cloudscope.state import PrimarySelection
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
 
@@ -107,3 +108,70 @@ def test_base_view_tracks_primary_selection_for_all_views() -> None:
     assert view.current_selection.channel == 2
     assert view.current_selection.roi_id == 3
     assert view.current_acq_image == "image"
+
+
+class FakeAcqImage:
+    """Fake acquisition image."""
+
+    def __init__(self, file_id: str) -> None:
+        self.file_id = file_id
+
+
+class FakeAcqImageList:
+    """Fake acquisition image list."""
+
+    def __init__(self, image: FakeAcqImage) -> None:
+        self.image = image
+
+    def get_file_by_id(self, file_id: str):
+        """Return image when ids match."""
+        if file_id == self.image.file_id:
+            return self.image
+        return None
+
+
+class FakeAppState:
+    """Fake app state with selection and file list."""
+
+    def __init__(self) -> None:
+        self.selection = PrimarySelection(file_id="/tmp/a.oir", channel=0, roi_id=1)
+        self.acq_image_list = FakeAcqImageList(FakeAcqImage("/tmp/a.oir"))
+
+
+def test_base_view_backend_access_helpers() -> None:
+    """BaseView should expose common app-state lookup helpers."""
+    bus = EventBus()
+    state = FakeAppState()
+    view = FakeView(bus)
+    view.app_state = state
+
+    assert view.get_acq_image_list() is state.acq_image_list
+    assert view.get_acq_image_by_file_id("/tmp/a.oir") is state.acq_image_list.image
+    assert view.get_acq_image_by_file_id("/tmp/missing.oir") is None
+
+    view.current_selection = state.selection
+    assert view.get_selected_acq_image() is state.acq_image_list.image
+    assert view.has_valid_primary_selection() is True
+
+
+def test_selected_acq_image_is_dirty_reads_known_acqimage_api() -> None:
+    """BaseView should read ``AcqImage.is_dirty`` directly when selected."""
+
+    class DirtyImage:
+        """Fake selected AcqImage with a known dirty API."""
+
+        is_dirty = True
+
+    bus = EventBus()
+    view = FakeView(bus)
+    view.current_acq_image = DirtyImage()
+
+    assert view.selected_acq_image_is_dirty() is True
+
+
+def test_selected_acq_image_is_dirty_false_without_selection() -> None:
+    """BaseView should report clean state when no AcqImage is selected."""
+    bus = EventBus()
+    view = FakeView(bus)
+
+    assert view.selected_acq_image_is_dirty() is False

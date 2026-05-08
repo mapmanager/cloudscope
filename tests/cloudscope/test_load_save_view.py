@@ -34,6 +34,12 @@ class _DirtyAcqImage:
     is_dirty = True
 
 
+class _CleanAcqImage:
+    """Fake acquisition image exposing clean state."""
+
+    is_dirty = False
+
+
 def test_save_selected_disabled_without_dirty_selection(tmp_path) -> None:
     """Selection state tracked by BaseView should drive save-selected state."""
     bus = EventBus()
@@ -60,6 +66,22 @@ def test_save_selected_enabled_with_dirty_selection(tmp_path) -> None:
     bus.publish(FileSelectionChanged(file_id='/tmp/a.oir', acq_image=_DirtyAcqImage(), channel=0, roi_id=1))
 
     assert view._save_selected_button.disabled is False
+
+
+
+
+def test_save_selected_disabled_with_clean_selection(tmp_path) -> None:
+    """Clean selected AcqImage should keep Save Selected disabled."""
+    bus = EventBus()
+    cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
+    view = LoadSaveView(event_bus=bus, app_config=cfg)
+    view._save_selected_button = _ToggleButton()
+    view._save_all_button = _ToggleButton()
+    view.on_show()
+
+    bus.publish(FileSelectionChanged(file_id='/tmp/a.oir', acq_image=_CleanAcqImage(), channel=0, roi_id=1))
+
+    assert view._save_selected_button.disabled is True
 
 
 def test_recent_item_matches_app_path_respects_last_path(tmp_path) -> None:

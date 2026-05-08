@@ -84,10 +84,15 @@ class _FakeList:
     def get_dirty_files(self):
         return tuple(item for item in self._files if item.is_dirty)
 
-    def iter_save_all(self):
+    def iter_save_all(self, *, should_cancel=None):
         total = len(self.get_dirty_files())
         completed = 0
         for item in self.get_dirty_files():
+            if should_cancel is not None and should_cancel():
+                from acqstore.acq_image.acq_image_list import SaveEvent, SaveProgress
+
+                yield SaveProgress(event=SaveEvent.CANCELLED, completed=completed, total=total, file_id=item.file_id)
+                return
             from acqstore.acq_image.acq_image_list import SaveEvent, SaveProgress
 
             yield SaveProgress(event=SaveEvent.SAVING, completed=completed, total=total, file_id=item.file_id)
@@ -270,3 +275,67 @@ def test_save_all_no_dirty_emits_info_status(tmp_path) -> None:
     bus.subscribe(AppStatusChanged, statuses.append)
     bus.publish(SaveAllIntent())
     assert statuses[-1].message == 'No dirty files to save'
+
+
+
+def test_load_controller_cancels_matching_load_task(tmp_path) -> None:
+    """CancelTaskIntent should cancel the active load task through TaskRunner."""
+    from cloudscope.events import CancelTaskIntent, TaskKind
+
+    class FakeRunner:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def cancel(self, *, task_kind=None, task_id=None):
+            self.calls.append((task_kind, task_id))
+            return True
+
+    bus = EventBus()
+    cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
+    home = HomePageController(event_bus=bus)
+    runner = FakeRunner()
+    controller = LoadSaveController(event_bus=bus, home_controller=home, app_config=cfg, task_runner=runner)
+    controller.bind()
+
+    bus.publish(CancelTaskIntent(task_kind=TaskKind.LOAD, task_id='abc'))
+
+    assert runner.calls == [(TaskKind.LOAD, 'abc')]
+
+
+def test_save_all_uses_iter_save_all_cancel_callback(tmp_path) -> None:
+    """Save-all worker should use AcqImageList cooperative save iteration."""
+    from cloudscope.task_runner import TaskCancelled
+
+    bus = EventBus()
+    cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
+    home = HomePageController(event_bus=bus)
+    controller = LoadSaveController(event_bus=bus, home_controller=home, app_config=cfg)
+    files = _FakeList([_FakeFile('/tmp/a.tif', dirty=True), _FakeFile('/tmp/b.tif', dirty=True)])
+
+    class CancelContext:
+        def __init__(self) -> None:
+            self.progress = []
+            self.calls = 0
+
+        def report_progress(self, fraction, message=''):
+            self.progress.append((fraction, message))
+
+        def is_cancelled(self):
+            self.calls += 1
+            return self.calls > 1
+
+        def raise_if_cancelled(self):
+            if self.is_cancelled():
+                raise TaskCancelled('cancelled')
+
+    context = CancelContext()
+
+    try:
+        controller._save_all_worker(files, context)
+    except TaskCancelled:
+        pass
+    else:
+        raise AssertionError('Expected TaskCancelled')
+
+    assert files.get_files()[0].saved == 1
+    assert files.get_files()[1].saved == 0

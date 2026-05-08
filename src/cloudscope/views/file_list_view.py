@@ -6,27 +6,32 @@ from typing import Any
 
 from nicegui import ui
 
-from acqstore.acq_image.acq_image_list import AcqImageList
 from acqstore.schema import ACQ_FILE_LIST_SCHEMA
-from cloudscope.app_config import AppConfig
 from cloudscope.event_bus import EventBus
-from cloudscope.events import FileListChanged, MetadataChanged, SelectFileIntent
+from cloudscope.events import AnalysisCompleted, FileListChanged, MetadataChanged, SelectFileIntent
 from cloudscope.schema_adapters import schema_to_column_defs
+from cloudscope.utils.logging import get_logger
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
 from nicewidgets.table_widget.config import TableWidgetConfig, scaled_row_header_heights_px
 from nicewidgets.table_widget.table_widget import TableWidget
 
+logger = get_logger(__name__)
+
 
 class AcqImageListTableView(BaseView):
     """File-list table view for selecting AcqStore files.
 
+    The view does not own the backend ``AcqImageList``. The page ``app_state``
+    is the source of truth for loaded files, and state events tell the view when
+    to redraw or patch rows.
+
     Args:
         event_bus: CloudScope event bus used to publish file-selection intents
-            and consume file-selection state events while visible.
-        acq_image_list: Backend file list to display.
-        app_config: Persisted GUI config.
-        app_state: Optional home-page state used to refresh when shown.
+            and consume file-list state events while visible.
+        app_state: Optional home-page state used to refresh when shown and to
+            resolve backend ``AcqImage`` objects for targeted row updates.
+        table_font_size_px: Table cell font size in pixels.
         row_id_field: Row field used as the stable table row identifier.
         initially_visible: Whether this view starts visible.
     """
@@ -36,16 +41,14 @@ class AcqImageListTableView(BaseView):
     def __init__(
         self,
         event_bus: EventBus,
-        acq_image_list: AcqImageList | None = None,
         *,
-        app_config: AppConfig,
         app_state: Any | None = None,
+        table_font_size_px: int = 12,
         row_id_field: str = "path",
         initially_visible: bool = True,
     ) -> None:
         super().__init__(event_bus=event_bus, app_state=app_state, initially_visible=initially_visible)
-        self._acq_image_list = acq_image_list
-        self._app_config = app_config
+        self._table_font_size_px = int(table_font_size_px)
         self._row_id_field = row_id_field
         self._table: TableWidget | None = None
 
@@ -58,12 +61,14 @@ class AcqImageListTableView(BaseView):
         Returns:
             Root NiceGUI element created by ``TableWidget``.
         """
-        font_px = int(self._app_config.data.table_font_size_px)
+        font_px = int(self._table_font_size_px)
         row_h, header_h = scaled_row_header_heights_px(font_px)
+        acq_image_list = self.get_acq_image_list()
+        rows = acq_image_list.get_schema_rows() if acq_image_list is not None else []
         self._table = TableWidget(
             columns=schema_to_column_defs(ACQ_FILE_LIST_SCHEMA),
             row_id_field=self._row_id_field,
-            rows=self._acq_image_list.get_schema_rows() if self._acq_image_list is not None else [],
+            rows=rows,
             on_row_selected=self._on_row_selected,
             config=TableWidgetConfig(
                 selection_mode="single",
@@ -85,6 +90,7 @@ class AcqImageListTableView(BaseView):
         """
         self.add_subscription(self.event_bus.subscribe(FileListChanged, self._on_file_list_changed))
         self.add_subscription(self.event_bus.subscribe(MetadataChanged, self._on_metadata_changed))
+        self.add_subscription(self.event_bus.subscribe(AnalysisCompleted, self._on_analysis_completed))
 
     def refresh_from_state(self) -> None:
         """Refresh table rows and selection from current app state.
@@ -92,35 +98,12 @@ class AcqImageListTableView(BaseView):
         Returns:
             None.
         """
-        if self.app_state is None or self._table is None:
-            return
-        acq_image_list = getattr(self.app_state, "acq_image_list", None)
-        if acq_image_list is not None:
-            self._acq_image_list = acq_image_list
-            self._table.set_data(acq_image_list.get_schema_rows())
-        selection = getattr(self.app_state, "selection", None)
-        file_id = getattr(selection, "file_id", None)
-        if file_id is None:
-            self._table.clear_selection()
-        else:
-            self._table.set_selected_row_ids([file_id], origin="state")
-
-    def set_data(self, acq_image_list: AcqImageList) -> None:
-        """Replace the displayed backend file list.
-
-        Args:
-            acq_image_list: New backend file list.
-
-        Returns:
-            None.
-
-        Raises:
-            RuntimeError: If the table has not been built.
-        """
         if self._table is None:
-            raise RuntimeError("AcqImageListTableView.set_data() called before build()")
-        self._acq_image_list = acq_image_list
-        self._table.set_data(acq_image_list.get_schema_rows())
+            return
+        acq_image_list = self.get_acq_image_list()
+        if acq_image_list is not None:
+            self._table.set_data(acq_image_list.get_schema_rows())
+        self._sync_table_selection()
 
     def _on_row_selected(self, row: dict[str, Any]) -> None:
         """Publish a file-selection intent from a selected table row.
@@ -145,6 +128,14 @@ class AcqImageListTableView(BaseView):
 
     def on_primary_selection_changed(self) -> None:
         """Reflect cached primary selection in the table selection.
+
+        Returns:
+            None.
+        """
+        self._sync_table_selection()
+
+    def _sync_table_selection(self) -> None:
+        """Apply cached primary file selection to the table widget.
 
         Returns:
             None.
@@ -182,3 +173,38 @@ class AcqImageListTableView(BaseView):
         if self._table is None:
             return
         self._table.set_data(list(event.rows))
+        self._sync_table_selection()
+
+    def _on_analysis_completed(self, event: AnalysisCompleted) -> None:
+        """Refresh one table row after analysis completes.
+
+        Args:
+            event: Analysis completion event containing the analyzed selection.
+
+        Returns:
+            None.
+        """
+        if not event.success:
+            return
+        file_id = event.selection.file_id
+        if file_id is None:
+            return
+        self._update_row_from_acq_image(file_id)
+
+    def _update_row_from_acq_image(self, file_id: str) -> None:
+        """Refresh one table row from the current AcqImageList.
+
+        Args:
+            file_id: Stable acquisition file identifier.
+
+        Returns:
+            None.
+        """
+        if self._table is None:
+            logger.error("table not found")
+            return
+        acq_image = self.get_acq_image_by_file_id(file_id)
+        if acq_image is None:
+            logger.error("acq_image not found: %s", file_id)
+            return
+        self._table.update_row(file_id, acq_image.get_schema_row())

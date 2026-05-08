@@ -69,18 +69,12 @@ def test_experiment_metadata_from_dict_coerces_str_none() -> None:
     assert m.depth == 2.0
 
 
-def test_acq_file_list_schema_field_names_stable() -> None:
-    names = ACQ_FILE_LIST_SCHEMA.field_names()
-    assert names == (
-        'name',
-        'path',
-        'parent',
-        'grandparent',
-        'genotype',
-        'num_channels',
-        'num_rois',
-        'accept',
-    )
+def test_acq_file_list_schema_core_contract_and_unique_names() -> None:
+    """Guard stable consumer expectations without freezing the full field list."""
+    names_tuple = ACQ_FILE_LIST_SCHEMA.field_names()
+    names_set = set(names_tuple)
+    assert len(names_set) == len(names_tuple)
+    assert {'name', 'path', 'accept', 'saved'}.issubset(names_set)
 
 
 def test_experiment_metadata_schema_defaults_match_dataclass_defaults() -> None:

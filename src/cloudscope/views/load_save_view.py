@@ -20,6 +20,7 @@ from cloudscope.events import (
     SaveSelectedIntent,
     StatusLevel,
     StatusSource,
+    AnalysisCompleted,
 )
 from cloudscope._py_web_view import _prompt_for_path, _prompt_for_save_path
 from cloudscope.app_config import AppConfig, normalize_stored_path
@@ -76,8 +77,6 @@ class LoadSaveView(BaseView):
         self.app_config = app_config
         self._save_selected_button: ui.button | None = None
         self._save_all_button: ui.button | None = None
-        self._current_file_id: str | None = None
-        self._current_file_dirty: bool = False
         self._client = None
         self._history_menu_container: ui.element | None = None
         self._history_button: ui.button | None = None
@@ -113,7 +112,19 @@ class LoadSaveView(BaseView):
         """
         self.add_subscription(self.event_bus.subscribe(RecentPathsChanged, self._on_recent_paths_changed))
         self.add_subscription(self.event_bus.subscribe(AppStatusChanged, self._on_status_changed))
+        self.add_subscription(self.event_bus.subscribe(AnalysisCompleted, self._on_analysis_completed))
 
+    def _on_analysis_completed(self, event: AnalysisCompleted) -> None:
+        """Refresh button states when an analysis completes.
+
+        Args:
+            event: Analysis completion event.
+
+        Returns:
+            None.
+        """
+        self._update_button_states()
+        
     def _build_toolbar_contents(self) -> None:
         """Build toolbar controls inside the current NiceGUI slot.
 
@@ -312,14 +323,7 @@ class LoadSaveView(BaseView):
         Returns:
             None.
         """
-        def apply() -> None:
-            self._current_file_id = self.current_selection.file_id
-            self._current_file_dirty = bool(
-                self.current_acq_image is not None and self.current_acq_image.is_dirty
-            )
-            self._update_button_states()
-
-        self._run_ui(apply)
+        self._run_ui(self._update_button_states)
 
     def _on_recent_paths_changed(self, _event: RecentPathsChanged) -> None:
         def apply() -> None:
@@ -331,8 +335,16 @@ class LoadSaveView(BaseView):
         self._notify_status(event.message, event.level.value)
 
     def _update_button_states(self) -> None:
+        """Update load/save button enabled state from current app state.
+
+        Returns:
+            None.
+        """
+        selected_acq_image = self.get_selected_acq_image()
+        selected_is_dirty = self.selected_acq_image_is_dirty()
+
         if self._save_selected_button is not None:
-            if self._current_file_id is None or not self._current_file_dirty:
+            if selected_acq_image is None or not selected_is_dirty:
                 self._save_selected_button.disable()
             else:
                 self._save_selected_button.enable()

@@ -8,7 +8,7 @@ from nicegui import ui
 
 from acqstore.acq_image.analysis.model import AnalysisKey
 from cloudscope.event_bus import EventBus
-from cloudscope.events import AnalysisKind, RunAnalysisIntent
+from cloudscope.events import AnalysisCompleted, AnalysisKind, RunAnalysisIntent
 from cloudscope.state import PrimarySelection
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
@@ -73,6 +73,14 @@ class VelocityAnalysisView(BaseView):
         self.after_build()
         return self.root
 
+    def subscribe_events(self) -> None:
+        """Subscribe to analysis completion events while visible.
+
+        Returns:
+            None.
+        """
+        self.add_subscription(self.event_bus.subscribe(AnalysisCompleted, self._on_analysis_completed))
+
     def refresh_from_state(self) -> None:
         """Refresh UI from the cached primary selection.
 
@@ -88,6 +96,22 @@ class VelocityAnalysisView(BaseView):
             None.
         """
         self._refresh_selection_dependent_ui()
+
+
+    def _on_analysis_completed(self, event: AnalysisCompleted) -> None:
+        """Refresh results when Radon velocity analysis finishes.
+
+        Args:
+            event: Analysis completion event.
+
+        Returns:
+            None.
+        """
+        if event.analysis_kind is not AnalysisKind.RADON_VELOCITY:
+            return
+        if event.selection != self.current_selection:
+            return
+        self._build_results_controls()
 
     def _build_content(self) -> None:
         """Build static panel content.
@@ -122,12 +146,12 @@ class VelocityAnalysisView(BaseView):
             ui.label("Detection parameters").classes("text-sm font-medium")
             defaults = cls.get_default_detection_params()
             for field in cls.get_detection_schema():
-                if not getattr(field, "visible", True):
+                if not field.visible:
                     continue
                 label = field.display_name
-                if getattr(field, "unit", None):
+                if field.unit:
                     label = f"{label} ({field.unit})"
-                choices = getattr(field, "choices", None)
+                choices = field.choices
                 if choices is not None:
                     control = ui.select(
                         label=label,
@@ -140,9 +164,9 @@ class VelocityAnalysisView(BaseView):
                     control = ui.number(label=label, value=defaults.get(field.name)).classes("w-full")
                 else:
                     control = ui.input(label=label, value=str(defaults.get(field.name, ""))).classes("w-full")
-                if not getattr(field, "editable", True):
+                if not field.editable:
                     control.props("readonly")
-                description = getattr(field, "description", "")
+                description = field.description
                 if description:
                     ui.label(str(description)).classes("text-xs opacity-70")
                 self._param_controls[field.name] = control
@@ -156,7 +180,7 @@ class VelocityAnalysisView(BaseView):
         if self._results_container is None:
             return
         self._results_container.clear()
-        acq_image = self.current_acq_image
+        acq_image = self.get_selected_acq_image()
         selection = self.current_selection
         with self._results_container:
             ui.label("Results").classes("text-sm font-medium")
@@ -166,10 +190,7 @@ class VelocityAnalysisView(BaseView):
             if selection.channel is None or selection.roi_id is None:
                 ui.label("Select a channel and ROI to inspect results.").classes("text-xs opacity-70")
                 return
-            analysis_set = getattr(acq_image, "analysis_set", None)
-            if analysis_set is None:
-                ui.label("Selected AcqImage has no analysis set.").classes("text-xs opacity-70")
-                return
+            analysis_set = acq_image.analysis_set
             key = AnalysisKey(
                 analysis_name=AnalysisKind.RADON_VELOCITY.value,
                 channel=int(selection.channel),
@@ -179,8 +200,8 @@ class VelocityAnalysisView(BaseView):
             if analysis is None:
                 ui.label("No Radon velocity result for this channel/ROI.").classes("text-xs opacity-70")
                 return
-            summary = getattr(analysis.result, "summary", {})
-            table = getattr(analysis.result, "table", None)
+            summary = analysis.result.summary
+            table = analysis.result.table
             ui.label(f"Summary: {summary}").classes("text-xs break-all")
             if table is not None:
                 ui.label(f"Rows: {len(table)}").classes("text-xs opacity-70")
@@ -256,11 +277,7 @@ class VelocityAnalysisView(BaseView):
         """
         if self._run_button is None:
             return
-        self._run_button.enabled = (
-            self.current_selection.file_id is not None
-            and self.current_selection.channel is not None
-            and self.current_selection.roi_id is not None
-        )
+        self._run_button.enabled = self.has_valid_primary_selection()
         self._run_button.update()
 
     def _refresh_selection_label(self) -> None:

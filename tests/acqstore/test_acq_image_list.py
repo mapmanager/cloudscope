@@ -43,6 +43,7 @@ class _FakeAcqImage:
         )
         return {
             'name': Path(self.path).name,
+            'saved': not self._dirty,
             'path': self.path,
             'parent': parent,
             'grandparent': grandparent,

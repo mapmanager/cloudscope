@@ -320,6 +320,7 @@ class AcqImage:
         )
         values: dict[str, object] = {
             'name': self.name,
+            'saved': not self.is_dirty,
             'path': self.path,
             'parent': parent,
             'grandparent': grandparent,

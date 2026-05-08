@@ -176,6 +176,7 @@ class HomePage:
 
         view_manager = ViewManager()
         task_runner = TaskRunner(self.event_bus)
+        self.load_save_controller.task_runner = task_runner
         analysis_controller = AnalysisController(
             event_bus=self.event_bus,
             home_controller=self.controller,
@@ -185,9 +186,8 @@ class HomePage:
 
         file_list_panel = AcqImageListTableView(
             event_bus=self.event_bus,
-            acq_image_list=None,
-            app_config=self.app_config,
             app_state=app_state,
+            table_font_size_px=int(self.app_config.data.table_font_size_px),
             initially_visible=True,
         )
         load_save_view = LoadSaveView(

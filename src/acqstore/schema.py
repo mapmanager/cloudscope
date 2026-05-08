@@ -226,6 +226,13 @@ ACQ_FILE_LIST_SCHEMA = SchemaDefinition(
             group='File',
         ),
         FieldSchema(
+            name='saved',
+            display_name='Saved',
+            value_type=ValueType.BOOL,
+            description='Whether the file has been saved.',
+            group='File',
+        ),
+        FieldSchema(
             name='path',
             display_name='Path',
             value_type=ValueType.PATH,
