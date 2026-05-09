@@ -33,3 +33,28 @@ def test_velocity_analysis_view_has_no_view_level_cancel_button() -> None:
     view = VelocityAnalysisView(event_bus=EventBus())
 
     assert not hasattr(view, '_cancel_button')
+
+from cloudscope.events import RoiChanged, RoiChangeKind
+
+
+def test_velocity_analysis_view_refreshes_on_roi_changed_for_current_file() -> None:
+    """VelocityAnalysisView should refresh when ROI model changes for current file."""
+    view = VelocityAnalysisView(event_bus=EventBus())
+    view.current_selection = PrimarySelection(file_id="file-a", channel=0, roi_id=1)
+    calls = []
+    view._refresh_selection_dependent_ui = lambda: calls.append("refresh")  # type: ignore[method-assign]
+
+    view._on_roi_changed(
+        RoiChanged(
+            operation=RoiChangeKind.DELETE,
+            selection=PrimarySelection(file_id="file-a", channel=0, roi_id=None),
+        )
+    )
+    view._on_roi_changed(
+        RoiChanged(
+            operation=RoiChangeKind.DELETE,
+            selection=PrimarySelection(file_id="other", channel=0, roi_id=None),
+        )
+    )
+
+    assert calls == ["refresh"]

@@ -18,3 +18,7 @@ acqstore
     zip -r acqstore_src_20260507_v3.zip src/acqstore -i '*.py' '*.md'
     
     zip -r nicewidgets_src_20260507_v3.zip src/nicewidgets -i '*.py' '*.md'
+
+    zip -r cloudscope_src_20260508_v1.zip src -i '*.py' '*.md'
+    zip -r cloudscope_tests_20260508_v1.zip tests -i '*.py' '*.md'
+

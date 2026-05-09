@@ -131,3 +131,22 @@ def test_analysis_completed_updates_one_row_from_app_state() -> None:
 
     assert view._table is not None
     assert view._table.updated_rows == [("/tmp/a.oir", {"path": "/tmp/a.oir", "dirty": True})]
+
+from cloudscope.events import RoiChanged, RoiChangeKind
+
+
+def test_roi_changed_updates_one_row_from_app_state() -> None:
+    """RoiChanged should patch one row from AcqImage.get_schema_row()."""
+    image = FakeAcqImage("/tmp/a.oir", dirty=True)
+    state = FakeState(acq_image_list=FakeAcqImageList([image]))
+    view = _make_view(state)
+
+    view._on_roi_changed(
+        RoiChanged(
+            operation=RoiChangeKind.ADD,
+            selection=PrimarySelection(file_id="/tmp/a.oir", channel=0, roi_id=1),
+        )
+    )
+
+    assert view._table is not None
+    assert view._table.updated_rows == [("/tmp/a.oir", {"path": "/tmp/a.oir", "dirty": True})]

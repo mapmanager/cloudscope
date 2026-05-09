@@ -181,6 +181,24 @@ class HomePageController:
         self._state.selection.channel = event.channel
         self._event_bus.publish(ChannelSelectionChanged(channel=self._state.selection.channel))
 
+    def select_roi(self, roi_id: int | None) -> None:
+        """Set the selected ROI and publish ROI selection state.
+
+        Args:
+            roi_id: ROI identifier to select, or None to clear selection.
+
+        Returns:
+            None.
+
+        Raises:
+            ValueError: If selecting a ROI while no file is selected.
+        """
+        if self._state.selection.file_id is None and roi_id is not None:
+            raise ValueError('Cannot select an ROI without a selected file')
+
+        self._state.selection.roi_id = roi_id
+        self._event_bus.publish(RoiSelectionChanged(roi_id=self._state.selection.roi_id))
+
     def _on_select_roi(self, event: SelectRoiIntent) -> None:
         """Handle ROI selection changes.
 
@@ -190,11 +208,7 @@ class HomePageController:
         Returns:
             None.
         """
-        if self._state.selection.file_id is None and event.roi_id is not None:
-            raise ValueError('Cannot select an ROI without a selected file')
-
-        self._state.selection.roi_id = event.roi_id
-        self._event_bus.publish(RoiSelectionChanged(roi_id=self._state.selection.roi_id))
+        self.select_roi(event.roi_id)
 
     def _on_apply_metadata(self, event: ApplyMetadataIntent) -> None:
         """Apply in-memory metadata patch for one file section.

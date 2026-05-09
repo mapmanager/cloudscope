@@ -13,6 +13,7 @@ from cloudscope.app_config import AppConfig
 from cloudscope.controllers.analysis_controller import AnalysisController
 from cloudscope.controllers.home_page_controller import HomePageController
 from cloudscope.controllers.load_save_controller import LoadSaveController
+from cloudscope.controllers.roi_controller import RoiController
 from cloudscope.event_bus import EventBus
 from cloudscope.task_runner import TaskRunner
 from cloudscope.events import (
@@ -182,6 +183,10 @@ class HomePage:
             home_controller=self.controller,
             task_runner=task_runner,
         )
+        roi_controller = RoiController(
+            event_bus=self.event_bus,
+            home_page_controller=self.controller,
+        )
         app_state = self.controller.state
 
         file_list_panel = AcqImageListTableView(
@@ -255,6 +260,7 @@ class HomePage:
         self.controller.bind()
         self.load_save_controller.bind()
         analysis_controller.bind()
+        roi_controller.bind()
         self.controller.load_demo_files([])
 
         last_path = self.app_config.get_last_path().strip()

@@ -8,7 +8,7 @@ from nicegui import ui
 
 from acqstore.schema import ACQ_FILE_LIST_SCHEMA
 from cloudscope.event_bus import EventBus
-from cloudscope.events import AnalysisCompleted, FileListChanged, MetadataChanged, SelectFileIntent
+from cloudscope.events import AnalysisCompleted, FileListChanged, MetadataChanged, RoiChanged, SelectFileIntent
 from cloudscope.schema_adapters import schema_to_column_defs
 from cloudscope.utils.logging import get_logger
 from cloudscope.views.base_view import BaseView
@@ -91,6 +91,7 @@ class AcqImageListTableView(BaseView):
         self.add_subscription(self.event_bus.subscribe(FileListChanged, self._on_file_list_changed))
         self.add_subscription(self.event_bus.subscribe(MetadataChanged, self._on_metadata_changed))
         self.add_subscription(self.event_bus.subscribe(AnalysisCompleted, self._on_analysis_completed))
+        self.add_subscription(self.event_bus.subscribe(RoiChanged, self._on_roi_changed))
 
     def refresh_from_state(self) -> None:
         """Refresh table rows and selection from current app state.
@@ -186,6 +187,20 @@ class AcqImageListTableView(BaseView):
         """
         if not event.success:
             return
+        file_id = event.selection.file_id
+        if file_id is None:
+            return
+        self._update_row_from_acq_image(file_id)
+
+    def _on_roi_changed(self, event: RoiChanged) -> None:
+        """Refresh one table row after ROI model changes.
+
+        Args:
+            event: ROI changed state event containing the affected file.
+
+        Returns:
+            None.
+        """
         file_id = event.selection.file_id
         if file_id is None:
             return

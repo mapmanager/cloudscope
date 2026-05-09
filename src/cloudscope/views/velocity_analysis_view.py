@@ -8,7 +8,7 @@ from nicegui import ui
 
 from acqstore.acq_image.analysis.model import AnalysisKey
 from cloudscope.event_bus import EventBus
-from cloudscope.events import AnalysisCompleted, AnalysisKind, RunAnalysisIntent
+from cloudscope.events import AnalysisCompleted, AnalysisKind, RoiChanged, RunAnalysisIntent
 from cloudscope.state import PrimarySelection
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
@@ -80,6 +80,7 @@ class VelocityAnalysisView(BaseView):
             None.
         """
         self.add_subscription(self.event_bus.subscribe(AnalysisCompleted, self._on_analysis_completed))
+        self.add_subscription(self.event_bus.subscribe(RoiChanged, self._on_roi_changed))
 
     def refresh_from_state(self) -> None:
         """Refresh UI from the cached primary selection.
@@ -112,6 +113,19 @@ class VelocityAnalysisView(BaseView):
         if event.selection != self.current_selection:
             return
         self._build_results_controls()
+
+    def _on_roi_changed(self, event: RoiChanged) -> None:
+        """Refresh controls after ROI add/delete mutations.
+
+        Args:
+            event: ROI changed state event.
+
+        Returns:
+            None.
+        """
+        if event.selection.file_id != self.current_selection.file_id:
+            return
+        self._refresh_selection_dependent_ui()
 
     def _build_content(self) -> None:
         """Build static panel content.
