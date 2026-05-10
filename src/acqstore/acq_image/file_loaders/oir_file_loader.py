@@ -144,6 +144,7 @@ class OirFileLoader(BaseFileLoader):
             with oirfile.OirFile(self.path) as oir:
                 yield oir
 
+    @property
     def reference_image(self) -> ReferenceImage | None:
         """Return a frozen snapshot of the Olympus linescan reference image, if any.
 

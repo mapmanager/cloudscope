@@ -18,5 +18,6 @@ class ViewId(StrEnum):
     FILE_LIST = "file_list"
     IMAGE_TOOLBAR = "image_toolbar"
     PRIMARY_IMAGE = "primary_image"
+    REFERENCE_IMAGE = "reference_image"
     FOOTER = "footer"
     TASK_PROGRESS_DIALOG = "task_progress_dialog"

@@ -166,11 +166,50 @@ class ImageHeader:
         return dim
 
 @dataclass(frozen=True, eq=False)
-class ReferenceImage:
-    """Immutable snapshot of a microscopy reference/overview image (e.g. OIR linescan ref).
+class ReferenceImagePlane:
+    """Display-ready two-dimensional reference image plane.
 
-    ``array`` and every ndarray in ``coords`` are **read-only views** where possible;
-    callers must not mutate them. ``eq=False`` avoids elementwise array equality on ``==``.
+    The plane is intentionally independent of GUI frameworks. Viewers can use
+    ``array`` directly and scale the row/column axes with ``dx`` and ``dy``.
+    As in :class:`RasterGridSpec`, ``dx`` is the physical step for row/Y
+    indices and ``dy`` is the physical step for column/X indices.
+
+    Args:
+        array: Two-dimensional image plane in ``(Y, X)`` order.
+        dx: Physical step per row/Y index.
+        dy: Physical step per column/X index.
+        x_unit: Unit label for the row/Y axis.
+        y_unit: Unit label for the column/X axis.
+    """
+
+    array: np.ndarray
+    dx: float
+    dy: float
+    x_unit: str
+    y_unit: str
+
+    def __post_init__(self) -> None:
+        """Validate the reference plane.
+
+        Raises:
+            ValueError: If ``array`` is not two-dimensional or spacing is not
+                positive and finite.
+        """
+        if self.array.ndim != 2:
+            raise ValueError(f"ReferenceImagePlane.array must be 2D, got shape={self.array.shape}")
+        for name, value in (("dx", self.dx), ("dy", self.dy)):
+            v = float(value)
+            if v <= 0.0 or math.isnan(v) or math.isinf(v):
+                raise ValueError(f"{name} must be positive and finite, got {value!r}")
+
+
+@dataclass(frozen=True, eq=False)
+class ReferenceImage:
+    """Immutable snapshot of a microscopy reference/overview image.
+
+    ``array`` and every ndarray in ``coords`` are **read-only views** where
+    possible; callers must not mutate them. ``eq=False`` avoids elementwise
+    array equality on ``==``.
     """
 
     array: np.ndarray
@@ -180,6 +219,109 @@ class ReferenceImage:
     coord_units: tuple[tuple[str, str], ...]
     coord_scales: tuple[tuple[str, float], ...]
     coords: tuple[tuple[str, np.ndarray], ...]
+
+    def get_plane(self, channel: int | None = None) -> ReferenceImagePlane:
+        """Return a display-ready 2D reference-image plane.
+
+        Args:
+            channel: Optional channel index. When the reference image has a
+                channel dimension and ``channel`` is ``None``, channel ``0`` is
+                used. When there is no channel dimension, ``channel`` may be
+                ``None`` or ``0``.
+
+        Returns:
+            Display-ready reference image plane in ``(Y, X)`` order.
+
+        Raises:
+            ValueError: If ``channel`` is invalid.
+            NotImplementedError: If the reference image layout cannot be mapped
+                to one two-dimensional ``(Y, X)`` plane.
+        """
+        data, dims = self._select_channel(channel)
+        plane = self._yx_plane_from_array(data, dims)
+        dx = self._scale_for_dim("Y")
+        dy = self._scale_for_dim("X")
+        x_unit = self._unit_for_dim("Y")
+        y_unit = self._unit_for_dim("X")
+        return ReferenceImagePlane(array=plane, dx=dx, dy=dy, x_unit=x_unit, y_unit=y_unit)
+
+    def _select_channel(self, channel: int | None) -> tuple[np.ndarray, tuple[str, ...]]:
+        """Return ``(array, dims)`` after applying channel selection."""
+        if "C" not in self.dims:
+            if channel not in (None, 0):
+                raise ValueError(f"Reference image has no channel axis; got channel={channel!r}")
+            return self.array, self.dims
+
+        c_axis = self.dims.index("C")
+        n_channels = int(self.array.shape[c_axis])
+        selected = 0 if channel is None else int(channel)
+        if selected < 0 or selected >= n_channels:
+            raise ValueError(
+                f"Reference image channel {selected} is out of range for {n_channels} channels"
+            )
+        data = np.take(self.array, selected, axis=c_axis)
+        dims = tuple(dim for dim in self.dims if dim != "C")
+        return data, dims
+
+    def _yx_plane_from_array(self, data: np.ndarray, dims: tuple[str, ...]) -> np.ndarray:
+        """Return a read-only ``(Y, X)`` plane from ``data`` and ``dims``."""
+        if "Y" not in dims or "X" not in dims:
+            raise NotImplementedError(f"Reference image dims must include Y and X, got dims={dims!r}")
+        if data.ndim != len(dims):
+            raise NotImplementedError(
+                f"Reference image data rank {data.ndim} does not match dims={dims!r}"
+            )
+
+        # Allow extra singleton dimensions such as Z/T of length 1, but fail
+        # fast on non-singleton axes because choosing those planes is backend
+        # domain logic that should be explicitly implemented when needed.
+        slicer: list[object] = []
+        kept_dims: list[str] = []
+        for axis, dim in enumerate(dims):
+            if dim in ("Y", "X"):
+                slicer.append(slice(None))
+                kept_dims.append(dim)
+            elif data.shape[axis] == 1:
+                slicer.append(0)
+            else:
+                raise NotImplementedError(
+                    f"Unsupported non-singleton reference image axis {dim!r} with size {data.shape[axis]}"
+                )
+        plane = np.asarray(data[tuple(slicer)])
+        if tuple(kept_dims) != ("Y", "X"):
+            axes = [kept_dims.index("Y"), kept_dims.index("X")]
+            plane = np.moveaxis(plane, axes, [0, 1])
+        if plane.ndim != 2:
+            raise NotImplementedError(f"Expected 2D reference plane, got shape={plane.shape}")
+        plane.setflags(write=False)
+        return plane
+
+    def _scale_for_dim(self, dim: str) -> float:
+        """Return physical scale for ``dim`` or pixel scale when unavailable."""
+        mapping = dict(self.coord_scales)
+        value = mapping.get(dim)
+        if value is None:
+            return 1.0
+        scale = float(value)
+        if scale <= 0.0 or math.isnan(scale) or math.isinf(scale):
+            return 1.0
+        return scale
+
+    def _unit_for_dim(self, dim: str) -> str:
+        """Return unit label for ``dim`` or ``Pixels`` when unavailable."""
+        unit = dict(self.coord_units).get(dim)
+        if unit:
+            return str(unit)
+        return "Pixels"
+
+    def get_line_roi(self) -> tuple[float, float, float, float] | None:
+        """Return the reference line ROI when available.
+
+        Returns:
+            ``(x0, y0, x1, y1)`` tuple, or None when the reference image has no
+            line ROI metadata.
+        """
+        return self.line_roi
 
 class BaseFileLoader:
     """Base class for lazy-loading image readers with a shared header and pixel API.
@@ -522,13 +664,16 @@ class BaseFileLoader:
             raise KeyError(f"Channel {channel} not found") from e
 
     def get_reference_image(self, channel: int | None = None) -> np.ndarray | None:
-        """Conforms to AcqImagesProtocol.
-        Returns the pixel array of the ReferenceImage snapshot if it exists.
+        """Return a display-ready reference-image plane array when available.
+
+        Args:
+            channel: Optional reference image channel.
+
+        Returns:
+            Two-dimensional reference image plane, or None when no reference
+            image exists.
         """
         ref = self.reference_image
         if ref is None:
             return None
-            
-        # If your backend tie reference imagery to channels, you'd filter here.
-        # Otherwise, return the main reference array.
-        return ref.array
+        return ref.get_plane(channel).array
