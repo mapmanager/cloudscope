@@ -19,13 +19,16 @@ import numpy as np
 from nicegui import run, ui
 
 from acqstore.acq_image.acq_image import AcqImage
+from acqstore.acq_image.roi import RectROI
 from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader
 from cloudscope.event_bus import EventBus
+from cloudscope.events import RoiChanged
 from cloudscope.utils.logging import get_logger
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
 from nicewidgets.raster_viewer.backend.image_model import RasterGridSpec
 from nicewidgets.raster_viewer.frontend.plotly_viewer import PlotlyRasterViewer
+from nicewidgets.raster_viewer.frontend.roi_overlay import RectRoiOverlay
 
 logger = get_logger(__name__)
 
@@ -148,6 +151,7 @@ class PrimaryImageView(BaseView):
         self._title = title
         self._client: Any = None
         self._viewer = PlotlyRasterViewer()
+        self._current_grid: RasterGridSpec | None = None
 
     def build(self, parent: ui.element | None = None) -> ui.element:
         """Create the card, title, and Plotly raster element.
@@ -184,6 +188,7 @@ class PrimaryImageView(BaseView):
         Returns:
             None.
         """
+        self.add_subscription(self.event_bus.subscribe(RoiChanged, self._on_roi_changed))
 
     def on_primary_selection_changed(self) -> None:
         """Refresh raster after BaseView updates the primary selection.
@@ -265,8 +270,98 @@ class PrimaryImageView(BaseView):
             logger.info('calling self._viewer.set_data:')
             logger.info('  plane:%s min:%s max:%s', plane.shape, plane.min(), plane.max())
             logger.info('  grid:%s', grid)
+            self._current_grid = grid
             await self._viewer.set_data(plane, grid=grid)
+            self._refresh_roi_overlays(acq_image=acq_image, grid=grid)
         except RuntimeError as exc:
             logger.exception('set_data failed: %s', exc)
             err_msg = str(exc)
             self._run_ui(lambda: ui.notify(err_msg, type='negative'))
+
+    def _on_roi_changed(self, event: RoiChanged) -> None:
+        """Refresh ROI overlays after the selected file ROI model changes.
+
+        Args:
+            event: ROI changed state event.
+
+        Returns:
+            None.
+        """
+        current_file_id = self.current_selection.file_id
+        event_file_id = event.selection.file_id
+        if current_file_id is not None and event_file_id == current_file_id:
+            self._refresh_roi_overlays_from_current_selection()
+
+    def _refresh_roi_overlays_from_current_selection(self) -> None:
+        """Schedule ROI overlay refresh from the current selection.
+
+        Returns:
+            None.
+        """
+        acq_image = self.get_selected_acq_image()
+        grid = self._current_grid
+        self._refresh_roi_overlays(acq_image=acq_image, grid=grid)
+
+    def _refresh_roi_overlays(
+        self,
+        *,
+        acq_image: AcqImage | None,
+        grid: RasterGridSpec | None,
+    ) -> None:
+        """Push current rectangular ROI overlays into the Plotly viewer.
+
+        Args:
+            acq_image: Current acquisition image, or None.
+            grid: Current raster viewer grid, or None.
+
+        Returns:
+            None.
+        """
+        if acq_image is None or grid is None:
+            self._viewer.set_rois([])
+            return
+        overlays = _rect_roi_overlays_from_acq_image(acq_image, grid=grid)
+        self._viewer.set_rois(overlays)
+        self._viewer.select_roi(self.current_selection.roi_id)
+
+
+def _rect_roi_overlay_from_rect_roi(roi: RectROI, *, grid: RasterGridSpec) -> RectRoiOverlay:
+    """Convert an AcqStore ``RectROI`` to a Plotly physical-coordinate overlay.
+
+    AcqStore ROI bounds use ``dim0`` for image rows and ``dim1`` for image
+    columns. The raster viewer maps rows to Plotly x and columns to Plotly y.
+
+    Args:
+        roi: Rectangular ROI model.
+        grid: Raster viewer grid with physical spacing.
+
+    Returns:
+        Rectangular ROI overlay in Plotly coordinate space.
+    """
+    bounds = roi.bounds
+    return RectRoiOverlay(
+        roi_id=roi.roi_id,
+        x0=float(bounds.dim0_start) * grid.dx,
+        x1=float(bounds.dim0_stop) * grid.dx,
+        y0=float(bounds.dim1_start) * grid.dy,
+        y1=float(bounds.dim1_stop) * grid.dy,
+        label=str(roi.roi_id),
+    )
+
+
+def _rect_roi_overlays_from_acq_image(acq_image: AcqImage, *, grid: RasterGridSpec) -> list[RectRoiOverlay]:
+    """Build Plotly rectangular ROI overlays from an AcqImage.
+
+    Args:
+        acq_image: Acquisition image containing a ROI set.
+        grid: Raster viewer grid with physical spacing.
+
+    Returns:
+        Rectangular ROI overlays. Non-rectangular ROIs are ignored.
+    """
+    overlays: list[RectRoiOverlay] = []
+    for roi in acq_image.rois:
+        if isinstance(roi, RectROI):
+            overlays.append(_rect_roi_overlay_from_rect_roi(roi, grid=grid))
+    return overlays
+

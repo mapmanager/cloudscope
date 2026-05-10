@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 from uuid import uuid4
 from pprint import pprint
@@ -23,6 +24,10 @@ from nicewidgets.raster_viewer.backend.raster_service import RasterViewService
 from nicewidgets.raster_viewer.frontend.plotly_coord_transform import (
     PlotlyCoordTransform,
     merge_partial_relayout,
+)
+from nicewidgets.raster_viewer.frontend.roi_overlay import (
+    PlotlyRoiOverlayLayer,
+    RectRoiOverlay,
 )
 from nicewidgets.raster_viewer.frontend.plotly_protocol import (
     DEFAULT_HEATMAP_COLORSCALE,
@@ -62,6 +67,7 @@ class PlotlyRasterViewer:
         self._heatmap_colorscale: str = DEFAULT_HEATMAP_COLORSCALE
         self._contrast_zmin: float | None = None
         self._contrast_zmax: float | None = None
+        self._plotly_rois = PlotlyRoiOverlayLayer()
 
     def _js_plotly_graph_div(self) -> str:
         """Resolve the Plotly graph div from NiceGUI; bail out if missing (cf. ``el.data`` guard)."""
@@ -149,6 +155,7 @@ if (!plotDiv || !plotDiv.data) return;
             uirevision=self._uirevision,
             heatmap_colorscale=self._heatmap_colorscale,
         )
+        self._sync_roi_shapes_to_plotly_dict()
 
         if self._plot is not None:
             self._plot.figure = self._plotly_dict
@@ -166,9 +173,92 @@ if (!plotDiv || !plotDiv.data) return;
             uirevision=self._uirevision,
             heatmap_colorscale=self._heatmap_colorscale,
         )
+        self._sync_roi_shapes_to_plotly_dict()
 
         self._plot.figure = self._plotly_dict
         self._plot.update()
+
+    def set_rois(self, rois: Sequence[RectRoiOverlay]) -> None:
+        """Replace all rectangular ROI overlays without pushing raster data.
+
+        Args:
+            rois: ROI overlays in Plotly physical coordinates.
+
+        Returns:
+            None.
+        """
+        self._plotly_rois.set_rois(rois)
+        self._sync_roi_shapes_to_plotly_dict()
+        self._relayout_shapes()
+
+    def select_roi(self, roi_id: int | None) -> None:
+        """Select one ROI overlay and update rectangle styling only.
+
+        Args:
+            roi_id: ROI identifier to select, or None to clear selection.
+
+        Returns:
+            None.
+        """
+        self._plotly_rois.select_roi(roi_id)
+        self._sync_roi_shapes_to_plotly_dict()
+        self._relayout_shapes()
+
+    def add_roi(self, roi: RectRoiOverlay) -> None:
+        """Add or replace one ROI overlay without pushing raster data.
+
+        Args:
+            roi: ROI overlay in Plotly physical coordinates.
+
+        Returns:
+            None.
+        """
+        self._plotly_rois.add_roi(roi)
+        self._sync_roi_shapes_to_plotly_dict()
+        self._relayout_shapes()
+
+    def delete_roi(self, roi_id: int) -> None:
+        """Delete one ROI overlay without pushing raster data.
+
+        Args:
+            roi_id: ROI identifier to remove.
+
+        Returns:
+            None.
+        """
+        self._plotly_rois.delete_roi(roi_id)
+        self._sync_roi_shapes_to_plotly_dict()
+        self._relayout_shapes()
+
+    def _sync_roi_shapes_to_plotly_dict(self) -> None:
+        """Synchronize current ROI overlay state into ``layout.shapes``.
+
+        Returns:
+            None.
+        """
+        layout = self._plotly_dict.setdefault('layout', {})
+        existing_shapes = layout.get('shapes', [])
+        if not isinstance(existing_shapes, list):
+            existing_shapes = []
+        layout['shapes'] = self._plotly_rois.merge_shapes(existing_shapes)
+
+    def _relayout_shapes(self) -> None:
+        """Push only ``layout.shapes`` to the browser with ``Plotly.relayout``.
+
+        Returns:
+            None.
+        """
+        if self._plot is None:
+            return
+        layout = self._plotly_dict.setdefault('layout', {})
+        shapes = layout.get('shapes', [])
+        js = f"""
+{self._js_plotly_graph_div()}
+Plotly.relayout(plotDiv, {{
+  shapes: {json.dumps(shapes)}
+}});
+"""
+        self._plot.client.run_javascript(js, timeout=2.0)
 
     def request_from_plotly(self, payload: PlotlyViewportPayload):
         """Build a backend request from a browser relayout payload (merged axes)."""
@@ -231,7 +321,7 @@ Plotly.relayout(plotDiv, {{
   'yaxis.autorange': false
 }});
 """
-        await ui.run_javascript(js, timeout=2.0)
+        self._plot.client.run_javascript(js, timeout=2.0)
 
     async def set_x_axis_range(self, *, x_min: float, x_max: float) -> None:
         """Set visible **x** (plot row / physical-x) axis range; y extent unchanged."""
@@ -259,7 +349,7 @@ Plotly.relayout(plotDiv, {{
   'yaxis.autorange': false
 }});
 """
-        await ui.run_javascript(js, timeout=2.0)
+        self._plot.client.run_javascript(js, timeout=2.0)
 
     async def set_heatmap_contrast(self, *, zmin: float, zmax: float) -> None:
         """Pin intensity window for heatmap (``Plotly.restyle``) and PNG overview (re-encode)."""
@@ -285,7 +375,7 @@ Plotly.restyle(plotDiv, {{
   zmax: [{json.dumps(z_hi)}]
 }}, [0]);
 """
-                await ui.run_javascript(js, timeout=2.0)
+                self._plot.client.run_javascript(js, timeout=2.0)
         elif self._image_trace_active():
             await self._refresh_full_png()
         else:
@@ -311,7 +401,7 @@ Plotly.restyle(plotDiv, {{
   colorscale: [{json.dumps(self._heatmap_colorscale)}]
 }}, [0]);
 """
-                await ui.run_javascript(js, timeout=2.0)
+                self._plot.client.run_javascript(js, timeout=2.0)
         elif self._image_trace_active():
             await self._refresh_full_png()
         else:
@@ -341,6 +431,11 @@ Plotly.restyle(plotDiv, {{
 
         logger.info('args is:')
         pprint(args, indent=4, sort_dicts=False)
+        # number of shapes:
+        num_shapes = len(args.get('shapes', []))
+        logger.info(f'num_shapes: {num_shapes}')
+        # pprint args, skipping 'shapes' key
+        
 
         if not any(k.startswith('xaxis.range') or k.startswith('yaxis.range') for k in args):
             return
@@ -407,11 +502,17 @@ return {{
             }
         response = self._service.full_image_png(display_style=self._display_style())
         self._current_bounds = response.bounds
-        return build_plotly_figure(
+        figure = build_plotly_figure(
             response=response,
             uirevision=self._uirevision,
             heatmap_colorscale=self._heatmap_colorscale,
         )
+        layout = figure.setdefault('layout', {})
+        shapes = layout.get('shapes', [])
+        if not isinstance(shapes, list):
+            shapes = []
+        layout['shapes'] = self._plotly_rois.merge_shapes(shapes)
+        return figure
 
     def _display_style(self) -> RasterDisplayStyle:
         """Return backend PNG / heatmap styling derived from viewer state."""

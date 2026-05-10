@@ -2,11 +2,17 @@
 
 from nicegui import app, ui
 
-from cloudscope.utils.logging import get_logger, setup_logging
 from cloudscope.app_config import AppConfig
 from cloudscope.pages.home_page import home_page  # noqa: F401  # registers page route
 
+# we need to setup each packages loging, i do not understand how python logging works!
+from cloudscope.utils.logging import get_logger, setup_logging
+from nicewidgets.utils.logging import setup_logging as setup_nicewidgets_logging
+from acqstore.utils.logging import setup_logging as setup_acqstore_logging
+
 setup_logging()
+setup_nicewidgets_logging()
+setup_acqstore_logging()
 
 logger = get_logger(__name__)
 
