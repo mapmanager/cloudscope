@@ -5,6 +5,7 @@ from __future__ import annotations
 from acqstore.acq_image.analysis.data_provider import AnalysisDataProvider
 from acqstore.acq_image.analysis.model import (
     AnalysisCancelled,
+    AnalysisPlotData,
     AnalysisResult,
     AnalysisRunContext,
     BaseAnalysis,
@@ -127,3 +128,28 @@ class RadonVelocityAnalysis(BaseAnalysis):
         self.result.table = result.table
         self.set_dirty()
         return self.result
+
+    def get_plot_data(self) -> AnalysisPlotData | None:
+        """Return canonical velocity-vs-time plot data.
+
+        Returns:
+            Plot data for ``time_s`` versus ``velocity``, or None if this
+            analysis has no table output yet.
+
+        Raises:
+            KeyError: If the table is present but missing required columns.
+        """
+        if self.result.table is None:
+            return None
+        table = self.result.table
+        if "time_s" not in table.columns:
+            raise KeyError("Radon velocity plot requires 'time_s' column")
+        if "velocity" not in table.columns:
+            raise KeyError("Radon velocity plot requires 'velocity' column")
+        return AnalysisPlotData(
+            x=tuple(float(value) for value in table["time_s"].tolist()),
+            y=tuple(float(value) for value in table["velocity"].tolist()),
+            x_label="Time (s)",
+            y_label="Velocity",
+            series_name="Radon velocity",
+        )

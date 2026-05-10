@@ -24,6 +24,7 @@ from cloudscope.views.file_list_view import AcqImageListTableView
 from cloudscope.views.footer_view import FooterView
 from cloudscope.views.header_view import build_main_header
 from cloudscope.views.image_toolbar_view import ImageToolbarView
+from cloudscope.views.acq_analysis_plot_view import AcqAnalysisPlotView
 from cloudscope.views.left_toolbar_view import LeftToolbarView
 from cloudscope.views.load_save_view import LoadSaveView
 from cloudscope.views.primary_image_view import PrimaryImageView
@@ -108,6 +109,12 @@ class HomePage:
             title='Primary image',
             initially_visible=True,
         )
+        acq_analysis_plot = AcqAnalysisPlotView(
+            self.event_bus,
+            app_state=app_state,
+            title='Velocity analysis plot',
+            initially_visible=True,
+        )
         reference_image = ReferenceImageView(
             self.event_bus,
             title='Reference image',
@@ -157,6 +164,9 @@ class HomePage:
 
                     primary_image.build()
                     view_manager.register(primary_image)
+
+                    acq_analysis_plot.build()
+                    view_manager.register(acq_analysis_plot)
 
                     reference_image.build()
                     view_manager.register(reference_image)

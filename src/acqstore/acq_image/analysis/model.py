@@ -138,6 +138,40 @@ class AnalysisRunContext:
             raise AnalysisCancelled("Analysis cancelled")
 
 
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisPlotData:
+    """Display-ready x/y plot data for one analysis.
+
+    This is a backend-facing API for viewers. GUI packages should not need to
+    know analysis-specific table column names such as ``time_s`` or
+    ``velocity``.
+
+    Args:
+        x: X-axis values.
+        y: Y-axis values.
+        x_label: Human-readable x-axis label.
+        y_label: Human-readable y-axis label.
+        series_name: Human-readable series name.
+    """
+
+    x: tuple[float, ...]
+    y: tuple[float, ...]
+    x_label: str
+    y_label: str
+    series_name: str = "analysis"
+
+    def __post_init__(self) -> None:
+        """Validate plot data lengths.
+
+        Raises:
+            ValueError: If x and y lengths differ.
+        """
+        if len(self.x) != len(self.y):
+            raise ValueError(f"x and y must have same length, got {len(self.x)} and {len(self.y)}")
+
+
 @dataclass(slots=True)
 class AnalysisResult:
     """Outputs from one analysis.
@@ -321,6 +355,16 @@ class BaseAnalysis(ABC):
             Analysis result.
         """
         raise NotImplementedError
+
+    def get_plot_data(self) -> AnalysisPlotData | None:
+        """Return display-ready plot data for this analysis.
+
+        Derived analyses override this when they have a canonical x/y plot.
+
+        Returns:
+            Plot data, or None when the analysis has no canonical plot.
+        """
+        return None
 
     def has_table(self) -> bool:
         """Return whether this analysis has table output.

@@ -12,6 +12,7 @@ class ViewId(StrEnum):
     METADATA = "metadata"
     APP_CONFIG = "app_config"
     VELOCITY_ANALYSIS = "velocity_analysis"
+    ACQ_ANALYSIS_PLOT = "acq_analysis_plot"
 
     # main page
     LOAD_SAVE = "load_save"
