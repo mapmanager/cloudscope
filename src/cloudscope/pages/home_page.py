@@ -89,15 +89,15 @@ class HomePage:
         )
         app_state = self.controller.state
 
+        load_save_view = LoadSaveView(
+            event_bus=self.event_bus,
+            app_config=self.app_config,
+            initially_visible=True,
+        )
         file_list_panel = AcqImageListTableView(
             event_bus=self.event_bus,
             app_state=app_state,
             table_font_size_px=int(self.app_config.data.table_font_size_px),
-            initially_visible=True,
-        )
-        load_save_view = LoadSaveView(
-            event_bus=self.event_bus,
-            app_config=self.app_config,
             initially_visible=True,
         )
         image_toolbar = ImageToolbarView(
