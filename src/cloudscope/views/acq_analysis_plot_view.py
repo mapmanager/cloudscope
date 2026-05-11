@@ -13,6 +13,9 @@ from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
 from nicewidgets.echart_widget.widget import EChartWidget
 
+from cloudscope.utils.logging import get_logger
+logger = get_logger(__name__)
+
 
 class AcqAnalysisPlotView(BaseView):
     """Display the canonical x/y plot for the selected analysis.
@@ -89,6 +92,8 @@ class AcqAnalysisPlotView(BaseView):
         Returns:
             None.
         """
+        logger.info('')
+
         self._refresh_plot()
 
     def set_x_axis_limits(self, x_min: float | None, x_max: float | None) -> None:
@@ -199,7 +204,10 @@ class AcqAnalysisPlotView(BaseView):
         analysis = acq_image.analysis_set.get(key)
         if analysis is None:
             return None
-        return analysis.get_plot_data()
+
+        _plot_data = analysis.get_plot_data()
+        logger.info(f'_plot_data for analysis key:{key} is {_plot_data}')
+        return _plot_data
 
     def _empty_message(self) -> str:
         """Return status text for the current empty plot state.

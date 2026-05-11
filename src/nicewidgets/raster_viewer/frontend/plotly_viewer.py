@@ -430,10 +430,10 @@ Plotly.restyle(plotDiv, {{
         args = dict(getattr(event, 'args', {}) or {})
 
         logger.info('args is:')
-        pprint(args, indent=4, sort_dicts=False)
-        # number of shapes:
-        num_shapes = len(args.get('shapes', []))
-        logger.info(f'num_shapes: {num_shapes}')
+        # pprint(args, indent=4, sort_dicts=False)
+        # # number of shapes:
+        # num_shapes = len(args.get('shapes', []))
+        # logger.info(f'num_shapes: {num_shapes}')
         # pprint args, skipping 'shapes' key
         
 

@@ -13,6 +13,9 @@ from cloudscope.state import PrimarySelection
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
 
+from cloudscope.utils.logging import get_logger
+logger = get_logger(__name__)
+
 
 def _load_radon_velocity_analysis_class() -> type[Any] | None:
     """Load the optional AcqStore Radon velocity analysis class.
@@ -96,6 +99,8 @@ class VelocityAnalysisView(BaseView):
         Returns:
             None.
         """
+        logger.info('')
+
         self._refresh_selection_dependent_ui()
 
 
@@ -123,6 +128,7 @@ class VelocityAnalysisView(BaseView):
         Returns:
             None.
         """
+        
         if event.selection.file_id != self.current_selection.file_id:
             return
         self._refresh_selection_dependent_ui()
