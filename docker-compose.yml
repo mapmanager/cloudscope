@@ -1,0 +1,48 @@
+# Docker Compose helpers for CloudScope.
+#
+# Build and run the production-like container:
+#   docker compose up --build cloudscope
+#   then visit http://localhost:8080
+#
+# Build and run the development container with src/ mounted:
+#   docker compose up --build cloudscope-dev
+#   then visit http://localhost:8080
+#
+# Optional local data mount:
+#   create ./data and place server-side files there; inside the app use /data
+
+services:
+  cloudscope:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cloudscope:latest
+    ports:
+      - "8080:8080"
+    environment:
+      PYTHONUNBUFFERED: "1"
+      CLOUDSCOPE_REMOTE: "1"
+      CLOUDSCOPE_NATIVE: "0"
+      CLOUDSCOPE_RELOAD: "0"
+      CLOUDSCOPE_HOST: "0.0.0.0"
+      PORT: "8080"
+    volumes:
+      - ./data:/data
+
+  cloudscope-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cloudscope:dev
+    ports:
+      - "8080:8080"
+    environment:
+      PYTHONUNBUFFERED: "1"
+      CLOUDSCOPE_REMOTE: "1"
+      CLOUDSCOPE_NATIVE: "0"
+      CLOUDSCOPE_RELOAD: "0"
+      CLOUDSCOPE_HOST: "0.0.0.0"
+      PORT: "8080"
+    volumes:
+      - ./src:/app/src
+      - ./data:/data

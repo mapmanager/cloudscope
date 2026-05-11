@@ -1,0 +1,57 @@
+# File: .github/workflows/tests.yml
+#
+# Runs CloudScope tests on push and pull request. Ruff is intentionally not
+# enforced here yet because the current tree has known lint findings.
+# Run locally with:
+#   uv run ruff check .
+
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Run tests with coverage
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: ['3.12']
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --frozen --group dev
+
+      - name: Run tests with coverage
+        run: |
+          uv run pytest \
+            --cov=src/cloudscope \
+            --cov=src/acqstore \
+            --cov=src/nicewidgets \
+            --cov-report=term \
+            --cov-report=xml:coverage.xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./coverage.xml
+          name: cloudscope-py${{ matrix.python-version }}
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false

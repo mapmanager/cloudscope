@@ -6,6 +6,23 @@ readme = "README.md"
 authors = [
     { name = "Robert Cudmore", email = "robert.cudmore@gmail.com" },
 ]
+keywords = [
+    "acquisition",
+    "image-analysis",
+    "microscopy",
+    "nicegui",
+    "visualization",
+]
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Image Processing",
+]
 requires-python = ">=3.12"
 dependencies = [
     "nicegui>=3.10.0",
@@ -57,3 +74,9 @@ ignore = ["I001"] # Specifically turns off unsorted-imports
 [tool.ruff.format]
 quote-style = "single"
 indent-style = "space"
+
+[project.urls]
+Homepage = "https://github.com/mapmanager/cloudscope"
+Repository = "https://github.com/mapmanager/cloudscope"
+Issues = "https://github.com/mapmanager/cloudscope/issues"
+Documentation = "https://github.com/mapmanager/cloudscope#readme"
