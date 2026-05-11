@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -65,10 +66,12 @@ class LeftToolbarView(BaseView):
         app_config: AppConfig,
         view_manager: ViewManager,
         initially_visible: bool = True,
+        on_panel_open_changed: Callable[[bool], None] | None = None,
     ) -> None:
         super().__init__(event_bus=event_bus, app_state=app_state, initially_visible=initially_visible)
         self._app_config = app_config
         self._view_manager = view_manager
+        self._on_panel_open_changed = on_panel_open_changed
         self._active_view_id: ViewId | None = None
         self._buttons: dict[ViewId, ui.button] = {}
         self._left_panel_root: ui.element | None = None
@@ -136,6 +139,15 @@ class LeftToolbarView(BaseView):
         self._apply_active_view(None)
         return self.root
 
+
+    def close_panel(self) -> None:
+        """Close the optional left-toolbar panel.
+
+        Returns:
+            None.
+        """
+        self._apply_active_view(None)
+
     def _register_child_views(self) -> None:
         """Register child panel views with the shared view manager.
 
@@ -187,6 +199,8 @@ class LeftToolbarView(BaseView):
             self._left_panel_root.visible = view_id is not None
             self._left_panel_root.update()
         self._refresh_button_state()
+        if self._on_panel_open_changed is not None:
+            self._on_panel_open_changed(view_id is not None)
 
     def _refresh_button_state(self) -> None:
         """Refresh visual state for toolbar buttons.

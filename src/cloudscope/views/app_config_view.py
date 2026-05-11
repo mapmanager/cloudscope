@@ -13,6 +13,7 @@ from nicegui import ui
 from acqstore.schema import FieldSchema, SchemaDefinition, ValueType
 from cloudscope.app_config import AppConfig, DEFAULT_TABLE_FONT_SIZE_PX
 from cloudscope.event_bus import EventBus
+from cloudscope.events import ResetHomeLayoutIntent
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
 from cloudscope.views.metadata_widget.schema_card_widget import SchemaCardWidget
@@ -134,6 +135,15 @@ class AppConfigView(BaseView):
         self._app_config.normalize_and_persist()
         ui.notify('App settings saved', type='positive')
 
+
+    def _on_reset_view_clicked(self) -> None:
+        """Emit a request to reset Home page splitter layout.
+
+        Returns:
+            None.
+        """
+        self.event_bus.publish(ResetHomeLayoutIntent())
+
     def build(self, parent: ui.element | None = None) -> ui.element:
         """Build the settings card.
 
@@ -175,3 +185,5 @@ class AppConfigView(BaseView):
             on_apply=lambda p: self._on_apply(p),
         )
         self._card.build()
+        ui.separator()
+        ui.button('Reset View', on_click=self._on_reset_view_clicked).props('outline color=primary')

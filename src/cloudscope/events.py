@@ -111,6 +111,11 @@ class SelectRoiIntent(IntentEvent):
 
 
 @dataclass(frozen=True)
+class ResetHomeLayoutIntent(IntentEvent):
+    """Request resetting Home page splitters to factory defaults."""
+
+
+@dataclass(frozen=True)
 class AddRoiIntent(IntentEvent):
     """Request creation of a new ROI for a selection snapshot.
 

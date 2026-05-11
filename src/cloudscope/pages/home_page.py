@@ -19,6 +19,7 @@ from cloudscope.task_runner import TaskRunner
 from cloudscope.events import (
     LoadPathKind,
     LoadPathIntent,
+    ResetHomeLayoutIntent,
 )
 from cloudscope.views.file_list_view import AcqImageListTableView
 from cloudscope.views.footer_view import FooterView
@@ -31,6 +32,8 @@ from cloudscope.views.primary_image_view import PrimaryImageView
 from cloudscope.views.reference_image_view import ReferenceImageView
 from cloudscope.views.task_progress_dialog_view import TaskProgressDialogView
 from cloudscope.views.view_manager import ViewManager
+from cloudscope.views.splitter_handle import add_splitter_handle
+from cloudscope.views.splitter_manager import HOME_SPLITTER_PRESETS, SplitterId, SplitterManager
 
 from cloudscope.utils.logging import get_logger
 
@@ -67,7 +70,7 @@ class HomePage:
         Returns:
             None.
         """
-        text_size = self.app_config.get_attribute("text_size")
+        text_size = self.app_config.get_attribute('text_size')
         setUpGuiDefaults(text_size)
 
         self._install_shutdown_handlers()
@@ -76,6 +79,7 @@ class HomePage:
         app.native.on('moved', self._native_moved)
 
         view_manager = ViewManager()
+        splitter_manager = SplitterManager(self.app_config)
         task_runner = TaskRunner(self.event_bus)
         self.load_save_controller.task_runner = task_runner
         analysis_controller = AnalysisController(
@@ -89,15 +93,15 @@ class HomePage:
         )
         app_state = self.controller.state
 
-        load_save_view = LoadSaveView(
-            event_bus=self.event_bus,
-            app_config=self.app_config,
-            initially_visible=True,
-        )
         file_list_panel = AcqImageListTableView(
             event_bus=self.event_bus,
             app_state=app_state,
             table_font_size_px=int(self.app_config.data.table_font_size_px),
+            initially_visible=True,
+        )
+        load_save_view = LoadSaveView(
+            event_bus=self.event_bus,
+            app_config=self.app_config,
             initially_visible=True,
         )
         image_toolbar = ImageToolbarView(
@@ -129,47 +133,165 @@ class HomePage:
             event_bus=self.event_bus,
             initially_visible=True,
         )
+        left_toolbar_ref: dict[str, LeftToolbarView | None] = {'value': None}
 
-        ui.page_title("CloudScope")
-        build_main_header(title="CloudScope", app_config=self.app_config)
+        def _pane_classes(extra: str = '') -> str:
+            """Return common splitter pane classes.
+
+            Args:
+                extra: Extra Tailwind/NiceGUI classes.
+
+            Returns:
+                Class string for splitter pane containers.
+            """
+            base = 'w-full h-full min-w-8 min-h-8 overflow-hidden'
+            return f'{base} {extra}'.strip()
+
+        def _content_column_classes(extra: str = '') -> str:
+            """Return common content column classes.
+
+            Args:
+                extra: Extra Tailwind/NiceGUI classes.
+
+            Returns:
+                Class string for content columns.
+            """
+            base = 'w-full h-full min-h-0 gap-3 p-3 overflow-auto'
+            return f'{base} {extra}'.strip()
+
+        def _capture(splitter_id: SplitterId) -> None:
+            """Capture a user-adjusted splitter value in AppConfig memory.
+
+            Args:
+                splitter_id: Splitter that changed.
+
+            Returns:
+                None.
+            """
+            splitter_manager.capture_current_value(splitter_id)
+
+        def _reset_home_layout(_event: ResetHomeLayoutIntent | None = None) -> None:
+            """Reset Home page splitters and close the left toolbar panel.
+
+            Args:
+                _event: Reset intent, ignored.
+
+            Returns:
+                None.
+            """
+            left_toolbar = left_toolbar_ref['value']
+            if left_toolbar is not None:
+                left_toolbar.close_panel()
+            splitter_manager.reset_all()
+            ui.notify('View layout reset', type='positive')
+
+        self.event_bus.subscribe(ResetHomeLayoutIntent, _reset_home_layout)
+
+        ui.page_title('CloudScope')
+        build_main_header(title='CloudScope', app_config=self.app_config)
         footer.build()
         view_manager.register(footer)
         task_progress_dialog.build()
         view_manager.register(task_progress_dialog)
 
-        with ui.splitter(value=8).classes("w-full min-h-screen") as splitter:
-            with splitter.before:
+        left_preset = HOME_SPLITTER_PRESETS[SplitterId.LEFT_TOOLBAR]
+        with ui.splitter(
+            value=splitter_manager.value_for(SplitterId.LEFT_TOOLBAR),
+            limits=left_preset.limits,
+        ).classes('w-full min-h-screen') as left_splitter:
+            splitter_manager.register(SplitterId.LEFT_TOOLBAR, left_splitter)
+
+            with left_splitter.before:
                 left_toolbar = LeftToolbarView(
                     event_bus=self.event_bus,
                     app_state=app_state,
                     app_config=self.app_config,
                     view_manager=view_manager,
                     initially_visible=True,
+                    on_panel_open_changed=splitter_manager.set_left_toolbar_open,
                 )
                 left_toolbar.build()
+                left_toolbar_ref['value'] = left_toolbar
                 view_manager.register(left_toolbar)
 
-            with splitter.after:
-                with ui.column().classes("w-full gap-4 p-4"):
-                    load_save_view.build()
-                    view_manager.register(load_save_view)
+            with left_splitter.after:
+                file_preset = HOME_SPLITTER_PRESETS[SplitterId.FILE_LIST]
+                with ui.splitter(
+                    value=splitter_manager.value_for(SplitterId.FILE_LIST),
+                    limits=file_preset.limits,
+                    horizontal=True,
+                ).classes('w-full h-[calc(100vh-4rem)] min-h-0') as file_list_splitter:
+                    splitter_manager.register(SplitterId.FILE_LIST, file_list_splitter)
 
-                    with ui.row().classes("w-full items-start gap-4"):
-                        file_list_panel.build()
-                    view_manager.register(file_list_panel)
+                    with file_list_splitter.before:
+                        with ui.column().classes(_content_column_classes()):
+                            load_save_view.build()
+                            view_manager.register(load_save_view)
+                            file_list_panel.build()
+                            view_manager.register(file_list_panel)
 
-                    with ui.row().classes("w-full items-start gap-4"):
-                        image_toolbar.build()
-                    view_manager.register(image_toolbar)
+                    with file_list_splitter.after:
+                        primary_preset = HOME_SPLITTER_PRESETS[SplitterId.PRIMARY_IMAGE]
+                        with ui.splitter(
+                            value=splitter_manager.value_for(SplitterId.PRIMARY_IMAGE),
+                            limits=primary_preset.limits,
+                            horizontal=True,
+                        ).classes('w-full h-full min-h-0 mt-[6px]') as primary_splitter:
+                            splitter_manager.register(SplitterId.PRIMARY_IMAGE, primary_splitter)
 
-                    primary_image.build()
-                    view_manager.register(primary_image)
+                            with primary_splitter.before:
+                                with ui.column().classes(_content_column_classes()):
+                                    image_toolbar.build()
+                                    view_manager.register(image_toolbar)
+                                    primary_image.build()
+                                    view_manager.register(primary_image)
 
-                    acq_analysis_plot.build()
-                    view_manager.register(acq_analysis_plot)
+                            with primary_splitter.after:
+                                analysis_preset = HOME_SPLITTER_PRESETS[SplitterId.ANALYSIS_REFERENCE]
+                                with ui.splitter(
+                                    value=splitter_manager.value_for(SplitterId.ANALYSIS_REFERENCE),
+                                    limits=analysis_preset.limits,
+                                    horizontal=True,
+                                ).classes('w-full h-full min-h-0 mt-[6px]') as analysis_reference_splitter:
+                                    splitter_manager.register(SplitterId.ANALYSIS_REFERENCE, analysis_reference_splitter)
 
-                    reference_image.build()
-                    view_manager.register(reference_image)
+                                    with analysis_reference_splitter.before:
+                                        with ui.column().classes(_pane_classes('p-3 overflow-auto')):
+                                            acq_analysis_plot.build()
+                                            view_manager.register(acq_analysis_plot)
+
+                                    with analysis_reference_splitter.after:
+                                        with ui.column().classes(_pane_classes('p-3 overflow-auto')):
+                                            reference_image.build()
+                                            view_manager.register(reference_image)
+
+                                    add_splitter_handle(analysis_reference_splitter, orientation='horizontal')
+                                    analysis_reference_splitter.on(
+                                        'update:model-value',
+                                        lambda _event=None: _capture(SplitterId.ANALYSIS_REFERENCE),
+                                        throttle=0.2,
+                                    )
+
+                            add_splitter_handle(primary_splitter, orientation='horizontal')
+                            primary_splitter.on(
+                                'update:model-value',
+                                lambda _event=None: _capture(SplitterId.PRIMARY_IMAGE),
+                                throttle=0.2,
+                            )
+
+                    add_splitter_handle(file_list_splitter, orientation='horizontal')
+                    file_list_splitter.on(
+                        'update:model-value',
+                        lambda _event=None: _capture(SplitterId.FILE_LIST),
+                        throttle=0.2,
+                    )
+
+            add_splitter_handle(left_splitter, orientation='vertical', offset='after')
+            left_splitter.on(
+                'update:model-value',
+                lambda _event=None: _capture(SplitterId.LEFT_TOOLBAR),
+                throttle=0.2,
+            )
 
         self.controller.bind()
         self.load_save_controller.bind()

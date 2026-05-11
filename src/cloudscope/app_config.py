@@ -22,6 +22,18 @@ DEFAULT_TEXT_SIZE = 'text-base'
 DEFAULT_TABLE_FONT_SIZE_PX = 13
 MIN_TABLE_FONT_SIZE_PX = 8
 MAX_TABLE_FONT_SIZE_PX = 32
+HOME_LEFT_TOOLBAR_CLOSED_SPLITTER_PCT = 4.0
+HOME_LEFT_TOOLBAR_COLLAPSED_SLACK_PCT = 2.0
+DEFAULT_HOME_LEFT_TOOLBAR_OPEN_SPLITTER_PCT = 28.0
+DEFAULT_HOME_FILE_LIST_SPLITTER_PCT = 18.0
+DEFAULT_HOME_PRIMARY_IMAGE_SPLITTER_PCT = 65.0
+DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT = 50.0
+_HOME_SPLITTER_KEYS = {
+    'left_toolbar': 'home_left_toolbar_open_splitter_pct',
+    'file_list': 'home_file_list_splitter_pct',
+    'primary_image': 'home_primary_image_splitter_pct',
+    'analysis_reference': 'home_analysis_reference_splitter_pct',
+}
 
 
 def _normalize_path(path: str | Path) -> str:
@@ -39,6 +51,25 @@ def normalize_stored_path(path: str | Path) -> str:
     return _normalize_path(path)
 
 
+def _clamp_float(value: object, minimum: float, maximum: float, default: float) -> float:
+    """Return a float constrained to a closed interval.
+
+    Args:
+        value: Raw value to convert.
+        minimum: Minimum allowed value.
+        maximum: Maximum allowed value.
+        default: Fallback value when conversion fails.
+
+    Returns:
+        Converted and clamped float.
+    """
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = float(default)
+    return max(float(minimum), min(float(maximum), parsed))
+
+
 @dataclass
 class AppConfigData:
     """JSON-serializable GUI config payload."""
@@ -52,6 +83,10 @@ class AppConfigData:
     folder_depth: int = DEFAULT_FOLDER_DEPTH
     table_font_size_px: int = DEFAULT_TABLE_FONT_SIZE_PX
     dark_mode: bool = False
+    home_left_toolbar_open_splitter_pct: float = DEFAULT_HOME_LEFT_TOOLBAR_OPEN_SPLITTER_PCT
+    home_file_list_splitter_pct: float = DEFAULT_HOME_FILE_LIST_SPLITTER_PCT
+    home_primary_image_splitter_pct: float = DEFAULT_HOME_PRIMARY_IMAGE_SPLITTER_PCT
+    home_analysis_reference_splitter_pct: float = DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT
 
     def to_json_dict(self) -> dict[str, object]:
         """Return payload as JSON-serializable dictionary."""
@@ -115,6 +150,14 @@ class AppConfigData:
         else:
             dark_mode = str(dark_raw).lower() in {'1', 'true', 'yes'}
 
+        def _float_field(name: str, default: float) -> float:
+            raw = payload.get(name, default)
+            try:
+                return float(raw)
+            except (TypeError, ValueError):
+                logger.warning('Invalid app config float field %s=%r; using %s', name, raw, default)
+                return float(default)
+
         return cls(
             schema_version=schema_version,
             recent_files=recent_files,
@@ -125,6 +168,16 @@ class AppConfigData:
             folder_depth=folder_depth,
             table_font_size_px=table_font_size_px,
             dark_mode=dark_mode,
+            home_left_toolbar_open_splitter_pct=_float_field(
+                'home_left_toolbar_open_splitter_pct',
+                DEFAULT_HOME_LEFT_TOOLBAR_OPEN_SPLITTER_PCT,
+            ),
+            home_file_list_splitter_pct=_float_field('home_file_list_splitter_pct', DEFAULT_HOME_FILE_LIST_SPLITTER_PCT),
+            home_primary_image_splitter_pct=_float_field('home_primary_image_splitter_pct', DEFAULT_HOME_PRIMARY_IMAGE_SPLITTER_PCT),
+            home_analysis_reference_splitter_pct=_float_field(
+                'home_analysis_reference_splitter_pct',
+                DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT,
+            ),
         )
 
 
@@ -267,6 +320,31 @@ class AppConfig:
         elif self.data.table_font_size_px > MAX_TABLE_FONT_SIZE_PX:
             self.data.table_font_size_px = MAX_TABLE_FONT_SIZE_PX
 
+        self.data.home_left_toolbar_open_splitter_pct = _clamp_float(
+            self.data.home_left_toolbar_open_splitter_pct,
+            HOME_LEFT_TOOLBAR_CLOSED_SPLITTER_PCT,
+            70.0,
+            DEFAULT_HOME_LEFT_TOOLBAR_OPEN_SPLITTER_PCT,
+        )
+        self.data.home_file_list_splitter_pct = _clamp_float(
+            self.data.home_file_list_splitter_pct,
+            5.0,
+            60.0,
+            DEFAULT_HOME_FILE_LIST_SPLITTER_PCT,
+        )
+        self.data.home_primary_image_splitter_pct = _clamp_float(
+            self.data.home_primary_image_splitter_pct,
+            10.0,
+            90.0,
+            DEFAULT_HOME_PRIMARY_IMAGE_SPLITTER_PCT,
+        )
+        self.data.home_analysis_reference_splitter_pct = _clamp_float(
+            self.data.home_analysis_reference_splitter_pct,
+            10.0,
+            90.0,
+            DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT,
+        )
+
     def get_recent_files(self) -> list[str]:
         """Return recent file paths."""
         return list(self.data.recent_files)
@@ -331,6 +409,52 @@ class AppConfig:
             return (int(rect[0]), int(rect[1]), int(rect[2]), int(rect[3]))
         except Exception:
             return DEFAULT_WINDOW_RECT
+
+
+    def get_home_splitter_value(self, splitter_id: str) -> float:
+        """Return an in-memory Home page splitter value.
+
+        Args:
+            splitter_id: Splitter identifier such as ``'file_list'``.
+
+        Returns:
+            Stored splitter value.
+
+        Raises:
+            KeyError: If ``splitter_id`` is unknown.
+        """
+        attr_name = _HOME_SPLITTER_KEYS[splitter_id]
+        return float(getattr(self.data, attr_name))
+
+    def set_home_splitter_value(self, splitter_id: str, value: float) -> None:
+        """Set an in-memory Home page splitter value.
+
+        This method does not save to disk. AppConfig persistence remains explicit
+        via ``save()``, ``normalize_and_persist()``, or app shutdown.
+
+        Args:
+            splitter_id: Splitter identifier such as ``'file_list'``.
+            value: New splitter value in percent.
+
+        Returns:
+            None.
+
+        Raises:
+            KeyError: If ``splitter_id`` is unknown.
+        """
+        attr_name = _HOME_SPLITTER_KEYS[splitter_id]
+        setattr(self.data, attr_name, float(value))
+
+    def reset_home_splitters(self) -> None:
+        """Reset Home page splitter values to factory defaults.
+
+        Returns:
+            None.
+        """
+        self.data.home_left_toolbar_open_splitter_pct = DEFAULT_HOME_LEFT_TOOLBAR_OPEN_SPLITTER_PCT
+        self.data.home_file_list_splitter_pct = DEFAULT_HOME_FILE_LIST_SPLITTER_PCT
+        self.data.home_primary_image_splitter_pct = DEFAULT_HOME_PRIMARY_IMAGE_SPLITTER_PCT
+        self.data.home_analysis_reference_splitter_pct = DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT
 
     def get_attribute(self, key: str) -> object | None:
         """Get attribute value by key.
