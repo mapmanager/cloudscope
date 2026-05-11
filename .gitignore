@@ -1,5 +1,14 @@
+# cloudscope one off ignore
 *.zip
 docs/
+
+# macOS packaging local artifacts
+packaging/macos/_secrets.sh
+packaging/macos/dist/
+packaging/macos/build/
+packaging/macos/.venv-build/
+packaging/macos/*.zip
+packaging/macos/*.log
 
 # -----------------------------
 # Python

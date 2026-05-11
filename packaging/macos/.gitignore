@@ -1,0 +1,11 @@
+# Local-only signing/notarization credentials.
+_secrets.sh
+
+# Build outputs.
+.venv-build/
+build/
+dist/
+*.spec
+
+# macOS metadata.
+.DS_Store
