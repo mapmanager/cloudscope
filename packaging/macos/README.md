@@ -23,6 +23,14 @@ open packaging/macos/dist/CloudScope.app
 
 This builds a local unsigned app for smoke testing. It does not codesign, notarize, staple, or create a release zip.
 
+During the build, `build_info.sh` writes a transient generated module:
+
+```text
+src/cloudscope/_build_info.py
+```
+
+That module is bundled into the app and then removed from the working tree after packaging. It is intentionally ignored by git.
+
 ## Signing/notarization setup
 
 Create local secrets, but do not commit them:
@@ -54,13 +62,23 @@ packaging/macos/dist/
 
 ## Full release pipeline
 
-The full pipeline creates a release branch/tag, builds, signs, notarizes, staples, zips, pushes, merges back to main, and optionally uploads artifacts with `gh`:
+The full pipeline creates a release branch/tag, checks out the tag, builds from that exact source, signs, notarizes, staples, zips, pushes the tag and release branch, merges back to main, and optionally uploads artifacts with `gh`:
 
 ```bash
 ./packaging/macos/release_pipeline.sh
 ```
 
-Use this only after the local build and manual signing workflow have been tested.
+The pipeline pauses after the app build for a manual smoke test:
+
+```bash
+open packaging/macos/dist/CloudScope.app
+```
+
+Press Enter to continue to codesign/notarize, or Ctrl-C to abort. For automation, set:
+
+```bash
+CLOUDSCOPE_RELEASE_NO_PAUSE=1 ./packaging/macos/release_pipeline.sh
+```
 
 ## Files intentionally not tracked
 
@@ -70,4 +88,5 @@ _secrets.sh
 build/
 dist/
 *.spec
+src/cloudscope/_build_info.py
 ```

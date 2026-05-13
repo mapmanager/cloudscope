@@ -11,6 +11,7 @@ class ViewId(StrEnum):
     LEFT_TOOLBAR = "left_toolbar"
     METADATA = "metadata"
     APP_CONFIG = "app_config"
+    APP_INFO = "app_info"
     VELOCITY_ANALYSIS = "velocity_analysis"
     ACQ_ANALYSIS_PLOT = "acq_analysis_plot"
 

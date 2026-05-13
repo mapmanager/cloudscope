@@ -33,6 +33,7 @@ export BUILD_VENV_DIR="${BUILD_VENV_DIR:-$SCRIPT_DIR/.venv-build}"
 
 # Build-info module. Scripts write/remove this file if src/cloudscope exists.
 export BUILD_INFO_PATH="${BUILD_INFO_PATH:-$REPO_ROOT/src/cloudscope/_build_info.py}"
+export BUILD_INFO_JSON_PATH="${BUILD_INFO_JSON_PATH:-$DIST_DIR/build_info.json}"
 
 # Derived paths.
 export APP_PATH="${APP_PATH:-$DIST_DIR/${APP_NAME}.app}"

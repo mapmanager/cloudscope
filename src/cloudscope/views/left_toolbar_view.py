@@ -11,6 +11,7 @@ from nicegui import ui
 from cloudscope.app_config import AppConfig
 from cloudscope.event_bus import EventBus
 from cloudscope.views.app_config_view import AppConfigView
+from cloudscope.views.app_info_view import AppInfoView
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.metadata_widget.metadata_view import MetadataView
 from cloudscope.views.velocity_analysis_view import VelocityAnalysisView
@@ -37,6 +38,7 @@ _LEFT_TOOLBAR_TABS: tuple[LeftToolbarTab, ...] = (
     LeftToolbarTab(ViewId.METADATA, "Metadata", "description"),
     LeftToolbarTab(ViewId.VELOCITY_ANALYSIS, "Velocity", "timeline"),
     LeftToolbarTab(ViewId.APP_CONFIG, "Config", "settings"),
+    LeftToolbarTab(ViewId.APP_INFO, "App info", "info"),
 )
 
 
@@ -90,6 +92,10 @@ class LeftToolbarView(BaseView):
             event_bus=event_bus,
             initially_visible=False,
         )
+        self.app_info_view = AppInfoView(
+            event_bus=event_bus,
+            initially_visible=False,
+        )
 
     @property
     def active_view_id(self) -> ViewId | None:
@@ -127,6 +133,7 @@ class LeftToolbarView(BaseView):
                     self.metadata_view.build()
                     self.velocity_analysis_view.build()
                     self.app_config_view.build()
+                    self.app_info_view.build()
 
         if parent is None:
             _build()
@@ -154,7 +161,7 @@ class LeftToolbarView(BaseView):
         Returns:
             None.
         """
-        for view in (self.metadata_view, self.velocity_analysis_view, self.app_config_view):
+        for view in (self.metadata_view, self.velocity_analysis_view, self.app_config_view, self.app_info_view):
             if view.view_id not in self._view_manager.view_ids():
                 self._view_manager.register(view)
 

@@ -33,5 +33,6 @@ def test_left_toolbar_constructs_panel_views(tmp_path) -> None:
         ViewId.METADATA,
         ViewId.VELOCITY_ANALYSIS,
         ViewId.APP_CONFIG,
+        ViewId.APP_INFO,
     )
     assert view.active_view_id is None

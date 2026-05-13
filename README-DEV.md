@@ -23,3 +23,7 @@ acqstore
     zip -r cloudscope_tests_20260510_v2.zip tests -i '*.py' '*.md'
 
     zip -r kymflow_packaging.zip /Users/cudmore/Sites/kymflow_outer/kymflow/pyinstaller/macos/build_feb_2026 -i '*.py' '*.md' '*.sh' '*.spec' 
+
+    zip -r cloudscope_src_20260513_v1.zip src/cloudscope -i '*.py' '*.md'
+    
+
