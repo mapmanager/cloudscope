@@ -116,6 +116,19 @@ class ResetHomeLayoutIntent(IntentEvent):
 
 
 @dataclass(frozen=True)
+class SetHomeViewVisibleIntent(IntentEvent):
+    """Request changing visibility for a configurable Home page view.
+
+    Args:
+        view_id: Stable view id string.
+        visible: Desired visibility.
+    """
+
+    view_id: str
+    visible: bool
+
+
+@dataclass(frozen=True)
 class AddRoiIntent(IntentEvent):
     """Request creation of a new ROI for a selection snapshot.
 

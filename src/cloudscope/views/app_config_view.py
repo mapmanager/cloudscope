@@ -13,9 +13,9 @@ from nicegui import ui
 from acqstore.schema import FieldSchema, SchemaDefinition, ValueType
 from cloudscope.app_config import AppConfig, DEFAULT_TABLE_FONT_SIZE_PX
 from cloudscope.event_bus import EventBus
-from cloudscope.events import ResetHomeLayoutIntent
+from cloudscope.events import ResetHomeLayoutIntent, SetHomeViewVisibleIntent
 from cloudscope.views.base_view import BaseView
-from cloudscope.views.view_ids import ViewId
+from cloudscope.views.view_ids import CONFIGURABLE_HOME_VIEWS, ViewId
 from cloudscope.views.metadata_widget.schema_card_widget import SchemaCardWidget
 # from nicewidgets.gui_defaults import setUpGuiDefaults
 
@@ -88,6 +88,7 @@ class AppConfigView(BaseView):
         super().__init__(event_bus=event_bus, app_state=None, initially_visible=initially_visible)
         self._app_config = app_config
         self._card: SchemaCardWidget | None = None
+        self._view_visibility_checkboxes: dict[str, ui.checkbox] = {}
 
     def _values_for_card(self) -> dict[str, object]:
         """Map current ``AppConfigData`` fields used by :data:`APP_CONFIG_UI_SCHEMA`.
@@ -144,6 +145,18 @@ class AppConfigView(BaseView):
         """
         self.event_bus.publish(ResetHomeLayoutIntent())
 
+    def _on_home_view_visible_changed(self, view_id: ViewId, value: bool) -> None:
+        """Emit a request to change Home page view visibility.
+
+        Args:
+            view_id: Configurable Home page view id.
+            value: Desired visibility.
+
+        Returns:
+            None.
+        """
+        self.event_bus.publish(SetHomeViewVisibleIntent(view_id=view_id.value, visible=bool(value)))
+
     def build(self, parent: ui.element | None = None) -> ui.element:
         """Build the settings card.
 
@@ -171,6 +184,11 @@ class AppConfigView(BaseView):
         """
         if self._card is not None:
             self._card.update_values(self._values_for_card())
+        for descriptor in CONFIGURABLE_HOME_VIEWS:
+            checkbox = self._view_visibility_checkboxes.get(descriptor.view_id.value)
+            if checkbox is not None:
+                checkbox.value = self._app_config.is_home_view_visible(descriptor.view_id.value)
+                checkbox.update()
 
     def _build_card(self) -> None:
         """Build the schema card inside the current NiceGUI slot.
@@ -185,5 +203,15 @@ class AppConfigView(BaseView):
             on_apply=lambda p: self._on_apply(p),
         )
         self._card.build()
+        ui.separator()
+        ui.label('Home page views').classes('text-sm font-semibold')
+        self._view_visibility_checkboxes.clear()
+        for descriptor in CONFIGURABLE_HOME_VIEWS:
+            checkbox = ui.checkbox(
+                descriptor.label,
+                value=self._app_config.is_home_view_visible(descriptor.view_id.value),
+                on_change=lambda event, view_id=descriptor.view_id: self._on_home_view_visible_changed(view_id, event.value),
+            )
+            self._view_visibility_checkboxes[descriptor.view_id.value] = checkbox
         ui.separator()
         ui.button('Reset View', on_click=self._on_reset_view_clicked).props('outline color=primary')

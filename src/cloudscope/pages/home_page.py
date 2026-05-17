@@ -20,6 +20,7 @@ from cloudscope.events import (
     LoadPathKind,
     LoadPathIntent,
     ResetHomeLayoutIntent,
+    SetHomeViewVisibleIntent,
 )
 from cloudscope.views.file_list_view import AcqImageListTableView
 from cloudscope.views.footer_view import FooterView
@@ -32,6 +33,7 @@ from cloudscope.views.primary_image_view import PrimaryImageView
 from cloudscope.views.reference_image_view import ReferenceImageView
 from cloudscope.views.task_progress_dialog_view import TaskProgressDialogView
 from cloudscope.views.view_manager import ViewManager
+from cloudscope.views.view_ids import CONFIGURABLE_HOME_VIEW_IDS, ViewId
 from cloudscope.views.splitter_handle import add_splitter_handle
 from cloudscope.views.splitter_manager import HOME_SPLITTER_PRESETS, SplitterId, SplitterManager
 
@@ -93,11 +95,23 @@ class HomePage:
         )
         app_state = self.controller.state
 
+        def _home_view_visible(view_id: ViewId) -> bool:
+            """Return startup visibility for one Home page view.
+
+            Args:
+                view_id: Home page view id.
+
+            Returns:
+                Configured visibility for configurable views; True for all
+                non-configurable views.
+            """
+            return self.app_config.is_home_view_visible(view_id.value)
+
         file_list_panel = AcqImageListTableView(
             event_bus=self.event_bus,
             app_state=app_state,
             table_font_size_px=int(self.app_config.data.table_font_size_px),
-            initially_visible=True,
+            initially_visible=_home_view_visible(ViewId.FILE_LIST),
         )
         load_save_view = LoadSaveView(
             event_bus=self.event_bus,
@@ -117,12 +131,12 @@ class HomePage:
             self.event_bus,
             app_state=app_state,
             title='Velocity analysis plot',
-            initially_visible=True,
+            initially_visible=_home_view_visible(ViewId.ACQ_ANALYSIS_PLOT),
         )
         reference_image = ReferenceImageView(
             self.event_bus,
             title='Reference image',
-            initially_visible=True,
+            initially_visible=_home_view_visible(ViewId.REFERENCE_IMAGE),
         )
         footer = FooterView(
             event_bus=self.event_bus,
@@ -185,7 +199,24 @@ class HomePage:
             splitter_manager.reset_all()
             ui.notify('View layout reset', type='positive')
 
+        def _set_home_view_visible(event: SetHomeViewVisibleIntent) -> None:
+            """Apply a Home page view visibility request.
+
+            Args:
+                event: Visibility-change request from AppConfigView.
+
+            Returns:
+                None.
+            """
+            if event.view_id not in CONFIGURABLE_HOME_VIEW_IDS:
+                logger.warning('Ignoring visibility request for non-configurable view: %s', event.view_id)
+                return
+            view_id = ViewId(event.view_id)
+            self.app_config.set_home_view_visible(event.view_id, event.visible)
+            view_manager.set_visible(view_id, event.visible)
+
         self.event_bus.subscribe(ResetHomeLayoutIntent, _reset_home_layout)
+        self.event_bus.subscribe(SetHomeViewVisibleIntent, _set_home_view_visible)
 
         ui.page_title('CloudScope')
         build_main_header(title='CloudScope', app_config=self.app_config)

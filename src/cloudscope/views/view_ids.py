@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import StrEnum
 
 
@@ -23,3 +24,27 @@ class ViewId(StrEnum):
     REFERENCE_IMAGE = "reference_image"
     FOOTER = "footer"
     TASK_PROGRESS_DIALOG = "task_progress_dialog"
+
+
+@dataclass(frozen=True, slots=True)
+class ViewDescriptor:
+    """Metadata describing a CloudScope view.
+
+    Args:
+        view_id: Stable view identifier.
+        label: Human-readable view label for menus and settings.
+    """
+
+    view_id: ViewId
+    label: str
+
+
+CONFIGURABLE_HOME_VIEWS: tuple[ViewDescriptor, ...] = (
+    ViewDescriptor(ViewId.FILE_LIST, 'File list'),
+    ViewDescriptor(ViewId.ACQ_ANALYSIS_PLOT, 'Analysis plot'),
+    ViewDescriptor(ViewId.REFERENCE_IMAGE, 'Reference image'),
+)
+
+CONFIGURABLE_HOME_VIEW_IDS: frozenset[str] = frozenset(
+    descriptor.view_id.value for descriptor in CONFIGURABLE_HOME_VIEWS
+)
