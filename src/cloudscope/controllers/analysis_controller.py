@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from acqstore.acq_image.analysis.model import AnalysisKey, AnalysisRunContext
+from acqstore.acq_image.analysis.diameter_analysis.diameter_analysis import DiameterAnalysis
 from acqstore.acq_image.analysis.velocity_analysis.radon_velocity_analysis import (
     RadonVelocityAnalysis,
 )
@@ -118,7 +119,7 @@ class AnalysisController:
             raise ValueError("No ROI selected")
         if self.home_controller.state.acq_image_list is None:
             raise RuntimeError("No AcqImageList loaded")
-        if event.analysis_kind is not AnalysisKind.RADON_VELOCITY:
+        if event.analysis_kind not in (AnalysisKind.RADON_VELOCITY, AnalysisKind.DIAMETER):
             raise NotImplementedError(f"Unsupported analysis kind: {event.analysis_kind}")
 
     def _run_analysis_worker(self, event: RunAnalysisIntent, context: TaskContext) -> None:
@@ -156,6 +157,8 @@ class AnalysisController:
         )
         if isinstance(analysis, RadonVelocityAnalysis):
             analysis.set_execution_options(use_multiprocessing=True)
+        elif isinstance(analysis, DiameterAnalysis):
+            analysis.set_execution_options(use_threads=True)
 
         run_context = AnalysisRunContext(
             progress_callback=context.report_progress,

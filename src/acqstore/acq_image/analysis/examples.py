@@ -18,10 +18,10 @@ from acqstore.acq_image.analysis.registry import register_analysis_class
 
 
 @register_analysis_class
-class DiameterAnalysis(BaseAnalysis):
-    """Example diameter analysis with table output."""
+class ExampleDiameterAnalysis(BaseAnalysis):
+    """Minimal example analysis used by schema tests (not production diameter)."""
 
-    analysis_name = "diameter"
+    analysis_name = "example_diameter"
     detection_schema = (
         DetectionParamSchema(
             name="threshold",
@@ -45,7 +45,7 @@ class DiameterAnalysis(BaseAnalysis):
         context: AnalysisRunContext | None = None,
         dependencies: dict[str, BaseAnalysis] | None = None,
     ) -> AnalysisResult:
-        """Run example diameter analysis.
+        """Run example stub analysis.
 
         Args:
             data_provider: Analysis data provider.

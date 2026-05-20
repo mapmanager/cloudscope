@@ -2,7 +2,8 @@
 
 import pytest
 
-from acqstore.acq_image.analysis.examples import DiameterAnalysis
+from acqstore.acq_image.analysis.diameter_analysis.diameter_analysis import DiameterAnalysis
+from acqstore.acq_image.analysis.examples import ExampleDiameterAnalysis
 from acqstore.acq_image.analysis.velocity_analysis.radon_velocity_analysis import RadonVelocityAnalysis
 from acqstore.acq_image.analysis.model import DetectionParamSchema, DetectionValueType
 
@@ -35,6 +36,13 @@ def test_defaults_velocity() -> None:
 def test_defaults_diameter() -> None:
     """DiameterAnalysis should set defaults when params missing."""
     analysis = DiameterAnalysis(channel=0, roi_id=1)
+    assert analysis.detection_params["diameter_method"] == "threshold_width"
+    assert analysis.detection_params["post_filter_kernel_size"] == 3
+
+
+def test_defaults_example_diameter() -> None:
+    """ExampleDiameterAnalysis should keep legacy example defaults."""
+    analysis = ExampleDiameterAnalysis(channel=0, roi_id=1)
     assert analysis.detection_params == {"threshold": 0.5, "min_diameter_px": 2.0}
 
 
@@ -70,9 +78,9 @@ def test_bool_vs_int_is_rejected() -> None:
 
 def test_float_rules_accept_int_and_reject_bool() -> None:
     """Float params accept int/float but reject bool."""
-    ok = DiameterAnalysis(channel=0, roi_id=1, detection_params={"threshold": 1})
+    ok = ExampleDiameterAnalysis(channel=0, roi_id=1, detection_params={"threshold": 1})
     assert ok.detection_params["threshold"] == 1
 
     with pytest.raises(TypeError):
-        DiameterAnalysis(channel=0, roi_id=1, detection_params={"threshold": True})
+        ExampleDiameterAnalysis(channel=0, roi_id=1, detection_params={"threshold": True})
 

@@ -48,6 +48,9 @@ class DetectionParamSchema:
         editable: Whether parameter should be editable in UI.
         choices: Allowed choices for enum-like parameters.
         unit: Optional unit string (for example, ``"px"``).
+        methods: Optional tuple of detection-method names that use this
+            parameter. ``None`` means the parameter applies to all methods and
+            is always visible in method-aware UIs.
     """
 
     name: str
@@ -59,6 +62,46 @@ class DetectionParamSchema:
     editable: bool = True
     choices: tuple[object, ...] | None = None
     unit: str | None = None
+    methods: tuple[str, ...] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisOverlayTraceData:
+    """ROI-local physical coordinates for one raster trace overlay.
+
+    Coordinates are relative to the analyzed ROI crop:
+      - ``x`` is time in seconds from the ROI's first row.
+      - ``y`` is space in microns from the ROI's first column.
+
+    GUI adapters translate these values to full-image Plotly coordinates using
+    the selected ROI bounds and raster grid spacing.
+
+    Args:
+        trace_id: Stable overlay identifier.
+        x: Time axis values in seconds (ROI-local).
+        y: Space axis values in microns (ROI-local).
+        color: Optional rendering hint.
+        name: Optional human-readable series name.
+        visible: Whether the trace should be visible.
+    """
+
+    trace_id: str
+    x: tuple[float, ...]
+    y: tuple[float, ...]
+    color: str | None = None
+    name: str | None = None
+    visible: bool = True
+
+    def __post_init__(self) -> None:
+        """Validate overlay trace lengths.
+
+        Raises:
+            ValueError: If x and y lengths differ.
+        """
+        if len(self.x) != len(self.y):
+            raise ValueError(
+                f"overlay x and y must have same length, got {len(self.x)} and {len(self.y)}"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -365,6 +408,18 @@ class BaseAnalysis(ABC):
             Plot data, or None when the analysis has no canonical plot.
         """
         return None
+
+    def get_overlay_traces(self) -> tuple[AnalysisOverlayTraceData, ...]:
+        """Return ROI-local trace overlays for raster viewers.
+
+        Derived analyses override this when they expose edge or path overlays.
+        Coordinates are ROI-local physical units; GUI layers translate to
+        full-image Plotly coordinates.
+
+        Returns:
+            Tuple of overlay trace data. Empty when no overlays exist.
+        """
+        return ()
 
     def has_table(self) -> bool:
         """Return whether this analysis has table output.

@@ -14,6 +14,7 @@ class ViewId(StrEnum):
     APP_CONFIG = "app_config"
     APP_INFO = "app_info"
     VELOCITY_ANALYSIS = "velocity_analysis"
+    DIAMETER_ANALYSIS = "diameter_analysis"
     ACQ_ANALYSIS_PLOT = "acq_analysis_plot"
 
     # main page

@@ -19,16 +19,18 @@ import numpy as np
 from nicegui import run, ui
 
 from acqstore.acq_image.acq_image import AcqImage
+from acqstore.acq_image.analysis.model import AnalysisKey, AnalysisOverlayTraceData
 from acqstore.acq_image.roi import RectROI
 from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader
 from cloudscope.event_bus import EventBus
-from cloudscope.events import RoiChanged
+from cloudscope.events import AnalysisCompleted, AnalysisKind, RoiChanged
 from cloudscope.utils.logging import get_logger
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
 from nicewidgets.raster_viewer.backend.image_model import RasterGridSpec
 from nicewidgets.raster_viewer.frontend.plotly_viewer import PlotlyRasterViewer
 from nicewidgets.raster_viewer.frontend.roi_overlay import RectRoiOverlay
+from nicewidgets.raster_viewer.frontend.trace_overlay import PlotlyTraceOverlay
 
 logger = get_logger(__name__)
 
@@ -189,6 +191,7 @@ class PrimaryImageView(BaseView):
             None.
         """
         self.add_subscription(self.event_bus.subscribe(RoiChanged, self._on_roi_changed))
+        self.add_subscription(self.event_bus.subscribe(AnalysisCompleted, self._on_analysis_completed))
 
     def on_primary_selection_changed(self) -> None:
         """Refresh raster after BaseView updates the primary selection.
@@ -273,6 +276,7 @@ class PrimaryImageView(BaseView):
             self._current_grid = grid
             await self._viewer.set_data(plane, grid=grid)
             self._refresh_roi_overlays(acq_image=acq_image, grid=grid)
+            self._refresh_diameter_trace_overlays(acq_image=acq_image, grid=grid)
         except RuntimeError as exc:
             logger.exception('set_data failed: %s', exc)
             err_msg = str(exc)
@@ -291,6 +295,26 @@ class PrimaryImageView(BaseView):
         event_file_id = event.selection.file_id
         if current_file_id is not None and event_file_id == current_file_id:
             self._refresh_roi_overlays_from_current_selection()
+            self._refresh_diameter_trace_overlays_from_current_selection()
+
+    def _on_analysis_completed(self, event: AnalysisCompleted) -> None:
+        """Refresh diameter trace overlays when analysis completes.
+
+        Args:
+            event: Analysis completion event.
+
+        Returns:
+            None.
+        """
+        if event.analysis_kind is not AnalysisKind.DIAMETER:
+            return
+        if event.selection.file_id != self.current_selection.file_id:
+            return
+        if event.selection.channel != self.current_selection.channel:
+            return
+        if event.selection.roi_id != self.current_selection.roi_id:
+            return
+        self._refresh_diameter_trace_overlays_from_current_selection()
 
     def _refresh_roi_overlays_from_current_selection(self) -> None:
         """Schedule ROI overlay refresh from the current selection.
@@ -323,6 +347,94 @@ class PrimaryImageView(BaseView):
         overlays = _rect_roi_overlays_from_acq_image(acq_image, grid=grid)
         self._viewer.set_rois(overlays)
         self._viewer.select_roi(self.current_selection.roi_id)
+
+    def _refresh_diameter_trace_overlays_from_current_selection(self) -> None:
+        """Refresh diameter edge trace overlays from the current selection.
+
+        Returns:
+            None.
+        """
+        acq_image = self.get_selected_acq_image()
+        grid = self._current_grid
+        self._refresh_diameter_trace_overlays(acq_image=acq_image, grid=grid)
+
+    def _refresh_diameter_trace_overlays(
+        self,
+        *,
+        acq_image: AcqImage | None,
+        grid: RasterGridSpec | None,
+    ) -> None:
+        """Push diameter edge trace overlays into the Plotly viewer.
+
+        Args:
+            acq_image: Current acquisition image, or None.
+            grid: Current raster viewer grid, or None.
+
+        Returns:
+            None.
+        """
+        if acq_image is None or grid is None:
+            self._viewer.clear_trace_overlays()
+            return
+
+        selection = self.current_selection
+        if selection.channel is None or selection.roi_id is None:
+            self._viewer.clear_trace_overlays()
+            return
+
+        key = AnalysisKey(
+            analysis_name=AnalysisKind.DIAMETER.value,
+            channel=int(selection.channel),
+            roi_id=int(selection.roi_id),
+        )
+        analysis = acq_image.analysis_set.get(key)
+        if analysis is None:
+            self._viewer.clear_trace_overlays()
+            return
+
+        roi = acq_image.rois.get(int(selection.roi_id))
+        if not isinstance(roi, RectROI):
+            self._viewer.clear_trace_overlays()
+            return
+
+        traces = analysis.get_overlay_traces()
+        overlays = roi_local_traces_to_plotly_overlays(traces, roi=roi, grid=grid)
+        self._viewer.set_trace_overlays(overlays)
+
+
+def roi_local_traces_to_plotly_overlays(
+    traces: tuple[AnalysisOverlayTraceData, ...],
+    *,
+    roi: RectROI,
+    grid: RasterGridSpec,
+) -> list[PlotlyTraceOverlay]:
+    """Translate ROI-local analysis traces to full-image Plotly coordinates.
+
+    Args:
+        traces: ROI-local overlay traces from ``BaseAnalysis.get_overlay_traces``.
+        roi: Rectangular ROI that was analyzed.
+        grid: Raster grid with physical spacing for dim0 (time) and dim1 (space).
+
+    Returns:
+        Plotly trace overlays in full-image physical coordinates.
+    """
+    x_offset = float(roi.bounds.dim0_start) * grid.dx
+    y_offset = float(roi.bounds.dim1_start) * grid.dy
+    overlays: list[PlotlyTraceOverlay] = []
+    for trace in traces:
+        if not trace.visible or not trace.x:
+            continue
+        overlays.append(
+            PlotlyTraceOverlay(
+                trace_id=trace.trace_id,
+                x=tuple(x_offset + float(value) for value in trace.x),
+                y=tuple(y_offset + float(value) for value in trace.y),
+                color=trace.color,
+                name=trace.name,
+                visible=trace.visible,
+            )
+        )
+    return overlays
 
 
 def _rect_roi_overlay_from_rect_roi(roi: RectROI, *, grid: RasterGridSpec) -> RectRoiOverlay:
