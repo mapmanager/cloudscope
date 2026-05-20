@@ -130,7 +130,7 @@ class HomePage:
         acq_analysis_plot = AcqAnalysisPlotView(
             self.event_bus,
             app_state=app_state,
-            title='Velocity analysis plot',
+            title='Analysis plot',
             initially_visible=_home_view_visible(ViewId.ACQ_ANALYSIS_PLOT),
         )
         reference_image = ReferenceImageView(

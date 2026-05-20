@@ -61,6 +61,59 @@ def test_analysis_controller_rejects_missing_selection() -> None:
     assert statuses
 
 
+def test_analysis_controller_rejects_exclusive_conflict() -> None:
+    """Controller should refuse Diameter while Radon exists for same ROI."""
+    import numpy as np
+
+    from acqstore.acq_image.acq_analysis_set import AcqAnalysisSet
+
+    class FakeProvider:
+        def get_roi_image(self, channel: int, roi_id: int) -> np.ndarray:
+            _ = channel, roi_id
+            image = np.zeros((48, 64), dtype=np.float32)
+            image[:, 20:40] = 180.0
+            return image
+
+        def get_image_physical_units(self) -> tuple[float, float]:
+            return (0.001, 0.25)
+
+    class FakeAcqImage:
+        def __init__(self) -> None:
+            self.analysis_set = AcqAnalysisSet("fake.tif", data_provider=FakeProvider())
+
+    class FakeAcqImageList:
+        def __init__(self, acq_image: FakeAcqImage) -> None:
+            self._image = acq_image
+
+        def get_file_by_id(self, file_id: str) -> FakeAcqImage:
+            _ = file_id
+            return self._image
+
+    acq_image = FakeAcqImage()
+    acq_image.analysis_set.create("radon_velocity", channel=0, roi_id=1)
+
+    bus = EventBus()
+    statuses: list[AppStatusChanged] = []
+    bus.subscribe(AppStatusChanged, lambda event: statuses.append(event))
+    task_runner = FakeTaskRunner()
+    home_controller = FakeHomeController()
+    home_controller.state.acq_image_list = FakeAcqImageList(acq_image)
+    controller = AnalysisController(bus, home_controller, task_runner)  # type: ignore[arg-type]
+    controller.bind()
+
+    bus.publish(
+        RunAnalysisIntent(
+            analysis_kind=AnalysisKind.DIAMETER,
+            selection=PrimarySelection(file_id="file", channel=0, roi_id=1),
+            detection_params={},
+        )
+    )
+
+    assert not task_runner.started
+    assert statuses
+    assert "primary_kymograph" in statuses[0].message or "already" in statuses[0].message.lower()
+
+
 def test_analysis_controller_cancel_intent_reaches_task_runner() -> None:
     """Controller should route analysis cancellation to TaskRunner."""
     from cloudscope.events import CancelTaskIntent

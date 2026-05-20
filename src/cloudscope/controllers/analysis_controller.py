@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from acqstore.acq_image.analysis.model import AnalysisKey, AnalysisRunContext
+from acqstore.acq_image.analysis.model import (
+    AnalysisExclusionError,
+    AnalysisKey,
+    AnalysisRunContext,
+)
 from acqstore.acq_image.analysis.diameter_analysis.diameter_analysis import DiameterAnalysis
 from acqstore.acq_image.analysis.velocity_analysis.radon_velocity_analysis import (
     RadonVelocityAnalysis,
@@ -121,6 +125,41 @@ class AnalysisController:
             raise RuntimeError("No AcqImageList loaded")
         if event.analysis_kind not in (AnalysisKind.RADON_VELOCITY, AnalysisKind.DIAMETER):
             raise NotImplementedError(f"Unsupported analysis kind: {event.analysis_kind}")
+        self._raise_if_exclusive_conflict(event)
+
+    def _raise_if_exclusive_conflict(self, event: RunAnalysisIntent) -> None:
+        """Reject the intent when an exclusive-group conflict would occur.
+
+        Args:
+            event: Run-analysis intent.
+
+        Raises:
+            AnalysisExclusionError: If a conflicting primary-kymograph analysis
+                already exists for the same (channel, roi_id).
+        """
+        selection = event.selection
+        if selection.file_id is None or selection.channel is None or selection.roi_id is None:
+            return
+        acq_image_list = self.home_controller.state.acq_image_list
+        if acq_image_list is None:
+            return
+        acq_image = acq_image_list.get_file_by_id(selection.file_id)
+        if acq_image is None:
+            return
+        analysis_name = event.analysis_kind.value
+        existing = acq_image.analysis_set.get_primary_kymograph_analysis(
+            channel=int(selection.channel),
+            roi_id=int(selection.roi_id),
+        )
+        if existing is None:
+            return
+        if existing.key.analysis_name == analysis_name:
+            return
+        raise AnalysisExclusionError(
+            f"Cannot run {analysis_name!r}: {existing.key.analysis_name!r} already "
+            f"exists for channel={selection.channel}, roi_id={selection.roi_id}. "
+            "Remove the existing analysis first."
+        )
 
     def _run_analysis_worker(self, event: RunAnalysisIntent, context: TaskContext) -> None:
         """Run one analysis in a background worker thread.

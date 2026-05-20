@@ -27,6 +27,7 @@ class DiameterAnalysis(BaseAnalysis):
     """Diameter analysis for one channel/ROI on a line-scan kymograph."""
 
     analysis_name = "diameter"
+    exclusive_group = "primary_kymograph"
     detection_schema = (
         DetectionParamSchema(
             name="window_rows_odd",

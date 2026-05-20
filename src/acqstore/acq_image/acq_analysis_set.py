@@ -9,6 +9,7 @@ import pandas as pd
 
 from acqstore.acq_image.analysis.data_provider import AnalysisDataProvider
 from acqstore.acq_image.analysis.model import (
+    AnalysisExclusionError,
     AnalysisKey,
     AnalysisResult,
     AnalysisRunContext,
@@ -70,11 +71,92 @@ class AcqAnalysisSet:
 
         Raises:
             ValueError: If an analysis already exists with the same key.
+            AnalysisExclusionError: If another analysis in the same
+                ``exclusive_group`` already exists for the same
+                ``(channel, roi_id)``.
         """
         if analysis.key in self._analyses:
             raise ValueError(f"Analysis already exists: {analysis.key}")
+        self._raise_if_exclusive_conflict(analysis)
         self._analyses[analysis.key] = analysis
         self.set_dirty()
+
+    def _raise_if_exclusive_conflict(self, analysis: BaseAnalysis) -> None:
+        """Raise if another analysis in the same exclusive group is present.
+
+        Args:
+            analysis: Candidate analysis being added.
+
+        Raises:
+            AnalysisExclusionError: If another analysis with the same non-None
+                ``exclusive_group`` already exists for the same
+                ``(channel, roi_id)``.
+        """
+        group = analysis.exclusive_group
+        if group is None:
+            return
+        channel = analysis.key.channel
+        roi_id = analysis.key.roi_id
+        analysis_name = analysis.key.analysis_name
+        for existing in self._analyses.values():
+            if existing.exclusive_group != group:
+                continue
+            if existing.key.channel != channel or existing.key.roi_id != roi_id:
+                continue
+            if existing.key.analysis_name == analysis_name:
+                continue
+            raise AnalysisExclusionError(
+                f"Cannot add {analysis_name!r}: {existing.key.analysis_name!r} already "
+                f"exists for channel={channel}, roi_id={roi_id} "
+                f"(exclusive group {group!r})"
+            )
+
+    def get_primary_kymograph_analysis(
+        self,
+        *,
+        channel: int,
+        roi_id: int,
+    ) -> BaseAnalysis | None:
+        """Return the active ``primary_kymograph`` analysis for one selection.
+
+        Args:
+            channel: Channel index.
+            roi_id: ROI identifier.
+
+        Returns:
+            The single analysis with ``exclusive_group == "primary_kymograph"``
+            for the given ``(channel, roi_id)``, or None.
+        """
+        return self.get_exclusive_group_analysis(
+            group="primary_kymograph",
+            channel=channel,
+            roi_id=roi_id,
+        )
+
+    def get_exclusive_group_analysis(
+        self,
+        *,
+        group: str,
+        channel: int,
+        roi_id: int,
+    ) -> BaseAnalysis | None:
+        """Return the single analysis in an exclusive group for one selection.
+
+        Args:
+            group: Exclusive group name.
+            channel: Channel index.
+            roi_id: ROI identifier.
+
+        Returns:
+            Matching analysis, or None when no analysis is present.
+        """
+        for analysis in self._analyses.values():
+            if analysis.exclusive_group != group:
+                continue
+            if analysis.key.channel != channel or analysis.key.roi_id != roi_id:
+                continue
+            return analysis
+        return None
 
     def create(
         self,
@@ -279,9 +361,7 @@ class AcqAnalysisSet:
             cls = get_analysis_class(analysis_name)
             analysis = cls(channel=channel, roi_id=roi_id)
             analysis.load_json_dict(record)
-            if analysis.key in self._analyses:
-                raise ValueError(f"Duplicate analysis record: {analysis.key}")
-            self._analyses[analysis.key] = analysis
+            self.add(analysis)
 
         self.set_clean()
 

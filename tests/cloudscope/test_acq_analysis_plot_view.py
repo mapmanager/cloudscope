@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from acqstore.acq_image.analysis.model import AnalysisKey, AnalysisPlotData
+from acqstore.acq_image.analysis.model import AnalysisKey, AnalysisPlotData  # noqa: F401
 from cloudscope.event_bus import EventBus
 from cloudscope.events import AnalysisCompleted, AnalysisKind, RoiChanged, RoiChangeKind
 from cloudscope.state import PrimarySelection
@@ -32,34 +32,47 @@ class FakeAnalysis:
 
 
 class FakeAnalysisSet:
-    """Small analysis set keyed by AnalysisKey."""
+    """Small analysis set with primary-kymograph lookup."""
 
     def __init__(self) -> None:
         """Create empty fake analysis set."""
-        self._analyses = {}
+        self._primary: dict[tuple[int, int], FakeAnalysis] = {}
 
-    def add(self, key: AnalysisKey, analysis: FakeAnalysis) -> None:
-        """Add one fake analysis.
+    def set_primary_kymograph(
+        self,
+        *,
+        channel: int,
+        roi_id: int,
+        analysis: FakeAnalysis,
+    ) -> None:
+        """Register the active primary-kymograph analysis.
 
         Args:
-            key: Analysis key.
-            analysis: Fake analysis.
+            channel: Channel index.
+            roi_id: ROI identifier.
+            analysis: Fake analysis instance.
 
         Returns:
             None.
         """
-        self._analyses[key] = analysis
+        self._primary[(channel, roi_id)] = analysis
 
-    def get(self, key: AnalysisKey) -> FakeAnalysis | None:
-        """Return fake analysis by key.
+    def get_primary_kymograph_analysis(
+        self,
+        *,
+        channel: int,
+        roi_id: int,
+    ) -> FakeAnalysis | None:
+        """Return the primary-kymograph analysis for one selection.
 
         Args:
-            key: Analysis key.
+            channel: Channel index.
+            roi_id: ROI identifier.
 
         Returns:
-            Fake analysis or None.
+            Matching analysis or None.
         """
-        return self._analyses.get(key)
+        return self._primary.get((channel, roi_id))
 
 
 class FakeAcqImage:
@@ -79,11 +92,10 @@ def test_acq_analysis_plot_view_is_base_view() -> None:
     assert view.disable_when_busy is False
 
 
-def test_acq_analysis_plot_view_gets_selected_radon_velocity_plot_data() -> None:
-    """View should retrieve plot data for current file/channel/ROI selection."""
+def test_acq_analysis_plot_view_gets_primary_kymograph_plot_data() -> None:
+    """View should retrieve plot data for active primary-kymograph analysis."""
     view = AcqAnalysisPlotView(event_bus=EventBus())
     acq_image = FakeAcqImage()
-    key = AnalysisKey("radon_velocity", 0, 2)
     expected = AnalysisPlotData(
         x=(0.0, 1.0),
         y=(2.0, 3.0),
@@ -91,7 +103,9 @@ def test_acq_analysis_plot_view_gets_selected_radon_velocity_plot_data() -> None
         y_label="Velocity",
         series_name="Radon velocity",
     )
-    acq_image.analysis_set.add(key, FakeAnalysis(expected))
+    acq_image.analysis_set.set_primary_kymograph(
+        channel=0, roi_id=2, analysis=FakeAnalysis(expected)
+    )
     view.current_acq_image = acq_image
     view.current_selection = PrimarySelection(file_id="file", channel=0, roi_id=2)
 
@@ -108,7 +122,7 @@ def test_acq_analysis_plot_view_returns_none_without_complete_selection() -> Non
 
 
 def test_acq_analysis_plot_view_refreshes_on_matching_analysis_completed() -> None:
-    """Matching AnalysisCompleted should refresh the plot."""
+    """Matching AnalysisCompleted should refresh regardless of analysis kind."""
     view = AcqAnalysisPlotView(event_bus=EventBus())
     view.current_selection = PrimarySelection(file_id="file", channel=0, roi_id=1)
     calls = []
@@ -123,13 +137,20 @@ def test_acq_analysis_plot_view_refreshes_on_matching_analysis_completed() -> No
     )
     view._on_analysis_completed(
         AnalysisCompleted(
+            analysis_kind=AnalysisKind.DIAMETER,
+            selection=PrimarySelection(file_id="file", channel=0, roi_id=1),
+            success=True,
+        )
+    )
+    view._on_analysis_completed(
+        AnalysisCompleted(
             analysis_kind=AnalysisKind.RADON_VELOCITY,
             selection=PrimarySelection(file_id="other", channel=0, roi_id=1),
             success=True,
         )
     )
 
-    assert calls == ["refresh"]
+    assert calls == ["refresh", "refresh"]
 
 
 def test_acq_analysis_plot_view_refreshes_on_roi_changed_for_current_file() -> None:

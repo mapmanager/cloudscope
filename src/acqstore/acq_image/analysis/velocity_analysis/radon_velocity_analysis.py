@@ -70,6 +70,7 @@ class RadonVelocityAnalysis(BaseAnalysis):
         self._processes = None if processes is None else int(processes)
 
     analysis_name = "radon_velocity"
+    exclusive_group = "primary_kymograph"
     detection_schema = (
         DetectionParamSchema(
             name="window_width",

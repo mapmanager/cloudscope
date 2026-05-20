@@ -79,12 +79,13 @@ class DiameterAnalysisView(BaseView):
         Returns:
             Root element for this view.
         """
+        card_classes = "w-full h-full min-h-0 flex flex-col"
         if parent is None:
-            with ui.card().classes("w-full") as self.root:
+            with ui.card().classes(card_classes) as self.root:
                 self._build_content()
         else:
             with parent:
-                with ui.card().classes("w-full") as self.root:
+                with ui.card().classes(card_classes) as self.root:
                     self._build_content()
         self.after_build()
         return self.root
@@ -148,13 +149,17 @@ class DiameterAnalysisView(BaseView):
         Returns:
             None.
         """
-        ui.label("Diameter analysis").classes("text-lg font-semibold")
-        self._selection_label = ui.label("No file selected").classes("text-sm opacity-70")
-        self._params_container = ui.column().classes("w-full gap-2")
+        ui.label("Diameter analysis").classes("text-lg font-semibold shrink-0")
+        self._selection_label = ui.label("No file selected").classes("text-sm opacity-70 shrink-0")
+        self._params_container = ui.column().classes(
+            "w-full gap-2 min-h-0 flex-1 overflow-y-auto pr-1"
+        )
         self._build_param_controls()
-        self._results_container = ui.column().classes("w-full gap-2")
+        self._results_container = ui.column().classes("w-full gap-2 shrink-0")
         self._build_results_controls()
-        self._run_button = ui.button("Run Diameter Analysis", on_click=self._on_run_clicked).classes("w-full")
+        self._run_button = ui.button("Run Diameter Analysis", on_click=self._on_run_clicked).classes(
+            "w-full shrink-0"
+        )
         self._refresh_run_button()
 
     def _selected_diameter_method(self) -> str:
@@ -226,9 +231,8 @@ class DiameterAnalysisView(BaseView):
                     control = ui.input(label=label, value=str(defaults.get(field.name, ""))).classes("w-full")
                 if not field.editable:
                     control.props("readonly")
-                description = field.description
-                if description:
-                    ui.label(str(description)).classes("text-xs opacity-70")
+                if field.description:
+                    control.tooltip(str(field.description))
                 self._param_controls[field.name] = control
             self._refresh_param_visibility()
 

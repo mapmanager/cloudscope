@@ -24,6 +24,14 @@ class AnalysisCancelled(RuntimeError):
     """Raised when an analysis run is cancelled."""
 
 
+class AnalysisExclusionError(ValueError):
+    """Raised when adding an analysis would violate an exclusive-group rule.
+
+    Two analyses with the same non-empty ``exclusive_group`` may not coexist
+    for the same ``(channel, roi_id)`` inside one ``AcqAnalysisSet``.
+    """
+
+
 class DetectionValueType(StrEnum):
     """Supported value types for detection parameters."""
 
@@ -244,6 +252,7 @@ class BaseAnalysis(ABC):
     analysis_name: ClassVar[str]
     depends_on: ClassVar[tuple[str, ...]] = ()
     detection_schema: ClassVar[tuple[Any, ...]] = ()
+    exclusive_group: ClassVar[str | None] = None
 
     def __init__(
         self,

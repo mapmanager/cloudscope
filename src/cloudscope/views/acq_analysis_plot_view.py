@@ -6,28 +6,29 @@ from typing import Any
 
 from nicegui import ui
 
-from acqstore.acq_image.analysis.model import AnalysisKey, AnalysisPlotData
+from acqstore.acq_image.analysis.model import AnalysisPlotData
 from cloudscope.event_bus import EventBus
-from cloudscope.events import AnalysisCompleted, AnalysisKind, RoiChanged
+from cloudscope.events import AnalysisCompleted, RoiChanged
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
 from nicewidgets.echart_widget.widget import EChartWidget
+
+PRIMARY_KYMOGRAPH_GROUP = "primary_kymograph"
 
 from cloudscope.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
 class AcqAnalysisPlotView(BaseView):
-    """Display the canonical x/y plot for the selected analysis.
+    """Display the canonical x/y plot for the active primary kymograph analysis.
 
     The view is intentionally thin. It does not know analysis-specific table
-    columns; it asks the selected analysis object for ``AnalysisPlotData``.
+    columns; it asks the active ``primary_kymograph`` analysis (radon velocity
+    or diameter, enforced exclusive by ``AcqAnalysisSet``) for ``AnalysisPlotData``.
 
     Args:
         event_bus: Page-scoped event bus.
         app_state: Optional page/controller state object.
-        analysis_kind: Analysis kind to plot. The first implementation plots
-            Radon velocity only.
         title: Card title.
         initially_visible: Whether this view starts visible.
     """
@@ -40,12 +41,10 @@ class AcqAnalysisPlotView(BaseView):
         event_bus: EventBus,
         app_state: Any | None = None,
         *,
-        analysis_kind: AnalysisKind = AnalysisKind.RADON_VELOCITY,
         title: str = "Analysis plot",
         initially_visible: bool = True,
     ) -> None:
         super().__init__(event_bus=event_bus, app_state=app_state, initially_visible=initially_visible)
-        self.analysis_kind = analysis_kind
         self.title = title
         self._status_label: ui.label | None = None
         self._chart: EChartWidget | None = None
@@ -130,7 +129,7 @@ class AcqAnalysisPlotView(BaseView):
         self._chart.container.classes("w-full h-full min-h-0 flex-1")
 
     def _on_analysis_completed(self, event: AnalysisCompleted) -> None:
-        """Refresh the plot when the configured analysis finishes.
+        """Refresh the plot when any primary-kymograph analysis finishes.
 
         Args:
             event: Analysis completion event.
@@ -138,8 +137,6 @@ class AcqAnalysisPlotView(BaseView):
         Returns:
             None.
         """
-        if event.analysis_kind is not self.analysis_kind:
-            return
         if event.selection.file_id != self.current_selection.file_id:
             return
         if event.selection.channel != self.current_selection.channel:
@@ -186,7 +183,7 @@ class AcqAnalysisPlotView(BaseView):
         self._status_label.text = f"{plot_data.series_name}: {len(plot_data.x)} points"
 
     def _get_selected_plot_data(self) -> AnalysisPlotData | None:
-        """Return plot data for the current selected analysis.
+        """Return plot data for the active primary-kymograph analysis.
 
         Returns:
             Plot data, or None when selection/analysis is unavailable.
@@ -196,18 +193,13 @@ class AcqAnalysisPlotView(BaseView):
             return None
         if self.current_selection.channel is None or self.current_selection.roi_id is None:
             return None
-        key = AnalysisKey(
-            self.analysis_kind.value,
-            self.current_selection.channel,
-            self.current_selection.roi_id,
+        analysis = acq_image.analysis_set.get_primary_kymograph_analysis(
+            channel=int(self.current_selection.channel),
+            roi_id=int(self.current_selection.roi_id),
         )
-        analysis = acq_image.analysis_set.get(key)
         if analysis is None:
             return None
-
-        _plot_data = analysis.get_plot_data()
-        logger.info(f'_plot_data for analysis key:{key} is {_plot_data}')
-        return _plot_data
+        return analysis.get_plot_data()
 
     def _empty_message(self) -> str:
         """Return status text for the current empty plot state.
@@ -221,4 +213,4 @@ class AcqAnalysisPlotView(BaseView):
             return "No channel selected"
         if self.current_selection.roi_id is None:
             return "No ROI selected"
-        return f"No {self.analysis_kind.value} analysis for selected channel/ROI"
+        return "No primary-kymograph analysis for selected channel/ROI"
