@@ -29,6 +29,10 @@ from nicewidgets.raster_viewer.frontend.roi_overlay import (
     PlotlyRoiOverlayLayer,
     RectRoiOverlay,
 )
+from nicewidgets.raster_viewer.frontend.trace_overlay import (
+    PlotlyTraceOverlay,
+    PlotlyTraceOverlayLayer,
+)
 from nicewidgets.raster_viewer.frontend.plotly_protocol import (
     DEFAULT_HEATMAP_COLORSCALE,
     RASTER_VIEWER_PLOTLY_CONFIG,
@@ -68,6 +72,7 @@ class PlotlyRasterViewer:
         self._contrast_zmin: float | None = None
         self._contrast_zmax: float | None = None
         self._plotly_rois = PlotlyRoiOverlayLayer()
+        self._plotly_trace_overlays = PlotlyTraceOverlayLayer()
 
     def _js_plotly_graph_div(self) -> str:
         """Resolve the Plotly graph div from NiceGUI; bail out if missing (cf. ``el.data`` guard)."""
@@ -156,6 +161,7 @@ if (!plotDiv || !plotDiv.data) return;
             heatmap_colorscale=self._heatmap_colorscale,
         )
         self._sync_roi_shapes_to_plotly_dict()
+        self._sync_trace_overlays_to_plotly_dict()
 
         if self._plot is not None:
             self._plot.figure = self._plotly_dict
@@ -174,6 +180,7 @@ if (!plotDiv || !plotDiv.data) return;
             heatmap_colorscale=self._heatmap_colorscale,
         )
         self._sync_roi_shapes_to_plotly_dict()
+        self._sync_trace_overlays_to_plotly_dict()
 
         self._plot.figure = self._plotly_dict
         self._plot.update()
@@ -229,6 +236,99 @@ if (!plotDiv || !plotDiv.data) return;
         self._plotly_rois.delete_roi(roi_id)
         self._sync_roi_shapes_to_plotly_dict()
         self._relayout_shapes()
+
+    def set_trace_overlays(self, overlays: Sequence[PlotlyTraceOverlay]) -> None:
+        """Replace all trace overlays without pushing raster data.
+
+        Args:
+            overlays: Trace overlays in Plotly physical coordinates.
+
+        Returns:
+            None.
+        """
+        self._plotly_trace_overlays.set_overlays(overlays)
+        self._sync_trace_overlays_to_plotly_dict()
+        self._redraw_trace_overlays()
+
+    def add_trace_overlay(self, overlay: PlotlyTraceOverlay) -> None:
+        """Add or replace one trace overlay without pushing raster data.
+
+        Args:
+            overlay: Trace overlay in Plotly physical coordinates.
+
+        Returns:
+            None.
+        """
+        self._plotly_trace_overlays.add_overlay(overlay)
+        self._sync_trace_overlays_to_plotly_dict()
+        self._redraw_trace_overlays()
+
+    def delete_trace_overlay(self, trace_id: str) -> None:
+        """Delete one trace overlay without pushing raster data.
+
+        Args:
+            trace_id: Trace overlay identifier to remove.
+
+        Returns:
+            None.
+        """
+        self._plotly_trace_overlays.delete_overlay(trace_id)
+        self._sync_trace_overlays_to_plotly_dict()
+        self._redraw_trace_overlays()
+
+    def clear_trace_overlays(self) -> None:
+        """Delete all trace overlays without pushing raster data.
+
+        Returns:
+            None.
+        """
+        self._plotly_trace_overlays.clear_overlays()
+        self._sync_trace_overlays_to_plotly_dict()
+        self._redraw_trace_overlays()
+
+    def _sync_trace_overlays_to_plotly_dict(self) -> None:
+        """Synchronize current trace overlay state into ``data``.
+
+        Returns:
+            None.
+        """
+        data = self._plotly_dict.setdefault('data', [])
+        if not isinstance(data, list):
+            data = []
+        self._plotly_dict['data'] = self._plotly_trace_overlays.merge_traces(data)
+
+    def _redraw_trace_overlays(self) -> None:
+        """Replace managed browser-side trace overlays without pushing raster data.
+
+        Returns:
+            None.
+        """
+        if self._plot is None:
+            return
+        overlay_traces = self._plotly_trace_overlays.to_traces()
+        js = f"""
+{self._js_plotly_graph_div()}
+const overlayIndices = [];
+for (let i = 0; i < plotDiv.data.length; i += 1) {{
+  const trace = plotDiv.data[i] || {{}};
+  const meta = trace.meta || {{}};
+  if (meta.nicewidgets_overlay_type === 'trace' && typeof meta.trace_id === 'string') {{
+    overlayIndices.push(i);
+  }}
+}}
+let overlayPromise = Promise.resolve();
+if (overlayIndices.length > 0) {{
+  overlayPromise = Plotly.deleteTraces(plotDiv, overlayIndices);
+}}
+const overlayTraces = {json.dumps(overlay_traces)};
+overlayPromise.then(() => {{
+  if (overlayTraces.length > 0) {{
+    return Plotly.addTraces(plotDiv, overlayTraces);
+  }}
+  return null;
+}});
+"""
+        self._plot.client.run_javascript(js, timeout=2.0)
 
     def _sync_roi_shapes_to_plotly_dict(self) -> None:
         """Synchronize current ROI overlay state into ``layout.shapes``.
@@ -512,6 +612,10 @@ return {{
         if not isinstance(shapes, list):
             shapes = []
         layout['shapes'] = self._plotly_rois.merge_shapes(shapes)
+        data = figure.get('data', [])
+        if not isinstance(data, list):
+            data = []
+        figure['data'] = self._plotly_trace_overlays.merge_traces(data)
         return figure
 
     def _display_style(self) -> RasterDisplayStyle:

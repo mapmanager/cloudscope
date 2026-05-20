@@ -47,7 +47,7 @@ class AcqAnalysisPlotView(BaseView):
         super().__init__(event_bus=event_bus, app_state=app_state, initially_visible=initially_visible)
         self.analysis_kind = analysis_kind
         self.title = title
-        # self._status_label: ui.label | None = None
+        self._status_label: ui.label | None = None
         self._chart: EChartWidget | None = None
 
     def build(self, parent: ui.element | None = None) -> ui.element:
@@ -60,11 +60,11 @@ class AcqAnalysisPlotView(BaseView):
             Root element for this view.
         """
         if parent is None:
-            with ui.card().classes("w-full") as self.root:
+            with ui.card().classes("w-full h-full min-h-0 flex flex-col overflow-hidden flex-1") as self.root:
                 self._build_content()
         else:
             with parent:
-                with ui.card().classes("w-full") as self.root:
+                with ui.card().classes("w-full h-full min-h-0 flex flex-col overflow-hidden flex-1") as self.root:
                     self._build_content()
         self.after_build()
         return self.root
@@ -124,10 +124,10 @@ class AcqAnalysisPlotView(BaseView):
         Returns:
             None.
         """
-        # ui.label(self.title).classes("text-lg font-semibold")
-        # self._status_label = ui.label("No analysis selected").classes("text-sm opacity-70")
+        ui.label(self.title).classes("text-lg font-semibold shrink-0")
+        self._status_label = ui.label("No analysis selected").classes("text-sm opacity-70 shrink-0")
         self._chart = EChartWidget()
-        self._chart.container.classes("w-full h-64")
+        self._chart.container.classes("w-full h-full min-h-0 flex-1")
 
     def _on_analysis_completed(self, event: AnalysisCompleted) -> None:
         """Refresh the plot when the configured analysis finishes.
@@ -167,15 +167,13 @@ class AcqAnalysisPlotView(BaseView):
         Returns:
             None.
         """
-        # if self._chart is None or self._status_label is None:
-        #     return
-        if self._chart is None:
+        if self._chart is None or self._status_label is None:
             return
 
         plot_data = self._get_selected_plot_data()
         if plot_data is None:
             self._chart.clear()
-            # self._status_label.text = self._empty_message()
+            self._status_label.text = self._empty_message()
             return
 
         self._chart.set_line_data(
@@ -185,7 +183,7 @@ class AcqAnalysisPlotView(BaseView):
             y_label=plot_data.y_label,
             series_name=plot_data.series_name,
         )
-        # self._status_label.text = f"{plot_data.series_name}: {len(plot_data.x)} points"
+        self._status_label.text = f"{plot_data.series_name}: {len(plot_data.x)} points"
 
     def _get_selected_plot_data(self) -> AnalysisPlotData | None:
         """Return plot data for the current selected analysis.

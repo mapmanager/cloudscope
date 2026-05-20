@@ -173,6 +173,18 @@ class HomePage:
             base = 'w-full h-full min-h-0 gap-3 p-3 overflow-auto'
             return f'{base} {extra}'.strip()
 
+        def _fill_column_classes(extra: str = '') -> str:
+            """Return classes for splitter panes that should fill without page scroll.
+
+            Args:
+                extra: Extra Tailwind/NiceGUI classes.
+
+            Returns:
+                Class string for fill-layout columns.
+            """
+            base = 'w-full h-full min-h-0 gap-3 p-3 overflow-hidden flex flex-col'
+            return f'{base} {extra}'.strip()
+
         def _capture(splitter_id: SplitterId) -> None:
             """Capture a user-adjusted splitter value in AppConfig memory.
 
@@ -229,7 +241,7 @@ class HomePage:
         with ui.splitter(
             value=splitter_manager.value_for(SplitterId.LEFT_TOOLBAR),
             limits=left_preset.limits,
-        ).classes('w-full min-h-screen') as left_splitter:
+        ).classes('w-full h-[calc(100vh-4rem)] min-h-0 overflow-hidden') as left_splitter:
             splitter_manager.register(SplitterId.LEFT_TOOLBAR, left_splitter)
 
             with left_splitter.before:
@@ -251,7 +263,7 @@ class HomePage:
                     value=splitter_manager.value_for(SplitterId.FILE_LIST),
                     limits=file_preset.limits,
                     horizontal=True,
-                ).classes('w-full h-[calc(100vh-4rem)] min-h-0') as file_list_splitter:
+                ).classes('w-full h-full min-h-0 overflow-hidden') as file_list_splitter:
                     splitter_manager.register(SplitterId.FILE_LIST, file_list_splitter)
 
                     with file_list_splitter.before:
@@ -271,7 +283,7 @@ class HomePage:
                             splitter_manager.register(SplitterId.PRIMARY_IMAGE, primary_splitter)
 
                             with primary_splitter.before:
-                                with ui.column().classes(_content_column_classes()):
+                                with ui.column().classes(_fill_column_classes()):
                                     image_toolbar.build()
                                     view_manager.register(image_toolbar)
                                     primary_image.build()
@@ -287,12 +299,12 @@ class HomePage:
                                     splitter_manager.register(SplitterId.ANALYSIS_REFERENCE, analysis_reference_splitter)
 
                                     with analysis_reference_splitter.before:
-                                        with ui.column().classes(_pane_classes('p-3 overflow-auto')):
+                                        with ui.column().classes(_fill_column_classes()):
                                             acq_analysis_plot.build()
                                             view_manager.register(acq_analysis_plot)
 
                                     with analysis_reference_splitter.after:
-                                        with ui.column().classes(_pane_classes('p-3 overflow-auto')):
+                                        with ui.column().classes(_fill_column_classes()):
                                             reference_image.build()
                                             view_manager.register(reference_image)
 

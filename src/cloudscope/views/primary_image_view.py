@@ -165,10 +165,10 @@ class PrimaryImageView(BaseView):
         self._client = ui.context.client
 
         def _build() -> None:
-            with ui.card().classes("w-full") as self.root:
-                ui.label(self._title).classes("text-lg font-medium")
+            with ui.card().classes("w-full h-full min-h-0 flex flex-col overflow-hidden flex-1") as self.root:
+                ui.label(self._title).classes("text-lg font-medium shrink-0")
                 plot = self._viewer.build()
-                plot.classes('w-full h-80')
+                plot.classes('w-full h-full min-h-0 flex-1')
 
         if parent is None:
             _build()
