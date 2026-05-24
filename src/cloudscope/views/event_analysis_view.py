@@ -11,10 +11,11 @@ from cloudscope.event_bus import EventBus
 from cloudscope.events import (
     AcqImageEventsChanged,
     AcqImageEventSelectionChanged,
-    AcqImageEventsVisibilityChanged,
     BeginAddAcqImageEventIntent,
+    BeginEditAcqImageEventIntent,
     CancelAddAcqImageEventIntent,
     DeleteSelectedAcqImageEventIntent,
+    EventEditMode,
     RequestAcqImageEventsRefreshIntent,
     SelectAcqImageEventIntent,
     SetAcqImageEventsVisibleIntent,
@@ -31,6 +32,7 @@ class EventControlsCard:
 
     Args:
         on_add: Callback for add event.
+        on_edit: Callback for edit selected event.
         on_delete: Callback for delete selected event.
         on_select_next: Callback for select-next event.
         on_cancel: Callback for cancel current event action.
@@ -41,17 +43,25 @@ class EventControlsCard:
         self,
         *,
         on_add: Callable[[], None],
+        on_edit: Callable[[], None],
         on_delete: Callable[[], None],
         on_select_next: Callable[[], None],
         on_cancel: Callable[[], None],
         on_visibility_changed: Callable[[bool], None],
     ) -> None:
         self._on_add = on_add
+        self._on_edit = on_edit
         self._on_delete = on_delete
         self._on_select_next = on_select_next
         self._on_cancel = on_cancel
         self._on_visibility_changed = on_visibility_changed
+        self._add_button: ui.button | None = None
+        self._edit_button: ui.button | None = None
+        self._delete_button: ui.button | None = None
+        self._select_next_button: ui.button | None = None
+        self._cancel_button: ui.button | None = None
         self._visible_checkbox: ui.checkbox | None = None
+        self._updating_checkbox = False
 
     def build(self) -> ui.card:
         """Build the controls card.
@@ -61,28 +71,73 @@ class EventControlsCard:
         """
         with ui.card().classes("w-full gap-2") as card:
             ui.label("Events").classes("font-semibold")
-            with ui.row().classes("w-full gap-2"):
-                ui.button(icon="add", on_click=self._on_add).props("dense round").tooltip("Add event")
-                ui.button(icon="delete", on_click=self._on_delete).props("dense round").tooltip("Delete selected event")
-                ui.button(icon="skip_next", on_click=self._on_select_next).props("dense round").tooltip("Select next event")
-                ui.button(icon="close", on_click=self._on_cancel).props("dense round").tooltip("Cancel")
+            with ui.row().classes("w-full gap-2 items-center"):
+                self._add_button = ui.button(icon="add", on_click=self._on_add).props("dense round")
+                self._add_button.tooltip("Add event")
+                self._edit_button = ui.button(icon="edit", on_click=self._on_edit).props("dense round")
+                self._edit_button.tooltip("Edit selected event")
+                self._delete_button = ui.button(icon="delete", on_click=self._on_delete).props("dense round")
+                self._delete_button.tooltip("Delete selected event")
+                self._select_next_button = ui.button(icon="skip_next", on_click=self._on_select_next).props("dense round")
+                self._select_next_button.tooltip("Select next event")
+                self._cancel_button = ui.button(icon="close", on_click=self._on_cancel).props("dense round")
+                self._cancel_button.tooltip("Cancel add/edit")
             self._visible_checkbox = ui.checkbox(
                 "Show events",
                 value=True,
-                on_change=lambda event: self._on_visibility_changed(bool(event.value)),
+                on_change=self._handle_visibility_changed,
             )
+        self.set_controls_state(has_rows=False, has_selection=False, is_editing=False)
         return card
 
     def set_visible_checked(self, visible: bool) -> None:
-        """Set checkbox state without changing layout.
+        """Set checkbox state without emitting an intent.
 
         Args:
             visible: Whether events are visible.
         """
         if self._visible_checkbox is None:
             return
-        self._visible_checkbox.value = bool(visible)
-        self._visible_checkbox.update()
+        self._updating_checkbox = True
+        try:
+            self._visible_checkbox.value = bool(visible)
+            self._visible_checkbox.update()
+        finally:
+            self._updating_checkbox = False
+
+    def set_controls_state(self, *, has_rows: bool, has_selection: bool, is_editing: bool) -> None:
+        """Enable or disable controls for the current event state.
+
+        Args:
+            has_rows: Whether the current event table has rows.
+            has_selection: Whether an event is selected.
+            is_editing: Whether add/edit is waiting for a plot x-range.
+        """
+        if self._add_button is not None:
+            self._add_button.enabled = not is_editing
+            self._add_button.update()
+        if self._edit_button is not None:
+            self._edit_button.enabled = bool(has_selection and not is_editing)
+            self._edit_button.update()
+        if self._delete_button is not None:
+            self._delete_button.enabled = bool(has_selection and not is_editing)
+            self._delete_button.update()
+        if self._select_next_button is not None:
+            self._select_next_button.enabled = bool(has_rows and not is_editing)
+            self._select_next_button.update()
+        if self._cancel_button is not None:
+            self._cancel_button.enabled = bool(is_editing)
+            self._cancel_button.update()
+
+    def _handle_visibility_changed(self, event: Any) -> None:
+        """Forward user-driven visibility changes.
+
+        Args:
+            event: NiceGUI checkbox event.
+        """
+        if self._updating_checkbox:
+            return
+        self._on_visibility_changed(bool(event.value))
 
 
 class EventAnalysisView(BaseView):
@@ -111,6 +166,7 @@ class EventAnalysisView(BaseView):
         self._rows: list[dict[str, object]] = []
         self._selected_event_id: int | None = None
         self._events_visible = True
+        self._edit_mode = EventEditMode.NONE
 
     def build(self, parent: ui.element | None = None) -> ui.element:
         """Build the view.
@@ -129,6 +185,7 @@ class EventAnalysisView(BaseView):
         with self.root:
             self._controls = EventControlsCard(
                 on_add=self._add_event,
+                on_edit=self._edit_event,
                 on_delete=self._delete_selected,
                 on_select_next=self._select_next,
                 on_cancel=self._cancel,
@@ -151,7 +208,6 @@ class EventAnalysisView(BaseView):
         """Subscribe to event-analysis state events."""
         self.add_subscription(self.event_bus.subscribe(AcqImageEventsChanged, self._on_events_changed))
         self.add_subscription(self.event_bus.subscribe(AcqImageEventSelectionChanged, self._on_selection_changed))
-        self.add_subscription(self.event_bus.subscribe(AcqImageEventsVisibilityChanged, self._on_visibility_changed))
 
     def refresh_from_state(self) -> None:
         """Request current event rows for the active selection."""
@@ -161,13 +217,20 @@ class EventAnalysisView(BaseView):
         """Refresh table rows when primary selection changes."""
         self._rows = []
         self._selected_event_id = None
+        self._edit_mode = EventEditMode.NONE
         self._refresh_table()
+        self._refresh_controls()
         self._request_events_refresh()
 
     def _add_event(self) -> None:
         """Publish add-event intent for current selection."""
         self.event_bus.publish(BeginAddAcqImageEventIntent(selection=self._copy_selection()))
         ui.notification("Click and drag in the 2D plot to add an event.", type="info")
+
+    def _edit_event(self) -> None:
+        """Publish edit-selected-event intent for current selection."""
+        self.event_bus.publish(BeginEditAcqImageEventIntent(selection=self._copy_selection()))
+        ui.notification("Click and drag in the 2D plot to update the selected event.", type="info")
 
     def _delete_selected(self) -> None:
         """Publish delete-selected intent."""
@@ -187,7 +250,7 @@ class EventAnalysisView(BaseView):
         self.event_bus.publish(SelectAcqImageEventIntent(event_id=next_id))
 
     def _cancel(self) -> None:
-        """Publish cancel-add intent."""
+        """Publish cancel add/edit intent."""
         self.event_bus.publish(CancelAddAcqImageEventIntent())
 
     def _set_events_visible(self, visible: bool) -> None:
@@ -200,11 +263,13 @@ class EventAnalysisView(BaseView):
         Args:
             row: Selected table row.
         """
+        if self._edit_mode is not EventEditMode.NONE:
+            return
         event_id = int(row["event_id"])
         self.event_bus.publish(SelectAcqImageEventIntent(event_id=event_id))
 
     def _on_events_changed(self, event: AcqImageEventsChanged) -> None:
-        """Refresh rows from event state.
+        """Refresh rows from event state when row data changed.
 
         Args:
             event: Events-changed state event.
@@ -215,28 +280,26 @@ class EventAnalysisView(BaseView):
             return
         if event.selection.roi_id != self.current_selection.roi_id:
             return
-        self._rows = [dict(row) for row in event.rows]
+        new_rows = [dict(row) for row in event.rows]
+        rows_changed = new_rows != self._rows
+        self._rows = new_rows
         self._selected_event_id = event.selected_event_id
         self._events_visible = event.visible
-        self._refresh_table()
+        self._edit_mode = event.edit_mode
+        if rows_changed:
+            self._refresh_table()
+        else:
+            self._select_table_row()
         self._refresh_controls()
 
     def _on_selection_changed(self, event: AcqImageEventSelectionChanged) -> None:
-        """Apply selected event id to table.
+        """Apply selected event id to table without replacing row data.
 
         Args:
             event: Selection state event.
         """
         self._selected_event_id = event.selected_event_id
         self._select_table_row()
-
-    def _on_visibility_changed(self, event: AcqImageEventsVisibilityChanged) -> None:
-        """Apply visibility checkbox state.
-
-        Args:
-            event: Visibility state event.
-        """
-        self._events_visible = event.visible
         self._refresh_controls()
 
     def _refresh_table(self) -> None:
@@ -257,8 +320,17 @@ class EventAnalysisView(BaseView):
 
     def _refresh_controls(self) -> None:
         """Refresh controls state."""
-        if self._controls is not None:
-            self._controls.set_visible_checked(self._events_visible)
+        if self._controls is None:
+            return
+        has_rows = bool(self._rows)
+        has_selection = self._selected_event_id is not None
+        is_editing = self._edit_mode is not EventEditMode.NONE
+        self._controls.set_visible_checked(self._events_visible)
+        self._controls.set_controls_state(
+            has_rows=has_rows,
+            has_selection=has_selection,
+            is_editing=is_editing,
+        )
 
     def _request_events_refresh(self) -> None:
         """Ask the controller to publish rows for the current selection."""

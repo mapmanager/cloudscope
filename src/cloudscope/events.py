@@ -54,6 +54,14 @@ class AnalysisKind(StrEnum):
     EVENT = 'event'
 
 
+class EventEditMode(StrEnum):
+    """Event-analysis edit modes for one-shot x-range workflows."""
+
+    NONE = 'none'
+    ADD = 'add'
+    EDIT = 'edit'
+
+
 class RoiChangeKind(StrEnum):
     """Supported ROI model mutation kinds."""
 
@@ -294,8 +302,19 @@ class BeginAddAcqImageEventIntent(IntentEvent):
 
 
 @dataclass(frozen=True)
+class BeginEditAcqImageEventIntent(IntentEvent):
+    """Request one-shot x-range selection to edit the selected event.
+
+    Args:
+        selection: Selection snapshot for the target event analysis.
+    """
+
+    selection: PrimarySelection
+
+
+@dataclass(frozen=True)
 class CancelAddAcqImageEventIntent(IntentEvent):
-    """Request cancellation of pending AcqImage event creation."""
+    """Request cancellation of pending AcqImage event creation or editing."""
 
 
 @dataclass(frozen=True)
@@ -529,19 +548,21 @@ class CancelPlotXRangeSelection(StateEvent):
 
 @dataclass(frozen=True)
 class AcqImageEventsChanged(StateEvent):
-    """Emitted after AcqImage event model changes.
+    """Emitted after AcqImage event state changes.
 
     Args:
         selection: Selection snapshot for the event analysis.
         rows: Table rows representing current events.
         selected_event_id: Selected event id, if any.
         visible: Whether plot overlays should be visible.
+        edit_mode: Current one-shot edit mode.
     """
 
     selection: PrimarySelection
     rows: list[dict[str, object]] = field(default_factory=list)
     selected_event_id: int | None = None
     visible: bool = True
+    edit_mode: EventEditMode = EventEditMode.NONE
 
 
 @dataclass(frozen=True)

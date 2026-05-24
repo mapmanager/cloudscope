@@ -10,9 +10,9 @@ from acqstore.acq_image.analysis.model import AnalysisKey, AnalysisPlotData
 from acqstore.acq_image.analysis.event_analysis.event_analysis import EventAnalysis
 from cloudscope.event_bus import EventBus
 from cloudscope.events import (
+    AcqImageEventSelectionChanged,
     AcqImageEventXRangeSelectedIntent,
     AcqImageEventsChanged,
-    AcqImageEventsVisibilityChanged,
     AnalysisCompleted,
     BeginPlotXRangeSelection,
     CancelPlotXRangeSelection,
@@ -89,7 +89,7 @@ class AcqAnalysisPlotView(BaseView):
         self.add_subscription(self.event_bus.subscribe(BeginPlotXRangeSelection, self._on_begin_plot_x_range_selection))
         self.add_subscription(self.event_bus.subscribe(CancelPlotXRangeSelection, self._on_cancel_plot_x_range_selection))
         self.add_subscription(self.event_bus.subscribe(AcqImageEventsChanged, self._on_acq_image_events_changed))
-        self.add_subscription(self.event_bus.subscribe(AcqImageEventsVisibilityChanged, self._on_acq_image_events_visibility_changed))
+        self.add_subscription(self.event_bus.subscribe(AcqImageEventSelectionChanged, self._on_acq_image_event_selection_changed))
 
     def refresh_from_state(self) -> None:
         """Refresh the plot from the current selection.
@@ -226,14 +226,18 @@ class AcqAnalysisPlotView(BaseView):
         self._chart.events.select_event(None if event.selected_event_id is None else str(event.selected_event_id))
         self._chart.events.set_visible(event.visible)
 
-    def _on_acq_image_events_visibility_changed(self, event: AcqImageEventsVisibilityChanged) -> None:
-        """Apply event overlay visibility change.
+    def _on_acq_image_event_selection_changed(self, event: AcqImageEventSelectionChanged) -> None:
+        """Apply selected event styling without rebuilding overlays.
 
         Args:
-            event: Visibility state event.
+            event: Event-selection state event.
         """
-        self._events_visible = event.visible
-        self._refresh_event_overlays()
+        if self._chart is None:
+            return
+        try:
+            self._chart.events.select_event(None if event.selected_event_id is None else str(event.selected_event_id))
+        except KeyError:
+            self._chart.events.select_event(None)
 
     def _on_x_range_selected(self, x0: float, x1: float) -> None:
         """Publish user-selected x range to the event controller.

@@ -142,7 +142,7 @@ class LeftToolbarView(BaseView):
             with ui.row().classes("w-full h-full min-h-0 items-start gap-0 overflow-hidden") as self.root:
                 with ui.column().classes("h-full min-h-0 shrink-0 items-center gap-1 p-1 overflow-hidden bg-gray-100 dark:bg-gray-900"):
                     self._build_buttons()
-                with ui.column().classes("h-full min-h-0 w-80 gap-3 p-3 overflow-hidden") as panel_root:
+                with ui.column().classes("h-full min-h-0 w-full flex-1 gap-3 p-3 overflow-hidden") as panel_root:
                     self._left_panel_root = panel_root
                     self.metadata_view.build()
                     self.velocity_analysis_view.build()

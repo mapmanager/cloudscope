@@ -12,15 +12,17 @@ from cloudscope.event_bus import EventBus
 from cloudscope.events import (
     AcqImageEventsChanged,
     AcqImageEventSelectionChanged,
-    AcqImageEventsVisibilityChanged,
     AcqImageEventXRangeSelectedIntent,
+    AppBusyChanged,
     AppStatusChanged,
-    ChannelSelectionChanged,
     BeginAddAcqImageEventIntent,
+    BeginEditAcqImageEventIntent,
     BeginPlotXRangeSelection,
     CancelAddAcqImageEventIntent,
     CancelPlotXRangeSelection,
+    ChannelSelectionChanged,
     DeleteSelectedAcqImageEventIntent,
+    EventEditMode,
     FileSelectionChanged,
     RequestAcqImageEventsRefreshIntent,
     RoiSelectionChanged,
@@ -32,6 +34,7 @@ from cloudscope.events import (
 from cloudscope.state import PrimarySelection
 
 from cloudscope.utils.logging import get_logger
+
 logger = get_logger(__name__)
 
 
@@ -42,18 +45,22 @@ class EventAnalysisController:
     Args:
         event_bus: Page-scoped event bus.
         home_controller: Controller owning current file/selection state.
+        selected_event_id: Current selected event id.
+        events_visible: Whether event overlays should be shown.
     """
 
     event_bus: EventBus
     home_controller: HomePageController
     selected_event_id: int | None = None
     events_visible: bool = True
-    _pending_add_selection: PrimarySelection | None = None
+    _pending_selection: PrimarySelection | None = None
+    _edit_mode: EventEditMode = EventEditMode.NONE
 
     def bind(self) -> None:
         """Subscribe controller handlers to event-analysis intents."""
         self.event_bus.subscribe(BeginAddAcqImageEventIntent, self._on_begin_add)
-        self.event_bus.subscribe(CancelAddAcqImageEventIntent, self._on_cancel_add)
+        self.event_bus.subscribe(BeginEditAcqImageEventIntent, self._on_begin_edit)
+        self.event_bus.subscribe(CancelAddAcqImageEventIntent, self._on_cancel_edit)
         self.event_bus.subscribe(AcqImageEventXRangeSelectedIntent, self._on_x_range_selected)
         self.event_bus.subscribe(DeleteSelectedAcqImageEventIntent, self._on_delete_selected)
         self.event_bus.subscribe(SelectAcqImageEventIntent, self._on_select_event)
@@ -69,43 +76,87 @@ class EventAnalysisController:
         Args:
             event: Begin-add intent.
         """
-        try:
-            self._required_selection_values(event.selection)
-        except ValueError as exc:
-            self._publish_status(str(exc), level=StatusLevel.WARNING)
+        if not self._can_begin_edit_mode(event.selection):
             return
-        self._pending_add_selection = self._copy_selection(event.selection)
-        self.event_bus.publish(BeginPlotXRangeSelection(selection=self._pending_add_selection))
+        self._begin_edit_mode(
+            EventEditMode.ADD,
+            event.selection,
+            message="Click and drag in the 2D plot to add an event.",
+        )
 
-    def _on_cancel_add(self, event: CancelAddAcqImageEventIntent) -> None:
-        """Cancel pending event creation.
+    def _on_begin_edit(self, event: BeginEditAcqImageEventIntent) -> None:
+        """Begin one-shot x-range selection for selected-event editing.
+
+        Args:
+            event: Begin-edit intent.
+        """
+        if self.selected_event_id is None:
+            self._publish_status("No event selected", level=StatusLevel.WARNING)
+            return
+        if not self._can_begin_edit_mode(event.selection):
+            return
+        analysis = self._get_existing_event_analysis(event.selection)
+        if analysis is None:
+            self._publish_status("No event analysis for selected event", level=StatusLevel.WARNING)
+            return
+        try:
+            analysis.events.get_required(self.selected_event_id)
+        except KeyError:
+            self.selected_event_id = None
+            self._publish_status("Selected event no longer exists", level=StatusLevel.WARNING)
+            self.event_bus.publish(AcqImageEventSelectionChanged(selected_event_id=None))
+            self._publish_events_changed(event.selection)
+            return
+        self._begin_edit_mode(
+            EventEditMode.EDIT,
+            event.selection,
+            message="Click and drag in the 2D plot to update the selected event.",
+        )
+
+    def _on_cancel_edit(self, event: CancelAddAcqImageEventIntent) -> None:
+        """Cancel pending event creation or editing.
 
         Args:
             event: Cancel intent.
         """
         _ = event
-        self._pending_add_selection = None
+        if self._edit_mode is EventEditMode.NONE:
+            return
+        selection = self._pending_selection or self.home_controller.state.selection
+        self._clear_edit_mode(message="Event edit cancelled")
         self.event_bus.publish(CancelPlotXRangeSelection())
+        self._publish_events_changed(selection)
 
     def _on_x_range_selected(self, event: AcqImageEventXRangeSelectedIntent) -> None:
-        """Create an event from a selected x-range.
+        """Create or update an event from a selected x-range.
 
         Args:
             event: Selected-range intent from plot view.
         """
-        if self._pending_add_selection is None:
+        if self._edit_mode is EventEditMode.NONE or self._pending_selection is None:
             return
-        if not self._same_selection(self._pending_add_selection, event.selection):
+        if not self._same_selection(self._pending_selection, event.selection):
             logger.warning("Ignoring x-range selected for stale selection")
             return
         try:
             analysis = self._get_or_create_event_analysis(event.selection)
-            new_event = analysis.add_rect(event.x0, event.x1, event_type=EventType.USER)
+            if self._edit_mode is EventEditMode.ADD:
+                changed_event = analysis.add_rect(event.x0, event.x1, event_type=EventType.USER)
+                self.selected_event_id = int(changed_event.id)
+            elif self._edit_mode is EventEditMode.EDIT:
+                if self.selected_event_id is None:
+                    raise RuntimeError("No selected event to edit")
+                changed_event = analysis.update_rect(self.selected_event_id, x0=event.x0, x1=event.x1)
+                self.selected_event_id = int(changed_event.id)
+            else:
+                return
         except Exception as exc:
-            self._publish_status(f"Could not add event: {exc}", level=StatusLevel.ERROR)
+            self._publish_status(f"Could not update event: {exc}", level=StatusLevel.ERROR)
+            self._clear_edit_mode(message="Event edit failed")
+            self.event_bus.publish(CancelPlotXRangeSelection())
+            self._publish_events_changed(event.selection)
             return
-        self.selected_event_id = int(new_event.id)
-        self._pending_add_selection = None
+        self._clear_edit_mode(message="Event updated")
         self.event_bus.publish(CancelPlotXRangeSelection())
         self._publish_events_changed(event.selection)
         self.event_bus.publish(AcqImageEventSelectionChanged(selected_event_id=self.selected_event_id))
@@ -117,6 +168,9 @@ class EventAnalysisController:
             event: Delete intent.
         """
         _ = event
+        if self._edit_mode is not EventEditMode.NONE:
+            self._publish_status("Cancel event editing before deleting", level=StatusLevel.WARNING)
+            return
         if self.selected_event_id is None:
             self._publish_status("No event selected", level=StatusLevel.WARNING)
             return
@@ -134,14 +188,15 @@ class EventAnalysisController:
         self.event_bus.publish(AcqImageEventSelectionChanged(selected_event_id=None))
 
     def _on_select_event(self, event: SelectAcqImageEventIntent) -> None:
-        """Select an event id.
+        """Select an event id without refreshing table row data.
 
         Args:
             event: Select intent.
         """
+        if self._edit_mode is not EventEditMode.NONE:
+            return
         self.selected_event_id = None if event.event_id is None else int(event.event_id)
         self.event_bus.publish(AcqImageEventSelectionChanged(selected_event_id=self.selected_event_id))
-        self._publish_events_changed(self.home_controller.state.selection)
 
     def _on_set_visible(self, event: SetAcqImageEventsVisibleIntent) -> None:
         """Set event overlay visibility.
@@ -150,7 +205,6 @@ class EventAnalysisController:
             event: Visibility intent.
         """
         self.events_visible = bool(event.visible)
-        self.event_bus.publish(AcqImageEventsVisibilityChanged(visible=self.events_visible))
         self._publish_events_changed(self.home_controller.state.selection)
 
     def _on_refresh_requested(self, event: RequestAcqImageEventsRefreshIntent) -> None:
@@ -168,11 +222,69 @@ class EventAnalysisController:
             event: Selection state event that triggered the refresh.
         """
         _ = event
-        self._pending_add_selection = None
+        if self._edit_mode is not EventEditMode.NONE:
+            self._clear_edit_mode(message="Event edit cancelled")
+            self.event_bus.publish(CancelPlotXRangeSelection())
         self.selected_event_id = None
-        self.event_bus.publish(CancelPlotXRangeSelection())
         self.event_bus.publish(AcqImageEventSelectionChanged(selected_event_id=None))
         self._publish_events_changed(self.home_controller.state.selection)
+
+    def _can_begin_edit_mode(self, selection: PrimarySelection) -> bool:
+        """Return whether one-shot event editing can begin.
+
+        Args:
+            selection: Requested selection.
+
+        Returns:
+            True when editing can begin.
+        """
+        if self._edit_mode is not EventEditMode.NONE:
+            self._publish_status("Finish or cancel the current event edit first", level=StatusLevel.WARNING)
+            return False
+        try:
+            self._required_selection_values(selection)
+        except ValueError as exc:
+            self._publish_status(str(exc), level=StatusLevel.WARNING)
+            return False
+        return True
+
+    def _begin_edit_mode(self, mode: EventEditMode, selection: PrimarySelection, *, message: str) -> None:
+        """Enter one-shot event add/edit mode.
+
+        Args:
+            mode: Edit mode to enter.
+            selection: Complete selection snapshot.
+            message: Human-readable app-busy message.
+        """
+        self._edit_mode = mode
+        self._pending_selection = self._copy_selection(selection)
+        self.event_bus.publish(
+            AppBusyChanged(
+                is_busy=True,
+                task_kind=None,
+                task_id=None,
+                message=message,
+            )
+        )
+        self.event_bus.publish(BeginPlotXRangeSelection(selection=self._pending_selection))
+        self._publish_events_changed(selection)
+
+    def _clear_edit_mode(self, *, message: str) -> None:
+        """Leave event add/edit mode and clear app busy state.
+
+        Args:
+            message: Human-readable terminal message for busy-state consumers.
+        """
+        self._edit_mode = EventEditMode.NONE
+        self._pending_selection = None
+        self.event_bus.publish(
+            AppBusyChanged(
+                is_busy=False,
+                task_kind=None,
+                task_id=None,
+                message=message,
+            )
+        )
 
     def _get_or_create_event_analysis(self, selection: PrimarySelection) -> EventAnalysis:
         """Return or create event analysis for selection.
@@ -196,7 +308,14 @@ class EventAnalysisController:
         return analysis
 
     def _get_existing_event_analysis(self, selection: PrimarySelection) -> EventAnalysis | None:
-        """Return existing event analysis for selection, if present."""
+        """Return existing event analysis for selection, if present.
+
+        Args:
+            selection: Current primary selection.
+
+        Returns:
+            Existing event analysis, or None.
+        """
         try:
             file_id, channel, roi_id = self._required_selection_values(selection)
         except ValueError:
@@ -224,11 +343,17 @@ class EventAnalysisController:
                 rows=rows,
                 selected_event_id=self.selected_event_id,
                 visible=self.events_visible,
+                edit_mode=self._edit_mode,
             )
         )
 
     def _publish_status(self, message: str, *, level: StatusLevel) -> None:
-        """Publish an app status message."""
+        """Publish an app status message.
+
+        Args:
+            message: Status message.
+            level: Status severity.
+        """
         self.event_bus.publish(
             AppStatusChanged(
                 level=level,
@@ -239,7 +364,17 @@ class EventAnalysisController:
 
     @staticmethod
     def _required_selection_values(selection: PrimarySelection) -> tuple[str, int, int]:
-        """Return required selection values or raise."""
+        """Return required selection values or raise.
+
+        Args:
+            selection: Primary selection.
+
+        Returns:
+            File id, channel, and ROI id.
+
+        Raises:
+            ValueError: If any required field is missing.
+        """
         if selection.file_id is None:
             raise ValueError("No file selected")
         if selection.channel is None:
@@ -250,7 +385,14 @@ class EventAnalysisController:
 
     @staticmethod
     def _copy_selection(selection: PrimarySelection) -> PrimarySelection:
-        """Return a copied selection."""
+        """Return a copied selection.
+
+        Args:
+            selection: Selection to copy.
+
+        Returns:
+            Copied selection.
+        """
         return PrimarySelection(
             file_id=selection.file_id,
             channel=selection.channel,
@@ -259,7 +401,15 @@ class EventAnalysisController:
 
     @staticmethod
     def _same_selection(left: PrimarySelection, right: PrimarySelection) -> bool:
-        """Return whether two selections identify the same analysis."""
+        """Return whether two selections identify the same analysis.
+
+        Args:
+            left: First selection.
+            right: Second selection.
+
+        Returns:
+            True when both selections refer to the same file/channel/ROI.
+        """
         return (
             left.file_id == right.file_id
             and left.channel == right.channel
