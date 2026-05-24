@@ -75,7 +75,7 @@ class ImageToolbarWidget(ui.row):
         self._channel: int | None = None
         self._roi_id: int | None = None
 
-        self._file_label = ui.label('—')
+        # self._file_label = ui.label('—')
 
         with ui.row().classes('gap-1 items-center'):
 
@@ -207,7 +207,7 @@ class ImageToolbarWidget(ui.row):
         with self._intent_suppressed():
             self._mode = ImageToolbarMode.IDLE
             self._file_id = file_id
-            self._file_label.set_text(self._format_file_label(file_id))
+            # self._file_label.set_text(self._format_file_label(file_id))
             self._channel_options = list(channel_options)
             self._roi_options = list(roi_options)
             self._channel = channel

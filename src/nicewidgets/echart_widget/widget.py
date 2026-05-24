@@ -9,6 +9,9 @@ from nicegui import ui
 
 from nicewidgets.echart_widget.models import EChartAxisRange, EChartLineData
 
+from cloudscope.utils.logging import get_logger
+logger = get_logger(__name__)
+
 
 class EChartWidget:
     """Thin wrapper around ``ui.echart`` for one analysis line plot.
@@ -19,9 +22,40 @@ class EChartWidget:
 
     def __init__(self) -> None:
         """Create an empty ECharts widget."""
+        
         self.container = ui.echart(self._empty_options())
+        self.container.on('datazoom', self._on_datazoom)
+
         self._line_data: EChartLineData | None = None
         self._x_range = EChartAxisRange()
+
+    def _on_datazoom(self, event: dict[str, Any]) -> None:
+        """Handle data zoom event.
+
+        Args:
+            event: Data zoom event.
+        """
+
+        print(event)
+        
+        logger.info(f'datazoom event: {event}')
+
+        # ECharts returns percentage values (0 to 100) for the visible range
+        # start_percent = event.args.get('start', 0)
+        # end_percent = event.args.get('end', 100)
+        
+        # Calculate approximate indices based on your dataset size
+        # total_items = len(self._line_data.x)
+        # start_index = int((start_percent / 100) * (total_items - 1))
+        # end_index = int((end_percent / 100) * (total_items - 1))
+        
+        # Get the actual values corresponding to the selected range
+        # selected_start_val = self._line_data.x[start_index]
+        # selected_end_val = self._line_data.x[end_index]
+
+        start_value = event.get('startValue', 0)
+        end_value = event.get('endValue', 100)
+        logger.info(f'Range changed! Visible range: {start_value} to {end_value}')
 
     def set_line_data(
         self,
@@ -156,6 +190,14 @@ def build_line_options(line_data: EChartLineData, x_range: EChartAxisRange | Non
                 "data": [[x, y] for x, y in zip(line_data.x, line_data.y, strict=True)],
                 "showSymbol": False,
                 "lineStyle": {"width": 2},
+            }
+        ],
+        # abb
+        "dataZoom": [
+            {
+                "type": "inside",
+                'xAxisIndex': 0,
+                # 'yAxisIndex': 0,
             }
         ],
     }

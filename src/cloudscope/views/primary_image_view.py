@@ -168,7 +168,10 @@ class PrimaryImageView(BaseView):
 
         def _build() -> None:
             with ui.card().classes("w-full h-full min-h-0 flex flex-col overflow-hidden flex-1") as self.root:
-                ui.label(self._title).classes("text-lg font-medium shrink-0")
+                
+                # dislpay name of widget, comment it out
+                # ui.label(self._title).classes("text-lg font-medium shrink-0")
+                
                 plot = self._viewer.build()
                 plot.classes('w-full h-full min-h-0 flex-1')
 
@@ -341,6 +344,8 @@ class PrimaryImageView(BaseView):
         Returns:
             None.
         """
+        logger.info('')
+        
         if acq_image is None or grid is None:
             self._viewer.set_rois([])
             return
@@ -373,6 +378,9 @@ class PrimaryImageView(BaseView):
         Returns:
             None.
         """
+
+        logger.info('xxx may be slow down causing reset xxx')
+
         if acq_image is None or grid is None:
             self._viewer.clear_trace_overlays()
             return
@@ -401,6 +409,7 @@ class PrimaryImageView(BaseView):
         overlays = roi_local_traces_to_plotly_overlays(traces, roi=roi, grid=grid)
         self._viewer.set_trace_overlays(overlays)
 
+        logger.info('')
 
 def roi_local_traces_to_plotly_overlays(
     traces: tuple[AnalysisOverlayTraceData, ...],

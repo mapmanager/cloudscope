@@ -13,10 +13,10 @@ from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
 from nicewidgets.echart_widget.widget import EChartWidget
 
-PRIMARY_KYMOGRAPH_GROUP = "primary_kymograph"
-
 from cloudscope.utils.logging import get_logger
 logger = get_logger(__name__)
+
+PRIMARY_KYMOGRAPH_GROUP = "primary_kymograph"
 
 
 class AcqAnalysisPlotView(BaseView):
@@ -123,10 +123,13 @@ class AcqAnalysisPlotView(BaseView):
         Returns:
             None.
         """
-        ui.label(self.title).classes("text-lg font-semibold shrink-0")
-        self._status_label = ui.label("No analysis selected").classes("text-sm opacity-70 shrink-0")
+        # each view is adding this label with name, comment it out
+        # ui.label(self.title).classes("text-lg font-semibold shrink-0")
+        
         self._chart = EChartWidget()
         self._chart.container.classes("w-full h-full min-h-0 flex-1")
+
+        self._status_label = ui.label("No analysis selected").classes("text-sm opacity-70 shrink-0")
 
     def _on_analysis_completed(self, event: AnalysisCompleted) -> None:
         """Refresh the plot when any primary-kymograph analysis finishes.
@@ -143,6 +146,9 @@ class AcqAnalysisPlotView(BaseView):
             return
         if event.selection.roi_id != self.current_selection.roi_id:
             return
+        
+        logger.warning('')
+
         self._refresh_plot()
 
     def _on_roi_changed(self, event: RoiChanged) -> None:
@@ -156,6 +162,9 @@ class AcqAnalysisPlotView(BaseView):
         """
         if event.selection.file_id != self.current_selection.file_id:
             return
+
+        logger.warning('')
+
         self._refresh_plot()
 
     def _refresh_plot(self) -> None:
@@ -213,4 +222,4 @@ class AcqAnalysisPlotView(BaseView):
             return "No channel selected"
         if self.current_selection.roi_id is None:
             return "No ROI selected"
-        return "No primary-kymograph analysis for selected channel/ROI"
+        return f"No primary-kymograph analysis for selected channel={self.current_selection.channel}, roi_id={self.current_selection.roi_id}"

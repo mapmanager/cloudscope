@@ -328,6 +328,7 @@ overlayPromise.then(() => {{
   return null;
 }});
 """
+        logger.info('xxx running javascript')
         self._plot.client.run_javascript(js, timeout=2.0)
 
     def _sync_roi_shapes_to_plotly_dict(self) -> None:

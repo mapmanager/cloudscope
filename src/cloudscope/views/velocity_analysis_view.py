@@ -118,6 +118,7 @@ class VelocityAnalysisView(BaseView):
             return
         if event.selection != self.current_selection:
             return
+        logger.info('')
         self._build_results_controls()
 
     def _on_roi_changed(self, event: RoiChanged) -> None:
@@ -289,6 +290,7 @@ class VelocityAnalysisView(BaseView):
         Returns:
             None.
         """
+        logger.info('')
         self._refresh_selection_label()
         self._refresh_run_button()
         self._build_results_controls()

@@ -29,6 +29,9 @@ from cloudscope.events import (
 from cloudscope.state import PrimarySelection
 from cloudscope.task_runner import TaskContext, TaskRunner
 
+from cloudscope.utils.logging import get_logger
+logger = get_logger(__name__)
+
 
 @dataclass(slots=True)
 class AnalysisController:
@@ -74,10 +77,12 @@ class AnalysisController:
                 on_cancelled=lambda: self._publish_analysis_completed(event, success=False, message="Analysis cancelled"),
             )
         except Exception as exc:
+            message = f"Analysis could not start: {exc}"
+            logger.error(f'{message}')
             self.event_bus.publish(
                 AppStatusChanged(
                     level=StatusLevel.ERROR,
-                    message=f"Analysis could not start: {exc}",
+                    message=message,
                     source=StatusSource.ANALYSIS,
                 )
             )
