@@ -186,6 +186,41 @@ class AcqAnalysisSet:
         self.add(analysis)
         return analysis
 
+    def get_or_create(
+        self,
+        analysis_name: str,
+        *,
+        channel: int,
+        roi_id: int,
+        detection_params: dict[str, Any] | None = None,
+    ) -> BaseAnalysis:
+        """Return an existing analysis or create it when missing.
+
+        Args:
+            analysis_name: Registered analysis type name.
+            channel: Channel index.
+            roi_id: ROI identifier.
+            detection_params: Optional detection parameter values used only when
+                creating a new analysis.
+
+        Returns:
+            Existing or newly created analysis.
+        """
+        key = AnalysisKey(
+            analysis_name=analysis_name,
+            channel=channel,
+            roi_id=roi_id,
+        )
+        existing = self.get(key)
+        if existing is not None:
+            return existing
+        return self.create(
+            analysis_name,
+            channel=channel,
+            roi_id=roi_id,
+            detection_params=detection_params,
+        )
+
     def get(self, key: AnalysisKey) -> BaseAnalysis | None:
         """Return analysis by key.
 

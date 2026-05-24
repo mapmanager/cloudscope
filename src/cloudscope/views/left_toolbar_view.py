@@ -15,6 +15,7 @@ from cloudscope.views.app_info_view import AppInfoView
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.metadata_widget.metadata_view import MetadataView
 from cloudscope.views.diameter_analysis_view import DiameterAnalysisView
+from cloudscope.views.event_analysis_view import EventAnalysisView
 from cloudscope.views.velocity_analysis_view import VelocityAnalysisView
 from cloudscope.views.view_ids import ViewId
 from cloudscope.views.view_manager import ViewManager
@@ -39,6 +40,7 @@ _LEFT_TOOLBAR_TABS: tuple[LeftToolbarTab, ...] = (
     LeftToolbarTab(ViewId.METADATA, "Metadata", "description"),
     LeftToolbarTab(ViewId.VELOCITY_ANALYSIS, "Velocity", "timeline"),
     LeftToolbarTab(ViewId.DIAMETER_ANALYSIS, "Diameter", "straighten"),
+    LeftToolbarTab(ViewId.EVENT_ANALYSIS, "Events", "event"),
     LeftToolbarTab(ViewId.APP_CONFIG, "Config", "settings"),
     LeftToolbarTab(ViewId.APP_INFO, "App info", "info"),
 )
@@ -94,6 +96,11 @@ class LeftToolbarView(BaseView):
             app_state=app_state,
             initially_visible=False,
         )
+        self.event_analysis_view = EventAnalysisView(
+            event_bus=event_bus,
+            app_state=app_state,
+            initially_visible=False,
+        )
         self.app_config_view = AppConfigView(
             app_config=app_config,
             event_bus=event_bus,
@@ -140,6 +147,7 @@ class LeftToolbarView(BaseView):
                     self.metadata_view.build()
                     self.velocity_analysis_view.build()
                     self.diameter_analysis_view.build()
+                    self.event_analysis_view.build()
                     self.app_config_view.build()
                     self.app_info_view.build()
 
@@ -173,6 +181,7 @@ class LeftToolbarView(BaseView):
             self.metadata_view,
             self.velocity_analysis_view,
             self.diameter_analysis_view,
+            self.event_analysis_view,
             self.app_config_view,
             self.app_info_view,
         ):

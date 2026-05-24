@@ -51,6 +51,7 @@ class AnalysisKind(StrEnum):
 
     RADON_VELOCITY = 'radon_velocity'
     DIAMETER = 'diameter'
+    EVENT = 'event'
 
 
 class RoiChangeKind(StrEnum):
@@ -281,6 +282,64 @@ class CancelTaskIntent(IntentEvent):
     task_id: str | None = None
 
 
+@dataclass(frozen=True)
+class BeginAddAcqImageEventIntent(IntentEvent):
+    """Request one-shot x-range selection to create an AcqImage event.
+
+    Args:
+        selection: Selection snapshot for the target event analysis.
+    """
+
+    selection: PrimarySelection
+
+
+@dataclass(frozen=True)
+class CancelAddAcqImageEventIntent(IntentEvent):
+    """Request cancellation of pending AcqImage event creation."""
+
+
+@dataclass(frozen=True)
+class AcqImageEventXRangeSelectedIntent(IntentEvent):
+    """Report a user-selected x-range for event creation.
+
+    Args:
+        selection: Selection snapshot associated with the plotted analysis.
+        x0: First x coordinate.
+        x1: Second x coordinate.
+    """
+
+    selection: PrimarySelection
+    x0: float
+    x1: float
+
+
+@dataclass(frozen=True)
+class DeleteSelectedAcqImageEventIntent(IntentEvent):
+    """Request deletion of the selected AcqImage event."""
+
+
+@dataclass(frozen=True)
+class SelectAcqImageEventIntent(IntentEvent):
+    """Request selection of an AcqImage event.
+
+    Args:
+        event_id: Event id to select, or None to clear selection.
+    """
+
+    event_id: int | None
+
+
+@dataclass(frozen=True)
+class SetAcqImageEventsVisibleIntent(IntentEvent):
+    """Request event overlay visibility change.
+
+    Args:
+        visible: True to show event overlays.
+    """
+
+    visible: bool
+
+
 # -----------------------------
 # State Events
 # -----------------------------
@@ -435,6 +494,61 @@ class AnalysisCompleted(StateEvent):
     selection: PrimarySelection
     success: bool
     message: str = ''
+
+
+@dataclass(frozen=True)
+class BeginPlotXRangeSelection(StateEvent):
+    """Request the plot view to enter x-range selection mode.
+
+    Args:
+        selection: Selection snapshot that should receive the selected range.
+    """
+
+    selection: PrimarySelection
+
+
+@dataclass(frozen=True)
+class CancelPlotXRangeSelection(StateEvent):
+    """Request the plot view to leave x-range selection mode."""
+
+
+@dataclass(frozen=True)
+class AcqImageEventsChanged(StateEvent):
+    """Emitted after AcqImage event model changes.
+
+    Args:
+        selection: Selection snapshot for the event analysis.
+        rows: Table rows representing current events.
+        selected_event_id: Selected event id, if any.
+        visible: Whether plot overlays should be visible.
+    """
+
+    selection: PrimarySelection
+    rows: list[dict[str, object]] = field(default_factory=list)
+    selected_event_id: int | None = None
+    visible: bool = True
+
+
+@dataclass(frozen=True)
+class AcqImageEventSelectionChanged(StateEvent):
+    """Emitted when selected AcqImage event id changes.
+
+    Args:
+        selected_event_id: Selected event id, if any.
+    """
+
+    selected_event_id: int | None
+
+
+@dataclass(frozen=True)
+class AcqImageEventsVisibilityChanged(StateEvent):
+    """Emitted when event overlay visibility changes.
+
+    Args:
+        visible: Whether plot overlays should be visible.
+    """
+
+    visible: bool
 
 
 @dataclass(frozen=True)

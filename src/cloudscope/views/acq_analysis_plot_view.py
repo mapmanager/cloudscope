@@ -6,9 +6,18 @@ from typing import Any
 
 from nicegui import ui
 
-from acqstore.acq_image.analysis.model import AnalysisPlotData
+from acqstore.acq_image.analysis.model import AnalysisKey, AnalysisPlotData
+from acqstore.acq_image.analysis.event_analysis.event_analysis import EventAnalysis
 from cloudscope.event_bus import EventBus
-from cloudscope.events import AnalysisCompleted, RoiChanged
+from cloudscope.events import (
+    AcqImageEventXRangeSelectedIntent,
+    AcqImageEventsChanged,
+    AcqImageEventsVisibilityChanged,
+    AnalysisCompleted,
+    BeginPlotXRangeSelection,
+    CancelPlotXRangeSelection,
+    RoiChanged,
+)
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
 from nicewidgets.echart_widget.widget import EChartWidget
@@ -48,6 +57,7 @@ class AcqAnalysisPlotView(BaseView):
         self.title = title
         self._status_label: ui.label | None = None
         self._chart: EChartWidget | None = None
+        self._events_visible = True
 
     def build(self, parent: ui.element | None = None) -> ui.element:
         """Build the analysis plot view.
@@ -76,6 +86,10 @@ class AcqAnalysisPlotView(BaseView):
         """
         self.add_subscription(self.event_bus.subscribe(AnalysisCompleted, self._on_analysis_completed))
         self.add_subscription(self.event_bus.subscribe(RoiChanged, self._on_roi_changed))
+        self.add_subscription(self.event_bus.subscribe(BeginPlotXRangeSelection, self._on_begin_plot_x_range_selection))
+        self.add_subscription(self.event_bus.subscribe(CancelPlotXRangeSelection, self._on_cancel_plot_x_range_selection))
+        self.add_subscription(self.event_bus.subscribe(AcqImageEventsChanged, self._on_acq_image_events_changed))
+        self.add_subscription(self.event_bus.subscribe(AcqImageEventsVisibilityChanged, self._on_acq_image_events_visibility_changed))
 
     def refresh_from_state(self) -> None:
         """Refresh the plot from the current selection.
@@ -126,7 +140,7 @@ class AcqAnalysisPlotView(BaseView):
         # each view is adding this label with name, comment it out
         # ui.label(self.title).classes("text-lg font-semibold shrink-0")
         
-        self._chart = EChartWidget()
+        self._chart = EChartWidget(on_x_range_selected=self._on_x_range_selected)
         self._chart.container.classes("w-full h-full min-h-0 flex-1")
 
         self._status_label = ui.label("No analysis selected").classes("text-sm opacity-70 shrink-0")
@@ -167,6 +181,86 @@ class AcqAnalysisPlotView(BaseView):
 
         self._refresh_plot()
 
+    def _on_begin_plot_x_range_selection(self, event: BeginPlotXRangeSelection) -> None:
+        """Enter chart x-range selection mode when selection matches.
+
+        Args:
+            event: Begin selection state event.
+        """
+        if self._chart is None:
+            return
+        if event.selection.file_id != self.current_selection.file_id:
+            return
+        if event.selection.channel != self.current_selection.channel:
+            return
+        if event.selection.roi_id != self.current_selection.roi_id:
+            return
+        self._chart.begin_select_x_range()
+
+    def _on_cancel_plot_x_range_selection(self, event: CancelPlotXRangeSelection) -> None:
+        """Cancel chart x-range selection mode.
+
+        Args:
+            event: Cancel selection state event.
+        """
+        _ = event
+        if self._chart is not None:
+            self._chart.cancel_select_x_range()
+
+    def _on_acq_image_events_changed(self, event: AcqImageEventsChanged) -> None:
+        """Refresh chart overlays from event state.
+
+        Args:
+            event: Events-changed state event.
+        """
+        if self._chart is None:
+            return
+        if event.selection.file_id != self.current_selection.file_id:
+            return
+        if event.selection.channel != self.current_selection.channel:
+            return
+        if event.selection.roi_id != self.current_selection.roi_id:
+            return
+        self._events_visible = event.visible
+        self._chart.events.set_events(_overlay_rows_to_objects(event.rows))
+        self._chart.events.select_event(None if event.selected_event_id is None else str(event.selected_event_id))
+        self._chart.events.set_visible(event.visible)
+
+    def _on_acq_image_events_visibility_changed(self, event: AcqImageEventsVisibilityChanged) -> None:
+        """Apply event overlay visibility change.
+
+        Args:
+            event: Visibility state event.
+        """
+        self._events_visible = event.visible
+        if self._chart is not None:
+            self._chart.events.set_visible(event.visible)
+
+    def _on_x_range_selected(self, x0: float, x1: float) -> None:
+        """Publish user-selected x range to the event controller.
+
+        Args:
+            x0: First x coordinate.
+            x1: Second x coordinate.
+        """
+        self.event_bus.publish(
+            AcqImageEventXRangeSelectedIntent(
+                selection=self._copy_current_selection(),
+                x0=float(x0),
+                x1=float(x1),
+            )
+        )
+
+    def _copy_current_selection(self):
+        """Return a copied current selection."""
+        from cloudscope.state import PrimarySelection
+
+        return PrimarySelection(
+            file_id=self.current_selection.file_id,
+            channel=self.current_selection.channel,
+            roi_id=self.current_selection.roi_id,
+        )
+
     def _refresh_plot(self) -> None:
         """Refresh chart data from the selected AcqImage analysis.
 
@@ -189,6 +283,8 @@ class AcqAnalysisPlotView(BaseView):
             y_label=plot_data.y_label,
             series_name=plot_data.series_name,
         )
+        self._chart.events.set_events(self._get_selected_event_overlays())
+        self._chart.events.set_visible(self._events_visible)
         self._status_label.text = f"{plot_data.series_name}: {len(plot_data.x)} points"
 
     def _get_selected_plot_data(self) -> AnalysisPlotData | None:
@@ -210,6 +306,28 @@ class AcqAnalysisPlotView(BaseView):
             return None
         return analysis.get_plot_data()
 
+    def _get_selected_event_overlays(self) -> list[object]:
+        """Return selected event overlays from event analysis, if present.
+
+        Returns:
+            Backend event objects compatible with ``EChartWidget.events``.
+        """
+        acq_image = self.get_selected_acq_image()
+        if acq_image is None:
+            return []
+        if self.current_selection.channel is None or self.current_selection.roi_id is None:
+            return []
+        analysis = acq_image.analysis_set.get(
+            AnalysisKey(
+                EventAnalysis.analysis_name,
+                int(self.current_selection.channel),
+                int(self.current_selection.roi_id),
+            )
+        )
+        if not isinstance(analysis, EventAnalysis):
+            return []
+        return analysis.get_rects()
+
     def _empty_message(self) -> str:
         """Return status text for the current empty plot state.
 
@@ -223,3 +341,19 @@ class AcqAnalysisPlotView(BaseView):
         if self.current_selection.roi_id is None:
             return "No ROI selected"
         return f"No primary-kymograph analysis for selected channel={self.current_selection.channel}, roi_id={self.current_selection.roi_id}"
+
+
+class _OverlayRowObject:
+    """Small adapter object for event rows used by chart overlays."""
+
+    def __init__(self, row: dict[str, object]) -> None:
+        """Create an overlay adapter from a row."""
+        self.id = str(row["id"])
+        self.x0 = float(row["x0"])
+        self.x1 = float(row["x1"])
+        self.event_type = str(row.get("event_type", "user"))
+
+
+def _overlay_rows_to_objects(rows: list[dict[str, object]]) -> list[_OverlayRowObject]:
+    """Convert event rows into chart overlay objects."""
+    return [_OverlayRowObject(dict(row)) for row in rows]

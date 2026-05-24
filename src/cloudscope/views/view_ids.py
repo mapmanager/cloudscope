@@ -15,6 +15,7 @@ class ViewId(StrEnum):
     APP_INFO = "app_info"
     VELOCITY_ANALYSIS = "velocity_analysis"
     DIAMETER_ANALYSIS = "diameter_analysis"
+    EVENT_ANALYSIS = "event_analysis"
     ACQ_ANALYSIS_PLOT = "acq_analysis_plot"
 
     # main page

@@ -11,6 +11,7 @@ from nicewidgets.gui_defaults import setUpGuiDefaults
 
 from cloudscope.app_config import AppConfig
 from cloudscope.controllers.analysis_controller import AnalysisController
+from cloudscope.controllers.event_analysis_controller import EventAnalysisController
 from cloudscope.controllers.home_page_controller import HomePageController
 from cloudscope.controllers.load_save_controller import LoadSaveController
 from cloudscope.controllers.roi_controller import RoiController
@@ -92,6 +93,10 @@ class HomePage:
         roi_controller = RoiController(
             event_bus=self.event_bus,
             home_page_controller=self.controller,
+        )
+        event_analysis_controller = EventAnalysisController(
+            event_bus=self.event_bus,
+            home_controller=self.controller,
         )
         app_state = self.controller.state
 
@@ -340,6 +345,7 @@ class HomePage:
         self.load_save_controller.bind()
         analysis_controller.bind()
         roi_controller.bind()
+        event_analysis_controller.bind()
         self.controller.load_demo_files([])
 
         last_path = self.app_config.get_last_path().strip()

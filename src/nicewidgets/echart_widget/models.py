@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,3 +84,44 @@ class EChartAxisRange:
         """
         if self.x_min is not None and self.x_max is not None and self.x_min >= self.x_max:
             raise ValueError(f"x_min ({self.x_min}) must be less than x_max ({self.x_max})")
+
+
+@dataclass(frozen=True, slots=True)
+class EChartEventOverlay:
+    """GUI-facing x-span event overlay for an ECharts markArea.
+
+    This model intentionally does not import or depend on AcqStore. Callers can
+    adapt backend event objects into this lightweight shape.
+
+    Args:
+        id: Stable event id as a string.
+        x0: First x coordinate.
+        x1: Second x coordinate.
+        event_type: Event type key used for GUI style lookup.
+    """
+
+    id: str
+    x0: float
+    x1: float
+    event_type: str = "user"
+
+    @classmethod
+    def from_object(cls, obj: object) -> "EChartEventOverlay":
+        """Adapt a dataclass-like event object into an overlay.
+
+        Args:
+            obj: Object with ``id``, ``x0``, ``x1``, and optional
+                ``event_type`` attributes.
+
+        Returns:
+            Event overlay instance.
+        """
+        event_type = getattr(obj, "event_type", "user")
+        if hasattr(event_type, "value"):
+            event_type = event_type.value
+        return cls(
+            id=str(getattr(obj, "id")),
+            x0=float(getattr(obj, "x0")),
+            x1=float(getattr(obj, "x1")),
+            event_type=str(event_type),
+        )
