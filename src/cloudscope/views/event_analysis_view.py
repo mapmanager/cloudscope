@@ -15,6 +15,7 @@ from cloudscope.events import (
     BeginAddAcqImageEventIntent,
     CancelAddAcqImageEventIntent,
     DeleteSelectedAcqImageEventIntent,
+    RequestAcqImageEventsRefreshIntent,
     SelectAcqImageEventIntent,
     SetAcqImageEventsVisibleIntent,
 )
@@ -152,15 +153,21 @@ class EventAnalysisView(BaseView):
         self.add_subscription(self.event_bus.subscribe(AcqImageEventSelectionChanged, self._on_selection_changed))
         self.add_subscription(self.event_bus.subscribe(AcqImageEventsVisibilityChanged, self._on_visibility_changed))
 
+    def refresh_from_state(self) -> None:
+        """Request current event rows for the active selection."""
+        self._request_events_refresh()
+
     def on_primary_selection_changed(self) -> None:
-        """Clear local table rows when primary selection changes."""
+        """Refresh table rows when primary selection changes."""
         self._rows = []
         self._selected_event_id = None
         self._refresh_table()
+        self._request_events_refresh()
 
     def _add_event(self) -> None:
         """Publish add-event intent for current selection."""
         self.event_bus.publish(BeginAddAcqImageEventIntent(selection=self._copy_selection()))
+        ui.notification("Click and drag in the 2D plot to add an event.", type="info")
 
     def _delete_selected(self) -> None:
         """Publish delete-selected intent."""
@@ -252,6 +259,10 @@ class EventAnalysisView(BaseView):
         """Refresh controls state."""
         if self._controls is not None:
             self._controls.set_visible_checked(self._events_visible)
+
+    def _request_events_refresh(self) -> None:
+        """Ask the controller to publish rows for the current selection."""
+        self.event_bus.publish(RequestAcqImageEventsRefreshIntent(selection=self._copy_selection()))
 
     def _copy_selection(self):
         """Return current selection copy."""

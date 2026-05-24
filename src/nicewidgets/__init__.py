@@ -1,2 +1,1 @@
-"""Reusable NiceGUI ECharts widgets."""
-
+"""Reusable NiceGUI widgets (no re-exports; import from submodules)."""

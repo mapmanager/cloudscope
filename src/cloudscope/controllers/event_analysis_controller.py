@@ -15,11 +15,15 @@ from cloudscope.events import (
     AcqImageEventsVisibilityChanged,
     AcqImageEventXRangeSelectedIntent,
     AppStatusChanged,
+    ChannelSelectionChanged,
     BeginAddAcqImageEventIntent,
     BeginPlotXRangeSelection,
     CancelAddAcqImageEventIntent,
     CancelPlotXRangeSelection,
     DeleteSelectedAcqImageEventIntent,
+    FileSelectionChanged,
+    RequestAcqImageEventsRefreshIntent,
+    RoiSelectionChanged,
     SelectAcqImageEventIntent,
     SetAcqImageEventsVisibleIntent,
     StatusLevel,
@@ -54,6 +58,10 @@ class EventAnalysisController:
         self.event_bus.subscribe(DeleteSelectedAcqImageEventIntent, self._on_delete_selected)
         self.event_bus.subscribe(SelectAcqImageEventIntent, self._on_select_event)
         self.event_bus.subscribe(SetAcqImageEventsVisibleIntent, self._on_set_visible)
+        self.event_bus.subscribe(RequestAcqImageEventsRefreshIntent, self._on_refresh_requested)
+        self.event_bus.subscribe(FileSelectionChanged, self._on_primary_selection_changed)
+        self.event_bus.subscribe(ChannelSelectionChanged, self._on_primary_selection_changed)
+        self.event_bus.subscribe(RoiSelectionChanged, self._on_primary_selection_changed)
 
     def _on_begin_add(self, event: BeginAddAcqImageEventIntent) -> None:
         """Begin one-shot x-range selection for event creation.
@@ -143,6 +151,27 @@ class EventAnalysisController:
         """
         self.events_visible = bool(event.visible)
         self.event_bus.publish(AcqImageEventsVisibilityChanged(visible=self.events_visible))
+        self._publish_events_changed(self.home_controller.state.selection)
+
+    def _on_refresh_requested(self, event: RequestAcqImageEventsRefreshIntent) -> None:
+        """Publish current event rows for a requested selection.
+
+        Args:
+            event: Refresh intent from a view that needs current rows.
+        """
+        self._publish_events_changed(event.selection)
+
+    def _on_primary_selection_changed(self, event: object) -> None:
+        """Refresh event state after file/channel/ROI selection changes.
+
+        Args:
+            event: Selection state event that triggered the refresh.
+        """
+        _ = event
+        self._pending_add_selection = None
+        self.selected_event_id = None
+        self.event_bus.publish(CancelPlotXRangeSelection())
+        self.event_bus.publish(AcqImageEventSelectionChanged(selected_event_id=None))
         self._publish_events_changed(self.home_controller.state.selection)
 
     def _get_or_create_event_analysis(self, selection: PrimarySelection) -> EventAnalysis:

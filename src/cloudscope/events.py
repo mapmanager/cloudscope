@@ -340,6 +340,21 @@ class SetAcqImageEventsVisibleIntent(IntentEvent):
     visible: bool
 
 
+@dataclass(frozen=True)
+class RequestAcqImageEventsRefreshIntent(IntentEvent):
+    """Request current AcqImage event rows for one selection.
+
+    Views emit this when a selection changes or when a hidden event view is
+    shown again. The controller remains the only object that reads the
+    AcqImage event analysis and publishes table/overlay state.
+
+    Args:
+        selection: Selection snapshot to refresh.
+    """
+
+    selection: PrimarySelection
+
+
 # -----------------------------
 # State Events
 # -----------------------------

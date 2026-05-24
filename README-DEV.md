@@ -26,10 +26,10 @@ acqstore
 
     zip -r cloudscope_src_20260513_v1.zip src/cloudscope -i '*.py' '*.md'
 
-    zip -r cloudscope_src_20260524_v1.zip src -i '*.py' '*.md'
-    zip -r cloudscope_tests_20260524_v1.zip tests -i '*.py' '*.md'
-    zip -r cloudscope_sandbox_20260524_v1.zip sandbox -i '*.py' '*.md'
-    zip -r cloudscope_scripts_20260524_v1.zip scripts -i '*.py' '*.md'
+    zip -r cloudscope_src_20260524_v2.zip src -i '*.py' '*.md'
+    zip -r cloudscope_tests_20260524_v2.zip tests -i '*.py' '*.md'
+    zip -r cloudscope_sandbox_20260524_v2.zip sandbox -i '*.py' '*.md'
+    zip -r cloudscope_scripts_20260524_v2.zip scripts -i '*.py' '*.md'
     
     zip -r kymflow_20260520_diameter_v1.zip /Users/cudmore/Sites/kymflow_outer/kymflow/src/kymflow/core/analysis/diameter_analysis -i '*.py' '*.md'
 

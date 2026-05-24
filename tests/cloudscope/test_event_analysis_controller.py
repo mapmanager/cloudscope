@@ -15,6 +15,8 @@ from cloudscope.events import (
     BeginAddAcqImageEventIntent,
     BeginPlotXRangeSelection,
     DeleteSelectedAcqImageEventIntent,
+    FileSelectionChanged,
+    RequestAcqImageEventsRefreshIntent,
     SetAcqImageEventsVisibleIntent,
 )
 from cloudscope.state import PrimarySelection
@@ -114,3 +116,45 @@ def test_controller_visibility_publishes_state() -> None:
     bus.publish(SetAcqImageEventsVisibleIntent(visible=False))
 
     assert changed_events[-1].visible is False
+
+
+def test_controller_refresh_request_publishes_current_rows() -> None:
+    """Controller should publish existing event rows for a requested selection."""
+    acq_image = FakeAcqImage()
+    analysis = acq_image.analysis_set.create(EventAnalysis.analysis_name, channel=0, roi_id=1)
+    assert isinstance(analysis, EventAnalysis)
+    analysis.add_rect(2.0, 4.0)
+    selection = PrimarySelection(file_id="file", channel=0, roi_id=1)
+    home = FakeHomeController(FakeState(selection=selection, acq_image_list=FakeAcqImageList(acq_image)))
+    bus = EventBus()
+    changed_events: list[AcqImageEventsChanged] = []
+    bus.subscribe(AcqImageEventsChanged, lambda event: changed_events.append(event))
+    controller = EventAnalysisController(bus, home)  # type: ignore[arg-type]
+    controller.bind()
+
+    bus.publish(RequestAcqImageEventsRefreshIntent(selection=selection))
+
+    assert changed_events[-1].rows[0]["event_id"] == 1
+    assert changed_events[-1].rows[0]["x0"] == 2.0
+
+
+def test_controller_selection_change_refreshes_rows_and_clears_selection() -> None:
+    """Controller should refresh event rows when primary file selection changes."""
+    acq_image = FakeAcqImage()
+    analysis = acq_image.analysis_set.create(EventAnalysis.analysis_name, channel=0, roi_id=1)
+    assert isinstance(analysis, EventAnalysis)
+    analysis.add_rect(0.0, 1.0)
+    selection = PrimarySelection(file_id="file", channel=0, roi_id=1)
+    home = FakeHomeController(FakeState(selection=selection, acq_image_list=FakeAcqImageList(acq_image)))
+    bus = EventBus()
+    changed_events: list[AcqImageEventsChanged] = []
+    selected_events: list[AcqImageEventSelectionChanged] = []
+    bus.subscribe(AcqImageEventsChanged, lambda event: changed_events.append(event))
+    bus.subscribe(AcqImageEventSelectionChanged, lambda event: selected_events.append(event))
+    controller = EventAnalysisController(bus, home, selected_event_id=1)  # type: ignore[arg-type]
+    controller.bind()
+
+    bus.publish(FileSelectionChanged(file_id="file", acq_image=acq_image, channel=0, roi_id=1))
+
+    assert selected_events[-1].selected_event_id is None
+    assert changed_events[-1].rows[0]["event_id"] == 1

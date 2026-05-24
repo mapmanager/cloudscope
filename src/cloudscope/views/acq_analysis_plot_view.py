@@ -233,8 +233,7 @@ class AcqAnalysisPlotView(BaseView):
             event: Visibility state event.
         """
         self._events_visible = event.visible
-        if self._chart is not None:
-            self._chart.events.set_visible(event.visible)
+        self._refresh_event_overlays()
 
     def _on_x_range_selected(self, x0: float, x1: float) -> None:
         """Publish user-selected x range to the event controller.
@@ -283,9 +282,15 @@ class AcqAnalysisPlotView(BaseView):
             y_label=plot_data.y_label,
             series_name=plot_data.series_name,
         )
+        self._refresh_event_overlays()
+        self._status_label.text = f"{plot_data.series_name}: {len(plot_data.x)} points"
+
+    def _refresh_event_overlays(self) -> None:
+        """Refresh chart event overlays from backend state and visibility."""
+        if self._chart is None:
+            return
         self._chart.events.set_events(self._get_selected_event_overlays())
         self._chart.events.set_visible(self._events_visible)
-        self._status_label.text = f"{plot_data.series_name}: {len(plot_data.x)} points"
 
     def _get_selected_plot_data(self) -> AnalysisPlotData | None:
         """Return plot data for the active primary-kymograph analysis.

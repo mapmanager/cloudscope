@@ -1,1 +1,1 @@
-"""Reusable NiceGUI ECharts widgets."""
+"""Reusable ECharts widget package."""
