@@ -56,7 +56,7 @@ def test_trace_overlay_plotly_trace_has_metadata_and_optional_style() -> None:
 
     trace = layer.to_traces()[0]
 
-    assert trace['type'] == 'scatter'
+    assert trace['type'] == 'scattergl'
     assert trace['mode'] == 'markers'
     assert trace['x'] == [1.0, 2.0]
     assert trace['y'] == [3.0, 4.0]
