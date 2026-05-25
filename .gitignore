@@ -1,6 +1,6 @@
 # cloudscope one off ignore
 *.zip
-docs/
+# docs/
 
 # macOS packaging local artifacts
 packaging/macos/_secrets.sh
