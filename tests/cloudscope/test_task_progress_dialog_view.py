@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from cloudscope.event_bus import EventBus
-from cloudscope.events import CancelTaskIntent, TaskKind, TaskProgressChanged, TaskStatus
+from cloudscope.events.analysis import CancelTaskIntent, TaskKind, TaskProgressChanged, TaskStatus
 from cloudscope.views.task_progress_dialog_view import TaskProgressDialogView
 
 

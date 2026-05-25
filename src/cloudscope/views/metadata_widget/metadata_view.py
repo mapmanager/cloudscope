@@ -9,7 +9,7 @@ from nicegui import ui
 
 from acqstore.acq_image.acq_image import AcqImage
 from cloudscope.event_bus import EventBus
-from cloudscope.events import ApplyMetadataIntent, MetadataChanged
+from cloudscope.events.metadata import ApplyMetadataIntent, MetadataChanged
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.metadata_widget.schema_card_widget import SchemaCardWidget
 from cloudscope.views.view_ids import ViewId

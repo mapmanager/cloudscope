@@ -13,15 +13,13 @@ from uuid import uuid4
 from nicegui import ui
 
 from cloudscope.event_bus import EventBus
-from cloudscope.events import (
+from cloudscope.events.analysis import (
     AppBusyChanged,
-    AppStatusChanged,
-    StatusLevel,
-    StatusSource,
     TaskKind,
     TaskProgressChanged,
     TaskStatus,
 )
+from cloudscope.events.status import AppStatusChanged, StatusLevel, StatusSource
 
 
 class TaskRunnerMessageKind(StrEnum):

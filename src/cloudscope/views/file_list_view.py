@@ -8,14 +8,12 @@ from nicegui import ui
 
 from acqstore.schema import ACQ_FILE_LIST_SCHEMA
 from cloudscope.event_bus import EventBus
-from cloudscope.events import (
-    AcqImageEventsChanged,
-    AnalysisCompleted,
-    FileListChanged,
-    MetadataChanged,
-    RoiChanged,
-    SelectFileIntent,
-)
+from cloudscope.events.acq_image_events import AcqImageEventsChanged
+from cloudscope.events.analysis import AnalysisCompleted
+from cloudscope.events.files import FileListChanged
+from cloudscope.events.metadata import MetadataChanged
+from cloudscope.events.roi import RoiChanged
+from cloudscope.events.selection import SelectFileIntent
 from cloudscope.schema_adapters import schema_to_column_defs
 from cloudscope.utils.logging import get_logger
 from cloudscope.views.base_view import BaseView

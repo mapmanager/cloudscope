@@ -7,8 +7,8 @@ from typing import Any, ClassVar
 from nicegui import ui
 
 from cloudscope.event_bus import EventBus, EventSubscription
-from cloudscope.events import (
-    AppBusyChanged,
+from cloudscope.events.analysis import AppBusyChanged
+from cloudscope.events.selection import (
     ChannelSelectionChanged,
     FileSelectionChanged,
     RoiSelectionChanged,

@@ -9,20 +9,18 @@ from pathlib import Path
 from nicegui import app, ui
 
 from cloudscope.event_bus import EventBus
-from cloudscope.events import (
-    AcqImageEventsChanged,
-    AppStatusChanged,
+from cloudscope.events.acq_image_events import AcqImageEventsChanged
+from cloudscope.events.analysis import AnalysisCompleted
+from cloudscope.events.files import (
     ClearRecentPathsIntent,
-    LoadPathKind,
     LoadPathIntent,
+    LoadPathKind,
     RecentPathsChanged,
     RemoveRecentPathIntent,
     SaveAllIntent,
     SaveSelectedIntent,
-    StatusLevel,
-    StatusSource,
-    AnalysisCompleted,
 )
+from cloudscope.events.status import AppStatusChanged, StatusLevel, StatusSource
 from cloudscope._py_web_view import _prompt_for_path
 from cloudscope.app_config import AppConfig, normalize_stored_path
 from cloudscope.utils.logging import get_logger

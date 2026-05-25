@@ -8,7 +8,8 @@ from nicegui import ui
 
 from acqstore.acq_image.analysis.model import AnalysisKey, DetectionParamSchema
 from cloudscope.event_bus import EventBus
-from cloudscope.events import AnalysisCompleted, AnalysisKind, RoiChanged, RunAnalysisIntent
+from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind, RunAnalysisIntent
+from cloudscope.events.roi import RoiChanged
 from cloudscope.state import PrimarySelection
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId

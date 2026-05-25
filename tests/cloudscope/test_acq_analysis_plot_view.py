@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from acqstore.acq_image.analysis.model import AnalysisKey, AnalysisPlotData  # noqa: F401
 from cloudscope.event_bus import EventBus
-from cloudscope.events import AnalysisCompleted, AnalysisKind, RoiChanged, RoiChangeKind
+from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind
+from cloudscope.events.roi import RoiChanged, RoiChangeKind
 from cloudscope.state import PrimarySelection
 from cloudscope.views.acq_analysis_plot_view import AcqAnalysisPlotView
 from cloudscope.views.base_view import BaseView

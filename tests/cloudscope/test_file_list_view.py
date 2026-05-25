@@ -5,14 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from cloudscope.event_bus import EventBus
-from cloudscope.events import (
-    AcqImageEventsChanged,
-    AnalysisCompleted,
-    AnalysisKind,
-    FileListChanged,
-    RoiChanged,
-    RoiChangeKind,
-)
+from cloudscope.events.acq_image_events import AcqImageEventsChanged
+from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind
+from cloudscope.events.files import FileListChanged
+from cloudscope.events.roi import RoiChanged, RoiChangeKind
 from cloudscope.state import PrimarySelection
 from cloudscope.views.file_list_view import AcqImageListTableView
 

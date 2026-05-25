@@ -18,9 +18,13 @@ from acqstore.acq_image.acq_image_list import (
 from cloudscope.app_config import AppConfig, normalize_stored_path
 from cloudscope.controllers.home_page_controller import HomePageController
 from cloudscope.event_bus import EventBus
-from cloudscope.events import (
-    AppStatusChanged,
+from cloudscope.events.analysis import (
     CancelTaskIntent,
+    TaskKind,
+    TaskProgressChanged,
+    TaskStatus,
+)
+from cloudscope.events.files import (
     ClearRecentPathsIntent,
     LoadPathIntent,
     LoadPathKind,
@@ -28,12 +32,8 @@ from cloudscope.events import (
     RemoveRecentPathIntent,
     SaveAllIntent,
     SaveSelectedIntent,
-    StatusLevel,
-    StatusSource,
-    TaskKind,
-    TaskProgressChanged,
-    TaskStatus,
 )
+from cloudscope.events.status import AppStatusChanged, StatusLevel, StatusSource
 from cloudscope.task_runner import TaskCancelled, TaskContext, TaskRunner
 from cloudscope.utils.logging import get_logger
 

@@ -91,7 +91,7 @@ def test_hide_unsubscribes_from_events() -> None:
     assert view.root is not None
     assert view.root.visible is False
 
-from cloudscope.events import ChannelSelectionChanged, FileSelectionChanged, RoiSelectionChanged
+from cloudscope.events.selection import ChannelSelectionChanged, FileSelectionChanged, RoiSelectionChanged
 
 
 def test_base_view_tracks_primary_selection_for_all_views() -> None:

@@ -9,15 +9,17 @@ from nicegui import ui
 from acqstore.acq_image.analysis.model import AnalysisKey, AnalysisPlotData
 from acqstore.acq_image.analysis.event_analysis.event_analysis import EventAnalysis
 from cloudscope.event_bus import EventBus
-from cloudscope.events import (
+from cloudscope.events.acq_image_events import (
     AcqImageEventSelectionChanged,
     AcqImageEventXRangeSelectedIntent,
     AcqImageEventsChanged,
+)
+from cloudscope.events.analysis import (
     AnalysisCompleted,
     BeginPlotXRangeSelection,
     CancelPlotXRangeSelection,
-    RoiChanged,
 )
+from cloudscope.events.roi import RoiChanged
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
 from nicewidgets.echart_widget.widget import EChartWidget

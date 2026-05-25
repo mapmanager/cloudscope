@@ -2,9 +2,9 @@
 
 from cloudscope.controllers.home_page_controller import HomePageController
 from cloudscope.event_bus import EventBus
-from cloudscope.events import (
+from cloudscope.events.files import FileListChanged
+from cloudscope.events.selection import (
     ChannelSelectionChanged,
-    FileListChanged,
     FileSelectionChanged,
     RoiSelectionChanged,
     SelectChannelIntent,

@@ -7,12 +7,11 @@ from dataclasses import dataclass
 from acqstore.acq_image.acq_image_list import AcqImageList
 
 from cloudscope.event_bus import EventBus
-from cloudscope.events import (
-    ApplyMetadataIntent,
+from cloudscope.events.files import FileListChanged
+from cloudscope.events.metadata import ApplyMetadataIntent, MetadataChanged
+from cloudscope.events.selection import (
     ChannelSelectionChanged,
-    FileListChanged,
     FileSelectionChanged,
-    MetadataChanged,
     RoiSelectionChanged,
     SelectChannelIntent,
     SelectFileIntent,

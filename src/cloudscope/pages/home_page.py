@@ -17,12 +17,8 @@ from cloudscope.controllers.load_save_controller import LoadSaveController
 from cloudscope.controllers.roi_controller import RoiController
 from cloudscope.event_bus import EventBus
 from cloudscope.task_runner import TaskRunner
-from cloudscope.events import (
-    LoadPathKind,
-    LoadPathIntent,
-    ResetHomeLayoutIntent,
-    SetHomeViewVisibleIntent,
-)
+from cloudscope.events.files import LoadPathIntent, LoadPathKind
+from cloudscope.events.layout import ResetHomeLayoutIntent, SetHomeViewVisibleIntent
 from cloudscope.views.file_list_view import AcqImageListTableView
 from cloudscope.views.footer_view import FooterView
 from cloudscope.views.header_view import build_main_header

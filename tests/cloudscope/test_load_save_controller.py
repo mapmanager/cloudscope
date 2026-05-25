@@ -9,16 +9,16 @@ from acqstore.acq_image.acq_image import parent_grandparent_folder_names
 from acqstore.acq_image.acq_image_list import AcqImageList, LoadResult, LoadWarning
 from cloudscope.controllers.home_page_controller import HomePageController
 from cloudscope.event_bus import EventBus
-from cloudscope.events import (
-    AppStatusChanged,
-    LoadPathKind,
+from cloudscope.events.analysis import TaskProgressChanged
+from cloudscope.events.files import (
     LoadPathIntent,
+    LoadPathKind,
     RecentPathsChanged,
     RemoveRecentPathIntent,
     SaveAllIntent,
     SaveSelectedIntent,
-    TaskProgressChanged,
 )
+from cloudscope.events.status import AppStatusChanged
 from cloudscope.controllers.load_save_controller import LoadSaveController
 from cloudscope.app_config import AppConfig, normalize_stored_path
 
@@ -280,7 +280,7 @@ def test_save_all_no_dirty_emits_info_status(tmp_path) -> None:
 
 def test_load_controller_cancels_matching_load_task(tmp_path) -> None:
     """CancelTaskIntent should cancel the active load task through TaskRunner."""
-    from cloudscope.events import CancelTaskIntent, TaskKind
+    from cloudscope.events.analysis import CancelTaskIntent, TaskKind
 
     class FakeRunner:
         def __init__(self) -> None:

@@ -8,21 +8,20 @@ from acqstore.acq_image.acq_analysis_set import AcqAnalysisSet
 from acqstore.acq_image.analysis.event_analysis.event_analysis import EventAnalysis
 from cloudscope.controllers.event_analysis_controller import EventAnalysisController
 from cloudscope.event_bus import EventBus
-from cloudscope.events import (
+from cloudscope.events.acq_image_events import (
     AcqImageEventsChanged,
     AcqImageEventSelectionChanged,
     AcqImageEventXRangeSelectedIntent,
-    AppBusyChanged,
     BeginAddAcqImageEventIntent,
     BeginEditAcqImageEventIntent,
-    BeginPlotXRangeSelection,
     DeleteSelectedAcqImageEventIntent,
     EventEditMode,
-    FileSelectionChanged,
     RequestAcqImageEventsRefreshIntent,
     SelectAcqImageEventIntent,
     SetAcqImageEventsVisibleIntent,
 )
+from cloudscope.events.analysis import AppBusyChanged, BeginPlotXRangeSelection
+from cloudscope.events.selection import FileSelectionChanged
 from cloudscope.state import PrimarySelection
 
 

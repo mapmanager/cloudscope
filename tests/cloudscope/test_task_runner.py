@@ -1,7 +1,7 @@
 """Tests for CloudScope TaskRunner."""
 
 from cloudscope.event_bus import EventBus
-from cloudscope.events import AppBusyChanged, TaskKind, TaskProgressChanged, TaskStatus
+from cloudscope.events.analysis import AppBusyChanged, TaskKind, TaskProgressChanged, TaskStatus
 from cloudscope.task_runner import TaskRunner, TaskRunnerMessage, TaskRunnerMessageKind
 
 

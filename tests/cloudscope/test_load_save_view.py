@@ -3,15 +3,10 @@
 from __future__ import annotations
 
 from cloudscope.event_bus import EventBus
-from cloudscope.events import (
-    AcqImageEventsChanged,
-    AppStatusChanged,
-    FileSelectionChanged,
-    SaveAllIntent,
-    SaveSelectedIntent,
-    StatusLevel,
-    StatusSource,
-)
+from cloudscope.events.acq_image_events import AcqImageEventsChanged
+from cloudscope.events.files import SaveAllIntent, SaveSelectedIntent
+from cloudscope.events.selection import FileSelectionChanged
+from cloudscope.events.status import AppStatusChanged, StatusLevel, StatusSource
 from cloudscope.app_config import AppConfig, normalize_stored_path
 from cloudscope.state import PrimarySelection
 from cloudscope.views.load_save_view import LoadSaveView

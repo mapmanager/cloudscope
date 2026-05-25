@@ -9,28 +9,30 @@ from acqstore.acq_image.analysis.model import AnalysisKey
 
 from cloudscope.controllers.home_page_controller import HomePageController
 from cloudscope.event_bus import EventBus
-from cloudscope.events import (
+from cloudscope.events.acq_image_events import (
     AcqImageEventsChanged,
     AcqImageEventSelectionChanged,
     AcqImageEventXRangeSelectedIntent,
-    AppBusyChanged,
-    AppStatusChanged,
     BeginAddAcqImageEventIntent,
     BeginEditAcqImageEventIntent,
-    BeginPlotXRangeSelection,
     CancelAddAcqImageEventIntent,
-    CancelPlotXRangeSelection,
-    ChannelSelectionChanged,
     DeleteSelectedAcqImageEventIntent,
     EventEditMode,
-    FileSelectionChanged,
     RequestAcqImageEventsRefreshIntent,
-    RoiSelectionChanged,
     SelectAcqImageEventIntent,
     SetAcqImageEventsVisibleIntent,
-    StatusLevel,
-    StatusSource,
 )
+from cloudscope.events.analysis import (
+    AppBusyChanged,
+    BeginPlotXRangeSelection,
+    CancelPlotXRangeSelection,
+)
+from cloudscope.events.selection import (
+    ChannelSelectionChanged,
+    FileSelectionChanged,
+    RoiSelectionChanged,
+)
+from cloudscope.events.status import AppStatusChanged, StatusLevel, StatusSource
 from cloudscope.state import PrimarySelection
 
 from cloudscope.utils.logging import get_logger

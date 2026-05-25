@@ -13,7 +13,7 @@ from nicegui import ui
 from acqstore.schema import FieldSchema, SchemaDefinition, ValueType
 from cloudscope.app_config import AppConfig, DEFAULT_TABLE_FONT_SIZE_PX
 from cloudscope.event_bus import EventBus
-from cloudscope.events import ResetHomeLayoutIntent, SetHomeViewVisibleIntent
+from cloudscope.events.layout import ResetHomeLayoutIntent, SetHomeViewVisibleIntent
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import CONFIGURABLE_HOME_VIEWS, ViewId
 from cloudscope.views.metadata_widget.schema_card_widget import SchemaCardWidget

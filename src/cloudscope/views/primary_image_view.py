@@ -23,7 +23,8 @@ from acqstore.acq_image.analysis.model import AnalysisKey, AnalysisOverlayTraceD
 from acqstore.acq_image.roi import RectROI
 from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader
 from cloudscope.event_bus import EventBus
-from cloudscope.events import AnalysisCompleted, AnalysisKind, RoiChanged
+from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind
+from cloudscope.events.roi import RoiChanged
 from cloudscope.utils.logging import get_logger
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId

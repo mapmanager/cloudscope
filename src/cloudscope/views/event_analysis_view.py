@@ -8,7 +8,7 @@ from typing import Any
 from nicegui import ui
 
 from cloudscope.event_bus import EventBus
-from cloudscope.events import (
+from cloudscope.events.acq_image_events import (
     AcqImageEventsChanged,
     AcqImageEventSelectionChanged,
     BeginAddAcqImageEventIntent,

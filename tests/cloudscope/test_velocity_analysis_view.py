@@ -34,7 +34,7 @@ def test_velocity_analysis_view_has_no_view_level_cancel_button() -> None:
 
     assert not hasattr(view, '_cancel_button')
 
-from cloudscope.events import RoiChanged, RoiChangeKind
+from cloudscope.events.roi import RoiChanged, RoiChangeKind
 
 
 def test_velocity_analysis_view_refreshes_on_roi_changed_for_current_file() -> None:

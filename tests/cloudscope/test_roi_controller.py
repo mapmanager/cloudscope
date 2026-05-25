@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from cloudscope.controllers.roi_controller import RoiController
 from cloudscope.event_bus import EventBus
-from cloudscope.events import (
+from cloudscope.events.roi import (
     AddRoiIntent,
     ApplyRoiFullHeightIntent,
     ApplyRoiFullWidthIntent,
@@ -14,9 +14,9 @@ from cloudscope.events import (
     RoiChanged,
     RoiChangeKind,
     RoiEditModeChanged,
-    StatusLevel,
     SubmitEditRoiIntent,
 )
+from cloudscope.events.status import StatusLevel
 from cloudscope.state import PrimarySelection
 
 
@@ -253,7 +253,7 @@ def test_roi_controller_submit_edit_exits_mode_and_warns() -> None:
     mode_events: list[RoiEditModeChanged] = []
     status_events = []
     bus.subscribe(RoiEditModeChanged, mode_events.append)
-    from cloudscope.events import AppStatusChanged
+    from cloudscope.events.status import AppStatusChanged
     bus.subscribe(AppStatusChanged, status_events.append)
     controller = RoiController(bus, home)  # type: ignore[arg-type]
     controller.bind()
@@ -275,7 +275,7 @@ def test_roi_controller_full_extent_edit_intents_warn_only() -> None:
     bus = EventBus()
     image = FakeAcqImage()
     home = FakeHomeController(image)
-    from cloudscope.events import AppStatusChanged
+    from cloudscope.events.status import AppStatusChanged
     status_events: list[AppStatusChanged] = []
     bus.subscribe(AppStatusChanged, status_events.append)
     controller = RoiController(bus, home)  # type: ignore[arg-type]

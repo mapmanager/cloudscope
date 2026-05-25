@@ -62,7 +62,7 @@ def test_image_toolbar_view_is_base_view() -> None:
     assert view.view_id is ViewId.IMAGE_TOOLBAR
     assert view.disable_when_busy is True
 
-from cloudscope.events import (
+from cloudscope.events.roi import (
     AddRoiIntent,
     ApplyRoiFullHeightIntent,
     ApplyRoiFullWidthIntent,

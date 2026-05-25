@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from cloudscope.event_bus import EventBus
-from cloudscope.events import (
+from cloudscope.events.selection import (
     ChannelSelectionChanged,
     FileSelectionChanged,
     RoiSelectionChanged,

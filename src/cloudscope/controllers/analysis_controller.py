@@ -16,16 +16,14 @@ from acqstore.acq_image.analysis.velocity_analysis.radon_velocity_analysis impor
 
 from cloudscope.controllers.home_page_controller import HomePageController
 from cloudscope.event_bus import EventBus
-from cloudscope.events import (
+from cloudscope.events.analysis import (
     AnalysisCompleted,
     AnalysisKind,
-    AppStatusChanged,
     CancelTaskIntent,
     RunAnalysisIntent,
-    StatusLevel,
-    StatusSource,
     TaskKind,
 )
+from cloudscope.events.status import AppStatusChanged, StatusLevel, StatusSource
 from cloudscope.state import PrimarySelection
 from cloudscope.task_runner import TaskContext, TaskRunner
 

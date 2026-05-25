@@ -1,7 +1,7 @@
 """Tests for BaseView busy disable behavior."""
 
 from cloudscope.event_bus import EventBus
-from cloudscope.events import AppBusyChanged, TaskKind
+from cloudscope.events.analysis import AppBusyChanged, TaskKind
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
 

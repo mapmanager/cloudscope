@@ -1,0 +1,127 @@
+"""Primary analysis run/cancel/progress/completion and plot interaction state."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import StrEnum
+
+from cloudscope.events.base import IntentEvent, StateEvent
+from cloudscope.state import PrimarySelection
+
+
+class TaskKind(StrEnum):
+    """Supported long-running task categories."""
+
+    LOAD = 'load'
+    SAVE = 'save'
+    ANALYSIS = 'analysis'
+
+
+class AnalysisKind(StrEnum):
+    """Supported CloudScope analysis kinds."""
+
+    RADON_VELOCITY = 'radon_velocity'
+    DIAMETER = 'diameter'
+    EVENT = 'event'
+
+
+class TaskStatus(StrEnum):
+    """Lifecycle states for progress events."""
+
+    QUEUED = 'queued'
+    RUNNING = 'running'
+    COMPLETED = 'completed'
+    FAILED = 'failed'
+    CANCELLED = 'cancelled'
+
+
+@dataclass(frozen=True)
+class RunAnalysisIntent(IntentEvent):
+    """Request to run one analysis for a selection snapshot.
+
+    Args:
+        analysis_kind: Analysis kind to run.
+        selection: File/channel/ROI snapshot captured at user click time.
+        detection_params: Analysis detection parameters keyed by schema field name.
+    """
+
+    analysis_kind: AnalysisKind
+    selection: PrimarySelection
+    detection_params: dict[str, object]
+
+
+@dataclass(frozen=True)
+class CancelTaskIntent(IntentEvent):
+    """Request cancellation of a running task.
+
+    Args:
+        task_kind: Task category to cancel.
+        task_id: Optional task identifier. If omitted, the active task of the
+            requested kind is cancelled.
+    """
+
+    task_kind: TaskKind
+    task_id: str | None = None
+
+
+@dataclass(frozen=True)
+class TaskProgressChanged(StateEvent):
+    """Unified progress state for long-running tasks."""
+
+    task_kind: TaskKind
+    task_id: str
+    task_label: str
+    status: TaskStatus
+    current: int
+    total: int
+    message: str
+
+
+@dataclass(frozen=True)
+class AppBusyChanged(StateEvent):
+    """Emitted when the app enters or leaves a long-running task state.
+
+    Args:
+        is_busy: True while a task is running.
+        task_kind: Running task kind, or None when no task is active.
+        task_id: Running task id, or None when no task is active.
+        message: Human-readable task message.
+    """
+
+    is_busy: bool
+    task_kind: TaskKind | None
+    task_id: str | None
+    message: str
+
+
+@dataclass(frozen=True)
+class AnalysisCompleted(StateEvent):
+    """Emitted when an analysis task reaches a terminal state.
+
+    Args:
+        analysis_kind: Analysis kind that ran.
+        selection: Selection snapshot used by the analysis.
+        success: True when analysis completed successfully.
+        message: Human-readable completion, cancellation, or error message.
+    """
+
+    analysis_kind: AnalysisKind
+    selection: PrimarySelection
+    success: bool
+    message: str = ''
+
+
+@dataclass(frozen=True)
+class BeginPlotXRangeSelection(StateEvent):
+    """Request the plot view to enter x-range selection mode.
+
+    Args:
+        selection: Selection snapshot that should receive the selected range.
+    """
+
+    selection: PrimarySelection
+
+
+@dataclass(frozen=True)
+class CancelPlotXRangeSelection(StateEvent):
+    """Request the plot view to leave x-range selection mode."""

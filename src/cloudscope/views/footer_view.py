@@ -9,10 +9,8 @@ from typing import Any
 from nicegui import ui
 
 from cloudscope.event_bus import EventBus
-from cloudscope.events import (
-    AppStatusChanged,
-    TaskProgressChanged,
-)
+from cloudscope.events.analysis import TaskProgressChanged
+from cloudscope.events.status import AppStatusChanged
 from cloudscope.utils.logging import get_logger
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId

@@ -8,7 +8,7 @@ from nicegui import ui
 
 from acqstore.acq_image.acq_image import AcqImage
 from cloudscope.event_bus import EventBus
-from cloudscope.events import (
+from cloudscope.events.roi import (
     AddRoiIntent,
     ApplyRoiFullHeightIntent,
     ApplyRoiFullWidthIntent,
@@ -17,10 +17,9 @@ from cloudscope.events import (
     DeleteRoiIntent,
     RoiChanged,
     RoiEditModeChanged,
-    SelectChannelIntent,
-    SelectRoiIntent,
     SubmitEditRoiIntent,
 )
+from cloudscope.events.selection import SelectChannelIntent, SelectRoiIntent
 from cloudscope.state import PrimarySelection
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId

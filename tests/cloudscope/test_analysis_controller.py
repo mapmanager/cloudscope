@@ -4,7 +4,8 @@ from dataclasses import dataclass
 
 from cloudscope.controllers.analysis_controller import AnalysisController
 from cloudscope.event_bus import EventBus
-from cloudscope.events import AnalysisKind, AppStatusChanged, RunAnalysisIntent, TaskKind
+from cloudscope.events.analysis import AnalysisKind, RunAnalysisIntent, TaskKind
+from cloudscope.events.status import AppStatusChanged
 from cloudscope.state import PrimarySelection
 
 
@@ -116,7 +117,7 @@ def test_analysis_controller_rejects_exclusive_conflict() -> None:
 
 def test_analysis_controller_cancel_intent_reaches_task_runner() -> None:
     """Controller should route analysis cancellation to TaskRunner."""
-    from cloudscope.events import CancelTaskIntent
+    from cloudscope.events.analysis import CancelTaskIntent
 
     bus = EventBus()
     task_runner = FakeTaskRunner()

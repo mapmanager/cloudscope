@@ -5,7 +5,7 @@ from __future__ import annotations
 from nicegui import ui
 
 from cloudscope.event_bus import EventBus
-from cloudscope.events import CancelTaskIntent, TaskKind, TaskProgressChanged, TaskStatus
+from cloudscope.events.analysis import CancelTaskIntent, TaskKind, TaskProgressChanged, TaskStatus
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
 
