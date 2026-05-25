@@ -15,6 +15,7 @@ from cloudscope.events.metadata import MetadataChanged
 from cloudscope.events.roi import RoiChanged
 from cloudscope.events.selection import SelectFileIntent
 from cloudscope.schema_adapters import schema_to_column_defs
+from cloudscope.utils.file_manager import reveal_in_file_manager
 from cloudscope.utils.logging import get_logger
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
@@ -75,6 +76,7 @@ class AcqImageListTableView(BaseView):
             row_id_field=self._row_id_field,
             rows=rows,
             on_row_selected=self._on_row_selected,
+            on_build_context_menu=self._build_context_menu,
             config=TableWidgetConfig(
                 selection_mode="single",
                 auto_size_columns=True,
@@ -86,6 +88,47 @@ class AcqImageListTableView(BaseView):
         self.root = self._table.build(parent=parent)
         self.after_build()
         return self.root
+
+    def _build_context_menu(self, _table: TableWidget) -> None:
+        """Add file-list-specific actions to the table context menu.
+
+        Args:
+            _table: Table widget currently building its context menu. The
+                argument is accepted to match the ``TableWidget`` callback
+                signature.
+
+        Returns:
+            None.
+        """
+        ui.menu_item("Reveal In Finder", on_click=self._reveal_selected_file_in_finder)
+
+    def _reveal_selected_file_in_finder(self) -> None:
+        """Reveal the selected file-list row in the OS file manager.
+
+        Returns:
+            None.
+        """
+        if self._table is None:
+            logger.warning("Reveal In Finder requested before file table was built")
+            return
+
+        selected_rows = self._table.get_selected_rows()
+        if not selected_rows:
+            ui.notify("No file selected", type="warning")
+            return
+
+        selected_row = selected_rows[0]
+        path = selected_row.get(self._row_id_field)
+        if not isinstance(path, str) or not path:
+            logger.warning("Selected file row has no path at %r: %r", self._row_id_field, selected_row)
+            ui.notify("Selected row has no file path", type="warning")
+            return
+
+        try:
+            reveal_in_file_manager(path)
+        except FileNotFoundError as exc:
+            logger.warning("Unable to reveal missing file: %s", exc)
+            ui.notify(f"File not found: {path}", type="warning")
 
     def on_enabled_changed(self, enabled: bool) -> None:
         """Enable or disable table interaction when the app busy state changes.
@@ -209,7 +252,6 @@ class AcqImageListTableView(BaseView):
         if file_id is None:
             return
         self._update_row_from_acq_image(file_id)
-
 
     def _on_acq_image_events_changed(self, event: AcqImageEventsChanged) -> None:
         """Refresh one table row after AcqImage event analysis changes.

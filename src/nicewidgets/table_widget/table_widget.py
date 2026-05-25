@@ -11,12 +11,17 @@ from nicegui import events, ui
 
 from nicewidgets.table_widget.column_def import ColumnDef
 from nicewidgets.table_widget.config import SelectionMode, TableWidgetConfig
+from nicewidgets.utils.clipboard import copy_to_clipboard
+from nicewidgets.utils.logging import get_logger
 from nicewidgets.table_widget.js_hooks import (
     js_on_cell_double_clicked_start_editing,
     js_on_cell_editing_stopped_emit_change,
     js_on_cell_key_down_select_prev_next,
     js_on_row_clicked,
 )
+
+
+logger = get_logger(__name__)
 
 
 def validate_row_id_field(row_id_field: str) -> None:
@@ -299,6 +304,61 @@ class TableWidget:
         """Return ``field -> visible`` map."""
         return {str(c['field']): not bool(c.get('hide', False)) for c in self._column_defs}
 
+    def get_table_as_text(self) -> str:
+        """Return current Python-side table rows as tab-separated text.
+
+        The exported data uses the widget's internal row list and current column
+        visibility settings. It does not query browser-side AG Grid sort or
+        filter state. Column order follows the current ``columnDefs`` order,
+        and hidden columns are omitted.
+
+        Returns:
+            TSV-formatted text containing one header row and one row per table
+            row. Returns an empty string when there are no rows. Tabs and
+            newlines inside headers or cell values are normalized to spaces.
+        """
+        if not self._rows:
+            return ''
+
+        visible_columns = [c for c in self._column_defs if not bool(c.get('hide', False))]
+        headers = [str(c.get('headerName', c.get('field', ''))) for c in visible_columns]
+        fields = [str(c.get('field', '')) for c in visible_columns]
+
+        lines = ['\t'.join(self._sanitize_table_text_cell(header) for header in headers)]
+        for row in self._rows:
+            values = [self._sanitize_table_text_cell(row.get(field, '')) for field in fields]
+            lines.append('\t'.join(values))
+        return '\n'.join(lines)
+
+    def copy_table_data_to_clipboard(self) -> None:
+        """Copy current Python-side table rows to the clipboard as TSV.
+
+        Returns:
+            None.
+        """
+        text = self.get_table_as_text()
+        try:
+            copy_to_clipboard(text)
+        except RuntimeError as exc:
+            logger.warning('unable to copy table data: %s', exc)
+            ui.notify(str(exc), type='negative')
+            return
+        ui.notify('Table data copied to clipboard', type='positive')
+
+    @staticmethod
+    def _sanitize_table_text_cell(value: Any) -> str:
+        """Return a TSV-safe string for one table cell.
+
+        Args:
+            value: Cell value to stringify.
+
+        Returns:
+            String with tabs and line breaks normalized to spaces.
+        """
+        if value is None:
+            return ''
+        return str(value).replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+
     def _find_column_def(self, field: str) -> dict[str, Any]:
         for c in self._column_defs:
             if c.get('field') == field:
@@ -385,6 +445,21 @@ class TableWidget:
         self._grid.update()
 
     def _build_context_menu_content(self) -> None:
+        """Populate the right-click context menu.
+
+        Caller-provided actions are shown first, followed by the generic copy
+        action, then the existing column-visibility toggles.
+
+        Returns:
+            None.
+        """
+        if self._on_build_context_menu is not None:
+            self._on_build_context_menu(self)
+            ui.separator()
+
+        ui.menu_item('Copy Table Data', on_click=self.copy_table_data_to_clipboard)
+        ui.separator()
+
         check = '✓'
         for c in self._column_defs:
             field = str(c['field'])
@@ -392,10 +467,6 @@ class TableWidget:
             visible = not bool(c.get('hide', False))
             label = f'{check} {header}' if visible else f'  {header}'
             ui.menu_item(label, on_click=lambda f=field: self.toggle_column_visible(f))
-
-        if self._on_build_context_menu is not None:
-            ui.separator()
-            self._on_build_context_menu(self)
 
     def _on_context_menu_event(self, _e: events.GenericEventArguments) -> None:
         if self._context_menu is None:
