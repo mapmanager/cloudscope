@@ -31,6 +31,8 @@ acqstore
     zip -r cloudscope_sandbox_20260524_v5.zip sandbox -i '*.py' '*.md'
     zip -r cloudscope_scripts_20260524_v5.zip scripts -i '*.py' '*.md'
     
+    zip -r cloudscope_src_20260524_v6.zip src -i '*.py' '*.md'
+
     zip -r kymflow_20260520_diameter_v1.zip /Users/cudmore/Sites/kymflow_outer/kymflow/src/kymflow/core/analysis/diameter_analysis -i '*.py' '*.md'
 
     /Users/cudmore/Sites/kymflow_outer/kymflow/src/kymflow/core/analysis/diameter_analysis
