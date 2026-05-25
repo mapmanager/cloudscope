@@ -158,6 +158,25 @@ class TableWidget:
                 ).classes('w-full h-full min-h-0').style('height: 100%;')
         return self._root
 
+
+    def set_enabled(self, enabled: bool) -> None:
+        """Enable or disable pointer interaction with the table.
+
+        Args:
+            enabled: Desired enabled state.
+        """
+        enabled = bool(enabled)
+        if self._root is not None:
+            self._root.enabled = enabled
+            if enabled:
+                self._root.classes(remove='pointer-events-none opacity-60')
+            else:
+                self._root.classes(add='pointer-events-none opacity-60')
+            self._root.update()
+        if self._grid is not None:
+            self._grid.enabled = enabled
+            self._grid.update()
+
     def get_rows(self) -> list[dict[str, Any]]:
         """Return a copy of internal row data."""
         return [dict(r) for r in self._rows]

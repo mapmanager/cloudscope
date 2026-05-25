@@ -10,6 +10,7 @@ from nicegui import app, ui
 
 from cloudscope.event_bus import EventBus
 from cloudscope.events import (
+    AcqImageEventsChanged,
     AppStatusChanged,
     ClearRecentPathsIntent,
     LoadPathKind,
@@ -22,7 +23,7 @@ from cloudscope.events import (
     StatusSource,
     AnalysisCompleted,
 )
-from cloudscope._py_web_view import _prompt_for_path, _prompt_for_save_path
+from cloudscope._py_web_view import _prompt_for_path
 from cloudscope.app_config import AppConfig, normalize_stored_path
 from cloudscope.utils.logging import get_logger
 from cloudscope.views.base_view import BaseView
@@ -113,6 +114,18 @@ class LoadSaveView(BaseView):
         self.add_subscription(self.event_bus.subscribe(RecentPathsChanged, self._on_recent_paths_changed))
         self.add_subscription(self.event_bus.subscribe(AppStatusChanged, self._on_status_changed))
         self.add_subscription(self.event_bus.subscribe(AnalysisCompleted, self._on_analysis_completed))
+        self.add_subscription(self.event_bus.subscribe(AcqImageEventsChanged, self._on_acq_image_events_changed))
+
+    def _on_acq_image_events_changed(self, event: AcqImageEventsChanged) -> None:
+        """Refresh save buttons when event analysis changes dirty state.
+
+        Args:
+            event: AcqImage events changed state event.
+
+        Returns:
+            None.
+        """
+        self._update_button_states()
 
     def _on_analysis_completed(self, event: AnalysisCompleted) -> None:
         """Refresh button states when an analysis completes.
@@ -256,42 +269,21 @@ class LoadSaveView(BaseView):
             return await _prompt_for_path(initial, dialog_type='file', file_extension='.csv')
         return await _prompt_for_path(initial, dialog_type='file', file_extension='.tif')
 
-    async def _on_save_selected_clicked(self) -> None:
-        """Open save-path picker in native mode, then emit save-selected intent."""
-        if self._is_native_mode():
-            selected = await _prompt_for_save_path(
-                self._resolve_initial_directory(),
-                suggested_filename='cloudscope_selected_save.csv',
-                file_extension='.csv',
-            )
-            if selected is None:
-                return
-            self.event_bus.publish(
-                AppStatusChanged(
-                    level=StatusLevel.INFO,
-                    source=StatusSource.SAVE,
-                    message=f'Save destination selected: {selected}',
-                )
-            )
+    def _on_save_selected_clicked(self) -> None:
+        """Emit save-selected intent without asking for an analysis CSV path.
+
+        Analysis result file names are backend-owned sidecar paths derived from
+        the acquisition image path. The user should not be prompted for a CSV
+        destination when saving an AcqImage.
+        """
         self.event_bus.publish(SaveSelectedIntent())
 
-    async def _on_save_all_clicked(self) -> None:
-        """Open save-path picker in native mode, then emit save-all intent."""
-        if self._is_native_mode():
-            selected = await _prompt_for_save_path(
-                self._resolve_initial_directory(),
-                suggested_filename='cloudscope_save_all.csv',
-                file_extension='.csv',
-            )
-            if selected is None:
-                return
-            self.event_bus.publish(
-                AppStatusChanged(
-                    level=StatusLevel.INFO,
-                    source=StatusSource.SAVE,
-                    message=f'Save destination selected: {selected}',
-                )
-            )
+    def _on_save_all_clicked(self) -> None:
+        """Emit save-all intent without asking for an analysis CSV path.
+
+        Analysis result file names are backend-owned sidecar paths derived from
+        each acquisition image path.
+        """
         self.event_bus.publish(SaveAllIntent())
 
     def _load_recent(self, path: str, kind: LoadPathKind) -> None:

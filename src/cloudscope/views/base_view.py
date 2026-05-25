@@ -230,16 +230,40 @@ class BaseView:
     def set_enabled(self, enabled: bool) -> None:
         """Enable or disable this view's root element.
 
+        The default implementation updates the root ``enabled`` flag and also
+        applies a pointer-event guard. Some NiceGUI children, especially complex
+        wrappers such as AG Grid, do not reliably inherit the root ``enabled``
+        flag. The CSS guard gives the app a consistent shutdown behavior during
+        busy states while still allowing specialized views to override
+        ``on_enabled_changed`` for widget-specific handling.
+
         Args:
             enabled: Desired enabled state.
 
         Returns:
             None.
         """
+        enabled = bool(enabled)
         if self.root is None:
+            self.on_enabled_changed(enabled)
             return
-        self.root.enabled = bool(enabled)
+        self.root.enabled = enabled
+        if enabled:
+            self.root.classes(remove="pointer-events-none opacity-60")
+        else:
+            self.root.classes(add="pointer-events-none opacity-60")
         self.root.update()
+        self.on_enabled_changed(enabled)
+
+    def on_enabled_changed(self, enabled: bool) -> None:
+        """Hook for subclasses that need widget-specific enable handling.
+
+        Args:
+            enabled: Current enabled state after ``set_enabled``.
+
+        Returns:
+            None.
+        """
 
     def handle_app_busy_changed(self, event: AppBusyChanged) -> None:
         """Handle app busy state.

@@ -8,7 +8,14 @@ from nicegui import ui
 
 from acqstore.schema import ACQ_FILE_LIST_SCHEMA
 from cloudscope.event_bus import EventBus
-from cloudscope.events import AnalysisCompleted, FileListChanged, MetadataChanged, RoiChanged, SelectFileIntent
+from cloudscope.events import (
+    AcqImageEventsChanged,
+    AnalysisCompleted,
+    FileListChanged,
+    MetadataChanged,
+    RoiChanged,
+    SelectFileIntent,
+)
 from cloudscope.schema_adapters import schema_to_column_defs
 from cloudscope.utils.logging import get_logger
 from cloudscope.views.base_view import BaseView
@@ -82,6 +89,18 @@ class AcqImageListTableView(BaseView):
         self.after_build()
         return self.root
 
+    def on_enabled_changed(self, enabled: bool) -> None:
+        """Enable or disable table interaction when the app busy state changes.
+
+        Args:
+            enabled: Desired enabled state.
+
+        Returns:
+            None.
+        """
+        if self._table is not None:
+            self._table.set_enabled(enabled)
+
     def subscribe_events(self) -> None:
         """Subscribe to file-list events while visible.
 
@@ -91,6 +110,7 @@ class AcqImageListTableView(BaseView):
         self.add_subscription(self.event_bus.subscribe(FileListChanged, self._on_file_list_changed))
         self.add_subscription(self.event_bus.subscribe(MetadataChanged, self._on_metadata_changed))
         self.add_subscription(self.event_bus.subscribe(AnalysisCompleted, self._on_analysis_completed))
+        self.add_subscription(self.event_bus.subscribe(AcqImageEventsChanged, self._on_acq_image_events_changed))
         self.add_subscription(self.event_bus.subscribe(RoiChanged, self._on_roi_changed))
 
     def refresh_from_state(self) -> None:
@@ -187,6 +207,25 @@ class AcqImageListTableView(BaseView):
         """
         if not event.success:
             return
+        file_id = event.selection.file_id
+        if file_id is None:
+            return
+        self._update_row_from_acq_image(file_id)
+
+
+    def _on_acq_image_events_changed(self, event: AcqImageEventsChanged) -> None:
+        """Refresh one table row after AcqImage event analysis changes.
+
+        Event analysis mutations make the owning ``AcqImage`` dirty, but they do
+        not rebuild the file list. This targeted patch keeps the table's dirty
+        indicator in sync without replacing all rows or changing selection.
+
+        Args:
+            event: AcqImage events changed state event.
+
+        Returns:
+            None.
+        """
         file_id = event.selection.file_id
         if file_id is None:
             return

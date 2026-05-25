@@ -167,6 +167,8 @@ class EventAnalysisView(BaseView):
         self._selected_event_id: int | None = None
         self._events_visible = True
         self._edit_mode = EventEditMode.NONE
+        self._range_notification: Any | None = None
+        self._range_notification_message: str | None = None
 
     def build(self, parent: ui.element | None = None) -> ui.element:
         """Build the view.
@@ -220,17 +222,16 @@ class EventAnalysisView(BaseView):
         self._edit_mode = EventEditMode.NONE
         self._refresh_table()
         self._refresh_controls()
+        self._sync_range_notification()
         self._request_events_refresh()
 
     def _add_event(self) -> None:
         """Publish add-event intent for current selection."""
         self.event_bus.publish(BeginAddAcqImageEventIntent(selection=self._copy_selection()))
-        ui.notification("Click and drag in the 2D plot to add an event.", type="info")
 
     def _edit_event(self) -> None:
         """Publish edit-selected-event intent for current selection."""
         self.event_bus.publish(BeginEditAcqImageEventIntent(selection=self._copy_selection()))
-        ui.notification("Click and drag in the 2D plot to update the selected event.", type="info")
 
     def _delete_selected(self) -> None:
         """Publish delete-selected intent."""
@@ -291,6 +292,7 @@ class EventAnalysisView(BaseView):
         else:
             self._select_table_row()
         self._refresh_controls()
+        self._sync_range_notification()
 
     def _on_selection_changed(self, event: AcqImageEventSelectionChanged) -> None:
         """Apply selected event id to table without replacing row data.
@@ -301,6 +303,51 @@ class EventAnalysisView(BaseView):
         self._selected_event_id = event.selected_event_id
         self._select_table_row()
         self._refresh_controls()
+
+
+    def _sync_range_notification(self) -> None:
+        """Show or dismiss the persistent add/edit instruction notification."""
+        if self._edit_mode is EventEditMode.ADD:
+            self._show_range_notification("Click and drag in the 2D plot to add an event.")
+            return
+        if self._edit_mode is EventEditMode.EDIT:
+            self._show_range_notification("Click and drag in the 2D plot to update the selected event.")
+            return
+        self._dismiss_range_notification()
+
+    def _show_range_notification(self, message: str) -> None:
+        """Show a persistent instruction notification while waiting for x-range input.
+
+        Args:
+            message: Instruction text to display.
+        """
+        if self._range_notification is not None:
+            if self._range_notification_message == message:
+                return
+            self._dismiss_range_notification()
+        self._range_notification = ui.notification(
+            message,
+            type="info",
+            timeout=0,
+            close_button=False,
+        )
+        self._range_notification_message = message
+
+    def _dismiss_range_notification(self) -> None:
+        """Dismiss the persistent x-range instruction notification if present."""
+        notification = self._range_notification
+        self._range_notification = None
+        self._range_notification_message = None
+        if notification is None:
+            return
+        for method_name in ("dismiss", "close", "delete"):
+            method = getattr(notification, method_name, None)
+            if callable(method):
+                try:
+                    method()
+                except Exception:  # pragma: no cover - defensive UI cleanup
+                    continue
+                return
 
     def _refresh_table(self) -> None:
         """Refresh table rows and selection."""

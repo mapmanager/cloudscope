@@ -5,7 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from cloudscope.event_bus import EventBus
-from cloudscope.events import AnalysisCompleted, AnalysisKind, FileListChanged
+from cloudscope.events import (
+    AcqImageEventsChanged,
+    AnalysisCompleted,
+    AnalysisKind,
+    FileListChanged,
+    RoiChanged,
+    RoiChangeKind,
+)
 from cloudscope.state import PrimarySelection
 from cloudscope.views.file_list_view import AcqImageListTableView
 
@@ -18,6 +25,7 @@ class FakeTable:
         self.updated_rows: list[tuple[str, dict[str, object]]] = []
         self.selected: list[str] = []
         self.clear_count = 0
+        self.enabled: bool | None = None
 
     def set_data(self, rows: list[dict[str, object]]) -> None:
         """Record replacement rows."""
@@ -35,6 +43,10 @@ class FakeTable:
     def set_selected_row_ids(self, row_ids: list[str], *, origin: str) -> None:
         """Record selected row ids."""
         self.selected = list(row_ids)
+
+    def set_enabled(self, enabled: bool) -> None:
+        """Record enabled state."""
+        self.enabled = bool(enabled)
 
 
 class FakeAcqImage:
@@ -132,8 +144,6 @@ def test_analysis_completed_updates_one_row_from_app_state() -> None:
     assert view._table is not None
     assert view._table.updated_rows == [("/tmp/a.oir", {"path": "/tmp/a.oir", "dirty": True})]
 
-from cloudscope.events import RoiChanged, RoiChangeKind
-
 
 def test_roi_changed_updates_one_row_from_app_state() -> None:
     """RoiChanged should patch one row from AcqImage.get_schema_row()."""
@@ -144,6 +154,33 @@ def test_roi_changed_updates_one_row_from_app_state() -> None:
     view._on_roi_changed(
         RoiChanged(
             operation=RoiChangeKind.ADD,
+            selection=PrimarySelection(file_id="/tmp/a.oir", channel=0, roi_id=1),
+        )
+    )
+
+    assert view._table is not None
+    assert view._table.updated_rows == [("/tmp/a.oir", {"path": "/tmp/a.oir", "dirty": True})]
+
+
+def test_file_list_view_forwards_enabled_state_to_table() -> None:
+    """File-list view should explicitly disable its table widget."""
+    state = FakeState()
+    view = _make_view(state)
+
+    view.on_enabled_changed(False)
+
+    assert view._table is not None
+    assert view._table.enabled is False
+
+
+def test_acq_image_events_changed_updates_one_row_from_app_state() -> None:
+    """AcqImageEventsChanged should patch one row from AcqImage.get_schema_row()."""
+    image = FakeAcqImage("/tmp/a.oir", dirty=True)
+    state = FakeState(acq_image_list=FakeAcqImageList([image]))
+    view = _make_view(state)
+
+    view._on_acq_image_events_changed(
+        AcqImageEventsChanged(
             selection=PrimarySelection(file_id="/tmp/a.oir", channel=0, roi_id=1),
         )
     )
