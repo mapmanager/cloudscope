@@ -151,14 +151,20 @@ class EChartEventOverlayApi:
         """Return overlays sorted by id string."""
         return [self._events[key] for key in sorted(self._events)]
 
-    def build_mark_area(self) -> dict[str, object] | None:
+    def build_mark_area(self) -> dict[str, object]:
         """Build ECharts ``markArea`` options for current overlays.
 
+        The method always returns a ``markArea`` dictionary, even when overlays
+        are hidden or empty. ECharts merges option updates by default, so
+        omitting ``markArea`` does not reliably clear previously drawn
+        rectangles. Returning an explicit empty ``data`` list lets the owning
+        widget clear stale event rectangles when visibility is turned off.
+
         Returns:
-            MarkArea options, or None when no visible overlays exist.
+            MarkArea options with zero or more data entries.
         """
         if not self.visible or not self._events:
-            return None
+            return {"silent": False, "data": []}
         return {
             "silent": False,
             "data": [self._event_to_mark_area(event) for event in self.get_events()],

@@ -134,9 +134,8 @@ class EChartWidget:
             options = self._empty_options()
         else:
             options = build_line_options(self._line_data, self._x_range)
-        mark_area = self.events.build_mark_area()
-        if mark_area is not None and options["series"]:
-            options["series"][0]["markArea"] = mark_area
+        if options["series"]:
+            options["series"][0]["markArea"] = self.events.build_mark_area()
         return options
 
     def _on_datazoom(self, event: Any) -> None:

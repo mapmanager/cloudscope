@@ -50,12 +50,12 @@ def test_event_overlay_builds_mark_area_and_selected_style() -> None:
 
 
 def test_event_overlay_visibility_hides_mark_area() -> None:
-    """Hidden overlay API should return no markArea."""
+    """Hidden overlay API should return an empty markArea to clear ECharts."""
     api = EChartEventOverlayApi(FakeOwner())
     api.add_event(EChartEventOverlay(id="1", x0=0.0, x1=1.0))
     api.set_visible(False)
 
-    assert api.build_mark_area() is None
+    assert api.build_mark_area() == {"silent": False, "data": []}
 
 
 def test_event_overlay_select_unknown_raises() -> None:
