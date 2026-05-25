@@ -7,6 +7,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from cloudscope.devtools.mvc_telemetry import mvc_telemetry
+
 
 @dataclass(frozen=True, slots=True)
 class EventSubscription:
@@ -49,6 +51,7 @@ class EventBus:
             Subscription handle that can be used to unsubscribe.
         """
         self._subscribers[event_type].append(handler)
+        mvc_telemetry.record_subscription(event_type, handler)
         return EventSubscription(self, event_type, handler)
 
     def unsubscribe(self, event_type: type, handler: Callable[[Any], None]) -> None:
@@ -71,11 +74,13 @@ class EventBus:
         if not handlers:
             self._subscribers.pop(event_type, None)
 
-    def publish(self, event: object) -> None:
+    def publish(self, event: object, *, sender: object | None = None) -> None:
         """Publish an event to handlers for its class and base classes.
 
         Args:
             event: Event object to publish.
+            sender: Optional object that published the event. Existing callers may
+                omit this; sender-aware telemetry can be added incrementally.
 
         Returns:
             None.
@@ -84,4 +89,9 @@ class EventBus:
             if cls is object:
                 break
             for handler in tuple(self._subscribers.get(cls, ())):
-                handler(event)
+                mvc_telemetry.record_delivery_start(event, handler, sender=sender)
+                try:
+                    handler(event)
+                except Exception as error:
+                    mvc_telemetry.record_delivery_error(event, handler, error, sender=sender)
+                    raise
