@@ -151,7 +151,7 @@ class TableWidget:
         # when callers do not pass a sized parent container.
         container = parent if parent is not None else ui.column().classes('w-full').style('height: 24rem;')
         with container:
-            self._root = ui.column().classes('w-full h-full min-h-0')
+            self._root = ui.column().classes('w-full h-full min-w-0 min-h-0')
             with self._root:
                 self._context_menu = ui.context_menu()
                 with self._context_menu:
@@ -160,7 +160,7 @@ class TableWidget:
                 self._grid = ui.aggrid(
                     self._build_aggrid_options(),
                     auto_size_columns=self._config.auto_size_columns,
-                ).classes('w-full h-full min-h-0').style('height: 100%;')
+                ).classes('w-full h-full min-w-0 min-h-0').style('height: 100%;')
         return self._root
 
 
@@ -411,6 +411,8 @@ class TableWidget:
                 base['headerHeight'] = hh_i
         if self._config.stop_editing_when_cells_lose_focus:
             base['stopEditingWhenCellsLoseFocus'] = True
+        if self._config.fit_columns_on_grid_resize:
+            base[':onGridSizeChanged'] = 'params => params.api.sizeColumnsToFit()'
         row_sel = self._row_selection_object(self._config.selection_mode)
         if row_sel is not None:
             base['rowSelection'] = row_sel

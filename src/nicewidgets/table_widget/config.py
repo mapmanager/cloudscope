@@ -36,6 +36,9 @@ class TableWidgetConfig:
         enable_keyboard_row_nav: ArrowUp/ArrowDown select previous/next displayed row.
         stop_editing_when_cells_lose_focus: End edits when focus leaves the grid.
         auto_size_columns: Forwarded to ``ui.aggrid(auto_size_columns=...)``.
+        fit_columns_on_grid_resize: When true, AG Grid calls ``sizeColumnsToFit``
+            after browser-side grid size changes. Defaults to false so existing
+            tables keep their current resize behavior unless opted in.
         cell_font_size_px: When set, cell and header font size in pixels (merged into
             ``defaultColDef``). When ``None``, AG Grid theme defaults apply.
         row_height: Optional fixed row height (px) for AG Grid ``rowHeight``. When
@@ -57,6 +60,7 @@ class TableWidgetConfig:
     enable_keyboard_row_nav: bool = True
     stop_editing_when_cells_lose_focus: bool = True
     auto_size_columns: bool = True
+    fit_columns_on_grid_resize: bool = False
     cell_font_size_px: int | None = None
     row_height: int | None = None
     header_height: int | None = None

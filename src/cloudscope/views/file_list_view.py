@@ -80,6 +80,7 @@ class AcqImageListTableView(BaseView):
             config=TableWidgetConfig(
                 selection_mode="single",
                 auto_size_columns=True,
+                fit_columns_on_grid_resize=True,
                 cell_font_size_px=font_px,
                 row_height=row_h,
                 header_height=header_h,

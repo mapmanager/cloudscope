@@ -100,6 +100,7 @@ class LeftToolbarView(BaseView):
             event_bus=event_bus,
             app_state=app_state,
             initially_visible=False,
+            table_font_size_px=int(app_config.data.table_font_size_px),
         )
         self.app_config_view = AppConfigView(
             app_config=app_config,

@@ -25,7 +25,7 @@ from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind, RunAnaly
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
 from nicewidgets.table_widget.column_def import ColumnDef
-from nicewidgets.table_widget.config import TableWidgetConfig
+from nicewidgets.table_widget.config import TableWidgetConfig, scaled_row_header_heights_px
 from nicewidgets.table_widget.table_widget import TableWidget
 
 
@@ -183,6 +183,7 @@ class EventAnalysisView(BaseView):
         app_state: Any | None = None,
         *,
         initially_visible: bool = True,
+        table_font_size_px: int = 12,
     ) -> None:
         """Create the event-analysis view.
 
@@ -190,9 +191,11 @@ class EventAnalysisView(BaseView):
             event_bus: Page-scoped event bus.
             app_state: Home-page state object.
             initially_visible: Whether this view starts visible.
+            table_font_size_px: Table cell font size in pixels.
         """
         super().__init__(event_bus=event_bus, app_state=app_state, initially_visible=initially_visible)
         self._controls: EventControlsCard | None = None
+        self._table_font_size_px = int(table_font_size_px)
         self._table: TableWidget | None = None
         self._rows: list[dict[str, object]] = []
         self._selected_event_id: int | None = None
@@ -233,13 +236,27 @@ class EventAnalysisView(BaseView):
             self._build_param_controls()
             self._results_container = ui.column().classes("w-full gap-2")
             self._build_results_controls()
-            with ui.column().classes("w-full min-h-0 flex-1") as table_parent:
+            with ui.column().classes("w-full min-w-0 min-h-0 flex-1") as table_parent:
+                font_px = int(self._table_font_size_px)
+                row_h, header_h = scaled_row_header_heights_px(font_px)
                 self._table = TableWidget(
                     columns=_event_columns(),
                     row_id_field="id",
                     rows=[],
                     on_row_selected=self._on_row_selected,
-                    config=TableWidgetConfig(selection_mode="single", show_index_column=False),
+                    config=TableWidgetConfig(
+                        selection_mode="single",
+                        show_index_column=False,
+                        cell_font_size_px=font_px,
+                        row_height=row_h,
+                        header_height=header_h,
+                        fit_columns_on_grid_resize=True,
+                        extra_grid_options={
+                            "defaultColDef": {
+                                "filter": False,
+                            },
+                        },
+                    ),
                 )
                 self._table.build(table_parent)
         self.after_build()
