@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from typing import Literal
 
 TRACE_OVERLAY_META_TYPE = 'trace'
 TRACE_OVERLAY_META_KEY = 'nicewidgets_overlay_type'
@@ -22,6 +23,9 @@ class PlotlyTraceOverlay:
         line_width: Reserved for future line modes; not emitted for marker-only traces.
         name: Optional Plotly trace display name.
         visible: Whether the trace is visible.
+        plotly_type: Plotly trace type used for rendering. Defaults to ``scattergl``
+            for large browser-side point overlays.
+        mode: Plotly trace mode. Defaults to ``markers``.
     """
 
     trace_id: str
@@ -31,6 +35,8 @@ class PlotlyTraceOverlay:
     line_width: float | None = None
     name: str | None = None
     visible: bool = True
+    plotly_type: Literal['scatter', 'scattergl'] = 'scattergl'
+    mode: Literal['markers', 'lines', 'lines+markers'] = 'markers'
 
 
 class PlotlyTraceOverlayLayer:
@@ -117,8 +123,8 @@ class PlotlyTraceOverlayLayer:
     def _overlay_to_trace(self, overlay: PlotlyTraceOverlay) -> dict[str, object]:
         """Convert one overlay to a Plotly marker trace dictionary."""
         trace: dict[str, object] = {
-            'type': 'scatter',
-            'mode': 'markers',
+            'type': overlay.plotly_type,
+            'mode': overlay.mode,
             'x': [float(value) for value in overlay.x],
             'y': [float(value) for value in overlay.y],
             'name': overlay.name or overlay.trace_id,

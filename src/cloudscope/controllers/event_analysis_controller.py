@@ -143,12 +143,14 @@ class EventAnalysisController:
         try:
             analysis = self._get_or_create_event_analysis(event.selection)
             if self._edit_mode is EventEditMode.ADD:
-                changed_event = analysis.add_rect(event.x0, event.x1, event_type=EventType.USER)
+                plot_data = self._get_required_parent_plot_data(event.selection)
+                changed_event = analysis.add_event(event.x0, event.x1, plot_data=plot_data, event_type=EventType.USER)
                 self.selected_event_id = int(changed_event.id)
             elif self._edit_mode is EventEditMode.EDIT:
                 if self.selected_event_id is None:
                     raise RuntimeError("No selected event to edit")
-                changed_event = analysis.update_rect(self.selected_event_id, x0=event.x0, x1=event.x1)
+                plot_data = self._get_required_parent_plot_data(event.selection)
+                changed_event = analysis.update_event(self.selected_event_id, plot_data=plot_data, x0=event.x0, x1=event.x1)
                 self.selected_event_id = int(changed_event.id)
             else:
                 return
@@ -181,7 +183,7 @@ class EventAnalysisController:
             analysis = self._get_existing_event_analysis(selection)
             if analysis is None:
                 return
-            analysis.delete_rect(self.selected_event_id)
+            analysis.delete_event(self.selected_event_id)
         except Exception as exc:
             self._publish_status(f"Could not delete event: {exc}", level=StatusLevel.ERROR)
             return
@@ -245,7 +247,8 @@ class EventAnalysisController:
             return False
         try:
             self._required_selection_values(selection)
-        except ValueError as exc:
+            self._get_required_parent_plot_data(selection)
+        except (ValueError, RuntimeError) as exc:
             self._publish_status(str(exc), level=StatusLevel.WARNING)
             return False
         return True
@@ -287,6 +290,33 @@ class EventAnalysisController:
                 message=message,
             )
         )
+
+    def _get_required_parent_plot_data(self, selection: PrimarySelection):
+        """Return Radon velocity plot data required by event analysis.
+
+        Args:
+            selection: Complete primary selection.
+
+        Returns:
+            Parent analysis plot data.
+
+        Raises:
+            RuntimeError: If no matching Radon velocity analysis or plot data exists.
+        """
+        file_id, channel, roi_id = self._required_selection_values(selection)
+        acq_image_list = self.home_controller.state.acq_image_list
+        if acq_image_list is None:
+            raise RuntimeError("No AcqImageList loaded")
+        acq_image = acq_image_list.get_file_by_id(file_id)
+        if acq_image is None:
+            raise RuntimeError(f"Selected file not loaded: {file_id!r}")
+        parent = acq_image.analysis_set.get(AnalysisKey("radon_velocity", channel, roi_id))
+        if parent is None:
+            raise RuntimeError("Run Radon velocity analysis before editing events")
+        plot_data = parent.get_plot_data()
+        if plot_data is None:
+            raise RuntimeError("Radon velocity analysis has no plot data")
+        return plot_data
 
     def _get_or_create_event_analysis(self, selection: PrimarySelection) -> EventAnalysis:
         """Return or create event analysis for selection.
@@ -338,7 +368,7 @@ class EventAnalysisController:
             selection: Selection snapshot.
         """
         analysis = self._get_existing_event_analysis(selection)
-        rows = [] if analysis is None else [_event_row(event) for event in analysis.get_rects()]
+        rows = [] if analysis is None else [_event_row(event) for event in analysis.get_events()]
         self.event_bus.publish(
             AcqImageEventsChanged(
                 selection=self._copy_selection(selection),
@@ -431,6 +461,9 @@ def _event_row(event: object) -> dict[str, object]:
     event_type = getattr(event, "event_type")
     if hasattr(event_type, "value"):
         event_type = event_type.value
+    event_stats = getattr(event, "event_stats").to_json_dict()
+    pre_stats = getattr(event, "pre_win_stats").to_json_dict()
+    post_stats = getattr(event, "post_win_stats").to_json_dict()
     return {
         "id": str(getattr(event, "id")),
         "event_id": int(getattr(event, "id")),
@@ -438,4 +471,12 @@ def _event_row(event: object) -> dict[str, object]:
         "x0": float(getattr(event, "x0")),
         "x1": float(getattr(event, "x1")),
         "duration": float(getattr(event, "duration")),
+        "event_mean": event_stats["mean"],
+        "event_min": event_stats["min"],
+        "event_max": event_stats["max"],
+        "pre_mean": pre_stats["mean"],
+        "post_mean": post_stats["mean"],
+        "event_n": event_stats["n"],
+        "pre_n": pre_stats["n"],
+        "post_n": post_stats["n"],
     }

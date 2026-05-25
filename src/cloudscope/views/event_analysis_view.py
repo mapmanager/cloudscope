@@ -7,6 +7,7 @@ from typing import Any
 
 from nicegui import ui
 
+from acqstore.acq_image.analysis.model import AnalysisKey
 from cloudscope.event_bus import EventBus
 from cloudscope.events.acq_image_events import (
     AcqImageEventsChanged,
@@ -20,11 +21,25 @@ from cloudscope.events.acq_image_events import (
     SelectAcqImageEventIntent,
     SetAcqImageEventsVisibleIntent,
 )
+from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind, RunAnalysisIntent
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
 from nicewidgets.table_widget.column_def import ColumnDef
 from nicewidgets.table_widget.config import TableWidgetConfig
 from nicewidgets.table_widget.table_widget import TableWidget
+
+
+def _load_event_analysis_class() -> type[Any] | None:
+    """Load the AcqStore event analysis class.
+
+    Returns:
+        ``EventAnalysis`` class when available, otherwise None.
+    """
+    try:
+        from acqstore.acq_image.analysis.event_analysis.event_analysis import EventAnalysis
+    except Exception:
+        return None
+    return EventAnalysis
 
 
 class EventControlsCard:
@@ -37,6 +52,7 @@ class EventControlsCard:
         on_select_next: Callback for select-next event.
         on_cancel: Callback for cancel current event action.
         on_visibility_changed: Callback receiving overlay visibility.
+        on_run: Callback for event-stat reanalysis.
     """
 
     def __init__(
@@ -48,6 +64,7 @@ class EventControlsCard:
         on_select_next: Callable[[], None],
         on_cancel: Callable[[], None],
         on_visibility_changed: Callable[[bool], None],
+        on_run: Callable[[], None],
     ) -> None:
         self._on_add = on_add
         self._on_edit = on_edit
@@ -55,12 +72,14 @@ class EventControlsCard:
         self._on_select_next = on_select_next
         self._on_cancel = on_cancel
         self._on_visibility_changed = on_visibility_changed
+        self._on_run = on_run
         self._add_button: ui.button | None = None
         self._edit_button: ui.button | None = None
         self._delete_button: ui.button | None = None
         self._select_next_button: ui.button | None = None
         self._cancel_button: ui.button | None = None
         self._visible_checkbox: ui.checkbox | None = None
+        self._run_button: ui.button | None = None
         self._updating_checkbox = False
 
     def build(self) -> ui.card:
@@ -87,7 +106,8 @@ class EventControlsCard:
                 value=True,
                 on_change=self._handle_visibility_changed,
             )
-        self.set_controls_state(has_rows=False, has_selection=False, is_editing=False)
+            self._run_button = ui.button("Run/Reanalyze Events", on_click=self._on_run).classes("w-full")
+        self.set_controls_state(has_rows=False, has_selection=False, is_editing=False, can_run=False)
         return card
 
     def set_visible_checked(self, visible: bool) -> None:
@@ -105,13 +125,21 @@ class EventControlsCard:
         finally:
             self._updating_checkbox = False
 
-    def set_controls_state(self, *, has_rows: bool, has_selection: bool, is_editing: bool) -> None:
+    def set_controls_state(
+        self,
+        *,
+        has_rows: bool,
+        has_selection: bool,
+        is_editing: bool,
+        can_run: bool,
+    ) -> None:
         """Enable or disable controls for the current event state.
 
         Args:
             has_rows: Whether the current event table has rows.
             has_selection: Whether an event is selected.
             is_editing: Whether add/edit is waiting for a plot x-range.
+            can_run: Whether event analysis can be run for the selection.
         """
         if self._add_button is not None:
             self._add_button.enabled = not is_editing
@@ -128,6 +156,9 @@ class EventControlsCard:
         if self._cancel_button is not None:
             self._cancel_button.enabled = bool(is_editing)
             self._cancel_button.update()
+        if self._run_button is not None:
+            self._run_button.enabled = bool(can_run and not is_editing)
+            self._run_button.update()
 
     def _handle_visibility_changed(self, event: Any) -> None:
         """Forward user-driven visibility changes.
@@ -169,6 +200,9 @@ class EventAnalysisView(BaseView):
         self._edit_mode = EventEditMode.NONE
         self._range_notification: Any | None = None
         self._range_notification_message: str | None = None
+        self._params_container: ui.column | None = None
+        self._results_container: ui.column | None = None
+        self._param_controls: dict[str, Any] = {}
 
     def build(self, parent: ui.element | None = None) -> ui.element:
         """Build the view.
@@ -192,8 +226,13 @@ class EventAnalysisView(BaseView):
                 on_select_next=self._select_next,
                 on_cancel=self._cancel,
                 on_visibility_changed=self._set_events_visible,
+                on_run=self._run_event_analysis,
             )
             self._controls.build()
+            self._params_container = ui.column().classes("w-full gap-2")
+            self._build_param_controls()
+            self._results_container = ui.column().classes("w-full gap-2")
+            self._build_results_controls()
             with ui.column().classes("w-full min-h-0 flex-1") as table_parent:
                 self._table = TableWidget(
                     columns=_event_columns(),
@@ -210,6 +249,7 @@ class EventAnalysisView(BaseView):
         """Subscribe to event-analysis state events."""
         self.add_subscription(self.event_bus.subscribe(AcqImageEventsChanged, self._on_events_changed))
         self.add_subscription(self.event_bus.subscribe(AcqImageEventSelectionChanged, self._on_selection_changed))
+        self.add_subscription(self.event_bus.subscribe(AnalysisCompleted, self._on_analysis_completed))
 
     def refresh_from_state(self) -> None:
         """Request current event rows for the active selection."""
@@ -223,6 +263,7 @@ class EventAnalysisView(BaseView):
         self._refresh_table()
         self._refresh_controls()
         self._sync_range_notification()
+        self._build_results_controls()
         self._request_events_refresh()
 
     def _add_event(self) -> None:
@@ -257,6 +298,117 @@ class EventAnalysisView(BaseView):
     def _set_events_visible(self, visible: bool) -> None:
         """Publish event visibility intent."""
         self.event_bus.publish(SetAcqImageEventsVisibleIntent(visible=visible))
+
+    def _run_event_analysis(self) -> None:
+        """Publish an explicit event reanalysis intent for current selection."""
+        selection = self._copy_selection()
+        if selection.file_id is None or selection.channel is None or selection.roi_id is None:
+            ui.notify("Select a file, channel, and ROI before running event analysis.", type="warning")
+            return
+        try:
+            detection_params = self._current_detection_params()
+        except Exception as exc:
+            ui.notify(f"Invalid event parameters: {exc}", type="negative")
+            return
+        self.event_bus.publish(
+            RunAnalysisIntent(
+                analysis_kind=AnalysisKind.EVENT,
+                selection=selection,
+                detection_params=detection_params,
+            )
+        )
+
+    def _current_detection_params(self) -> dict[str, object]:
+        """Return current event-analysis detection parameters.
+
+        Returns:
+            Detection parameter mapping.
+
+        Raises:
+            RuntimeError: If the event analysis class is unavailable.
+        """
+        cls = _load_event_analysis_class()
+        if cls is None:
+            raise RuntimeError("Event analysis plugin is not available")
+        params = cls.get_default_detection_params()
+        for name, control in self._param_controls.items():
+            params[name] = control.value
+        cls.validate_detection_params(params)
+        return params
+
+    def _build_param_controls(self) -> None:
+        """Render editable event-analysis detection parameter controls."""
+        if self._params_container is None:
+            return
+        self._params_container.clear()
+        self._param_controls.clear()
+        with self._params_container:
+            cls = _load_event_analysis_class()
+            if cls is None:
+                ui.label("Event analysis plugin is not available.").classes("text-sm text-orange-600")
+                return
+            ui.label("Event parameters").classes("text-sm font-medium")
+            defaults = cls.get_default_detection_params()
+            for field in cls.get_detection_schema():
+                if not field.visible:
+                    continue
+                label = field.display_name
+                if field.unit:
+                    label = f"{label} ({field.unit})"
+                control = ui.number(label=label, value=defaults.get(field.name)).classes("w-full")
+                if not field.editable:
+                    control.props("readonly")
+                if field.description:
+                    control.tooltip(str(field.description))
+                self._param_controls[field.name] = control
+
+    def _build_results_controls(self) -> None:
+        """Render compact event-analysis result status."""
+        if self._results_container is None:
+            return
+        self._results_container.clear()
+        acq_image = self.get_selected_acq_image()
+        selection = self.current_selection
+        with self._results_container:
+            ui.label("Results").classes("text-sm font-medium")
+            if acq_image is None:
+                ui.label("No AcqImage selected.").classes("text-xs opacity-70")
+                return
+            if selection.channel is None or selection.roi_id is None:
+                ui.label("Select a channel and ROI to inspect events.").classes("text-xs opacity-70")
+                return
+            parent_key = AnalysisKey(
+                analysis_name=AnalysisKind.RADON_VELOCITY.value,
+                channel=int(selection.channel),
+                roi_id=int(selection.roi_id),
+            )
+            parent = acq_image.analysis_set.get(parent_key)
+            if parent is None or parent.get_plot_data() is None:
+                ui.label("Run Radon velocity analysis before creating or reanalyzing events.").classes("text-xs text-orange-600")
+                return
+            event_key = AnalysisKey(
+                analysis_name=AnalysisKind.EVENT.value,
+                channel=int(selection.channel),
+                roi_id=int(selection.roi_id),
+            )
+            analysis = acq_image.analysis_set.get(event_key)
+            if analysis is None:
+                ui.label("No event analysis for this channel/ROI.").classes("text-xs opacity-70")
+                return
+            ui.label(f"Events: {len(getattr(analysis, 'get_events')())}").classes("text-xs opacity-70")
+
+    def _on_analysis_completed(self, event: AnalysisCompleted) -> None:
+        """Refresh results after relevant analysis completion.
+
+        Args:
+            event: Analysis completion event.
+        """
+        if event.analysis_kind not in (AnalysisKind.EVENT, AnalysisKind.RADON_VELOCITY):
+            return
+        if event.selection != self.current_selection:
+            return
+        self._build_results_controls()
+        self._request_events_refresh()
 
     def _on_row_selected(self, row: dict[str, Any]) -> None:
         """Publish event selection from table row selection.
@@ -377,7 +529,22 @@ class EventAnalysisView(BaseView):
             has_rows=has_rows,
             has_selection=has_selection,
             is_editing=is_editing,
+            can_run=self._can_run_event_analysis(),
         )
+
+    def _can_run_event_analysis(self) -> bool:
+        """Return whether current selection has required Radon parent analysis."""
+        acq_image = self.get_selected_acq_image()
+        selection = self.current_selection
+        if acq_image is None or selection.channel is None or selection.roi_id is None:
+            return False
+        key = AnalysisKey(
+            analysis_name=AnalysisKind.RADON_VELOCITY.value,
+            channel=int(selection.channel),
+            roi_id=int(selection.roi_id),
+        )
+        parent = acq_image.analysis_set.get(key)
+        return parent is not None and parent.get_plot_data() is not None
 
     def _request_events_refresh(self) -> None:
         """Ask the controller to publish rows for the current selection."""
@@ -402,4 +569,10 @@ def _event_columns() -> tuple[ColumnDef, ...]:
         ColumnDef("x0", "x0", extra={"type": "numericColumn"}),
         ColumnDef("x1", "x1", extra={"type": "numericColumn"}),
         ColumnDef("duration", "Duration", extra={"type": "numericColumn"}),
+        ColumnDef("event_mean", "Event mean", extra={"type": "numericColumn"}),
+        ColumnDef("pre_mean", "Pre mean", extra={"type": "numericColumn"}),
+        ColumnDef("post_mean", "Post mean", extra={"type": "numericColumn"}),
+        ColumnDef("event_n", "Event n", extra={"type": "numericColumn"}),
+        ColumnDef("pre_n", "Pre n", extra={"type": "numericColumn"}),
+        ColumnDef("post_n", "Post n", extra={"type": "numericColumn"}),
     )

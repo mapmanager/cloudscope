@@ -289,3 +289,22 @@ persistence API
 ```
 
 This keeps CloudScope analysis views generic.
+
+
+## Dependent Analysis Pattern
+
+Analyses may depend on the canonical output of another analysis.
+
+Dependent analyses should consume:
+
+```python
+BaseAnalysis.get_plot_data()
+```
+
+rather than directly inspecting analysis-specific dataframe columns.
+
+Example:
+
+- `event` analysis depends on `radon_velocity`
+- `event` analysis consumes `AnalysisPlotData`
+- GUI code should not need to know dataframe column names such as `time_s` or `velocity`

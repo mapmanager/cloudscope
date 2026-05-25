@@ -10,6 +10,7 @@ from acqstore.acq_image.analysis.model import (
     AnalysisRunContext,
 )
 from acqstore.acq_image.analysis.diameter_analysis.diameter_analysis import DiameterAnalysis
+from acqstore.acq_image.analysis.event_analysis.event_analysis import EventAnalysis
 from acqstore.acq_image.analysis.velocity_analysis.radon_velocity_analysis import (
     RadonVelocityAnalysis,
 )
@@ -126,9 +127,14 @@ class AnalysisController:
             raise ValueError("No ROI selected")
         if self.home_controller.state.acq_image_list is None:
             raise RuntimeError("No AcqImageList loaded")
-        if event.analysis_kind not in (AnalysisKind.RADON_VELOCITY, AnalysisKind.DIAMETER):
+        if event.analysis_kind not in (
+            AnalysisKind.RADON_VELOCITY,
+            AnalysisKind.DIAMETER,
+            AnalysisKind.EVENT,
+        ):
             raise NotImplementedError(f"Unsupported analysis kind: {event.analysis_kind}")
-        self._raise_if_exclusive_conflict(event)
+        if event.analysis_kind is not AnalysisKind.EVENT:
+            self._raise_if_exclusive_conflict(event)
 
     def _raise_if_exclusive_conflict(self, event: RunAnalysisIntent) -> None:
         """Reject the intent when an exclusive-group conflict would occur.
@@ -190,13 +196,28 @@ class AnalysisController:
         context.report_progress(0.0, "Preparing analysis")
         context.raise_if_cancelled()
         key = AnalysisKey(event.analysis_kind.value, channel, roi_id)
-        acq_image.analysis_set.remove(key)
-        analysis = acq_image.analysis_set.create(
-            event.analysis_kind.value,
-            channel=channel,
-            roi_id=roi_id,
-            detection_params=dict(event.detection_params),
-        )
+        if event.analysis_kind is AnalysisKind.EVENT:
+            analysis = acq_image.analysis_set.get(key)
+            if analysis is None:
+                analysis = acq_image.analysis_set.create(
+                    event.analysis_kind.value,
+                    channel=channel,
+                    roi_id=roi_id,
+                    detection_params=dict(event.detection_params),
+                )
+            elif not isinstance(analysis, EventAnalysis):
+                raise TypeError(f"Expected EventAnalysis, got {type(analysis).__name__}")
+            else:
+                analysis.set_detection_params(dict(event.detection_params))
+        else:
+            acq_image.analysis_set.remove(key)
+            analysis = acq_image.analysis_set.create(
+                event.analysis_kind.value,
+                channel=channel,
+                roi_id=roi_id,
+                detection_params=dict(event.detection_params),
+            )
+
         if isinstance(analysis, RadonVelocityAnalysis):
             analysis.set_execution_options(use_multiprocessing=True)
         elif isinstance(analysis, DiameterAnalysis):
@@ -207,7 +228,37 @@ class AnalysisController:
             cancel_callback=context.is_cancelled,
         )
         acq_image.analysis_set.run_analysis(analysis.key, context=run_context)
+        if isinstance(analysis, RadonVelocityAnalysis):
+            self._rerun_dependent_event_analysis(acq_image, channel=channel, roi_id=roi_id, context=run_context)
         context.report_progress(1.0, "Analysis complete")
+
+    def _rerun_dependent_event_analysis(
+        self,
+        acq_image: object,
+        *,
+        channel: int,
+        roi_id: int,
+        context: AnalysisRunContext,
+    ) -> None:
+        """Rerun existing event analysis after parent Radon velocity changes.
+
+        Args:
+            acq_image: Selected acquisition image containing an analysis set.
+            channel: Channel index.
+            roi_id: ROI identifier.
+            context: Analysis run context.
+
+        Returns:
+            None.
+        """
+        key = AnalysisKey(AnalysisKind.EVENT.value, channel, roi_id)
+        event_analysis = acq_image.analysis_set.get(key)
+        if event_analysis is None:
+            return
+        if not isinstance(event_analysis, EventAnalysis):
+            raise TypeError(f"Expected EventAnalysis, got {type(event_analysis).__name__}")
+        context.report_progress(None, "Refreshing event statistics")
+        acq_image.analysis_set.run_analysis(key, context=context)
 
     def _publish_analysis_completed(
         self,

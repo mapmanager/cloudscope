@@ -337,7 +337,7 @@ class AcqAnalysisPlotView(BaseView):
         )
         if not isinstance(analysis, EventAnalysis):
             return []
-        return analysis.get_rects()
+        return analysis.get_events()
 
     def _empty_message(self) -> str:
         """Return status text for the current empty plot state.

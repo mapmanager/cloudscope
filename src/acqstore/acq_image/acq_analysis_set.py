@@ -78,6 +78,7 @@ class AcqAnalysisSet:
         if analysis.key in self._analyses:
             raise ValueError(f"Analysis already exists: {analysis.key}")
         self._raise_if_exclusive_conflict(analysis)
+        self.require_dependencies(analysis)
         self._analyses[analysis.key] = analysis
         self.set_dirty()
 

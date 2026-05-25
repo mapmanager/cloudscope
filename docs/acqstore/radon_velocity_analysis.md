@@ -154,3 +154,20 @@ The backend is prepared for GUI use because:
 - `AnalysisRunContext` supports progress and cancellation
 - batch runner reports per-file results
 - save remains explicit
+
+
+## Canonical Plot API
+
+`RadonVelocityAnalysis` exposes canonical velocity-versus-time plot data through:
+
+```python
+get_plot_data()
+```
+
+This returns an `AnalysisPlotData` instance.
+
+Dependent analyses should consume this API rather than directly accessing dataframe columns.
+
+Current dependent analyses include:
+
+- `event`

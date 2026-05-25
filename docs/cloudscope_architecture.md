@@ -742,3 +742,8 @@ NiceGUI + nested splitters + Plotly/ECharts require careful `h-full`, `flex-1`, 
 ### Long task cancellation is cooperative
 
 Cancellation depends on backend APIs checking cancellation callbacks. Any new long task must be designed with cancellation checkpoints.
+
+
+## Project Rules
+
+See `docs/cloudscope_project_rules.md` for repository layout, package boundary, API, testing, and development workflow rules.

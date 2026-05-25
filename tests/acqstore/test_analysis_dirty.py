@@ -39,7 +39,17 @@ def test_event_crud_marks_analysis_dirty() -> None:
 
 def test_analysis_set_dirty_reflects_child_dirty() -> None:
     """Analysis set should be dirty when a child is dirty."""
-    analysis_set = AcqAnalysisSet("fake.tif")
+    analysis_set = AcqAnalysisSet("fake.tif", data_provider=FakeProvider())
+
+    parent_analysis = RadonVelocityAnalysis(
+        channel=0,
+        roi_id=1,
+        detection_params={"window_width": 16},
+    )
+    parent_analysis.set_execution_options(use_multiprocessing=False)
+    analysis_set.add(parent_analysis)
+    analysis_set.run_analysis(AnalysisKey("radon_velocity", 0, 1))
+
     analysis = VelocityEventAnalysis(channel=0, roi_id=1)
     analysis_set.add(analysis)
     analysis_set.set_clean()
@@ -47,7 +57,6 @@ def test_analysis_set_dirty_reflects_child_dirty() -> None:
     analysis.add_event({"event_id": 1})
 
     assert analysis_set.is_dirty()
-
 
 def test_run_analysis_marks_analysis_and_set_dirty() -> None:
     """Running analysis should mark both analysis and set dirty."""

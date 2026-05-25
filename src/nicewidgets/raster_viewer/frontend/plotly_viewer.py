@@ -6,10 +6,8 @@ import json
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 from uuid import uuid4
-from pprint import pprint
 
 import numpy as np
-
 from nicegui import ui
 
 from nicewidgets.raster_viewer.backend.image_model import (
@@ -152,6 +150,7 @@ if (!plotDiv || !plotDiv.data) return;
         self._heatmap_colorscale = DEFAULT_HEATMAP_COLORSCALE
         self._contrast_zmin = None
         self._contrast_zmax = None
+        self._plotly_trace_overlays.clear_overlays()
 
         response = self._service.full_image_png(display_style=self._display_style())
         self._current_bounds = response.bounds
@@ -308,28 +307,30 @@ if (!plotDiv || !plotDiv.data) return;
         overlay_traces = self._plotly_trace_overlays.to_traces()
         js = f"""
 {self._js_plotly_graph_div()}
-const overlayIndices = [];
-for (let i = 0; i < plotDiv.data.length; i += 1) {{
-  const trace = plotDiv.data[i] || {{}};
-  const meta = trace.meta || {{}};
-  if (meta.nicewidgets_overlay_type === 'trace' && typeof meta.trace_id === 'string') {{
-    overlayIndices.push(i);
-  }}
-}}
-let overlayPromise = Promise.resolve();
-if (overlayIndices.length > 0) {{
-  overlayPromise = Plotly.deleteTraces(plotDiv, overlayIndices);
-}}
+const baseTraceCount = 1;
+const deleteCount = Math.max(0, plotDiv.data.length - baseTraceCount);
+const deleteIndices = Array.from(
+  {{length: deleteCount}},
+  (_, i) => baseTraceCount + i,
+);
 const overlayTraces = {json.dumps(overlay_traces)};
-overlayPromise.then(() => {{
+let overlayPromise = Promise.resolve();
+if (deleteIndices.length > 0) {{
+  overlayPromise = Plotly.deleteTraces(plotDiv, deleteIndices);
+}}
+return overlayPromise.then(() => {{
   if (overlayTraces.length > 0) {{
     return Plotly.addTraces(plotDiv, overlayTraces);
   }}
   return null;
 }});
 """
-        logger.info('xxx running javascript')
-        self._plot.client.run_javascript(js, timeout=2.0)
+        try:
+            self._plot.client.run_javascript(js, timeout=10.0)
+        except TimeoutError:
+            logger.warning('Timed out while refreshing Plotly trace overlays.')
+        except Exception:
+            logger.exception('Failed to refresh Plotly trace overlays.')
 
     def _sync_roi_shapes_to_plotly_dict(self) -> None:
         """Synchronize current ROI overlay state into ``layout.shapes``.

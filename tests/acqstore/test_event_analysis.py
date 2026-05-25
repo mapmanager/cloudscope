@@ -1,77 +1,128 @@
-"""Tests for AcqStore event analysis."""
+"""Tests for Radon-dependent event analysis."""
 
 from __future__ import annotations
 
-import pytest
-
-from acqstore.acq_image.acq_analysis_set import AcqAnalysisSet
 from acqstore.acq_image.analysis.event_analysis.event_analysis import (
-    AcqImageEvent,
-    AcqImageEventStore,
     EventAnalysis,
-    EventType,
+    EventStats,
+    calculate_window_stats,
 )
-from acqstore.acq_image.analysis.model import AnalysisKey
+from acqstore.acq_image.analysis.model import AnalysisPlotData, AnalysisResult, BaseAnalysis
 
 
-def test_event_store_add_update_delete_and_summary_roundtrip() -> None:
-    """Event store should support CRUD and summary hydration."""
-    store = AcqImageEventStore()
-    first = store.add_rect(2.0, 1.0)
-    second = store.add_rect(5.0, 8.0, event_type=EventType.TRANSIENT)
+class DummyRadonAnalysis(BaseAnalysis):
+    """Minimal parent analysis exposing canonical plot data."""
 
-    assert first.id == 1
-    assert first.duration == 1.0
-    assert first.x_min == 1.0
-    assert second.id == 2
+    analysis_name = "radon_velocity"
 
-    updated = store.update_rect(second.id, x1=9.0, event_type=EventType.RISE)
-    assert updated.duration == 4.0
-    assert updated.event_type is EventType.RISE
+    def __init__(self, plot_data: AnalysisPlotData) -> None:
+        """Create the dummy parent analysis.
 
-    store.delete_rect(first.id)
-    summary = store.to_summary_dict()
-    reloaded = AcqImageEventStore.from_summary_dict(summary)
+        Args:
+            plot_data: Plot data returned by ``get_plot_data``.
+        """
+        super().__init__(channel=0, roi_id=1)
+        self._plot_data = plot_data
 
-    assert [event.to_json_dict() for event in reloaded.get_rects()] == [
-        {"id": 2, "x0": 5.0, "x1": 9.0, "event_type": "rise", "duration": 4.0}
-    ]
+    def run(self, data_provider, *, context=None, dependencies=None) -> AnalysisResult:
+        """Return the existing empty result."""
+        return self.result
 
-
-def test_event_store_rejects_duplicate_ids() -> None:
-    """Event store should reject duplicate event ids."""
-    store = AcqImageEventStore([AcqImageEvent(id=1, x0=0.0, x1=1.0)])
-    with pytest.raises(ValueError):
-        store.add_rect(2.0, 3.0, event_id=1)
+    def get_plot_data(self) -> AnalysisPlotData:
+        """Return configured plot data."""
+        return self._plot_data
 
 
-def test_event_analysis_persists_events_in_summary() -> None:
-    """EventAnalysis should serialize events through AnalysisResult.summary."""
-    analysis = EventAnalysis(channel=0, roi_id=10)
-    event = analysis.add_rect(1.0, 3.0, event_type=EventType.USER)
+def test_calculate_window_stats_returns_null_values_for_empty_window() -> None:
+    """Empty windows should produce strict-JSON-compatible null stats."""
+    plot_data = AnalysisPlotData(
+        x=(0.0, 1.0, 2.0),
+        y=(10.0, 20.0, 30.0),
+        x_label="Time (s)",
+        y_label="Velocity",
+    )
 
-    record = analysis.to_json_dict()
-    assert record["analysis_name"] == "event"
-    assert record["summary"]["events"][0]["id"] == event.id
+    stats = calculate_window_stats(plot_data, 5.0, 6.0, True, True)
 
-    reloaded = EventAnalysis(channel=0, roi_id=10)
-    reloaded.load_json_dict(record)
+    assert stats == EventStats()
+    assert stats.to_json_dict() == {
+        "n": 0,
+        "mean": None,
+        "min": None,
+        "max": None,
+        "std": None,
+        "se": None,
+        "cv": None,
+    }
 
-    events = reloaded.get_rects()
-    assert len(events) == 1
-    assert events[0].id == event.id
-    assert events[0].x0 == 1.0
-    assert events[0].x1 == 3.0
-    assert not reloaded.is_dirty()
+
+def test_add_event_uses_parent_plot_data_and_configured_windows() -> None:
+    """Adding an event should fill event/pre/post stats from plot data."""
+    plot_data = AnalysisPlotData(
+        x=(0.0, 1.0, 2.0, 3.0, 4.0),
+        y=(10.0, 20.0, 30.0, 40.0, 50.0),
+        x_label="Time (s)",
+        y_label="Velocity",
+    )
+    analysis = EventAnalysis(channel=0, roi_id=1, detection_params={"pre_post_win_sec": 1.0})
+
+    event = analysis.add_event(1.0, 3.0, plot_data=plot_data)
+
+    assert event.event_stats.n == 3
+    assert event.event_stats.mean == 30.0
+    assert event.pre_win_stats.n == 1
+    assert event.pre_win_stats.mean == 10.0
+    assert event.post_win_stats.n == 1
+    assert event.post_win_stats.mean == 50.0
 
 
-def test_event_analysis_can_coexist_with_primary_analysis() -> None:
-    """Event analysis should not conflict with primary-kymograph analyses."""
-    from acqstore.acq_image.analysis.velocity_analysis.radon_velocity_analysis import RadonVelocityAnalysis
+def test_reanalysis_updates_stats_but_preserves_event_coordinates() -> None:
+    """Running event analysis after parent changes should preserve x0/x1."""
+    old_plot_data = AnalysisPlotData(
+        x=(0.0, 1.0, 2.0, 3.0),
+        y=(1.0, 2.0, 3.0, 4.0),
+        x_label="Time (s)",
+        y_label="Velocity",
+    )
+    new_plot_data = AnalysisPlotData(
+        x=(0.0, 1.0, 2.0, 3.0),
+        y=(10.0, 20.0, 30.0, 40.0),
+        x_label="Time (s)",
+        y_label="Velocity",
+    )
+    analysis = EventAnalysis(channel=0, roi_id=1, detection_params={"pre_post_win_sec": 1.0})
+    analysis.add_event(1.0, 2.0, plot_data=old_plot_data)
 
-    analysis_set = AcqAnalysisSet("fake.tif")
-    analysis_set.add(RadonVelocityAnalysis(channel=0, roi_id=1))
-    event_analysis = analysis_set.create(EventAnalysis.analysis_name, channel=0, roi_id=1)
+    result = analysis.run(
+        data_provider=object(),
+        dependencies={"radon_velocity": DummyRadonAnalysis(new_plot_data)},
+    )
+    [event] = analysis.get_events()
 
-    assert analysis_set.get_required(AnalysisKey("radon_velocity", 0, 1)) is not None
-    assert isinstance(event_analysis, EventAnalysis)
+    assert event.x0 == 1.0
+    assert event.x1 == 2.0
+    assert event.event_stats.mean == 25.0
+    assert result.summary["events"][0]["event_stats"]["mean"] == 25.0
+
+
+def test_load_json_requires_current_summary_shape() -> None:
+    """Old event JSON without stats should fail instead of being migrated."""
+    analysis = EventAnalysis(channel=0, roi_id=1)
+
+    try:
+        analysis.load_json_dict(
+            {
+                "analysis_name": "event",
+                "channel": 0,
+                "roi_id": 1,
+                "detection_params": {"pre_post_win_sec": 1.0},
+                "summary": {
+                    "version": 1,
+                    "events": [{"id": 1, "x0": 0.0, "x1": 1.0, "event_type": "user"}],
+                },
+            }
+        )
+    except ValueError as exc:
+        assert "Unsupported event summary version" in str(exc)
+    else:  # pragma: no cover - defensive assertion branch
+        raise AssertionError("old event JSON loaded unexpectedly")
