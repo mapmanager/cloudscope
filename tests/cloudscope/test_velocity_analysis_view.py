@@ -160,7 +160,7 @@ def test_on_run_clicked_noop_for_incomplete_selection(monkeypatch) -> None:
     assert intents == []
 
 
-# ---- _refresh_run_button + _refresh_selection_label with fakes ----
+# ---- _refresh_run_button + refresh_selection_label with fakes ----
 
 
 class _FakeButton:
@@ -193,19 +193,20 @@ def test_refresh_selection_label_displays_no_file_when_unset() -> None:
     view = VelocityAnalysisView(event_bus=EventBus())
     view._selection_label = _FakeLabel()
 
-    view._refresh_selection_label()
+    view.refresh_selection_label()
 
     assert view._selection_label.text == "No file selected"
 
 
 def test_refresh_selection_label_includes_selection_components() -> None:
-    """A complete selection should render file, channel, and roi components."""
+    """A complete selection should render file name, channel, and roi on 3 lines."""
     view = VelocityAnalysisView(event_bus=EventBus())
     view._selection_label = _FakeLabel()
-    view.current_selection = PrimarySelection(file_id="f", channel=2, roi_id=5)
+    view.current_selection = PrimarySelection(
+        file_id="/abs/path/to/sample.oir", channel=2, roi_id=5
+    )
 
-    view._refresh_selection_label()
+    view.refresh_selection_label()
 
-    assert "file=f" in view._selection_label.text
-    assert "channel=2" in view._selection_label.text
-    assert "roi=5" in view._selection_label.text
+    lines = view._selection_label.text.split("\n")
+    assert lines == ["file: sample.oir", "channel: 2", "roi: 5"]

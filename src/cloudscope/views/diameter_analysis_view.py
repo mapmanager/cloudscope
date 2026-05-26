@@ -70,7 +70,6 @@ class DiameterAnalysisView(BaseView):
     ) -> None:
         super().__init__(event_bus=event_bus, app_state=app_state, initially_visible=initially_visible)
         self._visible_file_ids_provider = visible_file_ids_provider
-        self._selection_label: ui.label | None = None
         self._params_container: ui.column | None = None
         self._results_container: ui.column | None = None
         self._run_button: ui.button | None = None
@@ -158,7 +157,7 @@ class DiameterAnalysisView(BaseView):
             None.
         """
         ui.label("Diameter analysis").classes("text-lg font-semibold shrink-0")
-        self._selection_label = ui.label("No file selected").classes("text-sm opacity-70 shrink-0")
+        self.build_selection_label()
         self._params_container = ui.column().classes(
             "w-full gap-2 min-h-0 flex-1 overflow-y-auto pr-1"
         )
@@ -392,7 +391,7 @@ class DiameterAnalysisView(BaseView):
         Returns:
             None.
         """
-        self._refresh_selection_label()
+        self.refresh_selection_label()
         self._refresh_run_button()
         self._build_results_controls()
 
@@ -409,19 +408,3 @@ class DiameterAnalysisView(BaseView):
         if self._batch_button is not None:
             self._batch_button.enabled = enabled and self._visible_file_ids_provider is not None
             self._batch_button.update()
-
-    def _refresh_selection_label(self) -> None:
-        """Refresh selection text.
-
-        Returns:
-            None.
-        """
-        if self._selection_label is None:
-            return
-        selection = self.current_selection
-        if selection.file_id is None:
-            self._selection_label.text = "No file selected"
-            return
-        self._selection_label.text = (
-            f"file={selection.file_id}, channel={selection.channel}, roi={selection.roi_id}"
-        )

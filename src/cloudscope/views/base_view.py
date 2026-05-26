@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, ClassVar
 
 from nicegui import ui
@@ -341,6 +342,55 @@ class BaseView:
         if selected_acq_image is None:
             return False
         return selected_acq_image.is_dirty
+
+    def build_selection_label(self) -> ui.label:
+        """Create the standard three-line primary-selection summary label.
+
+        Lines are file name (basename of ``file_id``), channel, and ROI. The
+        label is stored on ``self._selection_label`` so
+        :meth:`refresh_selection_label` can update it later. Callers must
+        invoke this method from inside a NiceGUI container.
+
+        Returns:
+            Newly created ``ui.label`` element.
+        """
+        self._selection_label = ui.label("No file selected").classes(
+            "text-sm opacity-70 shrink-0 whitespace-pre-line"
+        )
+        return self._selection_label
+
+    def refresh_selection_label(self) -> None:
+        """Refresh the selection-summary label from ``current_selection``.
+
+        When a file is selected, renders three lines:
+
+        1. File name (basename of ``file_id``).
+        2. Channel value, or ``"—"`` when unset.
+        3. ROI value, or ``"—"`` when unset.
+
+        When no file is selected, renders the single line ``"No file selected"``.
+        No-op when :meth:`build_selection_label` has not been called.
+
+        Returns:
+            None.
+        """
+        label = getattr(self, "_selection_label", None)
+        if label is None:
+            return
+        selection = self.current_selection
+        if selection.file_id is None:
+            label.text = "No file selected"
+            return
+        file_name = Path(selection.file_id).name
+        channel_text = "—" if selection.channel is None else str(selection.channel)
+        roi_text = "—" if selection.roi_id is None else str(selection.roi_id)
+        label.text = "\n".join(
+            (
+                f"file: {file_name}",
+                f"channel: {channel_text}",
+                f"roi: {roi_text}",
+            )
+        )
 
     def _on_app_busy_changed(self, event: AppBusyChanged) -> None:
         """Dispatch app busy events to the overridable handler.

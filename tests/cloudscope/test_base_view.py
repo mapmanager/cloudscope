@@ -175,3 +175,79 @@ def test_selected_acq_image_is_dirty_false_without_selection() -> None:
     view = FakeView(bus)
 
     assert view.selected_acq_image_is_dirty() is False
+
+
+class _FakeLabel:
+    """Minimal stand-in for ``ui.label`` used by selection-label tests."""
+
+    def __init__(self) -> None:
+        self.text = ""
+
+
+def test_refresh_selection_label_no_op_when_label_not_built() -> None:
+    """``refresh_selection_label`` should no-op before ``build_selection_label``."""
+    bus = EventBus()
+    view = FakeView(bus)
+    view.current_selection = PrimarySelection(
+        file_id="/abs/path/sample.oir", channel=0, roi_id=1
+    )
+
+    view.refresh_selection_label()
+
+    assert not hasattr(view, "_selection_label")
+
+
+def test_refresh_selection_label_displays_no_file_when_unset() -> None:
+    """``refresh_selection_label`` should render single placeholder line."""
+    bus = EventBus()
+    view = FakeView(bus)
+    view._selection_label = _FakeLabel()  # type: ignore[attr-defined]
+
+    view.refresh_selection_label()
+
+    assert view._selection_label.text == "No file selected"  # type: ignore[attr-defined]
+
+
+def test_refresh_selection_label_renders_three_lines_with_basename() -> None:
+    """Full selection should render basename, channel, and roi on three lines."""
+    bus = EventBus()
+    view = FakeView(bus)
+    view._selection_label = _FakeLabel()  # type: ignore[attr-defined]
+    view.current_selection = PrimarySelection(
+        file_id="/abs/path/to/sample.oir", channel=2, roi_id=5
+    )
+
+    view.refresh_selection_label()
+
+    lines = view._selection_label.text.split("\n")  # type: ignore[attr-defined]
+    assert lines == ["file: sample.oir", "channel: 2", "roi: 5"]
+
+
+def test_refresh_selection_label_uses_em_dash_for_missing_channel_and_roi() -> None:
+    """Partial selection should still render three lines with em-dash placeholders."""
+    bus = EventBus()
+    view = FakeView(bus)
+    view._selection_label = _FakeLabel()  # type: ignore[attr-defined]
+    view.current_selection = PrimarySelection(
+        file_id="/abs/path/sample.oir", channel=None, roi_id=None
+    )
+
+    view.refresh_selection_label()
+
+    lines = view._selection_label.text.split("\n")  # type: ignore[attr-defined]
+    assert lines == ["file: sample.oir", "channel: —", "roi: —"]
+
+
+def test_refresh_selection_label_uses_em_dash_only_for_missing_field() -> None:
+    """Channel set but ROI unset should render dash only on the ROI line."""
+    bus = EventBus()
+    view = FakeView(bus)
+    view._selection_label = _FakeLabel()  # type: ignore[attr-defined]
+    view.current_selection = PrimarySelection(
+        file_id="/abs/path/sample.oir", channel=0, roi_id=None
+    )
+
+    view.refresh_selection_label()
+
+    lines = view._selection_label.text.split("\n")  # type: ignore[attr-defined]
+    assert lines == ["file: sample.oir", "channel: 0", "roi: —"]

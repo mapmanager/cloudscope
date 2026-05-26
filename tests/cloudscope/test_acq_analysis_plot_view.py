@@ -269,16 +269,17 @@ def _view_with_fake_chart() -> AcqAnalysisPlotView:
 # ---- _refresh_plot ----
 
 
-def test_refresh_plot_clears_chart_and_sets_status_when_no_plot_data() -> None:
-    """When no plot data is available, the chart should clear and the status update."""
+def test_refresh_plot_clears_chart_when_no_plot_data() -> None:
+    """When no plot data is available, the chart should clear."""
     view = _view_with_fake_chart()
+    view._status_label.text = "previous status"
     view.current_acq_image = FakeAcqImage()
     view.current_selection = PrimarySelection(file_id=None, channel=None, roi_id=None)
 
     view._refresh_plot()
 
     assert view._chart.cleared == 1
-    assert view._status_label.text == "No file selected"
+    assert view._status_label.text == "previous status"
 
 
 def test_refresh_plot_sets_line_data_for_available_plot() -> None:
@@ -301,7 +302,7 @@ def test_refresh_plot_sets_line_data_for_available_plot() -> None:
 
     assert view._chart.cleared == 0
     assert view._chart.line_calls[-1]["x"] == (0.0, 1.0, 2.0)
-    assert "3 points" in view._status_label.text
+    assert view._status_label.text == ""
 
 
 def test_refresh_plot_noop_when_no_chart() -> None:
