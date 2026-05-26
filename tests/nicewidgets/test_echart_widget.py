@@ -44,3 +44,108 @@ def test_echart_axis_range_validates_bounds() -> None:
     """Axis range should reject inverted bounds."""
     with pytest.raises(ValueError):
         EChartAxisRange(x_min=2.0, x_max=1.0)
+
+
+# ---- additional coverage tests ----
+
+from nicewidgets.echart_widget.models import EChartEventOverlay
+from nicewidgets.echart_widget.widget import EChartWidget
+
+
+def test_build_line_options_uses_auto_axis_when_no_range_passed() -> None:
+    """Without a range, ``min`` / ``max`` should be ``None``."""
+    line = EChartLineData.from_sequences(
+        x=[0.0, 1.0], y=[2.0, 3.0], x_label="x", y_label="y"
+    )
+
+    options = build_line_options(line)
+
+    assert options["xAxis"]["min"] is None
+    assert options["xAxis"]["max"] is None
+
+
+def test_empty_options_has_value_axes_and_empty_series() -> None:
+    """`_empty_options` should describe a blank value/value chart."""
+    opts = EChartWidget._empty_options()
+
+    assert opts["xAxis"]["type"] == "value"
+    assert opts["yAxis"]["type"] == "value"
+    assert opts["series"] == []
+    assert opts["animation"] is False
+
+
+def test_extract_x_brush_range_handles_missing_data() -> None:
+    """Missing batch/areas/coordRange should return None."""
+    assert EChartWidget._extract_x_brush_range({}) is None
+    assert EChartWidget._extract_x_brush_range({"batch": []}) is None
+    assert EChartWidget._extract_x_brush_range({"batch": [{"areas": []}]}) is None
+    assert (
+        EChartWidget._extract_x_brush_range({"batch": [{"areas": [{"coordRange": [1.0]}]}]})
+        is None
+    )
+
+
+def test_extract_x_brush_range_returns_sorted_floats() -> None:
+    """Coord range with inverted values should be returned sorted."""
+    result = EChartWidget._extract_x_brush_range(
+        {"batch": [{"areas": [{"coordRange": [5.0, 2.0]}]}]}
+    )
+
+    assert result == (2.0, 5.0)
+
+
+def test_extract_x_brush_range_handles_normal_range() -> None:
+    """Normal coord range should map to (x0, x1)."""
+    result = EChartWidget._extract_x_brush_range(
+        {"batch": [{"areas": [{"coordRange": [1.5, 4.5]}]}]}
+    )
+
+    assert result == (1.5, 4.5)
+
+
+def test_echart_event_overlay_from_object_extracts_attributes() -> None:
+    """``EChartEventOverlay.from_object`` should pull id/x0/x1/event_type."""
+
+    class _Obj:
+        id = 5
+        x0 = 1.0
+        x1 = 2.0
+        event_type = "auto"
+
+    overlay = EChartEventOverlay.from_object(_Obj())
+
+    assert overlay.id == "5"
+    assert overlay.x0 == 1.0
+    assert overlay.x1 == 2.0
+    assert overlay.event_type == "auto"
+
+
+def test_echart_event_overlay_from_object_defaults_event_type() -> None:
+    """Missing event_type should default to 'user'."""
+
+    class _Obj:
+        id = "x"
+        x0 = 0.0
+        x1 = 1.0
+
+    overlay = EChartEventOverlay.from_object(_Obj())
+
+    assert overlay.event_type == "user"
+
+
+def test_echart_event_overlay_from_object_uses_enum_value() -> None:
+    """If event_type has a ``value`` attribute, that value should be used."""
+    from enum import StrEnum
+
+    class _Type(StrEnum):
+        AUTO = "auto"
+
+    class _Obj:
+        id = "x"
+        x0 = 0.0
+        x1 = 1.0
+        event_type = _Type.AUTO
+
+    overlay = EChartEventOverlay.from_object(_Obj())
+
+    assert overlay.event_type == "auto"

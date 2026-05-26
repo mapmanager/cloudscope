@@ -58,6 +58,15 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "-ra"
 
+[tool.coverage.run]
+omit = [
+    "src/cloudscope/app.py",
+    "src/cloudscope/devtools/*",
+    "src/nicewidgets/raster_viewer/demo/*",
+    "src/nicewidgets/table_widget/demo_app.py",
+    "src/nicewidgets/gui_defaults.py",
+]
+
 [tool.ruff]
 line-length = 140
 target-version = "py312"

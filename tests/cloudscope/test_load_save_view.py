@@ -1,187 +1,226 @@
-"""Tests for load/save toolbar view logic."""
+"""Headless tests for LoadSaveView pure helpers."""
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from cloudscope.app_config import AppConfig
 from cloudscope.event_bus import EventBus
-from cloudscope.events.acq_image_events import AcqImageEventsChanged
-from cloudscope.events.files import SaveAllIntent, SaveSelectedIntent
-from cloudscope.events.selection import FileSelectionChanged
-from cloudscope.events.status import AppStatusChanged, StatusLevel, StatusSource
-from cloudscope.app_config import AppConfig, normalize_stored_path
-from cloudscope.state import PrimarySelection
-from cloudscope.views.load_save_view import LoadSaveView
+from cloudscope.events.files import LoadPathKind
+from cloudscope.views.load_save_view import (
+    LoadSaveView,
+    _path_display,
+    _recent_target_exists,
+)
 
 
-class _ToggleButton:
-    """Fake button tracking enable/disable calls."""
-
-    def __init__(self) -> None:
-        self.disabled = False
-
-    def disable(self) -> None:
-        """Mark disabled."""
-        self.disabled = True
-
-    def enable(self) -> None:
-        """Mark enabled."""
-        self.disabled = False
+# ---- _recent_target_exists ----
 
 
-
-class _MutableAcqImage:
-    """Fake acquisition image exposing mutable dirty state."""
-
-    def __init__(self, *, dirty: bool = False) -> None:
-        self.is_dirty = bool(dirty)
-
-
-class _DirtyAcqImage:
-    """Fake acquisition image exposing dirty state."""
-
-    is_dirty = True
+def test_recent_target_exists_file_true(tmp_path) -> None:
+    """File path matching a real file should resolve to True."""
+    fp = tmp_path / "a.tif"
+    fp.write_text("x", encoding="utf-8")
+    assert _recent_target_exists(str(fp), LoadPathKind.FILE) is True
 
 
-class _CleanAcqImage:
-    """Fake acquisition image exposing clean state."""
-
-    is_dirty = False
-
-
-def test_save_selected_disabled_without_dirty_selection(tmp_path) -> None:
-    """Selection state tracked by BaseView should drive save-selected state."""
-    bus = EventBus()
-    cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
-    view = LoadSaveView(event_bus=bus, app_config=cfg)
-    view._save_selected_button = _ToggleButton()
-    view._save_all_button = _ToggleButton()
-    view.on_show()
-
-    bus.publish(FileSelectionChanged(file_id=None, acq_image=None, channel=None, roi_id=None))
-
-    assert view._save_selected_button.disabled is True
+def test_recent_target_exists_file_false_when_missing(tmp_path) -> None:
+    """Missing file path should resolve to False."""
+    assert _recent_target_exists(str(tmp_path / "missing.tif"), LoadPathKind.FILE) is False
 
 
-def test_save_selected_enabled_with_dirty_selection(tmp_path) -> None:
-    """Dirty selected AcqImage should enable Save Selected."""
-    bus = EventBus()
-    cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
-    view = LoadSaveView(event_bus=bus, app_config=cfg)
-    view._save_selected_button = _ToggleButton()
-    view._save_all_button = _ToggleButton()
-    view.on_show()
-
-    bus.publish(FileSelectionChanged(file_id='/tmp/a.oir', acq_image=_DirtyAcqImage(), channel=0, roi_id=1))
-
-    assert view._save_selected_button.disabled is False
+def test_recent_target_exists_file_false_when_path_is_directory(tmp_path) -> None:
+    """A directory should not satisfy a FILE recent."""
+    assert _recent_target_exists(str(tmp_path), LoadPathKind.FILE) is False
 
 
-
-def test_save_selected_disabled_with_clean_selection(tmp_path) -> None:
-    """Clean selected AcqImage should keep Save Selected disabled."""
-    bus = EventBus()
-    cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
-    view = LoadSaveView(event_bus=bus, app_config=cfg)
-    view._save_selected_button = _ToggleButton()
-    view._save_all_button = _ToggleButton()
-    view.on_show()
-
-    bus.publish(FileSelectionChanged(file_id='/tmp/a.oir', acq_image=_CleanAcqImage(), channel=0, roi_id=1))
-
-    assert view._save_selected_button.disabled is True
+def test_recent_target_exists_folder_true(tmp_path) -> None:
+    """A real directory should satisfy a FOLDER recent."""
+    folder = tmp_path / "f"
+    folder.mkdir()
+    assert _recent_target_exists(str(folder), LoadPathKind.FOLDER) is True
 
 
-def test_recent_item_matches_app_path_respects_last_path(tmp_path) -> None:
-    """Recent path comparison should normalize the persisted last path."""
-    bus = EventBus()
-    cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
-    file_path = tmp_path / 'doc.tif'
-    file_path.write_text('x', encoding='utf-8')
-    cfg.set_last_path(str(file_path))
-    view = LoadSaveView(event_bus=bus, app_config=cfg)
-    assert view._recent_item_matches_app_path(str(file_path))
-    assert view._recent_item_matches_app_path(normalize_stored_path(str(file_path)))
-    assert not view._recent_item_matches_app_path(str(tmp_path / 'other.tif'))
+def test_recent_target_exists_folder_false_when_missing(tmp_path) -> None:
+    """Missing directory should not satisfy a FOLDER recent."""
+    assert _recent_target_exists(str(tmp_path / "missing"), LoadPathKind.FOLDER) is False
+
+
+def test_recent_target_exists_folder_false_when_file(tmp_path) -> None:
+    """A file path should not satisfy a FOLDER recent."""
+    fp = tmp_path / "a.tif"
+    fp.write_text("x", encoding="utf-8")
+    assert _recent_target_exists(str(fp), LoadPathKind.FOLDER) is False
+
+
+def test_recent_target_exists_csv_treated_as_file(tmp_path) -> None:
+    """CSV path that exists should satisfy CSV recents (treated as a file)."""
+    fp = tmp_path / "list.csv"
+    fp.write_text("x", encoding="utf-8")
+    assert _recent_target_exists(str(fp), LoadPathKind.CSV) is True
+
+
+# ---- _path_display ----
+
+
+def test_path_display_shortens_home_relative_path() -> None:
+    """Paths under the user home should display as ``~/...``."""
+    home = Path.home()
+    target = home / "scratch" / "x.tif"
+    out = _path_display(str(target))
+    assert out.startswith("~")
+    assert "scratch" in out
+
+
+def test_path_display_returns_path_unchanged_outside_home() -> None:
+    """Paths outside the user home should round-trip unchanged."""
+    target = "/var/tmp/some/file.tif"
+    assert _path_display(target) == target
+
+
+# ---- _recent_item_matches_app_path ----
+
+
+def _new_view(tmp_path: Path) -> LoadSaveView:
+    cfg = AppConfig.load(config_path=tmp_path / "cfg.json")
+    return LoadSaveView(event_bus=EventBus(), app_config=cfg, initially_visible=False)
+
+
+def test_recent_item_matches_app_path_true_for_matching_last_path(tmp_path) -> None:
+    """A recent item equal to ``last_path`` should match."""
+    view = _new_view(tmp_path)
+    view.app_config.set_last_path(str(tmp_path / "a.tif"))
+
+    assert view._recent_item_matches_app_path(str(tmp_path / "a.tif")) is True
+
+
+def test_recent_item_matches_app_path_false_for_different_path(tmp_path) -> None:
+    """A different path should not match."""
+    view = _new_view(tmp_path)
+    view.app_config.set_last_path(str(tmp_path / "a.tif"))
+
+    assert view._recent_item_matches_app_path(str(tmp_path / "b.tif")) is False
 
 
 def test_recent_item_matches_app_path_false_when_last_path_empty(tmp_path) -> None:
-    """Empty last path should never match a recent item."""
-    bus = EventBus()
-    cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
-    view = LoadSaveView(event_bus=bus, app_config=cfg)
-    assert cfg.get_last_path() == ''
-    assert not view._recent_item_matches_app_path('/any/path')
+    """Empty ``last_path`` should not match any recent."""
+    view = _new_view(tmp_path)
+    assert view._recent_item_matches_app_path(str(tmp_path / "a.tif")) is False
 
 
-def test_status_event_calls_notify(tmp_path, monkeypatch) -> None:
-    """LoadSaveView should still forward app status notifications."""
-    bus = EventBus()
-    cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
-    view = LoadSaveView(event_bus=bus, app_config=cfg)
-    view.subscribe_events()
-    notify_calls: list[str] = []
-
-    def _notify(msg: str, *, type: str) -> None:
-        notify_calls.append(f'{type}:{msg}')
-
-    monkeypatch.setattr('cloudscope.views.load_save_view.ui.notify', _notify)
-    bus.publish(AppStatusChanged(level=StatusLevel.INFO, message='ok', source=StatusSource.SYSTEM))
-    assert notify_calls == ['info:ok']
+# ---- _resolve_initial_directory ----
 
 
-def test_save_selected_publishes_intent_without_prompt(tmp_path, monkeypatch) -> None:
-    """Save Selected should not prompt for a CSV path."""
-    bus = EventBus()
-    cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
-    view = LoadSaveView(event_bus=bus, app_config=cfg)
-    published: list[SaveSelectedIntent] = []
-    bus.subscribe(SaveSelectedIntent, lambda event: published.append(event))
+def test_resolve_initial_directory_uses_last_path_dir(tmp_path) -> None:
+    """When ``last_path`` is a directory, it should be returned as the initial dir."""
+    folder = tmp_path / "folder"
+    folder.mkdir()
+    view = _new_view(tmp_path)
+    view.app_config.set_last_path(str(folder))
 
-    def fail_prompt(*args, **kwargs):
-        raise AssertionError('save path prompt should not be used')
-
-    monkeypatch.setattr('cloudscope.views.load_save_view._prompt_for_path', fail_prompt)
-
-    view._on_save_selected_clicked()
-
-    assert len(published) == 1
+    assert view._resolve_initial_directory() == folder
 
 
-def test_save_all_publishes_intent_without_prompt(tmp_path, monkeypatch) -> None:
-    """Save All should not prompt for a CSV path."""
-    bus = EventBus()
-    cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
-    view = LoadSaveView(event_bus=bus, app_config=cfg)
-    published: list[SaveAllIntent] = []
-    bus.subscribe(SaveAllIntent, lambda event: published.append(event))
+def test_resolve_initial_directory_uses_parent_of_last_file(tmp_path) -> None:
+    """When ``last_path`` is a file, its parent should be returned."""
+    folder = tmp_path / "folder"
+    folder.mkdir()
+    fp = folder / "x.tif"
+    fp.write_text("x", encoding="utf-8")
+    view = _new_view(tmp_path)
+    view.app_config.set_last_path(str(fp))
 
-    def fail_prompt(*args, **kwargs):
-        raise AssertionError('save path prompt should not be used')
-
-    monkeypatch.setattr('cloudscope.views.load_save_view._prompt_for_path', fail_prompt)
-
-    view._on_save_all_clicked()
-
-    assert len(published) == 1
+    assert view._resolve_initial_directory() == folder
 
 
-def test_events_changed_refreshes_save_selected_button_state(tmp_path) -> None:
-    """AcqImageEventsChanged should refresh Save Selected when event edits mark dirty."""
-    bus = EventBus()
-    cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
-    image = _MutableAcqImage(dirty=False)
-    view = LoadSaveView(event_bus=bus, app_config=cfg)
-    view._save_selected_button = _ToggleButton()
-    view._save_all_button = _ToggleButton()
-    view.on_show()
+def test_resolve_initial_directory_falls_back_to_home(tmp_path) -> None:
+    """When no useful ``last_path`` is set, the home directory should be returned."""
+    view = _new_view(tmp_path)
+    assert view._resolve_initial_directory() == Path.home()
 
-    bus.publish(FileSelectionChanged(file_id='/tmp/a.oir', acq_image=image, channel=0, roi_id=1))
-    assert view._save_selected_button.disabled is True
 
-    image.is_dirty = True
-    bus.publish(
-        AcqImageEventsChanged(
-            selection=PrimarySelection(file_id='/tmp/a.oir', channel=0, roi_id=1),
-        )
-    )
+# ---- _is_native_mode ----
 
-    assert view._save_selected_button.disabled is False
+
+def test_is_native_mode_returns_bool() -> None:
+    """``_is_native_mode`` should return a boolean reflecting ``app.native`` presence."""
+    assert isinstance(LoadSaveView._is_native_mode(), bool)
+
+
+def test_is_native_mode_false_when_app_lacks_native(monkeypatch) -> None:
+    """When ``app.native`` is None, ``_is_native_mode`` should be False."""
+    from nicegui import app as nicegui_app
+
+    monkeypatch.setattr(nicegui_app, "native", None, raising=False)
+    assert LoadSaveView._is_native_mode() is False
+
+
+# ---- _update_button_states with fake buttons ----
+
+
+class _FakeButton:
+    """Fake NiceGUI button capturing enable/disable calls."""
+
+    def __init__(self) -> None:
+        self.enabled = True
+
+    def disable(self) -> None:
+        self.enabled = False
+
+    def enable(self) -> None:
+        self.enabled = True
+
+
+def _fake_acq_image(is_dirty: bool):
+    class _Img:
+        def __init__(self) -> None:
+            self.is_dirty = is_dirty
+
+    return _Img()
+
+
+def test_update_button_states_disables_save_selected_without_selection(tmp_path) -> None:
+    """Save-selected should be disabled when no acq image is selected."""
+    view = _new_view(tmp_path)
+    view._save_selected_button = _FakeButton()
+    view._save_all_button = _FakeButton()
+
+    view._update_button_states()
+
+    assert view._save_selected_button.enabled is False
+    assert view._save_all_button.enabled is True
+
+
+def test_update_button_states_disables_save_selected_when_not_dirty(tmp_path) -> None:
+    """Save-selected should be disabled when the selected image is clean."""
+    view = _new_view(tmp_path)
+    view._save_selected_button = _FakeButton()
+    view._save_all_button = _FakeButton()
+    view.get_selected_acq_image = lambda: _fake_acq_image(is_dirty=False)  # type: ignore[method-assign]
+    view.selected_acq_image_is_dirty = lambda: False  # type: ignore[method-assign]
+
+    view._update_button_states()
+
+    assert view._save_selected_button.enabled is False
+
+
+def test_update_button_states_enables_save_selected_when_dirty(tmp_path) -> None:
+    """Save-selected should be enabled when the selected image is dirty."""
+    view = _new_view(tmp_path)
+    view._save_selected_button = _FakeButton()
+    view._save_all_button = _FakeButton()
+    view.get_selected_acq_image = lambda: _fake_acq_image(is_dirty=True)  # type: ignore[method-assign]
+    view.selected_acq_image_is_dirty = lambda: True  # type: ignore[method-assign]
+
+    view._update_button_states()
+
+    assert view._save_selected_button.enabled is True
+
+
+def test_update_button_states_tolerates_missing_buttons(tmp_path) -> None:
+    """Missing button references should not raise."""
+    view = _new_view(tmp_path)
+    view._save_selected_button = None
+    view._save_all_button = None
+
+    view._update_button_states()

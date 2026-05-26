@@ -339,3 +339,428 @@ def test_save_all_uses_iter_save_all_cancel_callback(tmp_path) -> None:
 
     assert files.get_files()[0].saved == 1
     assert files.get_files()[1].saved == 0
+
+
+# ---- additional coverage tests ----
+
+
+class _ImmediateTaskKindBus:
+    """Minimal capture helper used across new tests."""
+
+    def __init__(self, bus: EventBus) -> None:
+        self.statuses: list[AppStatusChanged] = []
+        self.progress: list[TaskProgressChanged] = []
+        self.recents: list[RecentPathsChanged] = []
+        bus.subscribe(AppStatusChanged, self.statuses.append)
+        bus.subscribe(TaskProgressChanged, self.progress.append)
+        bus.subscribe(RecentPathsChanged, self.recents.append)
+
+
+def _build_controller(tmp_path, *, runner=None) -> tuple[LoadSaveController, EventBus, HomePageController, AppConfig, _ImmediateTaskKindBus]:
+    bus = EventBus()
+    cfg = AppConfig.load(config_path=tmp_path / 'cfg.json')
+    home = HomePageController(event_bus=bus)
+    controller = LoadSaveController(event_bus=bus, home_controller=home, app_config=cfg, task_runner=runner)
+    controller.bind()
+    cap = _ImmediateTaskKindBus(bus)
+    return controller, bus, home, cfg, cap
+
+
+# ---- _ImmediateTaskContext branches ----
+
+
+def test_immediate_task_context_publishes_progress_with_unknown_fraction(tmp_path) -> None:
+    """Progress with ``fraction=None`` should publish ``current=0``."""
+    from cloudscope.controllers.load_save_controller import _ImmediateTaskContext
+    from cloudscope.events.analysis import TaskKind
+
+    bus = EventBus()
+    cap = _ImmediateTaskKindBus(bus)
+    ctx = _ImmediateTaskContext(
+        task_kind=TaskKind.LOAD,
+        task_id='abc',
+        event_bus=bus,
+        task_label='Load',
+    )
+
+    ctx.report_progress(None, 'starting')
+    ctx.report_progress(0.5, 'half')
+
+    assert cap.progress[0].current == 0
+    assert cap.progress[1].current == 50
+    assert ctx.is_cancelled() is False
+    ctx.raise_if_cancelled()
+
+
+# ---- _on_cancel_task additional branches ----
+
+
+def test_cancel_task_ignored_for_analysis_kind(tmp_path) -> None:
+    """Cancel for ANALYSIS kind is owned by AnalysisController; LoadSave must ignore it."""
+    from cloudscope.events.analysis import CancelTaskIntent, TaskKind
+
+    class FakeRunner:
+        def __init__(self) -> None:
+            self.cancel_called = False
+
+        def cancel(self, *, task_kind=None, task_id=None):
+            self.cancel_called = True
+            return True
+
+    runner = FakeRunner()
+    _, bus, _, _, _ = _build_controller(tmp_path, runner=runner)
+
+    bus.publish(CancelTaskIntent(task_kind=TaskKind.ANALYSIS))
+
+    assert runner.cancel_called is False
+
+
+def test_cancel_task_without_runner_publishes_warning(tmp_path) -> None:
+    """A cancel intent for SAVE without a runner should publish a warning status."""
+    from cloudscope.events.analysis import CancelTaskIntent, TaskKind
+
+    _, bus, _, _, cap = _build_controller(tmp_path)
+
+    bus.publish(CancelTaskIntent(task_kind=TaskKind.SAVE))
+
+    assert cap.statuses[-1].level == 'warning'
+    assert 'cancellable' in cap.statuses[-1].message.lower()
+
+
+def test_cancel_task_publishes_warning_when_no_matching_task(tmp_path) -> None:
+    """When the runner returns False, a warning status should be published."""
+    from cloudscope.events.analysis import CancelTaskIntent, TaskKind
+
+    class FakeRunner:
+        def cancel(self, *, task_kind=None, task_id=None):
+            return False
+
+    _, bus, _, _, cap = _build_controller(tmp_path, runner=FakeRunner())
+    cap.statuses.clear()
+    bus.publish(CancelTaskIntent(task_kind=TaskKind.LOAD))
+
+    assert cap.statuses
+    assert 'matching' in cap.statuses[-1].message.lower()
+
+
+# ---- _on_save_selected branches ----
+
+
+def test_save_selected_warns_when_file_no_longer_exists(tmp_path) -> None:
+    """SaveSelected should warn when the selected file_id is not in the list."""
+    from cloudscope.state import PrimarySelection
+
+    _, bus, home, _, cap = _build_controller(tmp_path)
+    home.state.acq_image_list = _FakeList([_FakeFile('/tmp/a.tif', dirty=True)])
+    home._state.selection = PrimarySelection(file_id='/does/not/exist.tif')
+    cap.statuses.clear()
+
+    bus.publish(SaveSelectedIntent())
+
+    assert cap.statuses
+    assert 'no longer exists' in cap.statuses[-1].message
+
+
+def test_save_selected_info_when_not_dirty(tmp_path) -> None:
+    """SaveSelected should INFO when the selected file has no unsaved changes."""
+    from cloudscope.events.selection import SelectFileIntent
+
+    _, bus, home, _, cap = _build_controller(tmp_path)
+    home.bind()
+    files = _FakeList([_FakeFile('/tmp/a.tif', dirty=False)])
+    home.state.acq_image_list = files
+    bus.publish(SelectFileIntent(file_id='/tmp/a.tif'))
+    cap.statuses.clear()
+
+    bus.publish(SaveSelectedIntent())
+
+    assert cap.statuses[-1].level == 'info'
+    assert 'no unsaved' in cap.statuses[-1].message.lower()
+
+
+def test_save_selected_publishes_completion_status(tmp_path) -> None:
+    """A successful save-selected should publish 'Saved selected file' INFO."""
+    from cloudscope.events.selection import SelectFileIntent
+
+    _, bus, home, _, cap = _build_controller(tmp_path)
+    home.bind()
+    files = _FakeList([_FakeFile('/tmp/a.tif', dirty=True)])
+    home.state.acq_image_list = files
+    bus.publish(SelectFileIntent(file_id='/tmp/a.tif'))
+    cap.statuses.clear()
+    cap.progress.clear()
+
+    bus.publish(SaveSelectedIntent())
+
+    assert any(s.message == 'Saved selected file' for s in cap.statuses)
+    assert any(p.status == 'completed' for p in cap.progress)
+    assert files.get_files()[0].saved == 1
+
+
+def test_save_selected_failure_publishes_error(tmp_path) -> None:
+    """If save() raises, an ERROR status should be published."""
+    from cloudscope.events.selection import SelectFileIntent
+
+    class _BoomFile(_FakeFile):
+        def save(self) -> None:
+            raise RuntimeError('disk full')
+
+    _, bus, home, _, cap = _build_controller(tmp_path)
+    home.bind()
+    files = _FakeList([_BoomFile('/tmp/a.tif', dirty=True)])
+    home.state.acq_image_list = files
+    bus.publish(SelectFileIntent(file_id='/tmp/a.tif'))
+    cap.statuses.clear()
+
+    bus.publish(SaveSelectedIntent())
+
+    assert any(s.level == 'error' and 'disk full' in s.message for s in cap.statuses)
+
+
+# ---- _on_save_all branches ----
+
+
+def test_save_all_no_list_warns(tmp_path) -> None:
+    """SaveAll with no list loaded should warn 'No files loaded'."""
+    _, bus, _, _, cap = _build_controller(tmp_path)
+
+    bus.publish(SaveAllIntent())
+
+    assert cap.statuses
+    assert 'No files loaded' in cap.statuses[-1].message
+
+
+def test_save_all_publishes_completion_status(tmp_path) -> None:
+    """A successful save-all should publish 'Save all completed' INFO."""
+    _, bus, home, _, cap = _build_controller(tmp_path)
+    files = _FakeList(
+        [_FakeFile('/tmp/a.tif', dirty=True), _FakeFile('/tmp/b.tif', dirty=True)]
+    )
+    home.state.acq_image_list = files
+    cap.statuses.clear()
+
+    bus.publish(SaveAllIntent())
+
+    assert any(s.message == 'Save all completed' for s in cap.statuses)
+    assert files.get_files()[0].saved == 1
+    assert files.get_files()[1].saved == 1
+
+
+def test_save_all_failure_publishes_error(tmp_path) -> None:
+    """If iter_save_all raises, an ERROR status should be published."""
+
+    class _BoomList(_FakeList):
+        def iter_save_all(self, *, should_cancel=None):
+            raise RuntimeError('iter boom')
+
+    _, bus, home, _, cap = _build_controller(tmp_path)
+    home.state.acq_image_list = _BoomList([_FakeFile('/tmp/a.tif', dirty=True)])
+    cap.statuses.clear()
+
+    bus.publish(SaveAllIntent())
+
+    assert any(s.level == 'error' and 'iter boom' in s.message for s in cap.statuses)
+
+
+# ---- _on_clear_recent_paths ----
+
+
+def test_clear_recent_paths_clears_config_and_publishes(tmp_path) -> None:
+    """ClearRecentPathsIntent should clear config and publish RecentPathsChanged + INFO."""
+    from cloudscope.events.files import ClearRecentPathsIntent
+
+    fp = tmp_path / 'a.tif'
+    fp.write_text('x', encoding='utf-8')
+    _, bus, _, cfg, cap = _build_controller(tmp_path)
+    cfg.push_recent_file(str(fp))
+    cfg.save()
+    cap.statuses.clear()
+    cap.recents.clear()
+
+    bus.publish(ClearRecentPathsIntent())
+
+    assert cfg.get_recent_files() == []
+    assert cap.recents
+    assert any(s.message == 'Cleared recent paths' for s in cap.statuses)
+
+
+# ---- _recent_nominal_target_missing branches ----
+
+
+def test_recent_nominal_target_missing_returns_false_for_unrelated_warning(tmp_path) -> None:
+    """Warning paths different from the load path should not indicate staleness."""
+    from cloudscope.controllers.load_save_controller import LoadSaveController
+
+    result = LoadResult(
+        acq_image_list=_FakeList([]),  # type: ignore[arg-type]
+        warnings=(LoadWarning(message='Folder does not exist', path='/other/path'),),
+    )
+
+    assert (
+        LoadSaveController._recent_nominal_target_missing(result, '/tmp/p', LoadPathKind.FOLDER)
+        is False
+    )
+
+
+def test_recent_nominal_target_missing_returns_false_for_warning_without_path(tmp_path) -> None:
+    """Warnings without a path attribute should not indicate staleness."""
+    from cloudscope.controllers.load_save_controller import LoadSaveController
+
+    result = LoadResult(
+        acq_image_list=_FakeList([]),  # type: ignore[arg-type]
+        warnings=(LoadWarning(message='Folder does not exist', path=None),),
+    )
+
+    assert (
+        LoadSaveController._recent_nominal_target_missing(result, '/tmp/p', LoadPathKind.FOLDER)
+        is False
+    )
+
+
+def test_recent_nominal_target_missing_returns_false_for_unrelated_message(tmp_path) -> None:
+    """An unrelated warning message at the same path should not indicate staleness."""
+    from cloudscope.controllers.load_save_controller import LoadSaveController
+
+    path = '/tmp/p'
+    result = LoadResult(
+        acq_image_list=_FakeList([]),  # type: ignore[arg-type]
+        warnings=(LoadWarning(message='unrelated', path=normalize_stored_path(path)),),
+    )
+
+    assert (
+        LoadSaveController._recent_nominal_target_missing(result, path, LoadPathKind.FILE)
+        is False
+    )
+
+
+# ---- _start_task fallback paths (no runner) ----
+
+
+def test_start_task_sync_fallback_publishes_completed(tmp_path) -> None:
+    """With no TaskRunner attached, _start_task runs worker synchronously and publishes COMPLETED."""
+    from cloudscope.events.analysis import TaskKind
+
+    controller, _, _, _, cap = _build_controller(tmp_path)
+    calls = {'completed': False}
+
+    controller._start_task(
+        task_kind=TaskKind.LOAD,
+        task_label='label',
+        worker=lambda _ctx: 'result',
+        on_completed=lambda r: calls.update(completed=(r == 'result')),
+    )
+
+    assert calls['completed'] is True
+    assert any(p.status == 'completed' for p in cap.progress)
+
+
+def test_start_task_sync_fallback_publishes_failed_on_exception(tmp_path) -> None:
+    """Sync fallback should publish FAILED and call on_failed when worker raises."""
+    from cloudscope.events.analysis import TaskKind
+
+    controller, _, _, _, cap = _build_controller(tmp_path)
+    captured: dict[str, object] = {}
+
+    def _boom(_ctx):
+        raise RuntimeError('boom')
+
+    controller._start_task(
+        task_kind=TaskKind.SAVE,
+        task_label='label',
+        worker=_boom,
+        on_failed=lambda exc: captured.update(exc=str(exc)),
+    )
+
+    assert captured['exc'] == 'boom'
+    assert any(p.status == 'failed' for p in cap.progress)
+
+
+def test_start_task_sync_fallback_publishes_cancelled_on_taskcancelled(tmp_path) -> None:
+    """Sync fallback should publish CANCELLED and call on_cancelled when worker raises TaskCancelled."""
+    from cloudscope.events.analysis import TaskKind
+    from cloudscope.task_runner import TaskCancelled
+
+    controller, _, _, _, cap = _build_controller(tmp_path)
+    captured = {'cancelled': False}
+
+    def _cancel(_ctx):
+        raise TaskCancelled('cancelled')
+
+    controller._start_task(
+        task_kind=TaskKind.SAVE,
+        task_label='label',
+        worker=_cancel,
+        on_cancelled=lambda: captured.update(cancelled=True),
+    )
+
+    assert captured['cancelled'] is True
+    assert any(p.status == 'cancelled' for p in cap.progress)
+
+
+def test_load_path_worker_translates_load_cancelled_to_taskcancelled(tmp_path, monkeypatch) -> None:
+    """A LoadCancelled raised inside AcqImageList.load_safe must surface as TaskCancelled."""
+    from acqstore.acq_image.acq_image_list import LoadCancelled
+    from cloudscope.task_runner import TaskCancelled
+
+    controller, _, _, _, _ = _build_controller(tmp_path)
+
+    def _raise_cancelled(*_args, **_kwargs):
+        raise LoadCancelled('user cancelled')
+
+    monkeypatch.setattr(
+        'cloudscope.controllers.load_save_controller.AcqImageList.load_safe',
+        _raise_cancelled,
+    )
+
+    import pytest
+
+    with pytest.raises(TaskCancelled, match='user cancelled'):
+        controller._load_path_worker(
+            LoadPathIntent(path='/tmp/x', kind=LoadPathKind.FILE),
+            _ImmediateContext(),
+        )
+
+
+def test_load_path_worker_reports_progress_with_known_total(tmp_path, monkeypatch) -> None:
+    """The worker should turn (completed, total) callbacks into fractions."""
+    controller, _, _, _, _ = _build_controller(tmp_path)
+    captured: list[tuple[float | None, str]] = []
+
+    class _Ctx:
+        def report_progress(self, fraction, message=''):
+            captured.append((fraction, message))
+
+        def is_cancelled(self):
+            return False
+
+    def _load_safe(*_args, progress_callback=None, **_kwargs):
+        if progress_callback is not None:
+            progress_callback(0, 0, 'no total')
+            progress_callback(1, 4, 'quarter')
+            progress_callback(4, 4, 'done')
+        return LoadResult(acq_image_list=_FakeList([]), warnings=())  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        'cloudscope.controllers.load_save_controller.AcqImageList.load_safe', _load_safe
+    )
+    controller._load_path_worker(
+        LoadPathIntent(path='/tmp/x', kind=LoadPathKind.FILE),
+        _Ctx(),
+    )
+
+    assert captured[0][0] is None
+    assert captured[1][0] == 0.25
+    assert captured[2][0] == 1.0
+
+
+class _ImmediateContext:
+    """Tiny synchronous context for direct worker tests."""
+
+    def report_progress(self, fraction, message=''):
+        _ = fraction, message
+
+    def is_cancelled(self):
+        return False
+
+    def raise_if_cancelled(self):
+        return None
