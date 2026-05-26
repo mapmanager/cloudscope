@@ -168,7 +168,7 @@ class PrimaryImageView(BaseView):
         self._client = ui.context.client
 
         def _build() -> None:
-            with ui.card().classes("w-full h-full min-h-0 flex flex-col overflow-hidden flex-1") as self.root:
+            with ui.column().classes("w-full h-full min-h-0 flex flex-col overflow-hidden flex-1") as self.root:
                 
                 # dislpay name of widget, comment it out
                 # ui.label(self._title).classes("text-lg font-medium shrink-0")

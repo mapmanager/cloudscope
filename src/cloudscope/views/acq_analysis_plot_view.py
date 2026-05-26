@@ -71,11 +71,11 @@ class AcqAnalysisPlotView(BaseView):
             Root element for this view.
         """
         if parent is None:
-            with ui.card().classes("w-full h-full min-h-0 flex flex-col overflow-hidden flex-1") as self.root:
+            with ui.column().classes("w-full h-full min-h-0 flex flex-col overflow-hidden flex-1") as self.root:
                 self._build_content()
         else:
             with parent:
-                with ui.card().classes("w-full h-full min-h-0 flex flex-col overflow-hidden flex-1") as self.root:
+                with ui.column().classes("w-full h-full min-h-0 flex flex-col overflow-hidden flex-1") as self.root:
                     self._build_content()
         self.after_build()
         return self.root
