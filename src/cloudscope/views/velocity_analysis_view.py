@@ -38,12 +38,13 @@ def _load_radon_velocity_analysis_class() -> type[Any] | None:
 class VelocityAnalysisView(BaseView):
     """Display Radon velocity controls and publish analysis intents.
 
+    The view reads ``visible_file_ids_provider`` from ``app_state`` when
+    enabling and running the batch button.
+
     Args:
         event_bus: Page-scoped event bus.
         app_state: Optional page/controller state object.
         initially_visible: Whether this view starts visible.
-        visible_file_ids_provider: Optional async callback returning file ids
-            from currently visible, filtered, sorted file-table rows.
     """
 
     view_id = ViewId.VELOCITY_ANALYSIS
@@ -54,10 +55,8 @@ class VelocityAnalysisView(BaseView):
         app_state: Any | None = None,
         *,
         initially_visible: bool = False,
-        visible_file_ids_provider: Callable[[], Awaitable[list[str]]] | None = None,
     ) -> None:
         super().__init__(event_bus=event_bus, app_state=app_state, initially_visible=initially_visible)
-        self._visible_file_ids_provider = visible_file_ids_provider
         self._params_container: ui.column | None = None
         self._results_container: ui.column | None = None
         self._run_button: ui.button | None = None
@@ -304,11 +303,12 @@ class VelocityAnalysisView(BaseView):
         if selection.channel is None or selection.roi_id is None:
             ui.notify("Select a channel and ROI before running batch analysis.", type="warning")
             return
-        if self._visible_file_ids_provider is None:
+        provider = self._visible_file_ids_provider()
+        if provider is None:
             ui.notify("Visible file-table rows are not available.", type="negative")
             return
         try:
-            file_ids = await self._visible_file_ids_provider()
+            file_ids = await provider()
             detection_params = self._current_detection_params()
         except Exception as exc:
             ui.notify(f"Batch analysis could not start: {exc}", type="negative")
@@ -366,5 +366,16 @@ class VelocityAnalysisView(BaseView):
             self._run_button.enabled = enabled
             self._run_button.update()
         if self._batch_button is not None:
-            self._batch_button.enabled = enabled and self._visible_file_ids_provider is not None
+            self._batch_button.enabled = enabled and self._visible_file_ids_provider() is not None
             self._batch_button.update()
+
+    def _visible_file_ids_provider(self) -> Callable[[], Awaitable[list[str]]] | None:
+        """Return the file-table visible-rows provider from ``app_state``.
+
+        Returns:
+            Async callback returning visible/filtered/sorted file ids, or
+            ``None`` when no app state or no provider has been registered.
+        """
+        if self.app_state is None:
+            return None
+        return getattr(self.app_state, "visible_file_ids_provider", None)

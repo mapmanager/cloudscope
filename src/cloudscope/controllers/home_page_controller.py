@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 
 from acqstore.acq_image.acq_image_list import AcqImageList
 
@@ -28,11 +29,16 @@ class HomePageState:
         file_ids: Stable file identifiers in display order.
         selection: Current primary selection state.
         acq_image_list: Current backend file list, if loaded.
+        visible_file_ids_provider: Async callback returning file ids from the
+            currently visible, filtered, sorted file-table rows. Set by the
+            page composer once the file-table view exists; ``None`` while the
+            file table is not yet reachable.
     """
 
     file_ids: list[str]
     selection: PrimarySelection
     acq_image_list: AcqImageList | None = None
+    visible_file_ids_provider: Callable[[], Awaitable[list[str]]] | None = field(default=None)
 
 
 class HomePageController:

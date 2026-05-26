@@ -114,6 +114,7 @@ class HomePage:
             table_font_size_px=int(self.app_config.data.table_font_size_px),
             initially_visible=_home_view_visible(ViewId.FILE_LIST),
         )
+        app_state.visible_file_ids_provider = file_list_panel.get_displayed_file_ids
         load_save_view = LoadSaveView(
             event_bus=self.event_bus,
             app_config=self.app_config,
