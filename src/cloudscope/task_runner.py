@@ -91,6 +91,15 @@ class TaskContext:
             )
         )
 
+    @property
+    def cancel_event(self) -> threading.Event:
+        """Return the shared cancellation event for cooperative workers.
+
+        Returns:
+            Event set by ``TaskRunner.cancel`` when cancellation is requested.
+        """
+        return self._cancel_event
+
     def is_cancelled(self) -> bool:
         """Return whether cancellation has been requested.
 

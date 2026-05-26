@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from acqstore.acq_image.analysis.batch.acq_analysis_batch import AcqAnalysisBatch
+from acqstore.acq_image.analysis.batch.diameter_batch_strategy import DiameterBatchStrategy
+from acqstore.acq_image.analysis.batch.radon_velocity_batch_strategy import RadonVelocityBatchStrategy
+from acqstore.acq_image.analysis.batch.roi_mode import RoiBatchMode
 from acqstore.acq_image.analysis.model import (
     AnalysisExclusionError,
     AnalysisKey,
@@ -19,9 +23,11 @@ from cloudscope.controllers.home_page_controller import HomePageController
 from cloudscope.event_bus import EventBus
 from cloudscope.events.analysis import (
     AnalysisCompleted,
+    BatchAnalysisCompleted,
     AnalysisKind,
     CancelTaskIntent,
     RunAnalysisIntent,
+    RunBatchAnalysisIntent,
     TaskKind,
 )
 from cloudscope.events.status import AppStatusChanged, StatusLevel, StatusSource
@@ -53,6 +59,7 @@ class AnalysisController:
             None.
         """
         self.event_bus.subscribe(RunAnalysisIntent, self._on_run_analysis)
+        self.event_bus.subscribe(RunBatchAnalysisIntent, self._on_run_batch_analysis)
         self.event_bus.subscribe(CancelTaskIntent, self._on_cancel_task)
 
     def _on_run_analysis(self, event: RunAnalysisIntent) -> None:
@@ -77,6 +84,37 @@ class AnalysisController:
             )
         except Exception as exc:
             message = f"Analysis could not start: {exc}"
+            logger.error(f'{message}')
+            self.event_bus.publish(
+                AppStatusChanged(
+                    level=StatusLevel.ERROR,
+                    message=message,
+                    source=StatusSource.ANALYSIS,
+                )
+            )
+
+    def _on_run_batch_analysis(self, event: RunBatchAnalysisIntent) -> None:
+        """Start batch analysis for explicit visible file-table rows.
+
+        Args:
+            event: Batch run intent carrying an ordered explicit file-id list.
+
+        Returns:
+            None.
+        """
+        try:
+            self._validate_batch_intent(event)
+            task_label = f"Batch analysis: {event.analysis_kind.value}"
+            self.task_runner.start(
+                task_kind=TaskKind.ANALYSIS,
+                task_label=task_label,
+                worker=lambda context: self._run_batch_analysis_worker(event, context),
+                on_completed=lambda _result: self._publish_batch_analysis_completed(event, success=True, message="Batch analysis complete"),
+                on_failed=lambda exc: self._publish_batch_analysis_completed(event, success=False, message=str(exc)),
+                on_cancelled=lambda: self._publish_batch_analysis_completed(event, success=False, message="Batch analysis cancelled"),
+            )
+        except Exception as exc:
+            message = f"Batch analysis could not start: {exc}"
             logger.error(f'{message}')
             self.event_bus.publish(
                 AppStatusChanged(
@@ -136,6 +174,34 @@ class AnalysisController:
         if event.analysis_kind is not AnalysisKind.EVENT:
             self._raise_if_exclusive_conflict(event)
 
+    def _validate_batch_intent(self, event: RunBatchAnalysisIntent) -> None:
+        """Validate that a batch analysis intent can start.
+
+        Args:
+            event: Batch run intent.
+
+        Raises:
+            ValueError: If required fields are missing.
+            RuntimeError: If no acquisition image list is loaded.
+            NotImplementedError: If the analysis kind is unsupported.
+        """
+        if not event.file_ids:
+            raise ValueError("No visible table rows to analyze")
+        if self.home_controller.state.acq_image_list is None:
+            raise RuntimeError("No AcqImageList loaded")
+        if event.analysis_kind not in (AnalysisKind.RADON_VELOCITY, AnalysisKind.DIAMETER):
+            raise NotImplementedError(f"Unsupported batch analysis kind: {event.analysis_kind}")
+        for file_id in event.file_ids:
+            acq_image = self.home_controller.state.acq_image_list.get_file_by_id(file_id)
+            if acq_image is None:
+                raise RuntimeError(f"Visible file is no longer loaded: {file_id!r}")
+            self._raise_if_exclusive_conflict_for_values(
+                acq_image=acq_image,
+                analysis_name=event.analysis_kind.value,
+                channel=int(event.channel),
+                roi_id=int(event.roi_id),
+            )
+
     def _raise_if_exclusive_conflict(self, event: RunAnalysisIntent) -> None:
         """Reject the intent when an exclusive-group conflict would occur.
 
@@ -155,18 +221,42 @@ class AnalysisController:
         acq_image = acq_image_list.get_file_by_id(selection.file_id)
         if acq_image is None:
             return
-        analysis_name = event.analysis_kind.value
-        existing = acq_image.analysis_set.get_primary_kymograph_analysis(
+        self._raise_if_exclusive_conflict_for_values(
+            acq_image=acq_image,
+            analysis_name=event.analysis_kind.value,
             channel=int(selection.channel),
             roi_id=int(selection.roi_id),
         )
-        if existing is None:
-            return
-        if existing.key.analysis_name == analysis_name:
+
+    def _raise_if_exclusive_conflict_for_values(
+        self,
+        *,
+        acq_image: object,
+        analysis_name: str,
+        channel: int,
+        roi_id: int,
+    ) -> None:
+        """Raise when a primary-kymograph conflict exists for concrete values.
+
+        Args:
+            acq_image: Acquisition image containing an analysis set.
+            analysis_name: Analysis name requested for the run.
+            channel: Channel index.
+            roi_id: ROI identifier.
+
+        Raises:
+            AnalysisExclusionError: If a different primary-kymograph analysis is
+                already present for ``(channel, roi_id)``.
+        """
+        existing = acq_image.analysis_set.get_primary_kymograph_analysis(
+            channel=int(channel),
+            roi_id=int(roi_id),
+        )
+        if existing is None or existing.key.analysis_name == analysis_name:
             return
         raise AnalysisExclusionError(
             f"Cannot run {analysis_name!r}: {existing.key.analysis_name!r} already "
-            f"exists for channel={selection.channel}, roi_id={selection.roi_id}. "
+            f"exists for channel={channel}, roi_id={roi_id}. "
             "Remove the existing analysis first."
         )
 
@@ -232,6 +322,72 @@ class AnalysisController:
             self._rerun_dependent_event_analysis(acq_image, channel=channel, roi_id=roi_id, context=run_context)
         context.report_progress(1.0, "Analysis complete")
 
+    def _run_batch_analysis_worker(self, event: RunBatchAnalysisIntent, context: TaskContext) -> None:
+        """Run batch analysis for explicit visible file-table rows.
+
+        Args:
+            event: Batch intent carrying the ordered file ids to process.
+            context: Task runner context for progress/cancellation.
+
+        Returns:
+            None.
+
+        Raises:
+            RuntimeError: If any file id can no longer be resolved.
+        """
+        acq_image_list = self.home_controller.state.acq_image_list
+        if acq_image_list is None:
+            raise RuntimeError("No AcqImageList loaded")
+
+        files = []
+        for file_id in event.file_ids:
+            acq_image = acq_image_list.get_file_by_id(file_id)
+            if acq_image is None:
+                raise RuntimeError(f"Visible file is no longer loaded: {file_id!r}")
+            files.append(acq_image)
+
+        context.report_progress(0.0, f"Preparing {len(files)} files")
+        context.raise_if_cancelled()
+        strategy = self._batch_strategy_for_event(event)
+        cancel_event = context.cancel_event
+        completed = 0
+        total = len(files)
+
+        def _on_file_result(result: object) -> None:
+            nonlocal completed
+            completed += 1
+            context.report_progress(completed / total, f"{completed}/{total}: {result}")
+
+        batch = AcqAnalysisBatch(files, strategy, max_parallel_files=1)
+        batch.run(cancel_event=cancel_event, on_file_result=_on_file_result)
+        if context.is_cancelled() or cancel_event.is_set():
+            context.raise_if_cancelled()
+        context.report_progress(1.0, "Batch analysis complete")
+
+    def _batch_strategy_for_event(self, event: RunBatchAnalysisIntent) -> object:
+        """Build the AcqStore batch strategy for a CloudScope batch intent.
+
+        Args:
+            event: Batch run intent.
+
+        Returns:
+            Backend batch strategy instance.
+
+        Raises:
+            NotImplementedError: If the analysis kind is unsupported.
+        """
+        common = dict(
+            channel=int(event.channel),
+            roi_mode=RoiBatchMode.ANALYZE_EXISTING_ROI,
+            roi_id=int(event.roi_id),
+            detection_params=dict(event.detection_params),
+        )
+        if event.analysis_kind is AnalysisKind.RADON_VELOCITY:
+            return RadonVelocityBatchStrategy(**common, use_multiprocessing=True)
+        if event.analysis_kind is AnalysisKind.DIAMETER:
+            return DiameterBatchStrategy(**common, use_threads=True)
+        raise NotImplementedError(f"Unsupported batch analysis kind: {event.analysis_kind}")
+
     def _rerun_dependent_event_analysis(
         self,
         acq_image: object,
@@ -259,6 +415,54 @@ class AnalysisController:
             raise TypeError(f"Expected EventAnalysis, got {type(event_analysis).__name__}")
         context.report_progress(None, "Refreshing event statistics")
         acq_image.analysis_set.run_analysis(key, context=context)
+
+    def _publish_batch_analysis_completed(
+        self,
+        event: RunBatchAnalysisIntent,
+        *,
+        success: bool,
+        message: str,
+    ) -> None:
+        """Publish batch completion and row-refresh events.
+
+        Args:
+            event: Original batch intent.
+            success: Whether the batch completed successfully.
+            message: Human-readable message.
+
+        Returns:
+            None.
+        """
+        self.event_bus.publish(
+            BatchAnalysisCompleted(
+                analysis_kind=event.analysis_kind,
+                file_ids=tuple(event.file_ids),
+                channel=int(event.channel),
+                roi_id=int(event.roi_id),
+                success=success,
+                message=message,
+            )
+        )
+        for file_id in event.file_ids:
+            self.event_bus.publish(
+                AnalysisCompleted(
+                    analysis_kind=event.analysis_kind,
+                    selection=PrimarySelection(
+                        file_id=file_id,
+                        channel=int(event.channel),
+                        roi_id=int(event.roi_id),
+                    ),
+                    success=success,
+                    message=message,
+                )
+            )
+        self.event_bus.publish(
+            AppStatusChanged(
+                level=StatusLevel.INFO if success else StatusLevel.WARNING,
+                message=message,
+                source=StatusSource.ANALYSIS,
+            )
+        )
 
     def _publish_analysis_completed(
         self,

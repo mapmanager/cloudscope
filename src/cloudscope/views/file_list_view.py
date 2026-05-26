@@ -131,6 +131,27 @@ class AcqImageListTableView(BaseView):
             logger.warning("Unable to reveal missing file: %s", exc)
             ui.notify(f"File not found: {path}", type="warning")
 
+
+    async def get_displayed_file_ids(self) -> list[str]:
+        """Return file ids from currently displayed table rows.
+
+        The returned order matches the browser-side AG Grid order after user
+        filtering and sorting. This is the authoritative source for GUI batch
+        analysis file selection.
+
+        Returns:
+            Ordered file identifiers from visible, filtered, sorted rows.
+        """
+        if self._table is None:
+            return []
+        rows = await self._table.get_displayed_rows()
+        file_ids: list[str] = []
+        for row in rows:
+            value = row.get(self._row_id_field)
+            if isinstance(value, str) and value:
+                file_ids.append(value)
+        return file_ids
+
     def on_enabled_changed(self, enabled: bool) -> None:
         """Enable or disable table interaction when the app busy state changes.
 

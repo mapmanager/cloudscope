@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from dataclasses import dataclass, field
 
 from cloudscope.event_bus import EventBus
@@ -22,6 +24,7 @@ class FakeTable:
         self.selected: list[str] = []
         self.clear_count = 0
         self.enabled: bool | None = None
+        self.displayed_rows: list[dict[str, object]] = []
 
     def set_data(self, rows: list[dict[str, object]]) -> None:
         """Record replacement rows."""
@@ -43,6 +46,10 @@ class FakeTable:
     def set_enabled(self, enabled: bool) -> None:
         """Record enabled state."""
         self.enabled = bool(enabled)
+
+    async def get_displayed_rows(self) -> list[dict[str, object]]:
+        """Return fake browser-displayed rows."""
+        return list(self.displayed_rows)
 
 
 class FakeAcqImage:
@@ -183,3 +190,20 @@ def test_acq_image_events_changed_updates_one_row_from_app_state() -> None:
 
     assert view._table is not None
     assert view._table.updated_rows == [("/tmp/a.oir", {"path": "/tmp/a.oir", "dirty": True})]
+
+
+@pytest.mark.asyncio
+async def test_get_displayed_file_ids_uses_visible_filtered_sorted_rows() -> None:
+    """Visible file ids should come from TableWidget displayed rows."""
+    state = FakeState()
+    view = _make_view(state)
+    assert isinstance(view._table, FakeTable)
+    view._table.displayed_rows = [
+        {"path": "/tmp/b.oir"},
+        {"path": "/tmp/a.oir"},
+        {"path": None},
+    ]
+
+    file_ids = await view.get_displayed_file_ids()
+
+    assert file_ids == ["/tmp/b.oir", "/tmp/a.oir"]

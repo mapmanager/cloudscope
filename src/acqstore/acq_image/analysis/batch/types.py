@@ -10,6 +10,7 @@ class AnalysisBatchKind(StrEnum):
     """Kind of analysis run in a batch."""
 
     RADON_VELOCITY = "radon_velocity"
+    DIAMETER = "diameter"
 
 
 class BatchFileOutcome(StrEnum):

@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from nicegui import ui
 
 from acqstore.acq_image.analysis.model import AnalysisKey
 from cloudscope.event_bus import EventBus
-from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind, RunAnalysisIntent
+from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind, RunAnalysisIntent, RunBatchAnalysisIntent
 from cloudscope.events.roi import RoiChanged
 from cloudscope.state import PrimarySelection
 from cloudscope.views.base_view import BaseView
+from cloudscope.views.dialogs.batch_analysis_dialog import BatchAnalysisDialog
 from cloudscope.views.view_ids import ViewId
 
 from cloudscope.utils.logging import get_logger
@@ -40,6 +42,8 @@ class VelocityAnalysisView(BaseView):
         event_bus: Page-scoped event bus.
         app_state: Optional page/controller state object.
         initially_visible: Whether this view starts visible.
+        visible_file_ids_provider: Optional async callback returning file ids
+            from currently visible, filtered, sorted file-table rows.
     """
 
     view_id = ViewId.VELOCITY_ANALYSIS
@@ -50,12 +54,15 @@ class VelocityAnalysisView(BaseView):
         app_state: Any | None = None,
         *,
         initially_visible: bool = False,
+        visible_file_ids_provider: Callable[[], Awaitable[list[str]]] | None = None,
     ) -> None:
         super().__init__(event_bus=event_bus, app_state=app_state, initially_visible=initially_visible)
+        self._visible_file_ids_provider = visible_file_ids_provider
         self._selection_label: ui.label | None = None
         self._params_container: ui.column | None = None
         self._results_container: ui.column | None = None
         self._run_button: ui.button | None = None
+        self._batch_button: ui.button | None = None
         self._param_controls: dict[str, Any] = {}
 
     def build(self, parent: ui.element | None = None) -> ui.element:
@@ -151,6 +158,9 @@ class VelocityAnalysisView(BaseView):
         self._results_container = ui.column().classes("w-full gap-2 shrink-0")
         self._build_results_controls()
         self._run_button = ui.button("Run Radon Analysis", on_click=self._on_run_clicked).classes(
+            "w-full shrink-0"
+        )
+        self._batch_button = ui.button("Batch analyze visible rows", on_click=self._on_batch_clicked).classes(
             "w-full shrink-0"
         )
         self._refresh_run_button()
@@ -285,6 +295,56 @@ class VelocityAnalysisView(BaseView):
             )
         )
 
+    async def _on_batch_clicked(self) -> None:
+        """Publish a batch-analysis intent for visible file-table rows.
+
+        Returns:
+            None.
+        """
+        selection = self._selection_snapshot()
+        if selection.channel is None or selection.roi_id is None:
+            ui.notify("Select a channel and ROI before running batch analysis.", type="warning")
+            return
+        if self._visible_file_ids_provider is None:
+            ui.notify("Visible file-table rows are not available.", type="negative")
+            return
+        try:
+            file_ids = await self._visible_file_ids_provider()
+            detection_params = self._current_detection_params()
+        except Exception as exc:
+            ui.notify(f"Batch analysis could not start: {exc}", type="negative")
+            return
+        if not file_ids:
+            ui.notify("No visible file-table rows to analyze.", type="warning")
+            return
+
+        def _run_batch(confirmed_file_ids: tuple[str, ...]) -> None:
+            """Publish confirmed batch-analysis intent.
+
+            Args:
+                confirmed_file_ids: File ids confirmed by the dialog.
+
+            Returns:
+                None.
+            """
+            self.event_bus.publish(
+                RunBatchAnalysisIntent(
+                    analysis_kind=AnalysisKind.RADON_VELOCITY,
+                    file_ids=confirmed_file_ids,
+                    channel=int(selection.channel),
+                    roi_id=int(selection.roi_id),
+                    detection_params=detection_params,
+                )
+            )
+
+        BatchAnalysisDialog(
+            analysis_label="Radon velocity",
+            file_ids=file_ids,
+            channel=int(selection.channel),
+            roi_id=int(selection.roi_id),
+            on_run=_run_batch,
+        ).open()
+
     def _refresh_selection_dependent_ui(self) -> None:
         """Refresh all UI that depends on current selection.
 
@@ -302,10 +362,13 @@ class VelocityAnalysisView(BaseView):
         Returns:
             None.
         """
-        if self._run_button is None:
-            return
-        self._run_button.enabled = self.has_valid_primary_selection()
-        self._run_button.update()
+        enabled = self.has_valid_primary_selection()
+        if self._run_button is not None:
+            self._run_button.enabled = enabled
+            self._run_button.update()
+        if self._batch_button is not None:
+            self._batch_button.enabled = enabled and self._visible_file_ids_provider is not None
+            self._batch_button.update()
 
     def _refresh_selection_label(self) -> None:
         """Refresh selection text.

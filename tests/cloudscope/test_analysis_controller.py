@@ -12,6 +12,7 @@ from cloudscope.events.analysis import (
     AnalysisKind,
     CancelTaskIntent,
     RunAnalysisIntent,
+    RunBatchAnalysisIntent,
     TaskKind,
 )
 from cloudscope.events.status import AppStatusChanged, StatusLevel
@@ -634,3 +635,56 @@ def test_copy_selection_returns_independent_instance() -> None:
 
     assert copy == original
     assert copy is not original
+
+
+def test_analysis_controller_starts_batch_for_explicit_visible_file_ids_only() -> None:
+    """Batch intent should start from explicit visible file ids, not all loaded files."""
+    controller, bus, runner, home, statuses, _completed = _make_controller()
+    _ = controller, statuses
+
+    class _List:
+        def __init__(self) -> None:
+            self.requested: list[str] = []
+
+        def get_file_by_id(self, file_id: str):
+            self.requested.append(file_id)
+            return FakeAcqImage()
+
+    file_list = _List()
+    home.state.acq_image_list = file_list
+
+    bus.publish(
+        RunBatchAnalysisIntent(
+            analysis_kind=AnalysisKind.DIAMETER,
+            file_ids=("visible-a", "visible-b"),
+            channel=0,
+            roi_id=1,
+            detection_params={"diameter_method": "threshold_width"},
+        )
+    )
+
+    assert runner.started
+    assert runner.captured is not None
+    assert runner.captured.task_kind is TaskKind.ANALYSIS
+    assert runner.captured.task_label == "Batch analysis: diameter"
+    assert file_list.requested == ["visible-a", "visible-b"]
+
+
+def test_analysis_controller_rejects_empty_batch_file_ids() -> None:
+    """Batch intent should reject an empty visible-row snapshot."""
+    _controller, bus, runner, home, statuses, _completed = _make_controller()
+    home.state.acq_image_list = FakeAcqImageList(FakeAcqImage())
+
+    bus.publish(
+        RunBatchAnalysisIntent(
+            analysis_kind=AnalysisKind.RADON_VELOCITY,
+            file_ids=(),
+            channel=0,
+            roi_id=1,
+            detection_params={"window_width": 16},
+        )
+    )
+
+    assert not runner.started
+    assert statuses
+    assert "No visible table rows" in statuses[-1].message

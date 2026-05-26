@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -59,6 +59,9 @@ class LeftToolbarView(BaseView):
         app_config: Shared app configuration used by the app config child view.
         view_manager: Manager used to register and show/hide child views.
         initially_visible: Whether the toolbar starts visible.
+        on_panel_open_changed: Optional callback invoked when the left panel opens or closes.
+        visible_file_ids_provider: Optional async callback returning file ids
+            from currently visible, filtered, sorted file-table rows.
     """
 
     view_id = ViewId.LEFT_TOOLBAR
@@ -73,6 +76,7 @@ class LeftToolbarView(BaseView):
         view_manager: ViewManager,
         initially_visible: bool = True,
         on_panel_open_changed: Callable[[bool], None] | None = None,
+        visible_file_ids_provider: Callable[[], Awaitable[list[str]]] | None = None,
     ) -> None:
         super().__init__(event_bus=event_bus, app_state=app_state, initially_visible=initially_visible)
         self._app_config = app_config
@@ -90,11 +94,13 @@ class LeftToolbarView(BaseView):
             event_bus=event_bus,
             app_state=app_state,
             initially_visible=False,
+            visible_file_ids_provider=visible_file_ids_provider,
         )
         self.diameter_analysis_view = DiameterAnalysisView(
             event_bus=event_bus,
             app_state=app_state,
             initially_visible=False,
+            visible_file_ids_provider=visible_file_ids_provider,
         )
         self.event_analysis_view = EventAnalysisView(
             event_bus=event_bus,

@@ -50,6 +50,28 @@ class RunAnalysisIntent(IntentEvent):
     detection_params: dict[str, object]
 
 
+
+
+@dataclass(frozen=True)
+class RunBatchAnalysisIntent(IntentEvent):
+    """Request to run one analysis over explicit file-table rows.
+
+    Args:
+        analysis_kind: Analysis kind to run.
+        file_ids: Ordered file identifiers captured from the visible, filtered,
+            sorted file table rows. The backend must not expand this list.
+        channel: Channel index used for every file.
+        roi_id: ROI identifier used for every file.
+        detection_params: Analysis detection parameters keyed by schema field name.
+    """
+
+    analysis_kind: AnalysisKind
+    file_ids: tuple[str, ...]
+    channel: int
+    roi_id: int
+    detection_params: dict[str, object]
+
+
 @dataclass(frozen=True)
 class CancelTaskIntent(IntentEvent):
     """Request cancellation of a running task.
@@ -107,6 +129,29 @@ class AnalysisCompleted(StateEvent):
 
     analysis_kind: AnalysisKind
     selection: PrimarySelection
+    success: bool
+    message: str = ''
+
+
+
+
+@dataclass(frozen=True)
+class BatchAnalysisCompleted(StateEvent):
+    """Emitted when a batch analysis task reaches a terminal state.
+
+    Args:
+        analysis_kind: Analysis kind that ran.
+        file_ids: Ordered file identifiers requested by the batch intent.
+        channel: Channel index used for every file.
+        roi_id: ROI identifier requested for every file.
+        success: True when the batch completed without task failure.
+        message: Human-readable completion, cancellation, or error message.
+    """
+
+    analysis_kind: AnalysisKind
+    file_ids: tuple[str, ...]
+    channel: int
+    roi_id: int
     success: bool
     message: str = ''
 
