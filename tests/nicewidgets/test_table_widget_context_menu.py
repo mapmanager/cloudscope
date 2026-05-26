@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from types import SimpleNamespace
 from typing import Any
 
 from nicewidgets.table_widget import table_widget
@@ -67,8 +69,63 @@ def test_get_table_as_text_returns_empty_string_without_rows() -> None:
     assert table.get_table_as_text() == ""
 
 
-def test_copy_table_data_to_clipboard_uses_python_side_tsv(monkeypatch: Any) -> None:
-    """Copy Table Data should copy ``get_table_as_text`` without AG Grid JavaScript export."""
+def test_get_displayed_rows_falls_back_to_python_rows_before_build() -> None:
+    """Displayed rows should fall back to Python rows before AG Grid is built."""
+    table = TableWidget(
+        columns=(ColumnDef(field="path", headerName="Path"),),
+        row_id_field="path",
+        rows=({"path": "/tmp/a.tif"},),
+        config=TableWidgetConfig(show_index_column=False),
+    )
+
+    assert asyncio.run(table.get_displayed_rows()) == [{"path": "/tmp/a.tif"}]
+
+
+def test_get_displayed_rows_uses_run_javascript_for_ag_grid_display_state(monkeypatch: Any) -> None:
+    """Displayed rows should query AG Grid through ``ui.run_javascript``."""
+    scripts: list[str] = []
+
+    async def fake_run_javascript(script: str, timeout: float = 1.0) -> list[dict[str, str]]:
+        scripts.append(script)
+        assert timeout == 5.0
+        return [{"path": "/tmp/b.tif"}, {"path": "/tmp/a.tif"}]
+
+    monkeypatch.setattr(table_widget.ui, "run_javascript", fake_run_javascript)
+    table = TableWidget(
+        columns=(ColumnDef(field="path", headerName="Path"),),
+        row_id_field="path",
+        rows=({"path": "/tmp/a.tif"}, {"path": "/tmp/b.tif"}),
+        config=TableWidgetConfig(show_index_column=False),
+    )
+    table._grid = SimpleNamespace(id=42)
+
+    rows = asyncio.run(table.get_displayed_rows())
+
+    assert rows == [{"path": "/tmp/b.tif"}, {"path": "/tmp/a.tif"}]
+    assert len(scripts) == 1
+    assert "getElement(42)" in scripts[0]
+    assert "forEachNodeAfterFilterAndSort" in scripts[0]
+
+
+def test_get_displayed_table_as_text_uses_displayed_row_order(monkeypatch: Any) -> None:
+    """Displayed table text should preserve AG Grid's returned row order."""
+
+    async def fake_get_displayed_rows() -> list[dict[str, str]]:
+        return [{"path": "/tmp/b.tif"}, {"path": "/tmp/a.tif"}]
+
+    table = TableWidget(
+        columns=(ColumnDef(field="path", headerName="Path"),),
+        row_id_field="path",
+        rows=({"path": "/tmp/a.tif"}, {"path": "/tmp/b.tif"}),
+        config=TableWidgetConfig(show_index_column=False),
+    )
+    monkeypatch.setattr(table, "get_displayed_rows", fake_get_displayed_rows)
+
+    assert asyncio.run(table.get_displayed_table_as_text()) == "Path\n/tmp/b.tif\n/tmp/a.tif"
+
+
+def test_copy_table_data_to_clipboard_uses_displayed_tsv(monkeypatch: Any) -> None:
+    """Copy Table Data should copy displayed/filter/sorted TSV."""
     copied: list[str] = []
     notifications: list[tuple[str, str]] = []
     monkeypatch.setattr(table_widget, "copy_to_clipboard", copied.append)
@@ -80,7 +137,7 @@ def test_copy_table_data_to_clipboard_uses_python_side_tsv(monkeypatch: Any) -> 
         config=TableWidgetConfig(show_index_column=False),
     )
 
-    table.copy_table_data_to_clipboard()
+    asyncio.run(table.copy_table_data_to_clipboard())
 
     assert copied == ["Path\n/tmp/a.tif"]
     assert notifications == [("Table data copied to clipboard", "positive")]

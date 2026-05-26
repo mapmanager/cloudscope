@@ -317,26 +317,65 @@ class TableWidget:
             row. Returns an empty string when there are no rows. Tabs and
             newlines inside headers or cell values are normalized to spaces.
         """
-        if not self._rows:
-            return ''
+        return self._rows_to_tsv(self._rows)
 
-        visible_columns = [c for c in self._column_defs if not bool(c.get('hide', False))]
-        headers = [str(c.get('headerName', c.get('field', ''))) for c in visible_columns]
-        fields = [str(c.get('field', '')) for c in visible_columns]
+    async def get_displayed_rows(self) -> list[dict[str, Any]]:
+        """Return AG Grid rows after browser-side filtering and sorting.
 
-        lines = ['\t'.join(self._sanitize_table_text_cell(header) for header in headers)]
-        for row in self._rows:
-            values = [self._sanitize_table_text_cell(row.get(field, '')) for field in fields]
-            lines.append('\t'.join(values))
-        return '\n'.join(lines)
+        AG Grid owns sort and filter state in the browser. This method uses
+        NiceGUI's ``ui.run_javascript`` escape hatch to query the AG Grid API
+        directly with ``forEachNodeAfterFilterAndSort``. If the grid has not
+        been built yet, the method falls back to the current Python-side rows.
 
-    def copy_table_data_to_clipboard(self) -> None:
-        """Copy current Python-side table rows to the clipboard as TSV.
+        Returns:
+            Displayed row dictionaries in the same order the user sees them.
+
+        Raises:
+            RuntimeError: If the browser returns a non-list result.
+        """
+        if self._grid is None:
+            return self.get_rows()
+
+        grid_id = int(self._grid.id)
+        script = f"""
+            (() => {{
+                const grid = getElement({grid_id});
+                if (!grid || !grid.api) {{
+                    throw new Error('AG Grid API is not available for table widget {grid_id}');
+                }}
+                const rows = [];
+                grid.api.forEachNodeAfterFilterAndSort(node => rows.push(node.data));
+                return rows;
+            }})()
+            """
+        rows = await ui.run_javascript(script, timeout=5.0)
+        if not rows:
+            return []
+        if not isinstance(rows, list):
+            raise RuntimeError(f'Expected AG Grid displayed rows as list, got {type(rows).__name__}')
+        return [dict(row) for row in rows if isinstance(row, dict)]
+
+    async def get_displayed_table_as_text(self) -> str:
+        """Return browser-displayed rows as tab-separated text.
+
+        The exported rows reflect AG Grid's browser-side filtering and sorting.
+        Column order and visibility use the widget's current column definitions.
+
+        Returns:
+            TSV-formatted text for the displayed row set.
+        """
+        return self._rows_to_tsv(await self.get_displayed_rows())
+
+    async def copy_table_data_to_clipboard(self) -> None:
+        """Copy browser-displayed table rows to the clipboard as TSV.
+
+        Rows are read from AG Grid after filtering and sorting. If the grid has
+        not been built yet, the internal Python-side rows are copied instead.
 
         Returns:
             None.
         """
-        text = self.get_table_as_text()
+        text = await self.get_displayed_table_as_text()
         try:
             copy_to_clipboard(text)
         except RuntimeError as exc:
@@ -344,6 +383,29 @@ class TableWidget:
             ui.notify(str(exc), type='negative')
             return
         ui.notify('Table data copied to clipboard', type='positive')
+
+    def _rows_to_tsv(self, rows: Sequence[Mapping[str, Any]]) -> str:
+        """Format table rows as TSV using current visible columns.
+
+        Args:
+            rows: Row dictionaries to export.
+
+        Returns:
+            TSV-formatted text containing one header row and one row per input
+            row. Returns an empty string when ``rows`` is empty.
+        """
+        if not rows:
+            return ''
+
+        visible_columns = [c for c in self._column_defs if not bool(c.get('hide', False))]
+        headers = [str(c.get('headerName', c.get('field', ''))) for c in visible_columns]
+        fields = [str(c.get('field', '')) for c in visible_columns]
+
+        lines = ['\t'.join(self._sanitize_table_text_cell(header) for header in headers)]
+        for row in rows:
+            values = [self._sanitize_table_text_cell(row.get(field, '')) for field in fields]
+            lines.append('\t'.join(values))
+        return '\n'.join(lines)
 
     @staticmethod
     def _sanitize_table_text_cell(value: Any) -> str:
