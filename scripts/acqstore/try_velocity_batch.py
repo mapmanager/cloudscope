@@ -12,6 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from acqstore.acq_image.acq_image import AcqImage
+from acqstore.acq_image.acq_image_list import AcqImageList
 from acqstore.acq_image.analysis.batch.acq_analysis_batch import AcqAnalysisBatch
 from acqstore.acq_image.analysis.batch.radon_velocity_batch_strategy import (
     RadonVelocityBatchStrategy,
@@ -21,12 +22,10 @@ from acqstore.acq_image.analysis.velocity_analysis.radon_velocity_analysis impor
     RadonVelocityAnalysis,
 )
 
-SOURCE_PATHS = [
-    "/path/to/file1.oir",
-    "/path/to/file2.oir",
-]
+SOURCE_PATH = "/Users/cudmore/Sites/cloudscope/example-data"
 CHANNEL = 0
-ROI_MODE = RoiBatchMode.ANALYZE_EXISTING_ROI
+# ROI_MODE = RoiBatchMode.ANALYZE_EXISTING_ROI
+ROI_MODE = RoiBatchMode.ADD_NEW_ROI
 ROI_ID: int | None = 1
 WINDOW_WIDTH = 64
 MAX_PARALLEL_FILES = 2
@@ -34,16 +33,17 @@ USE_MULTIPROCESSING = True
 PROCESSES: int | None = None
 
 
-def load_acq_images(paths: list[str]) -> list[AcqImage]:
-    """Load acquisition images.
+def load_acq_images(source: str) -> list[AcqImage]:
+    """Load acquisition images from a file, folder, or CSV path.
 
     Args:
-        paths: Acquisition file paths.
+        source: File, folder, or CSV path discoverable by ``AcqImageList``.
 
     Returns:
-        Loaded acquisition images.
+        Loaded acquisition images in stable display order.
     """
-    return [AcqImage(str(Path(path).expanduser())) for path in paths]
+    acq_image_list = AcqImageList(str(Path(source).expanduser()))
+    return list(acq_image_list.get_files())
 
 
 def build_detection_params(window_width: int) -> dict[str, object]:
@@ -86,8 +86,8 @@ def run_batch(acq_images: list[AcqImage]) -> None:
     batch.run(on_file_result=lambda result: print(result))
 
     # Save explicitly here when desired, for example:
-    # for acq_image in acq_images:
-    #     acq_image.save()
+    for acq_image in acq_images:
+        acq_image.save()
 
 
 def main() -> None:
@@ -96,7 +96,7 @@ def main() -> None:
     Returns:
         None.
     """
-    acq_images = load_acq_images(SOURCE_PATHS)
+    acq_images = load_acq_images(SOURCE_PATH)
     run_batch(acq_images)
 
 

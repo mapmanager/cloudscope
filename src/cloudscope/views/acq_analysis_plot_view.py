@@ -57,7 +57,7 @@ class AcqAnalysisPlotView(BaseView):
     ) -> None:
         super().__init__(event_bus=event_bus, app_state=app_state, initially_visible=initially_visible)
         self.title = title
-        self._status_label: ui.label | None = None
+        # self._status_label: ui.label | None = None
         self._chart: EChartWidget | None = None
         self._events_visible = True
 
@@ -145,7 +145,7 @@ class AcqAnalysisPlotView(BaseView):
         self._chart = EChartWidget(on_x_range_selected=self._on_x_range_selected)
         self._chart.container.classes("w-full h-full min-h-0 flex-1")
 
-        self._status_label = ui.label("No analysis selected").classes("text-sm opacity-70 shrink-0")
+        # self._status_label = ui.label("No analysis selected").classes("text-sm opacity-70 shrink-0")
 
     def _on_analysis_completed(self, event: AnalysisCompleted) -> None:
         """Refresh the plot when any primary-kymograph analysis finishes.
@@ -272,13 +272,15 @@ class AcqAnalysisPlotView(BaseView):
         Returns:
             None.
         """
-        if self._chart is None or self._status_label is None:
+        # if self._chart is None or self._status_label is None:
+        #     return
+        if self._chart is None:
             return
 
         plot_data = self._get_selected_plot_data()
         if plot_data is None:
             self._chart.clear()
-            self._status_label.text = self._empty_message()
+            # self._status_label.text = self._empty_message()
             return
 
         self._chart.set_line_data(
@@ -289,7 +291,7 @@ class AcqAnalysisPlotView(BaseView):
             series_name=plot_data.series_name,
         )
         self._refresh_event_overlays()
-        self._status_label.text = f"{plot_data.series_name}: {len(plot_data.x)} points"
+        # self._status_label.text = f"{plot_data.series_name}: {len(plot_data.x)} points"
 
     def _refresh_event_overlays(self) -> None:
         """Refresh chart event overlays from backend state and visibility."""

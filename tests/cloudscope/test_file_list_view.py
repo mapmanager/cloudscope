@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-
+import asyncio
 from dataclasses import dataclass, field
 
 from cloudscope.event_bus import EventBus
@@ -192,8 +191,7 @@ def test_acq_image_events_changed_updates_one_row_from_app_state() -> None:
     assert view._table.updated_rows == [("/tmp/a.oir", {"path": "/tmp/a.oir", "dirty": True})]
 
 
-@pytest.mark.asyncio
-async def test_get_displayed_file_ids_uses_visible_filtered_sorted_rows() -> None:
+def test_get_displayed_file_ids_uses_visible_filtered_sorted_rows() -> None:
     """Visible file ids should come from TableWidget displayed rows."""
     state = FakeState()
     view = _make_view(state)
@@ -204,6 +202,6 @@ async def test_get_displayed_file_ids_uses_visible_filtered_sorted_rows() -> Non
         {"path": None},
     ]
 
-    file_ids = await view.get_displayed_file_ids()
+    file_ids = asyncio.run(view.get_displayed_file_ids())
 
     assert file_ids == ["/tmp/b.oir", "/tmp/a.oir"]
