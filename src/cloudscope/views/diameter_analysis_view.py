@@ -4,16 +4,19 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from typing import Any
+from uuid import uuid4
 
 from nicegui import ui
 
+from acqstore.acq_image.analysis.batch.preview import preview_batch_rows, roi_intersection_across_acq_images
+from acqstore.acq_image.analysis.batch.roi_mode import RoiBatchMode
 from acqstore.acq_image.analysis.model import AnalysisKey, DetectionParamSchema
 from cloudscope.event_bus import EventBus
 from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind, RunAnalysisIntent, RunBatchAnalysisIntent
 from cloudscope.events.roi import RoiChanged
 from cloudscope.state import PrimarySelection
 from cloudscope.views.base_view import BaseView
-from cloudscope.views.dialogs.batch_analysis_dialog import BatchAnalysisDialog
+from cloudscope.views.dialogs.batch_analysis_dialog import BatchAnalysisDialog, BatchAnalysisDialogResult
 from cloudscope.views.view_ids import ViewId
 
 
@@ -358,30 +361,59 @@ class DiameterAnalysisView(BaseView):
             ui.notify("No visible file-table rows to analyze.", type="warning")
             return
 
-        def _run_batch(confirmed_file_ids: tuple[str, ...]) -> None:
+        acq_image_list = getattr(self.app_state, "acq_image_list", None)
+        if acq_image_list is None:
+            ui.notify("No AcqImageList loaded.", type="negative")
+            return
+        acq_images = []
+        for file_id in file_ids:
+            acq_image = acq_image_list.get_file_by_id(file_id)
+            if acq_image is None:
+                ui.notify(f"Visible file is no longer loaded: {file_id!r}", type="negative")
+                return
+            acq_images.append(acq_image)
+        common_roi_ids = roi_intersection_across_acq_images(acq_images)
+        batch_id = uuid4().hex
+
+        def _preview_rows(roi_mode: RoiBatchMode, roi_id: int | None):
+            return preview_batch_rows(
+                acq_images,
+                analysis_name=AnalysisKind.DIAMETER.value,
+                roi_mode=roi_mode,
+                roi_id=roi_id,
+                channel=int(selection.channel),
+            )
+
+        def _run_batch(result: BatchAnalysisDialogResult) -> None:
             """Publish confirmed batch-analysis intent.
 
             Args:
-                confirmed_file_ids: File ids confirmed by the dialog.
+                result: User-confirmed batch options.
 
             Returns:
                 None.
             """
             self.event_bus.publish(
                 RunBatchAnalysisIntent(
+                    batch_id=batch_id,
                     analysis_kind=AnalysisKind.DIAMETER,
-                    file_ids=confirmed_file_ids,
+                    file_ids=result.file_ids,
                     channel=int(selection.channel),
-                    roi_id=int(selection.roi_id),
+                    roi_mode=result.roi_mode,
+                    roi_id=result.roi_id,
                     detection_params=detection_params,
                 )
             )
 
         BatchAnalysisDialog(
+            event_bus=self.event_bus,
+            batch_id=batch_id,
             analysis_label="diameter",
             file_ids=file_ids,
             channel=int(selection.channel),
-            roi_id=int(selection.roi_id),
+            current_roi_id=int(selection.roi_id),
+            common_roi_ids=common_roi_ids,
+            preview_rows_provider=_preview_rows,
             on_run=_run_batch,
         ).open()
 

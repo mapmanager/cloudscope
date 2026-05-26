@@ -26,6 +26,7 @@ class TaskRunnerMessageKind(StrEnum):
     """Internal worker-to-UI message kinds."""
 
     PROGRESS = "progress"
+    EVENT = "event"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -39,6 +40,7 @@ class TaskRunnerMessage:
         kind: Message kind.
         fraction: Optional fraction complete in [0, 1].
         message: Human-readable message.
+        event: Optional event object to publish on the UI thread.
         result: Optional worker result.
         error: Optional worker exception.
     """
@@ -46,6 +48,7 @@ class TaskRunnerMessage:
     kind: TaskRunnerMessageKind
     fraction: float | None = None
     message: str = ""
+    event: Any | None = None
     result: Any | None = None
     error: BaseException | None = None
 
@@ -88,6 +91,22 @@ class TaskContext:
                 kind=TaskRunnerMessageKind.PROGRESS,
                 fraction=fraction,
                 message=message,
+            )
+        )
+
+    def report_event(self, event: Any) -> None:
+        """Queue an event to publish on the NiceGUI thread.
+
+        Args:
+            event: Event object to publish through the page event bus.
+
+        Returns:
+            None.
+        """
+        self._queue.put(
+            TaskRunnerMessage(
+                kind=TaskRunnerMessageKind.EVENT,
+                event=event,
             )
         )
 
@@ -321,6 +340,11 @@ class TaskRunner:
                     100,
                     message.message,
                 )
+                continue
+
+            if message.kind == TaskRunnerMessageKind.EVENT:
+                if message.event is not None:
+                    self._event_bus.publish(message.event)
                 continue
 
             if message.kind == TaskRunnerMessageKind.COMPLETED:

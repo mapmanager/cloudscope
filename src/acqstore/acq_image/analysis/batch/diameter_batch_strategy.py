@@ -12,7 +12,12 @@ from acqstore.acq_image.analysis.batch.types import (
     BatchFileResult,
 )
 from acqstore.acq_image.analysis.diameter_analysis.diameter_analysis import DiameterAnalysis
-from acqstore.acq_image.analysis.model import AnalysisCancelled, AnalysisKey, AnalysisRunContext
+from acqstore.acq_image.analysis.model import (
+    AnalysisCancelled,
+    AnalysisExclusionError,
+    AnalysisKey,
+    AnalysisRunContext,
+)
 
 if TYPE_CHECKING:
     from acqstore.acq_image.acq_image import AcqImage
@@ -105,6 +110,8 @@ class DiameterBatchStrategy:
             acq_image.analysis_set.run_analysis(analysis.key, context=context)
         except AnalysisCancelled:
             return self._result(acq_image, target_roi_id, BatchFileOutcome.CANCELLED, "cancelled")
+        except AnalysisExclusionError as exc:
+            return self._result(acq_image, target_roi_id, BatchFileOutcome.SKIPPED_CONFLICT, str(exc))
         except Exception as exc:
             return self._result(acq_image, target_roi_id, BatchFileOutcome.FAILED, repr(exc))
 

@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
+from acqstore.acq_image.analysis.batch.roi_mode import RoiBatchMode
+from acqstore.acq_image.analysis.batch.types import BatchFileResult
 from cloudscope.events.base import IntentEvent, StateEvent
 from cloudscope.state import PrimarySelection
 
@@ -15,6 +17,7 @@ class TaskKind(StrEnum):
     LOAD = 'load'
     SAVE = 'save'
     ANALYSIS = 'analysis'
+    BATCH_ANALYSIS = 'batch_analysis'
 
 
 class AnalysisKind(StrEnum):
@@ -57,18 +60,22 @@ class RunBatchAnalysisIntent(IntentEvent):
     """Request to run one analysis over explicit file-table rows.
 
     Args:
+        batch_id: Unique id used to correlate per-file and final batch events.
         analysis_kind: Analysis kind to run.
         file_ids: Ordered file identifiers captured from the visible, filtered,
             sorted file table rows. The backend must not expand this list.
         channel: Channel index used for every file.
-        roi_id: ROI identifier used for every file.
+        roi_mode: How each file's target ROI is selected.
+        roi_id: ROI identifier for ``ANALYZE_EXISTING_ROI`` mode, otherwise None.
         detection_params: Analysis detection parameters keyed by schema field name.
     """
 
+    batch_id: str
     analysis_kind: AnalysisKind
     file_ids: tuple[str, ...]
     channel: int
-    roi_id: int
+    roi_mode: RoiBatchMode
+    roi_id: int | None
     detection_params: dict[str, object]
 
 
@@ -136,22 +143,45 @@ class AnalysisCompleted(StateEvent):
 
 
 @dataclass(frozen=True)
+class BatchFileAnalysisCompleted(StateEvent):
+    """Emitted when one file finishes during a batch analysis task.
+
+    Args:
+        batch_id: Batch id from the original run intent.
+        analysis_kind: Analysis kind that ran.
+        file_id: File identifier for the completed row.
+        result: Per-file backend batch result.
+    """
+
+    batch_id: str
+    analysis_kind: AnalysisKind
+    file_id: str
+    result: BatchFileResult
+
+
+@dataclass(frozen=True)
 class BatchAnalysisCompleted(StateEvent):
     """Emitted when a batch analysis task reaches a terminal state.
 
     Args:
+        batch_id: Batch id from the original run intent.
         analysis_kind: Analysis kind that ran.
         file_ids: Ordered file identifiers requested by the batch intent.
         channel: Channel index used for every file.
-        roi_id: ROI identifier requested for every file.
+        roi_mode: How each file's target ROI was selected.
+        roi_id: ROI identifier for ``ANALYZE_EXISTING_ROI`` mode, otherwise None.
+        results: Per-file backend batch results collected before completion.
         success: True when the batch completed without task failure.
         message: Human-readable completion, cancellation, or error message.
     """
 
+    batch_id: str
     analysis_kind: AnalysisKind
     file_ids: tuple[str, ...]
     channel: int
-    roi_id: int
+    roi_mode: RoiBatchMode
+    roi_id: int | None
+    results: tuple[BatchFileResult, ...]
     success: bool
     message: str = ''
 

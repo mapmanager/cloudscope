@@ -111,6 +111,30 @@ def test_diameter_batch_existing_roi_replaces_analysis() -> None:
     assert len(acq.analysis_set.as_list()) == 1
 
 
+def test_diameter_batch_skips_existing_roi_primary_conflict() -> None:
+    """Batch should skip a file with an opposing primary analysis on the ROI."""
+    acq = FakeAcqImage("fake.tif")
+    roi = acq.rois.create_rect_roi()
+    acq.analysis_set.create(
+        "radon_velocity",
+        channel=0,
+        roi_id=roi.roi_id,
+        detection_params={"window_width": 16},
+    )
+    strategy = DiameterBatchStrategy(
+        channel=0,
+        roi_mode=RoiBatchMode.ANALYZE_EXISTING_ROI,
+        roi_id=roi.roi_id,
+        detection_params={"diameter_method": "threshold_width"},
+        use_threads=False,
+    )
+
+    result = strategy.process_file(acq, cancel_event=threading.Event())
+
+    assert result.outcome is BatchFileOutcome.SKIPPED_CONFLICT
+    assert "radon_velocity" in result.message
+
+
 def test_diameter_batch_returns_cancelled_when_cancel_requested_before_file() -> None:
     """Batch strategy should honor a pre-set cancellation event."""
     acq = FakeAcqImage("fake.tif")

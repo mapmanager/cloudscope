@@ -18,6 +18,7 @@ class BatchFileOutcome(StrEnum):
 
     OK = "ok"
     SKIPPED_MISSING_ROI = "skipped_missing_roi"
+    SKIPPED_CONFLICT = "skipped_conflict"
     FAILED = "failed"
     CANCELLED = "cancelled"
 

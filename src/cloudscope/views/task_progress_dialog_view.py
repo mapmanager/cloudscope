@@ -95,6 +95,8 @@ class TaskProgressDialogView(BaseView):
         Returns:
             None.
         """
+        if event.task_kind is TaskKind.BATCH_ANALYSIS:
+            return
         if (
             self._dialog is None
             or self._label is None

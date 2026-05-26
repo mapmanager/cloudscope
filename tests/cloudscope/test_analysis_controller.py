@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from typing import Any
 
+from acqstore.acq_image.analysis.batch.roi_mode import RoiBatchMode
+from acqstore.acq_image.analysis.batch.types import BatchFileOutcome, BatchFileResult
 from cloudscope.controllers.analysis_controller import AnalysisController
 from cloudscope.event_bus import EventBus
 from cloudscope.events.analysis import (
     AnalysisCompleted,
+    BatchAnalysisCompleted,
     AnalysisKind,
     CancelTaskIntent,
     RunAnalysisIntent,
@@ -78,7 +82,7 @@ class FakeTaskRunner:
 
     def cancel(self, *, task_kind, task_id=None) -> bool:
         """Record cancellation."""
-        self.cancelled = task_kind is TaskKind.ANALYSIS and task_id is None
+        self.cancelled = task_kind in (TaskKind.ANALYSIS, TaskKind.BATCH_ANALYSIS) and task_id is None
         return self.cancel_result
 
 
@@ -95,11 +99,22 @@ class FakeTaskContext:
 
     def __init__(self, *, cancelled: bool = False) -> None:
         self.progress: list[RecordedProgress] = []
+        self.events: list[object] = []
         self._cancelled = cancelled
+        self._cancel_event = threading.Event()
+        if cancelled:
+            self._cancel_event.set()
         self.raise_called = 0
 
     def report_progress(self, fraction: float | None, message: str = "") -> None:
         self.progress.append(RecordedProgress(fraction=fraction, message=message))
+
+    def report_event(self, event: object) -> None:
+        self.events.append(event)
+
+    @property
+    def cancel_event(self) -> threading.Event:
+        return self._cancel_event
 
     def is_cancelled(self) -> bool:
         return self._cancelled
@@ -655,9 +670,11 @@ def test_analysis_controller_starts_batch_for_explicit_visible_file_ids_only() -
 
     bus.publish(
         RunBatchAnalysisIntent(
+            batch_id="batch-1",
             analysis_kind=AnalysisKind.DIAMETER,
             file_ids=("visible-a", "visible-b"),
             channel=0,
+            roi_mode=RoiBatchMode.ANALYZE_EXISTING_ROI,
             roi_id=1,
             detection_params={"diameter_method": "threshold_width"},
         )
@@ -665,9 +682,53 @@ def test_analysis_controller_starts_batch_for_explicit_visible_file_ids_only() -
 
     assert runner.started
     assert runner.captured is not None
-    assert runner.captured.task_kind is TaskKind.ANALYSIS
+    assert runner.captured.task_kind is TaskKind.BATCH_ANALYSIS
     assert runner.captured.task_label == "Batch analysis: diameter"
     assert file_list.requested == ["visible-a", "visible-b"]
+
+
+def test_analysis_controller_starts_add_new_roi_batch_with_none_roi_id() -> None:
+    """ADD_NEW_ROI batch intents should start with no shared ROI id."""
+    _controller, bus, runner, home, _statuses, _completed = _make_controller()
+    home.state.acq_image_list = FakeAcqImageList(FakeAcqImage())
+
+    bus.publish(
+        RunBatchAnalysisIntent(
+            batch_id="batch-1",
+            analysis_kind=AnalysisKind.RADON_VELOCITY,
+            file_ids=("visible-a",),
+            channel=0,
+            roi_mode=RoiBatchMode.ADD_NEW_ROI,
+            roi_id=None,
+            detection_params={"window_width": 16},
+        )
+    )
+
+    assert runner.started
+    assert runner.captured is not None
+    assert runner.captured.task_kind is TaskKind.BATCH_ANALYSIS
+
+
+def test_analysis_controller_rejects_add_new_roi_batch_with_shared_roi_id() -> None:
+    """ADD_NEW_ROI batch intents should fail fast if a shared ROI id is supplied."""
+    _controller, bus, runner, home, statuses, _completed = _make_controller()
+    home.state.acq_image_list = FakeAcqImageList(FakeAcqImage())
+
+    bus.publish(
+        RunBatchAnalysisIntent(
+            batch_id="batch-1",
+            analysis_kind=AnalysisKind.RADON_VELOCITY,
+            file_ids=("visible-a",),
+            channel=0,
+            roi_mode=RoiBatchMode.ADD_NEW_ROI,
+            roi_id=1,
+            detection_params={"window_width": 16},
+        )
+    )
+
+    assert not runner.started
+    assert statuses
+    assert "roi_id must be None" in statuses[-1].message
 
 
 def test_analysis_controller_rejects_empty_batch_file_ids() -> None:
@@ -677,9 +738,11 @@ def test_analysis_controller_rejects_empty_batch_file_ids() -> None:
 
     bus.publish(
         RunBatchAnalysisIntent(
+            batch_id="batch-1",
             analysis_kind=AnalysisKind.RADON_VELOCITY,
             file_ids=(),
             channel=0,
+            roi_mode=RoiBatchMode.ANALYZE_EXISTING_ROI,
             roi_id=1,
             detection_params={"window_width": 16},
         )
@@ -688,3 +751,49 @@ def test_analysis_controller_rejects_empty_batch_file_ids() -> None:
     assert not runner.started
     assert statuses
     assert "No visible table rows" in statuses[-1].message
+
+
+def test_batch_completion_publishes_results_and_successful_file_refreshes() -> None:
+    """Batch completion should publish final results and refresh successful rows."""
+    controller, bus, _runner, _home, _statuses, completed = _make_controller()
+    batch_completed: list[BatchAnalysisCompleted] = []
+    bus.subscribe(BatchAnalysisCompleted, batch_completed.append)
+    result_ok = BatchFileResult(
+        file_path="visible-a",
+        analysis_name="diameter",
+        channel=0,
+        roi_id=3,
+        outcome=BatchFileOutcome.OK,
+        message="ok",
+    )
+    result_skipped = BatchFileResult(
+        file_path="visible-b",
+        analysis_name="diameter",
+        channel=0,
+        roi_id=None,
+        outcome=BatchFileOutcome.SKIPPED_MISSING_ROI,
+        message="missing",
+    )
+    event = RunBatchAnalysisIntent(
+        batch_id="batch-1",
+        analysis_kind=AnalysisKind.DIAMETER,
+        file_ids=("visible-a", "visible-b"),
+        channel=0,
+        roi_mode=RoiBatchMode.ADD_NEW_ROI,
+        roi_id=None,
+        detection_params={"diameter_method": "threshold_width"},
+    )
+
+    controller._publish_batch_analysis_completed(
+        event,
+        results=(result_ok, result_skipped),
+        success=True,
+        message="done",
+    )
+
+    assert batch_completed
+    assert batch_completed[0].batch_id == "batch-1"
+    assert batch_completed[0].results == (result_ok, result_skipped)
+    assert len(completed) == 1
+    assert completed[0].selection.file_id == "visible-a"
+    assert completed[0].selection.roi_id == 3

@@ -8,6 +8,7 @@ from acqstore.acq_image.analysis.batch.acq_analysis_batch import AcqAnalysisBatc
 from acqstore.acq_image.analysis.batch.diameter_batch_strategy import DiameterBatchStrategy
 from acqstore.acq_image.analysis.batch.radon_velocity_batch_strategy import RadonVelocityBatchStrategy
 from acqstore.acq_image.analysis.batch.roi_mode import RoiBatchMode
+from acqstore.acq_image.analysis.batch.types import BatchFileOutcome, BatchFileResult
 from acqstore.acq_image.analysis.model import (
     AnalysisExclusionError,
     AnalysisKey,
@@ -24,6 +25,7 @@ from cloudscope.event_bus import EventBus
 from cloudscope.events.analysis import (
     AnalysisCompleted,
     BatchAnalysisCompleted,
+    BatchFileAnalysisCompleted,
     AnalysisKind,
     CancelTaskIntent,
     RunAnalysisIntent,
@@ -106,12 +108,27 @@ class AnalysisController:
             self._validate_batch_intent(event)
             task_label = f"Batch analysis: {event.analysis_kind.value}"
             self.task_runner.start(
-                task_kind=TaskKind.ANALYSIS,
+                task_kind=TaskKind.BATCH_ANALYSIS,
                 task_label=task_label,
                 worker=lambda context: self._run_batch_analysis_worker(event, context),
-                on_completed=lambda _result: self._publish_batch_analysis_completed(event, success=True, message="Batch analysis complete"),
-                on_failed=lambda exc: self._publish_batch_analysis_completed(event, success=False, message=str(exc)),
-                on_cancelled=lambda: self._publish_batch_analysis_completed(event, success=False, message="Batch analysis cancelled"),
+                on_completed=lambda result: self._publish_batch_analysis_completed(
+                    event,
+                    results=tuple(result or ()),
+                    success=True,
+                    message="Batch analysis complete",
+                ),
+                on_failed=lambda exc: self._publish_batch_analysis_completed(
+                    event,
+                    results=(),
+                    success=False,
+                    message=str(exc),
+                ),
+                on_cancelled=lambda: self._publish_batch_analysis_completed(
+                    event,
+                    results=(),
+                    success=False,
+                    message="Batch analysis cancelled",
+                ),
             )
         except Exception as exc:
             message = f"Batch analysis could not start: {exc}"
@@ -133,9 +150,9 @@ class AnalysisController:
         Returns:
             None.
         """
-        if event.task_kind is not TaskKind.ANALYSIS:
+        if event.task_kind not in (TaskKind.ANALYSIS, TaskKind.BATCH_ANALYSIS):
             return
-        cancelled = self.task_runner.cancel(task_kind=TaskKind.ANALYSIS, task_id=event.task_id)
+        cancelled = self.task_runner.cancel(task_kind=event.task_kind, task_id=event.task_id)
         if not cancelled:
             self.event_bus.publish(
                 AppStatusChanged(
@@ -191,16 +208,15 @@ class AnalysisController:
             raise RuntimeError("No AcqImageList loaded")
         if event.analysis_kind not in (AnalysisKind.RADON_VELOCITY, AnalysisKind.DIAMETER):
             raise NotImplementedError(f"Unsupported batch analysis kind: {event.analysis_kind}")
+        roi_mode = RoiBatchMode(event.roi_mode)
+        if roi_mode is RoiBatchMode.ANALYZE_EXISTING_ROI and event.roi_id is None:
+            raise ValueError("roi_id is required for ANALYZE_EXISTING_ROI mode")
+        if roi_mode is RoiBatchMode.ADD_NEW_ROI and event.roi_id is not None:
+            raise ValueError("roi_id must be None for ADD_NEW_ROI mode")
         for file_id in event.file_ids:
             acq_image = self.home_controller.state.acq_image_list.get_file_by_id(file_id)
             if acq_image is None:
                 raise RuntimeError(f"Visible file is no longer loaded: {file_id!r}")
-            self._raise_if_exclusive_conflict_for_values(
-                acq_image=acq_image,
-                analysis_name=event.analysis_kind.value,
-                channel=int(event.channel),
-                roi_id=int(event.roi_id),
-            )
 
     def _raise_if_exclusive_conflict(self, event: RunAnalysisIntent) -> None:
         """Reject the intent when an exclusive-group conflict would occur.
@@ -322,7 +338,7 @@ class AnalysisController:
             self._rerun_dependent_event_analysis(acq_image, channel=channel, roi_id=roi_id, context=run_context)
         context.report_progress(1.0, "Analysis complete")
 
-    def _run_batch_analysis_worker(self, event: RunBatchAnalysisIntent, context: TaskContext) -> None:
+    def _run_batch_analysis_worker(self, event: RunBatchAnalysisIntent, context: TaskContext) -> list[BatchFileResult]:
         """Run batch analysis for explicit visible file-table rows.
 
         Args:
@@ -330,7 +346,7 @@ class AnalysisController:
             context: Task runner context for progress/cancellation.
 
         Returns:
-            None.
+            Per-file batch results in requested file order.
 
         Raises:
             RuntimeError: If any file id can no longer be resolved.
@@ -353,16 +369,25 @@ class AnalysisController:
         completed = 0
         total = len(files)
 
-        def _on_file_result(result: object) -> None:
+        def _on_file_result(result: BatchFileResult) -> None:
             nonlocal completed
             completed += 1
+            context.report_event(
+                BatchFileAnalysisCompleted(
+                    batch_id=event.batch_id,
+                    analysis_kind=event.analysis_kind,
+                    file_id=result.file_path,
+                    result=result,
+                )
+            )
             context.report_progress(completed / total, f"{completed}/{total}: {result}")
 
         batch = AcqAnalysisBatch(files, strategy, max_parallel_files=1)
-        batch.run(cancel_event=cancel_event, on_file_result=_on_file_result)
+        results = batch.run(cancel_event=cancel_event, on_file_result=_on_file_result)
         if context.is_cancelled() or cancel_event.is_set():
             context.raise_if_cancelled()
         context.report_progress(1.0, "Batch analysis complete")
+        return results
 
     def _batch_strategy_for_event(self, event: RunBatchAnalysisIntent) -> object:
         """Build the AcqStore batch strategy for a CloudScope batch intent.
@@ -378,8 +403,8 @@ class AnalysisController:
         """
         common = dict(
             channel=int(event.channel),
-            roi_mode=RoiBatchMode.ANALYZE_EXISTING_ROI,
-            roi_id=int(event.roi_id),
+            roi_mode=RoiBatchMode(event.roi_mode),
+            roi_id=event.roi_id,
             detection_params=dict(event.detection_params),
         )
         if event.analysis_kind is AnalysisKind.RADON_VELOCITY:
@@ -420,6 +445,7 @@ class AnalysisController:
         self,
         event: RunBatchAnalysisIntent,
         *,
+        results: tuple[BatchFileResult, ...],
         success: bool,
         message: str,
     ) -> None:
@@ -435,25 +461,30 @@ class AnalysisController:
         """
         self.event_bus.publish(
             BatchAnalysisCompleted(
+                batch_id=event.batch_id,
                 analysis_kind=event.analysis_kind,
                 file_ids=tuple(event.file_ids),
                 channel=int(event.channel),
-                roi_id=int(event.roi_id),
+                roi_mode=RoiBatchMode(event.roi_mode),
+                roi_id=event.roi_id,
+                results=tuple(results),
                 success=success,
                 message=message,
             )
         )
-        for file_id in event.file_ids:
+        for result in results:
+            if result.roi_id is None:
+                continue
             self.event_bus.publish(
                 AnalysisCompleted(
                     analysis_kind=event.analysis_kind,
                     selection=PrimarySelection(
-                        file_id=file_id,
-                        channel=int(event.channel),
-                        roi_id=int(event.roi_id),
+                        file_id=result.file_path,
+                        channel=int(result.channel),
+                        roi_id=int(result.roi_id),
                     ),
-                    success=success,
-                    message=message,
+                    success=success and result.outcome is BatchFileOutcome.OK,
+                    message=result.message,
                 )
             )
         self.event_bus.publish(

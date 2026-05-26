@@ -13,7 +13,12 @@ from acqstore.acq_image.analysis.batch.types import (
     BatchFileOutcome,
     BatchFileResult,
 )
-from acqstore.acq_image.analysis.model import AnalysisCancelled, AnalysisKey, AnalysisRunContext
+from acqstore.acq_image.analysis.model import (
+    AnalysisCancelled,
+    AnalysisExclusionError,
+    AnalysisKey,
+    AnalysisRunContext,
+)
 from acqstore.acq_image.analysis.velocity_analysis.radon_velocity_analysis import (
     RadonVelocityAnalysis,
 )
@@ -108,6 +113,8 @@ class RadonVelocityBatchStrategy:
             acq_image.analysis_set.run_analysis(analysis.key, context=context)
         except AnalysisCancelled:
             return self._result(acq_image, target_roi_id, BatchFileOutcome.CANCELLED, "cancelled")
+        except AnalysisExclusionError as exc:
+            return self._result(acq_image, target_roi_id, BatchFileOutcome.SKIPPED_CONFLICT, str(exc))
         except Exception as exc:
             return self._result(acq_image, target_roi_id, BatchFileOutcome.FAILED, repr(exc))
 

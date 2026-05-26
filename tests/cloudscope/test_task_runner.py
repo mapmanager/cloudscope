@@ -62,3 +62,27 @@ def test_task_runner_terminal_progress_before_busy_false() -> None:
     assert events[0].status is TaskStatus.COMPLETED
     assert isinstance(events[1], AppBusyChanged)
     assert events[1].is_busy is False
+
+
+def test_task_runner_publishes_queued_worker_events() -> None:
+    """EVENT messages should publish their payload on the event bus."""
+    bus = EventBus()
+    received: list[AppBusyChanged] = []
+    event = AppBusyChanged(
+        is_busy=True,
+        task_kind=TaskKind.BATCH_ANALYSIS,
+        task_id="batch",
+        message="file done",
+    )
+    bus.subscribe(AppBusyChanged, received.append)
+    runner = TaskRunner(bus)
+    runner._active_task_id = "abc"  # test queue drain directly without NiceGUI timer
+    runner._active_task_kind = TaskKind.BATCH_ANALYSIS
+    import queue
+
+    runner._queue = queue.Queue()
+    runner._queue.put(TaskRunnerMessage(kind=TaskRunnerMessageKind.EVENT, event=event))
+
+    runner.drain_messages(task_kind=TaskKind.BATCH_ANALYSIS, task_id="abc", task_label="Batch")
+
+    assert received == [event]

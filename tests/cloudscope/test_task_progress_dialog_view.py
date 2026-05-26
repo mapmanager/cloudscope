@@ -121,3 +121,24 @@ def test_task_progress_dialog_cancel_publishes_intent() -> None:
     view._on_cancel_clicked()
 
     assert published == [CancelTaskIntent(task_kind=TaskKind.ANALYSIS, task_id='abc')]
+
+
+def test_task_progress_dialog_ignores_batch_analysis_tasks() -> None:
+    """Batch-analysis progress is owned by the batch dialog, not this dialog."""
+    bus = EventBus()
+    view = _configured_view(bus)
+
+    bus.publish(
+        TaskProgressChanged(
+            task_kind=TaskKind.BATCH_ANALYSIS,
+            task_id='batch',
+            task_label='Batch analysis',
+            status=TaskStatus.RUNNING,
+            current=1,
+            total=10,
+            message='Running',
+        )
+    )
+
+    assert view._dialog.opened is False
+    assert view.current_task_id is None
