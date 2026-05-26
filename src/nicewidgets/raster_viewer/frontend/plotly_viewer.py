@@ -602,6 +602,9 @@ return {{
                 },
                 'config': dict(RASTER_VIEWER_PLOTLY_CONFIG),
             }
+
+        logger.info('making initial default png -->> never called?')
+
         response = self._service.full_image_png(display_style=self._display_style())
         self._current_bounds = response.bounds
         figure = build_plotly_figure(

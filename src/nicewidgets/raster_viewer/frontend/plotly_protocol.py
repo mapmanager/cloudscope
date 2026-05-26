@@ -45,6 +45,12 @@ def build_plotly_figure(
     heatmap_colorscale: str | None = None,
 ) -> dict:
     """Build a Plotly figure dict from a backend render response."""
+
+    logger.info('')
+    logger.info(f'RenderResponse:')
+    print(response)
+    logger.info(f'heatmap_colorscale:{heatmap_colorscale}')
+
     transform = PlotlyCoordTransform(
         nrows=response.shape[0],
         ncols=response.shape[1],
@@ -109,7 +115,7 @@ def build_plotly_figure(
     else:
         raise ValueError(f'Unsupported render mode: {response.mode}')
 
-    logger.debug('build_plotly_figure mode=%s', response.mode)
+    logger.debug(f'RenderResponse:{response.mode}')
 
     return {'data': data, 'layout': layout, 'config': dict(RASTER_VIEWER_PLOTLY_CONFIG)}
 

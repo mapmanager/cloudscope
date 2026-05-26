@@ -160,6 +160,35 @@ class RenderResponse:
     zmin: float | None = None
     zmax: float | None = None
 
+    def __str__(self) -> str:
+        uri = (
+            None
+            if self.png_data_uri is None
+            else f"<data URI, {len(self.png_data_uri)} chars>"
+        )
+        z = (
+            None
+            if self.z is None
+            else f"<ndarray shape={self.z.shape} dtype={self.z.dtype}>"
+        )
+        lines = [
+            "RenderResponse(",
+            f"  mode={self.mode!r},",
+            f"  level={self.level},",
+            f"  bounds={self.bounds!r},",
+            f"  shape={self.shape},",
+            f"  grid={self.grid!r},",
+            f"  x0={self.x0},",
+            f"  y0={self.y0},",
+            f"  dx={self.dx},",
+            f"  dy={self.dy},",
+            f"  png_data_uri={uri},",
+            f"  z={z},",
+            f"  zmin={self.zmin},",
+            f"  zmax={self.zmax},",
+            ")",
+        ]
+        return "\n".join(lines)
 
 class BackendImage:
     """Hold the full-resolution source image and its physical grid."""
