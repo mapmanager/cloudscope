@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from raster_viewer.backend.image_model import RowColBounds
-from raster_viewer.backend.pyramid import ImagePyramid
+from nicewidgets.raster_viewer.backend.image_model import RowColBounds
+from nicewidgets.raster_viewer.backend.pyramid import ImagePyramid
 
 
 def test_pyramid_builds_expected_first_levels(image_pyramid: ImagePyramid) -> None:

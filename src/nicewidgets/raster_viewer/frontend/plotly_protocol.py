@@ -47,7 +47,7 @@ def build_plotly_figure(
     """Build a Plotly figure dict from a backend render response."""
 
     logger.info('')
-    logger.info(f'RenderResponse:')
+    logger.info('RenderResponse:')
     print(response)
     logger.info(f'heatmap_colorscale:{heatmap_colorscale}')
 
@@ -57,7 +57,7 @@ def build_plotly_figure(
         grid=response.grid,
     )
     x_range = list(transform.row_col_to_plot_x_range(response.bounds))
-    y_range = list(transform.row_col_to_plot_y_range_layout(response.bounds))
+    y_range = list(transform.row_col_to_plot_y_range(response.bounds))
 
     xaxis: dict[str, object] = {
         'range': x_range,
@@ -148,7 +148,7 @@ def parse_relayout_payload(
     relayout = payload.relayout
 
     fx_lo, fx_hi = transform.row_col_to_plot_x_range(fallback_bounds)
-    fy_top, fy_bot = transform.row_col_to_plot_y_range_layout(fallback_bounds)
+    fy_lo, fy_hi = transform.row_col_to_plot_y_range(fallback_bounds)
 
     x_lo, x_hi = _read_axis_range_pair(
         relayout,
@@ -158,7 +158,7 @@ def parse_relayout_payload(
     y_a, y_b = _read_axis_range_pair(
         relayout,
         axis='yaxis',
-        bracket_fallbacks=(fy_top, fy_bot),
+        bracket_fallbacks=(fy_lo, fy_hi),
     )
 
     bounds = transform.plot_xy_ranges_to_row_col(x_lo, x_hi, y_a, y_b)

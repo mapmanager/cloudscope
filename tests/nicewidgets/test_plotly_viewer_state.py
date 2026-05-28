@@ -60,14 +60,23 @@ def test_plot_xy_ranges_to_row_col_round_trip() -> None:
     t = PlotlyCoordTransform(nrows=10, ncols=8, grid=grid)
     bounds = RowColBounds(row_min=2.0, row_max=8.0, col_min=1.0, col_max=6.0)
     x_lo, x_hi = t.row_col_to_plot_x_range(bounds)
-    y_top, y_bot = t.row_col_to_plot_y_range_layout(bounds)
+    y_lo, y_hi = t.row_col_to_plot_y_range(bounds)
 
-    back = t.plot_xy_ranges_to_row_col(x_lo, x_hi, y_top, y_bot)
+    back = t.plot_xy_ranges_to_row_col(x_lo, x_hi, y_lo, y_hi)
 
     assert back.row_min == pytest.approx(2.0)
     assert back.row_max == pytest.approx(8.0)
     assert back.col_min == pytest.approx(1.0)
     assert back.col_max == pytest.approx(6.0)
+
+
+def test_row_col_to_plot_y_range_is_bottom_up() -> None:
+    """Y-axis layout ranges should be ordered low to high for bottom-left origin."""
+    grid = _grid()
+    t = PlotlyCoordTransform(nrows=10, ncols=8, grid=grid)
+    bounds = RowColBounds(row_min=0.0, row_max=10.0, col_min=1.0, col_max=6.0)
+
+    assert t.row_col_to_plot_y_range(bounds) == (4.0, 24.0)
 
 
 def test_plot_xy_ranges_to_row_col_clips_to_shape() -> None:
@@ -111,7 +120,7 @@ def test_merge_partial_relayout_fills_missing_x() -> None:
     """Missing x range should be filled from fallback bounds."""
     t = PlotlyCoordTransform(nrows=10, ncols=8, grid=_grid())
     fallback = RowColBounds(row_min=0, row_max=10, col_min=0, col_max=8)
-    relayout = {'yaxis.range': [10.0, 0.0]}
+    relayout = {'yaxis.range': [0.0, 10.0]}
 
     merged = merge_partial_relayout(relayout, t, fallback)
 
@@ -156,7 +165,7 @@ def test_parse_relayout_payload_returns_view_request() -> None:
     t = PlotlyCoordTransform(nrows=10, ncols=8, grid=_grid())
     fallback = RowColBounds(row_min=0, row_max=10, col_min=0, col_max=8)
     payload = PlotlyViewportPayload(
-        relayout={'xaxis.range': [0.0, 20.0], 'yaxis.range': [32.0, 0.0]},
+        relayout={'xaxis.range': [0.0, 20.0], 'yaxis.range': [0.0, 32.0]},
         width_px=300,
         height_px=200,
     )
@@ -195,8 +204,8 @@ def test_parse_relayout_payload_reads_bracket_keys() -> None:
         relayout={
             'xaxis.range[0]': 0.0,
             'xaxis.range[1]': 4.0,
-            'yaxis.range[0]': 16.0,
-            'yaxis.range[1]': 0.0,
+            'yaxis.range[0]': 0.0,
+            'yaxis.range[1]': 16.0,
         },
         width_px=100,
         height_px=100,
@@ -229,6 +238,7 @@ def test_build_plotly_figure_image_mode() -> None:
 
     assert fig['data'][0]['type'] == 'image'
     assert fig['data'][0]['source'] == 'data:image/png;base64,AAA'
+    assert fig['layout']['yaxis']['range'] == [0.0, 16.0]
     assert fig['layout']['uirevision'] == 'ui-1'
 
 
@@ -333,12 +343,12 @@ def test_js_plotly_graph_div_returns_early_without_plot() -> None:
 def test_layout_pin_xy_ranges_writes_axis_ranges() -> None:
     """``_layout_pin_xy_ranges`` should pin axes in the plotly dict."""
     viewer = PlotlyRasterViewer()
-    viewer._layout_pin_xy_ranges(x_lo=1.0, x_hi=5.0, y_top=10.0, y_bot=2.0)
+    viewer._layout_pin_xy_ranges(x_lo=1.0, x_hi=5.0, y_lo=2.0, y_hi=10.0)
 
     layout = viewer._plotly_dict['layout']
     assert layout['xaxis']['range'] == [1.0, 5.0]
     assert layout['xaxis']['autorange'] is False
-    assert layout['yaxis']['range'] == [10.0, 2.0]
+    assert layout['yaxis']['range'] == [2.0, 10.0]
     assert layout['yaxis']['autorange'] is False
 
 
@@ -528,7 +538,7 @@ def test_request_from_plotly_returns_view_request_after_set_data() -> None:
     """After ``set_data``, ``request_from_plotly`` should return a ViewRequest."""
     viewer = _viewer_with_data(shape=(8, 4))
     payload = PlotlyViewportPayload(
-        relayout={'xaxis.range': [0.0, 16.0], 'yaxis.range': [16.0, 0.0]},
+        relayout={'xaxis.range': [0.0, 16.0], 'yaxis.range': [0.0, 16.0]},
         width_px=200,
         height_px=100,
     )

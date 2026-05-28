@@ -8,8 +8,8 @@ import io
 import numpy as np
 from PIL import Image
 
-from raster_viewer.backend.image_model import RasterDisplayStyle, RowColBounds, ViewRequest, ViewportSize
-from raster_viewer.backend.raster_service import RasterViewService
+from nicewidgets.raster_viewer.backend.image_model import RasterDisplayStyle, RowColBounds, ViewRequest, ViewportSize
+from nicewidgets.raster_viewer.backend.raster_service import RasterViewService
 
 
 def test_choose_level_prefers_coarser_level_for_zoomed_out_view(raster_service: RasterViewService) -> None:

@@ -40,8 +40,9 @@ class RasterGridSpec:
     """Physical spacing and axis labels for a 2D raster.
 
     Plotly uses row index as the horizontal (x) axis and column index as the
-    vertical (y) axis at the viewer layer; ``dx`` / ``dy`` scale index to
-    physical units.
+    vertical (y) axis at the viewer layer. The frontend displays y with a
+    bottom-left origin, so increasing column index moves upward on screen.
+    ``dx`` / ``dy`` scale index to physical units.
 
     Attributes:
         dx: Physical extent per row index step; must be strictly positive.

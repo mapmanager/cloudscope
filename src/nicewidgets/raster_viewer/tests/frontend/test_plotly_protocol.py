@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from raster_viewer.backend.image_model import RasterGridSpec, RenderResponse, RowColBounds
-from raster_viewer.frontend.plotly_coord_transform import PlotlyCoordTransform
-from raster_viewer.frontend.plotly_protocol import (
+from nicewidgets.raster_viewer.backend.image_model import RasterGridSpec, RenderResponse, RowColBounds
+from nicewidgets.raster_viewer.frontend.plotly_coord_transform import PlotlyCoordTransform
+from nicewidgets.raster_viewer.frontend.plotly_protocol import (
     DEFAULT_HEATMAP_COLORSCALE,
     PlotlyViewportPayload,
     build_plotly_figure,
@@ -37,6 +37,7 @@ def test_build_plotly_figure_for_png_response() -> None:
     figure = build_plotly_figure(response)
     assert figure['data'][0]['type'] == 'image'
     assert figure['data'][0]['source'] == 'data:image/png;base64,abc'
+    assert figure['layout']['yaxis']['range'] == [0.0, 5.0]
     assert figure.get('config', {}).get('doubleClick') is False
     assert figure.get('config', {}).get('scrollZoom') is True
     assert figure.get('config', {}).get('responsive') is True
@@ -99,8 +100,8 @@ def test_parse_relayout_payload_reads_axis_ranges() -> None:
         relayout={
             'xaxis.range[0]': 10,
             'xaxis.range[1]': 20,
-            'yaxis.range[0]': 50,
-            'yaxis.range[1]': 30,
+            'yaxis.range[0]': 30,
+            'yaxis.range[1]': 50,
         },
         width_px=800,
         height_px=600,
@@ -117,7 +118,7 @@ def test_parse_relayout_payload_reads_axis_ranges() -> None:
 def test_parse_relayout_payload_reads_compound_axis_range_keys() -> None:
     """Plotly may send ``xaxis.range`` / ``yaxis.range`` as two-element lists."""
     payload = PlotlyViewportPayload(
-        relayout={'xaxis.range': [0, 1], 'yaxis.range': [1, 0]},
+        relayout={'xaxis.range': [0, 1], 'yaxis.range': [0, 1]},
         width_px=400,
         height_px=300,
     )

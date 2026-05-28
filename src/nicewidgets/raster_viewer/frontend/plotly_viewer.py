@@ -83,7 +83,7 @@ const plotDiv = host.querySelector('.js-plotly-plot') || host;
 if (!plotDiv || !plotDiv.data) return;
 """
 
-    def _layout_pin_xy_ranges(self, *, x_lo: float, x_hi: float, y_top: float, y_bot: float) -> None:
+    def _layout_pin_xy_ranges(self, *, x_lo: float, x_hi: float, y_lo: float, y_hi: float) -> None:
         """Mirror axis state in :attr:`_plotly_dict` for the next full figure push (like ``plot_dict`` sync)."""
         layout = self._plotly_dict.setdefault('layout', {})
         xaxis = layout.setdefault('xaxis', {})
@@ -91,7 +91,7 @@ if (!plotDiv || !plotDiv.data) return;
         xaxis['autorange'] = False
         yaxis['autorange'] = False
         xaxis['range'] = [x_lo, x_hi]
-        yaxis['range'] = [y_top, y_bot]
+        yaxis['range'] = [y_lo, y_hi]
 
     @property
     def current_bounds(self) -> RowColBounds:
@@ -104,7 +104,7 @@ if (!plotDiv || !plotDiv.data) return;
         return self._service is not None
 
     @property
-    def plot(self) -> 'Element | None':
+    def plot(self) -> Element | None:
         """Return the NiceGUI Plotly element."""
         return self._plot
 
@@ -113,7 +113,7 @@ if (!plotDiv || !plotDiv.data) return;
         """Return the current figure dictionary."""
         return self._plotly_dict
 
-    def build(self) -> 'Element':
+    def build(self) -> Element:
         """Create the NiceGUI Plotly element."""
         self._plotly_dict = self._build_initial_figure()
 
@@ -410,16 +410,16 @@ Plotly.relayout(plotDiv, {{
 
         x_lo = float(min(x_min, x_max))
         x_hi = float(max(x_min, x_max))
-        y_top = float(max(y_min, y_max))
-        y_bot = float(min(y_min, y_max))
-        self._layout_pin_xy_ranges(x_lo=x_lo, x_hi=x_hi, y_top=y_top, y_bot=y_bot)
+        y_lo = float(min(y_min, y_max))
+        y_hi = float(max(y_min, y_max))
+        self._layout_pin_xy_ranges(x_lo=x_lo, x_hi=x_hi, y_lo=y_lo, y_hi=y_hi)
 
         js = f"""
 {self._js_plotly_graph_div()}
 Plotly.relayout(plotDiv, {{
   'xaxis.range': [{json.dumps(x_lo)}, {json.dumps(x_hi)}],
   'xaxis.autorange': false,
-  'yaxis.range': [{json.dumps(y_top)}, {json.dumps(y_bot)}],
+  'yaxis.range': [{json.dumps(y_lo)}, {json.dumps(y_hi)}],
   'yaxis.autorange': false
 }});
 """
@@ -430,24 +430,24 @@ Plotly.relayout(plotDiv, {{
         if self._plot is None or self._transform is None:
             raise RuntimeError('Viewer must be built and data set before setting axis ranges.')
 
-        fy_top, fy_bot = self._transform.row_col_to_plot_y_range_layout(self._current_bounds)
+        fy_lo, fy_hi = self._transform.row_col_to_plot_y_range(self._current_bounds)
         x_lo = float(min(x_min, x_max))
         x_hi = float(max(x_min, x_max))
         self._current_bounds = self._transform.plot_xy_ranges_to_row_col(
             x_lo,
             x_hi,
-            fy_top,
-            fy_bot,
+            fy_lo,
+            fy_hi,
         )
 
-        self._layout_pin_xy_ranges(x_lo=x_lo, x_hi=x_hi, y_top=fy_top, y_bot=fy_bot)
+        self._layout_pin_xy_ranges(x_lo=x_lo, x_hi=x_hi, y_lo=fy_lo, y_hi=fy_hi)
 
         js = f"""
 {self._js_plotly_graph_div()}
 Plotly.relayout(plotDiv, {{
   'xaxis.range': [{json.dumps(x_lo)}, {json.dumps(x_hi)}],
   'xaxis.autorange': false,
-  'yaxis.range': [{json.dumps(fy_top)}, {json.dumps(fy_bot)}],
+  'yaxis.range': [{json.dumps(fy_lo)}, {json.dumps(fy_hi)}],
   'yaxis.autorange': false
 }});
 """
@@ -597,7 +597,7 @@ return {{
                     'uirevision': self._uirevision,
                     'autosize': True,
                     'xaxis': {'range': [0.0, 1.0]},
-                    'yaxis': {'range': [1.0, 0.0]},
+                    'yaxis': {'range': [0.0, 1.0]},
                     'dragmode': 'zoom',
                 },
                 'config': dict(RASTER_VIEWER_PLOTLY_CONFIG),
