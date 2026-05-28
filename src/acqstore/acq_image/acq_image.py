@@ -19,6 +19,17 @@ from .supported_import_extensions import (
 )
 from .acq_analysis_set import AcqAnalysisSet
 from .analysis.data_provider import AcqImageAnalysisDataProvider
+from .tree_rows import (
+    ACQ_TREE_ANALYSIS_CHANNEL_FIELD,
+    ACQ_TREE_ANALYSIS_NAME_FIELD,
+    ACQ_TREE_ANALYSIS_ROI_ID_FIELD,
+    ACQ_TREE_PATH_FIELD,
+    ACQ_TREE_ROW_ID_FIELD,
+    ACQ_TREE_ROW_TYPE_ANALYSIS,
+    ACQ_TREE_ROW_TYPE_FIELD,
+    ACQ_TREE_ROW_TYPE_FILE,
+    build_analysis_tree_row_id,
+)
 
 logger = get_logger(__name__)
 
@@ -331,6 +342,63 @@ class AcqImage:
         }
         validate_values_for_schema(self.get_schema(), values)
         return values
+
+    def get_tree_rows(self) -> list[dict[str, object]]:
+        """Return tree rows for this file and its analyses.
+
+        Returns:
+            Flat row list with the file row first, followed by one row per
+            analysis in analysis insertion order.
+        """
+        rows: list[dict[str, object]] = [self._build_file_tree_row()]
+        rows.extend(self._build_analysis_tree_rows())
+        return rows
+
+    def _build_file_tree_row(self) -> dict[str, object]:
+        """Return the top-level tree row for this file.
+
+        Returns:
+            Row dictionary with tree contract fields plus schema-keyed file
+            values.
+        """
+        return {
+            ACQ_TREE_ROW_ID_FIELD: self.file_id,
+            ACQ_TREE_PATH_FIELD: [self.file_id],
+            ACQ_TREE_ROW_TYPE_FIELD: ACQ_TREE_ROW_TYPE_FILE,
+            ACQ_TREE_ANALYSIS_NAME_FIELD: None,
+            ACQ_TREE_ANALYSIS_CHANNEL_FIELD: None,
+            ACQ_TREE_ANALYSIS_ROI_ID_FIELD: None,
+            **self.get_schema_row(),
+        }
+
+    def _build_analysis_tree_rows(self) -> list[dict[str, object]]:
+        """Return child tree rows for analyses owned by this file.
+
+        Returns:
+            Row dictionaries with tree contract fields plus all file-list
+            schema keys set to ``None``.
+        """
+        schema_keys = self.get_schema().field_names()
+        rows: list[dict[str, object]] = []
+        for analysis in self._acq_analysis_set.as_list():
+            row_id = build_analysis_tree_row_id(
+                self.file_id,
+                analysis.key.analysis_name,
+                analysis.key.channel,
+                analysis.key.roi_id,
+            )
+            row: dict[str, object] = {
+                ACQ_TREE_ROW_ID_FIELD: row_id,
+                ACQ_TREE_PATH_FIELD: [self.file_id, row_id],
+                ACQ_TREE_ROW_TYPE_FIELD: ACQ_TREE_ROW_TYPE_ANALYSIS,
+                ACQ_TREE_ANALYSIS_NAME_FIELD: analysis.key.analysis_name,
+                ACQ_TREE_ANALYSIS_CHANNEL_FIELD: int(analysis.key.channel),
+                ACQ_TREE_ANALYSIS_ROI_ID_FIELD: int(analysis.key.roi_id),
+            }
+            for key in schema_keys:
+                row.setdefault(key, None)
+            rows.append(row)
+        return rows
 
     def get_default_channel(self) -> int | None:
         """Return the default channel index for this file.

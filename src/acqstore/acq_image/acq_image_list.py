@@ -471,3 +471,15 @@ class AcqImageList:
         for row in rows:
             validate_values_for_schema(schema, row)
         return rows
+
+    def get_tree_rows(self) -> list[dict[str, object]]:
+        """Return tree rows for all files in stable display order.
+
+        Returns:
+            Flat row list containing each file row followed by its analysis
+            child rows.
+        """
+        rows: list[dict[str, object]] = []
+        for acq_file in self.get_files():
+            rows.extend(acq_file.get_tree_rows())
+        return rows
