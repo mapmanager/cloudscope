@@ -19,7 +19,7 @@ from cloudscope.event_bus import EventBus
 from cloudscope.task_runner import TaskRunner
 from cloudscope.events.files import LoadPathIntent, LoadPathKind
 from cloudscope.events.layout import ResetHomeLayoutIntent, SetHomeViewVisibleIntent
-from cloudscope.views.file_list_view import AcqImageListTableView
+from cloudscope.views.file_list_tree_view import AcqImageListTreeView
 from cloudscope.views.footer_view import FooterView
 from cloudscope.views.header_view import build_main_header
 from cloudscope.views.image_toolbar_view import ImageToolbarView
@@ -108,7 +108,7 @@ class HomePage:
             """
             return self.app_config.is_home_view_visible(view_id.value)
 
-        file_list_panel = AcqImageListTableView(
+        file_list_panel = AcqImageListTreeView(
             event_bus=self.event_bus,
             app_state=app_state,
             table_font_size_px=int(self.app_config.data.table_font_size_px),

@@ -50,13 +50,41 @@ def field_schema_to_column_def(field: FieldSchema) -> ColumnDef:
     )
 
 
-def schema_to_column_defs(schema: SchemaDefinition) -> list[ColumnDef]:
+def schema_to_column_defs(
+    schema: SchemaDefinition,
+    *,
+    tree_group_display_field: str | None = None,
+) -> list[ColumnDef]:
     """Convert an AcqStore schema into NiceWidgets table columns.
 
     Args:
         schema: AcqStore semantic schema.
+        tree_group_display_field: Optional schema field name that, in tree
+            views, should host the AG Grid disclosure chevron. When set,
+            the matching column gets ``cellRenderer: 'agGroupCellRenderer'``
+            and ``cellRendererParams: {'suppressCount': True}`` injected
+            into its ``extra`` dict. When ``None`` (default), no chevron
+            wiring is applied — appropriate for flat table views.
 
     Returns:
         Column definitions in schema field order.
+
+    Raises:
+        KeyError: If ``tree_group_display_field`` is given but does not
+            match any schema field name.
     """
-    return [field_schema_to_column_def(field) for field in schema.fields]
+    columns = [field_schema_to_column_def(field) for field in schema.fields]
+
+    if tree_group_display_field is not None:
+        for col in columns:
+            if col.field == tree_group_display_field:
+                col.extra["cellRenderer"] = "agGroupCellRenderer"
+                col.extra.setdefault("cellRendererParams", {"suppressCount": True})
+                break
+        else:
+            raise KeyError(
+                f"tree_group_display_field {tree_group_display_field!r} "
+                f"is not declared by schema {schema.schema_id!r}"
+            )
+
+    return columns

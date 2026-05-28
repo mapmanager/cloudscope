@@ -13,8 +13,27 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class SelectFileIntent(IntentEvent):
-    """Request to select a file."""
+    """Request to select a file (and optionally a specific analysis row).
+
+    Attributes:
+        file_id: Stable file identifier, or ``None`` to clear selection.
+        channel: Optional explicit channel to select. When ``None``, the
+            controller resolves the file's default channel.
+        roi_id: Optional explicit ROI identifier to select. When ``None``,
+            the controller resolves the file's default ROI.
+        analysis_name: Optional analysis identity component. Set only when
+            the intent originates from an analysis-row click in
+            :class:`AcqImageListTreeView`. ``None`` for all other paths
+            (file-row clicks, legacy table-view clicks, programmatic
+            file selection). See
+            :class:`cloudscope.state.PrimarySelection.analysis_name` for
+            the full contract.
+    """
+
     file_id: str | None
+    channel: int | None = None
+    roi_id: int | None = None
+    analysis_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -43,12 +62,18 @@ class FileSelectionChanged(StateEvent):
             (e.g. demo file ids without backend objects).
         channel: Default or current channel for ``file_id``.
         roi_id: Default or current ROI for ``file_id``.
+        analysis_name: Carries the analysis identity component when the
+            selection originated from an analysis-row click in
+            :class:`AcqImageListTreeView`. ``None`` for all other paths.
+            See :class:`cloudscope.state.PrimarySelection.analysis_name`
+            for the full contract.
     """
 
     file_id: str | None
     acq_image: AcqImage | None
     channel: int | None
     roi_id: int | None
+    analysis_name: str | None = None
 
 
 @dataclass(frozen=True)

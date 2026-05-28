@@ -51,6 +51,71 @@ def test_select_file_resets_channel_and_roi() -> None:
     assert published[-1].roi_id is None
 
 
+def test_select_file_with_analysis_fields_propagates_through_state() -> None:
+    event_bus = EventBus()
+    controller = HomePageController(event_bus=event_bus)
+    controller.bind()
+    controller.load_demo_files(['file-a'])
+
+    published: list[FileSelectionChanged] = []
+    event_bus.subscribe(FileSelectionChanged, published.append)
+
+    event_bus.publish(
+        SelectFileIntent(
+            file_id='file-a',
+            channel=2,
+            roi_id=7,
+            analysis_name='radon_velocity',
+        )
+    )
+
+    assert published[-1].file_id == 'file-a'
+    assert published[-1].channel == 2
+    assert published[-1].roi_id == 7
+    assert published[-1].analysis_name == 'radon_velocity'
+    assert controller.state.selection.analysis_name == 'radon_velocity'
+
+
+def test_select_channel_clears_analysis_name() -> None:
+    event_bus = EventBus()
+    controller = HomePageController(event_bus=event_bus)
+    controller.bind()
+    controller.load_demo_files(['file-a'])
+    event_bus.publish(
+        SelectFileIntent(
+            file_id='file-a',
+            channel=1,
+            roi_id=3,
+            analysis_name='diameter',
+        )
+    )
+    assert controller.state.selection.analysis_name == 'diameter'
+
+    event_bus.publish(SelectChannelIntent(channel=2))
+
+    assert controller.state.selection.analysis_name is None
+
+
+def test_select_roi_clears_analysis_name() -> None:
+    event_bus = EventBus()
+    controller = HomePageController(event_bus=event_bus)
+    controller.bind()
+    controller.load_demo_files(['file-a'])
+    event_bus.publish(
+        SelectFileIntent(
+            file_id='file-a',
+            channel=1,
+            roi_id=3,
+            analysis_name='event',
+        )
+    )
+    assert controller.state.selection.analysis_name == 'event'
+
+    event_bus.publish(SelectRoiIntent(roi_id=9))
+
+    assert controller.state.selection.analysis_name is None
+
+
 def test_select_channel_and_roi_publish_narrow_state_events() -> None:
     event_bus = EventBus()
     controller = HomePageController(event_bus=event_bus)

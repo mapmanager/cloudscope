@@ -416,6 +416,7 @@ class BaseView:
             file_id=event.file_id,
             channel=event.channel,
             roi_id=event.roi_id,
+            analysis_name=event.analysis_name,
         )
         self.current_acq_image = event.acq_image
         self.on_primary_selection_changed()
@@ -430,6 +431,7 @@ class BaseView:
             None.
         """
         self.current_selection.channel = event.channel
+        self.current_selection.analysis_name = None
         self.on_primary_selection_changed()
 
     def _on_roi_selection_changed(self, event: RoiSelectionChanged) -> None:
@@ -442,6 +444,7 @@ class BaseView:
             None.
         """
         self.current_selection.roi_id = event.roi_id
+        self.current_selection.analysis_name = None
         self.on_primary_selection_changed()
 
     def _refresh_primary_selection_from_state(self) -> None:
@@ -457,6 +460,7 @@ class BaseView:
             file_id=selection.file_id,
             channel=selection.channel,
             roi_id=selection.roi_id,
+            analysis_name=selection.analysis_name,
         )
         self.current_acq_image = self.get_acq_image_by_file_id(self.current_selection.file_id)
         self.on_primary_selection_changed()

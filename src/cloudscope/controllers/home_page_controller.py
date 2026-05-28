@@ -155,10 +155,13 @@ class HomePageController:
             if acq_file is None:
                 raise ValueError(f'Unknown file_id: {event.file_id!r}')
 
+            channel = event.channel if event.channel is not None else acq_file.get_default_channel()
+            roi_id = event.roi_id if event.roi_id is not None else acq_file.get_default_roi()
             self._state.selection = PrimarySelection(
                 file_id=acq_file.file_id,
-                channel=acq_file.get_default_channel(),
-                roi_id=acq_file.get_default_roi(),
+                channel=channel,
+                roi_id=roi_id,
+                analysis_name=event.analysis_name,
             )
             self._publish_file_selection_changed()
             return
@@ -167,8 +170,9 @@ class HomePageController:
             raise ValueError(f'Unknown file_id: {event.file_id!r}')
 
         self._state.selection.file_id = event.file_id
-        self._state.selection.channel = 0
-        self._state.selection.roi_id = None
+        self._state.selection.channel = event.channel if event.channel is not None else 0
+        self._state.selection.roi_id = event.roi_id
+        self._state.selection.analysis_name = event.analysis_name
         self._publish_file_selection_changed()
 
     def _on_select_channel(self, event: SelectChannelIntent) -> None:
@@ -184,6 +188,7 @@ class HomePageController:
             raise ValueError('Cannot select a channel without a selected file')
 
         self._state.selection.channel = event.channel
+        self._state.selection.analysis_name = None
         self._event_bus.publish(ChannelSelectionChanged(channel=self._state.selection.channel))
 
     def select_roi(self, roi_id: int | None) -> None:
@@ -202,6 +207,7 @@ class HomePageController:
             raise ValueError('Cannot select an ROI without a selected file')
 
         self._state.selection.roi_id = roi_id
+        self._state.selection.analysis_name = None
         self._event_bus.publish(RoiSelectionChanged(roi_id=self._state.selection.roi_id))
 
     def _on_select_roi(self, event: SelectRoiIntent) -> None:
@@ -257,5 +263,6 @@ class HomePageController:
                 acq_image=acq_image,
                 channel=self._state.selection.channel,
                 roi_id=self._state.selection.roi_id,
+                analysis_name=self._state.selection.analysis_name,
             )
         )
