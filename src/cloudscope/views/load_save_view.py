@@ -15,6 +15,7 @@ from cloudscope.events.files import (
     ClearRecentPathsIntent,
     LoadPathIntent,
     LoadPathKind,
+    LoadSampleDataIntent,
     RecentPathsChanged,
     RemoveRecentPathIntent,
     SaveAllIntent,
@@ -153,6 +154,7 @@ class LoadSaveView(BaseView):
         ui.button('Load File', on_click=lambda: self._on_load_clicked(LoadPathKind.FILE))
         ui.button('Load Folder', on_click=lambda: self._on_load_clicked(LoadPathKind.FOLDER))
         ui.button('Load CSV', on_click=lambda: self._on_load_clicked(LoadPathKind.CSV))
+        ui.button('Load Sample Data', on_click=self._on_load_sample_data_clicked)
 
         self._save_selected_button = ui.button(
             'Save Selected',
@@ -245,6 +247,10 @@ class LoadSaveView(BaseView):
     #         ui.notify('Enter a path before loading', type='warning')
     #         return
     #     self.event_bus.publish(LoadPathIntent(path=path, kind=kind))
+
+    def _on_load_sample_data_clicked(self) -> None:
+        """Emit a request to load the default sample dataset."""
+        self.event_bus.publish(LoadSampleDataIntent(name='demo-small'))
 
     async def _on_load_clicked(self, kind: LoadPathKind) -> None:
         """Open native picker in native mode, else use text input path."""

@@ -13,7 +13,7 @@ from nicegui import ui
 # logger = get_logger(__name__)
 
 
-def setUpGuiDefaults(text_size: str = 'text-base'):
+def setUpGuiDefaults(text_size: str = 'text-sm'):
     """Set up default classes and props for all ui elements.
     
     Must be called before any nicegui ui.x are created.

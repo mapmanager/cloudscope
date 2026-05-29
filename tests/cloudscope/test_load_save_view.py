@@ -224,3 +224,15 @@ def test_update_button_states_tolerates_missing_buttons(tmp_path) -> None:
     view._save_all_button = None
 
     view._update_button_states()
+
+
+def test_load_sample_data_clicked_publishes_default_sample_intent(tmp_path) -> None:
+    from cloudscope.events.files import LoadSampleDataIntent
+
+    view = _new_view(tmp_path)
+    events: list[LoadSampleDataIntent] = []
+    view.event_bus.subscribe(LoadSampleDataIntent, events.append)
+
+    view._on_load_sample_data_clicked()
+
+    assert events == [LoadSampleDataIntent(name='demo-small')]

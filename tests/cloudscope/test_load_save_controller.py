@@ -764,3 +764,37 @@ class _ImmediateContext:
 
     def raise_if_cancelled(self):
         return None
+
+
+def test_load_sample_data_intent_ensures_sample_then_loads_folder(tmp_path, monkeypatch) -> None:
+    from cloudscope.events.files import LoadSampleDataIntent
+
+    bus = EventBus()
+    cfg = AppConfig.load(config_path=tmp_path / 'cfg.json')
+    home = HomePageController(event_bus=bus)
+    controller = LoadSaveController(event_bus=bus, home_controller=home, app_config=cfg)
+    controller.bind()
+
+    sample_folder = tmp_path / 'sample-cache' / 'demo-small-v1' / 'demo-small'
+    sample_folder.mkdir(parents=True)
+    fake_list = _FakeList([_FakeFile(str(sample_folder / 'a.oir'))])
+    captured: dict[str, object] = {}
+
+    def _ensure_sample(name: str):
+        captured['sample_name'] = name
+        return sample_folder
+
+    def _load_safe(path: str, *, kind, **kwargs):
+        captured['load_path'] = path
+        captured['kind'] = kind
+        return LoadResult(acq_image_list=fake_list, warnings=())
+
+    monkeypatch.setattr('cloudscope.controllers.load_save_controller.ensure_sample', _ensure_sample)
+    monkeypatch.setattr('cloudscope.controllers.load_save_controller.AcqImageList.load_safe', _load_safe)
+
+    bus.publish(LoadSampleDataIntent(name='demo-small'))
+
+    assert captured['sample_name'] == 'demo-small'
+    assert captured['load_path'] == str(sample_folder)
+    assert captured['kind'].value == 'folder'
+    assert cfg.get_recent_folders()[-1] == str(sample_folder)

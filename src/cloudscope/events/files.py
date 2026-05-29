@@ -25,6 +25,15 @@ class LoadPathIntent(IntentEvent):
     from_recent: bool = False
 
 
+
+
+@dataclass(frozen=True)
+class LoadSampleDataIntent(IntentEvent):
+    """Request to download/cache and load a registered AcqStore sample dataset."""
+
+    name: str
+
+
 @dataclass(frozen=True)
 class RemoveRecentPathIntent(IntentEvent):
     """Remove one path from recent files or recent folders (e.g. stale menu pick)."""

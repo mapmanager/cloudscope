@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from uuid import uuid4
 
+from acqstore.sample_data import ensure_sample
 from acqstore.acq_image.acq_image_list import (
     AcqImageList,
     LoadCancelled,
@@ -28,6 +29,7 @@ from cloudscope.events.files import (
     ClearRecentPathsIntent,
     LoadPathIntent,
     LoadPathKind,
+    LoadSampleDataIntent,
     RecentPathsChanged,
     RemoveRecentPathIntent,
     SaveAllIntent,
@@ -102,6 +104,14 @@ class _ImmediateTaskContext:
         """
 
 
+@dataclass(frozen=True, slots=True)
+class SampleLoadResult:
+    """Completed sample-data load payload."""
+
+    path: str
+    load_result: LoadResult
+
+
 @dataclass(slots=True)
 class LoadSaveController:
     """Coordinate load/save intents and long-running task execution.
@@ -126,6 +136,7 @@ class LoadSaveController:
             None.
         """
         self.event_bus.subscribe(LoadPathIntent, self._on_load_path)
+        self.event_bus.subscribe(LoadSampleDataIntent, self._on_load_sample_data)
         self.event_bus.subscribe(RemoveRecentPathIntent, self._on_remove_recent_path)
         self.event_bus.subscribe(SaveSelectedIntent, self._on_save_selected)
         self.event_bus.subscribe(SaveAllIntent, self._on_save_all)
@@ -157,6 +168,39 @@ class LoadSaveController:
                     level=StatusLevel.WARNING,
                     source=StatusSource.LOAD,
                     message='Load cancelled',
+                ),
+            )
+        except RuntimeError as exc:
+            self._publish_status(level=StatusLevel.WARNING, source=StatusSource.LOAD, message=str(exc))
+
+    def _on_load_sample_data(self, event: LoadSampleDataIntent) -> None:
+        """Download/cache a registered sample dataset and load it as a folder.
+
+        Args:
+            event: Sample-data load intent.
+
+        Returns:
+            None.
+        """
+        task_label = f'Load sample {event.name}'
+        try:
+            self._start_task(
+                task_kind=TaskKind.LOAD,
+                task_label=task_label,
+                worker=lambda context: self._load_sample_data_worker(event, context),
+                on_completed=lambda result: self._finish_load(
+                    LoadPathIntent(path=result.path, kind=LoadPathKind.FOLDER, from_recent=False),
+                    result.load_result,
+                ),
+                on_failed=lambda exc: self._publish_status(
+                    level=StatusLevel.ERROR,
+                    source=StatusSource.LOAD,
+                    message=f'Sample data load failed: {exc}',
+                ),
+                on_cancelled=lambda: self._publish_status(
+                    level=StatusLevel.WARNING,
+                    source=StatusSource.LOAD,
+                    message='Sample data load cancelled',
                 ),
             )
         except RuntimeError as exc:
@@ -267,6 +311,26 @@ class LoadSaveController:
         cancelled = self.task_runner.cancel(task_kind=event.task_kind, task_id=event.task_id)
         if not cancelled:
             self._publish_status(level=StatusLevel.WARNING, source=StatusSource.SYSTEM, message='No matching task is running')
+
+    def _load_sample_data_worker(self, event: LoadSampleDataIntent, context: TaskContext | _ImmediateTaskContext) -> SampleLoadResult:
+        """Ensure sample data exists, then load the extracted folder.
+
+        Args:
+            event: Sample-data load intent.
+            context: Task context for progress and cancellation.
+
+        Returns:
+            Sample load result containing the resolved folder path and AcqImageList load result.
+        """
+        context.raise_if_cancelled()
+        context.report_progress(0.0, f'Downloading sample {event.name}')
+        sample_path = ensure_sample(event.name)
+        context.raise_if_cancelled()
+        context.report_progress(0.5, f'Loading sample {event.name}')
+
+        load_event = LoadPathIntent(path=str(sample_path), kind=LoadPathKind.FOLDER, from_recent=False)
+        load_result = self._load_path_worker(load_event, context)
+        return SampleLoadResult(path=str(sample_path), load_result=load_result)
 
     def _load_path_worker(self, event: LoadPathIntent, context: TaskContext | _ImmediateTaskContext) -> LoadResult:
         """Load files in a worker context.
