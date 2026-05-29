@@ -27,7 +27,7 @@ services:
       CLOUDSCOPE_HOST: "0.0.0.0"
       PORT: "8080"
     volumes:
-      - ./data:/data
+      - ./example-data:/data
 
   cloudscope-dev:
     build:
@@ -45,4 +45,4 @@ services:
       PORT: "8080"
     volumes:
       - ./src:/app/src
-      - ./data:/data
+      - ./example-data:/data
