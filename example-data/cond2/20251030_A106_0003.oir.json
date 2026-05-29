@@ -1,0 +1,228 @@
+{
+  "accepted": true,
+  "analysis": [
+    {
+      "analysis_name": "radon_velocity",
+      "channel": 0,
+      "detection_params": {
+        "window_width": 64
+      },
+      "roi_id": 1,
+      "summary": {
+        "num_windows": 1872,
+        "velocity_cv": 0.6668600335498293,
+        "velocity_mean": 7.265730009290447,
+        "velocity_median": 6.127197752721825
+      }
+    },
+    {
+      "analysis_name": "diameter",
+      "channel": 0,
+      "detection_params": {
+        "binning_method": "mean",
+        "diameter_method": "threshold_width",
+        "enable_motion_gating": true,
+        "gradient_kernel": "central_diff",
+        "gradient_min_edge_strength": 0.02,
+        "gradient_sigma": 1.5,
+        "max_center_shift_um": 2.0,
+        "max_diameter_change_um": 2.0,
+        "max_edge_shift_um": 2.0,
+        "polarity": "bright_on_dark",
+        "post_filter_kernel_size": 3,
+        "stride": 1,
+        "threshold_mode": "half_max",
+        "threshold_value": 0.0,
+        "window_rows_odd": 5
+      },
+      "roi_id": 2,
+      "summary": {
+        "diameter_um_cv": 0.19424752442103513,
+        "diameter_um_mean": 0.10188992898306194,
+        "diameter_um_median": 0.10108310161639646,
+        "num_qc_center_violations": 0,
+        "num_qc_diameter_violations": 0,
+        "num_qc_edge_violations": 29387,
+        "num_rows": 30000,
+        "qc_score_mean": 0.55539
+      }
+    },
+    {
+      "analysis_name": "diameter",
+      "channel": 0,
+      "detection_params": {
+        "binning_method": "mean",
+        "diameter_method": "threshold_width",
+        "enable_motion_gating": true,
+        "gradient_kernel": "central_diff",
+        "gradient_min_edge_strength": 0.02,
+        "gradient_sigma": 1.5,
+        "max_center_shift_um": 2.0,
+        "max_diameter_change_um": 2.0,
+        "max_edge_shift_um": 2.0,
+        "polarity": "bright_on_dark",
+        "post_filter_kernel_size": 3,
+        "stride": 1,
+        "threshold_mode": "half_max",
+        "threshold_value": 0.0,
+        "window_rows_odd": 5
+      },
+      "roi_id": 3,
+      "summary": {
+        "diameter_um_cv": 0.19424752442103513,
+        "diameter_um_mean": 0.10188992898306194,
+        "diameter_um_median": 0.10108310161639646,
+        "num_qc_center_violations": 0,
+        "num_qc_diameter_violations": 0,
+        "num_qc_edge_violations": 29387,
+        "num_rows": 30000,
+        "qc_score_mean": 0.55539
+      }
+    },
+    {
+      "analysis_name": "radon_velocity",
+      "channel": 0,
+      "detection_params": {
+        "window_width": 64
+      },
+      "roi_id": 4,
+      "summary": {
+        "num_windows": 1872,
+        "velocity_cv": 0.6668600335498293,
+        "velocity_mean": 7.265730009290447,
+        "velocity_median": 6.127197752721825
+      }
+    },
+    {
+      "analysis_name": "diameter",
+      "channel": 0,
+      "detection_params": {
+        "binning_method": "mean",
+        "diameter_method": "threshold_width",
+        "enable_motion_gating": true,
+        "gradient_kernel": "central_diff",
+        "gradient_min_edge_strength": 0.02,
+        "gradient_sigma": 1.5,
+        "max_center_shift_um": 2.0,
+        "max_diameter_change_um": 2.0,
+        "max_edge_shift_um": 2.0,
+        "polarity": "bright_on_dark",
+        "post_filter_kernel_size": 3,
+        "stride": 1,
+        "threshold_mode": "half_max",
+        "threshold_value": 0.0,
+        "window_rows_odd": 5
+      },
+      "roi_id": 5,
+      "summary": {
+        "diameter_um_cv": 0.19424752442103513,
+        "diameter_um_mean": 0.10188992898306194,
+        "diameter_um_median": 0.10108310161639646,
+        "num_qc_center_violations": 0,
+        "num_qc_diameter_violations": 0,
+        "num_qc_edge_violations": 29387,
+        "num_rows": 30000,
+        "qc_score_mean": 0.55539
+      }
+    }
+  ],
+  "experiment_metadata": {
+    "_is_dirty": false,
+    "branch_order": null,
+    "cell_type": "",
+    "condition": "",
+    "condition2": "",
+    "date": "",
+    "depth": null,
+    "direction": "",
+    "genotype": "",
+    "note": "",
+    "region": "",
+    "sex": "",
+    "species": "",
+    "treatment": "",
+    "treatment2": ""
+  },
+  "image_header_metadata": {
+    "date": "20251030",
+    "dims": "('Y', 'X')",
+    "dtype": "uint16",
+    "num_channels": 1,
+    "num_scenes": 1,
+    "physical_label_x": "X",
+    "physical_label_y": "Y",
+    "physical_unit_x": 0.007220221544028319,
+    "physical_unit_y": 0.0003102438944699668,
+    "shape": "(30000, 22)",
+    "sizes": "{'Y': 30000, 'X': 22}",
+    "time": "14:55:55"
+  },
+  "rois": [
+    {
+      "data": {
+        "col_start": 0,
+        "col_stop": 22,
+        "row_start": 0,
+        "row_stop": 30000
+      },
+      "name": "",
+      "note": "",
+      "roi_id": 1,
+      "roi_type": "rectroi",
+      "version": "1.0"
+    },
+    {
+      "data": {
+        "col_start": 0,
+        "col_stop": 22,
+        "row_start": 0,
+        "row_stop": 30000
+      },
+      "name": "",
+      "note": "",
+      "roi_id": 2,
+      "roi_type": "rectroi",
+      "version": "1.0"
+    },
+    {
+      "data": {
+        "col_start": 0,
+        "col_stop": 22,
+        "row_start": 0,
+        "row_stop": 30000
+      },
+      "name": "",
+      "note": "",
+      "roi_id": 3,
+      "roi_type": "rectroi",
+      "version": "1.0"
+    },
+    {
+      "data": {
+        "col_start": 0,
+        "col_stop": 22,
+        "row_start": 0,
+        "row_stop": 30000
+      },
+      "name": "",
+      "note": "",
+      "roi_id": 4,
+      "roi_type": "rectroi",
+      "version": "1.0"
+    },
+    {
+      "data": {
+        "col_start": 0,
+        "col_stop": 22,
+        "row_start": 0,
+        "row_stop": 30000
+      },
+      "name": "",
+      "note": "",
+      "roi_id": 5,
+      "roi_type": "rectroi",
+      "version": "1.0"
+    }
+  ],
+  "version": 2
+}

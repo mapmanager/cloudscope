@@ -196,20 +196,27 @@ class TreeWidget:
     def set_enabled(self, enabled: bool) -> None:
         """Enable or disable pointer interaction with the tree widget.
 
+        Disabling toggles ``pointer-events-none opacity-60`` on the root
+        container only; the inner AG Grid element is intentionally not
+        re-pushed. Re-pushing element state to the client via
+        ``self._grid.update()`` causes AG Grid to re-render and drop
+        client-side state (notably tree-group expansion), which is
+        surprising during transient busy-state cycles. The CSS overlay
+        on the root already blocks pointer input across the entire
+        widget surface.
+
         Args:
             enabled: Desired enabled state.
         """
         enabled = bool(enabled)
-        if self._root is not None:
-            self._root.enabled = enabled
-            if enabled:
-                self._root.classes(remove='pointer-events-none opacity-60')
-            else:
-                self._root.classes(add='pointer-events-none opacity-60')
-            self._root.update()
-        if self._grid is not None:
-            self._grid.enabled = enabled
-            self._grid.update()
+        if self._root is None:
+            return
+        self._root.enabled = enabled
+        if enabled:
+            self._root.classes(remove='pointer-events-none opacity-60')
+        else:
+            self._root.classes(add='pointer-events-none opacity-60')
+        self._root.update()
 
     def get_selected_rows(self) -> list[dict[str, Any]]:
         """Return last known selected rows."""

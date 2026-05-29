@@ -135,7 +135,14 @@ def test_acq_image_tree_rows_file_row_carries_schema_keys_with_values(tmp_path: 
 
 
 def test_acq_image_tree_rows_analysis_row_keys_match_contract(tmp_path: Path) -> None:
-    """Analysis rows carry tree contract fields and schema keys with None values."""
+    """Analysis rows carry tree contract fields and schema keys.
+
+    The ``name``, ``num_channels`` and ``num_rois`` schema fields are
+    overloaded on analysis rows to carry display values
+    (``analysis_name``, ``channel``, ``roi_id``) rather than counts; the
+    remaining schema keys are set to ``None`` because they are not
+    meaningful for analysis children.
+    """
     acq_image = _make_acq_image(tmp_path / 'sample.tif')
 
     analysis_row = acq_image.get_tree_rows()[1]
@@ -144,8 +151,14 @@ def test_acq_image_tree_rows_analysis_row_keys_match_contract(tmp_path: Path) ->
     assert analysis_row[ACQ_TREE_ANALYSIS_NAME_FIELD] == 'radon_velocity'
     assert analysis_row[ACQ_TREE_ANALYSIS_CHANNEL_FIELD] == 0
     assert analysis_row[ACQ_TREE_ANALYSIS_ROI_ID_FIELD] == 1
+    assert analysis_row['name'] == 'radon_velocity'
+    assert analysis_row['num_channels'] == 0
+    assert analysis_row['num_rois'] == 1
+    display_overloaded = {'name', 'num_channels', 'num_rois'}
     for key in ACQ_FILE_LIST_SCHEMA.field_names():
         assert key in analysis_row
+        if key in display_overloaded:
+            continue
         assert analysis_row[key] is None
 
 

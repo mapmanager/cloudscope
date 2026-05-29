@@ -50,10 +50,11 @@ logger = get_logger(__name__)
 _TREE_CHEVRON_COLUMN_FIELD = "name"
 """Schema field that hosts the AG Grid disclosure chevron in the tree view.
 
-Declared here, in the view, because the chevron column is a display
-decision specific to this view. AcqStore intentionally does not encode
-display intent (schema, tree rows, and analysis identity all stay
-domain-shaped).
+Declared here, in the view, because chevron-column placement is a
+display decision specific to this view. AcqStore populates the ``name``
+schema field of every tree row (file name for file rows, analysis name
+for analysis rows), so the chevron column shows a meaningful label at
+both depths.
 """
 
 
@@ -394,14 +395,22 @@ class AcqImageListTreeView(BaseView):
     def _on_analysis_completed(self, event: AnalysisCompleted) -> None:
         """Refresh one file's subtree after analysis completes.
 
+        The tree view treats ``AcqImage`` as the source of truth and
+        refreshes whenever ``file_id`` is set, regardless of
+        ``event.success``. Rationale: batch analyses publish per-file
+        :class:`AnalysisCompleted` events whose ``success`` flag is the
+        AND of the batch's aggregate success and the per-file outcome,
+        so a single failed file in a batch would otherwise suppress the
+        tree refresh for all successful files in the same batch. The
+        backing ``AcqImage`` already reflects the actual ROI / analysis
+        state, so rebuilding the subtree from it is always correct.
+
         Args:
             event: Analysis completion event.
 
         Returns:
             None.
         """
-        if not event.success:
-            return
         file_id = event.selection.file_id
         if file_id is None:
             return
@@ -438,6 +447,13 @@ class AcqImageListTreeView(BaseView):
     def _replace_group_rows_from_acq_image(self, file_id: str) -> None:
         """Replace one file's full subtree from the current ``AcqImage``.
 
+        Replacing the subtree via AG Grid ``applyTransaction`` drops
+        client-side selection state for rows in the affected group, even
+        when their stable row id is unchanged. To keep analysis-row
+        selection visually persistent across analysis runs, this method
+        re-applies :meth:`_sync_table_selection` after the replace when
+        the cached selection points at the same file.
+
         Args:
             file_id: Stable acquisition file identifier.
 
@@ -451,44 +467,21 @@ class AcqImageListTreeView(BaseView):
         if acq_image is None:
             logger.error("acq_image not found: %s", file_id)
             return
-        rows = self._shape_rows(acq_image.get_tree_rows())
-        self._tree.replace_group_rows(file_id, rows)
+        self._tree.replace_group_rows(file_id, acq_image.get_tree_rows())
+        if self.current_selection.file_id == file_id:
+            self._sync_table_selection()
 
     def _read_tree_rows_from_state(self) -> list[dict[str, Any]]:
-        """Read shaped tree rows for the entire current file list.
+        """Read tree rows for the entire current file list.
 
         Returns:
-            Tree row dicts in display order, with analysis-row display
-            tweaks applied. Empty list when no list is loaded.
+            Tree row dicts from ``AcqImageList.get_tree_rows()`` in
+            display order. Empty list when no list is loaded.
         """
         acq_image_list = self.get_acq_image_list()
         if acq_image_list is None:
             return []
-        return self._shape_rows(acq_image_list.get_tree_rows())
-
-    def _shape_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Apply view-local display tweaks to AcqStore tree rows.
-
-        AcqStore returns analysis rows with all file-list-schema keys set
-        to ``None``. For display, this view labels analysis rows in the
-        chevron column with the analysis name, so the user can tell which
-        analysis each child row represents.
-
-        Args:
-            rows: Tree rows from ``AcqImage.get_tree_rows()`` /
-                ``AcqImageList.get_tree_rows()``.
-
-        Returns:
-            The same list, mutated in place, with analysis-row ``name``
-            set to the analysis identifier (e.g., ``"radon_velocity"``).
-        """
-        for row in rows:
-            if row.get(ACQ_TREE_ROW_TYPE_FIELD) != ACQ_TREE_ROW_TYPE_ANALYSIS:
-                continue
-            analysis_name = row.get(ACQ_TREE_ANALYSIS_NAME_FIELD)
-            if isinstance(analysis_name, str) and analysis_name:
-                row[_TREE_CHEVRON_COLUMN_FIELD] = analysis_name
-        return rows
+        return acq_image_list.get_tree_rows()
 
     @staticmethod
     def _resolve_file_id_from_row(row: dict[str, Any]) -> str | None:

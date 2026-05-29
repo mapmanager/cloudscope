@@ -166,12 +166,13 @@ class AppConfigView(BaseView):
         Returns:
             Root element for this view.
         """
+        root_classes = 'w-full h-full min-h-0 flex-1 overflow-y-auto pr-1'
         if parent is None:
-            with ui.column().classes('w-full') as self.root:
+            with ui.column().classes(root_classes) as self.root:
                 self._build_card()
         else:
             with parent:
-                with ui.column().classes('w-full') as self.root:
+                with ui.column().classes(root_classes) as self.root:
                     self._build_card()
         self.after_build()
         return self.root

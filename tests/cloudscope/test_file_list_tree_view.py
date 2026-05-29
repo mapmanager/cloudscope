@@ -85,7 +85,11 @@ def _analysis_row(file_id: str, analysis_name: str, channel: int, roi_id: int) -
         ACQ_TREE_ANALYSIS_NAME_FIELD: analysis_name,
         ACQ_TREE_ANALYSIS_CHANNEL_FIELD: channel,
         ACQ_TREE_ANALYSIS_ROI_ID_FIELD: roi_id,
-        "name": None,
+        # Display-overloaded schema fields populated by AcqStore for
+        # analysis rows (see acqstore.acq_image._build_analysis_tree_rows).
+        "name": analysis_name,
+        "num_channels": channel,
+        "num_rois": roi_id,
     }
 
 
@@ -206,6 +210,67 @@ def test_analysis_completed_replaces_subtree_from_app_state() -> None:
 
     assert view._tree is not None
     assert [r[0] for r in view._tree.group_replacements] == ["/tmp/a.oir"]
+
+
+def test_analysis_completed_refreshes_even_when_success_is_false() -> None:
+    """Per-file AnalysisCompleted with success=False (e.g. a sibling file
+    failed in a batch) must still refresh the subtree, because the
+    underlying AcqImage is the authoritative source of truth."""
+    image = FakeAcqImage("/tmp/a.oir", dirty=True)
+    state = FakeState(acq_image_list=FakeAcqImageList([image]))
+    view = _make_view(state)
+
+    view._on_analysis_completed(
+        AnalysisCompleted(
+            analysis_kind=AnalysisKind.RADON_VELOCITY,
+            selection=PrimarySelection(file_id="/tmp/a.oir", channel=0, roi_id=1),
+            success=False,
+        )
+    )
+
+    assert view._tree is not None
+    assert [r[0] for r in view._tree.group_replacements] == ["/tmp/a.oir"]
+
+
+def test_replace_group_rows_re_syncs_selection_for_same_file() -> None:
+    """After replacing a file's subtree, the tree's selection must be
+    re-applied because AG Grid transactions drop selection on replaced
+    rows."""
+    image = FakeAcqImage(
+        "/tmp/a.oir",
+        analyses=[_analysis_row("/tmp/a.oir", "radon_velocity", 2, 7)],
+    )
+    state = FakeState(acq_image_list=FakeAcqImageList([image]))
+    view = _make_view(state)
+    view.current_selection = PrimarySelection(
+        file_id="/tmp/a.oir",
+        channel=2,
+        roi_id=7,
+        analysis_name="radon_velocity",
+    )
+
+    view._replace_group_rows_from_acq_image("/tmp/a.oir")
+
+    expected = build_analysis_tree_row_id("/tmp/a.oir", "radon_velocity", 2, 7)
+    assert view._tree is not None
+    assert view._tree.selected == [expected]
+
+
+def test_replace_group_rows_does_not_re_sync_for_different_file() -> None:
+    """Refreshing one file's subtree must not touch the tree selection
+    when the current selection points at a different file."""
+    image_a = FakeAcqImage("/tmp/a.oir")
+    image_b = FakeAcqImage("/tmp/b.oir", dirty=True)
+    state = FakeState(acq_image_list=FakeAcqImageList([image_a, image_b]))
+    view = _make_view(state)
+    view.current_selection = PrimarySelection(file_id="/tmp/a.oir", channel=0, roi_id=1)
+
+    assert view._tree is not None
+    pre_selected = list(view._tree.selected)
+
+    view._replace_group_rows_from_acq_image("/tmp/b.oir")
+
+    assert view._tree.selected == pre_selected
 
 
 def test_roi_changed_replaces_subtree_from_app_state() -> None:

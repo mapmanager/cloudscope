@@ -374,26 +374,48 @@ class AcqImage:
     def _build_analysis_tree_rows(self) -> list[dict[str, object]]:
         """Return child tree rows for analyses owned by this file.
 
+        Analysis-row display values:
+
+        - ``name`` is set to the analysis identifier (e.g.
+          ``"radon_velocity"``) so the tree disclosure column shows which
+          analysis the child row represents.
+        - ``num_channels`` and ``num_rois`` are overloaded for display in
+          analysis rows: they carry the specific ``channel`` and
+          ``roi_id`` used to compute the analysis, not counts. This makes
+          the existing "Channels" / "ROIs" columns show the analysis
+          identity components without adding new tree-only columns.
+
+        Tree-row identity fields (``channel``, ``roi_id``,
+        ``analysis_name``) remain the authoritative source of analysis
+        identity for the controller and event system; the schema-field
+        overloads are display-only.
+
         Returns:
             Row dictionaries with tree contract fields plus all file-list
-            schema keys set to ``None``.
+            schema keys. Non-display schema keys are set to ``None``.
         """
         schema_keys = self.get_schema().field_names()
         rows: list[dict[str, object]] = []
         for analysis in self._acq_analysis_set.as_list():
+            channel = int(analysis.key.channel)
+            roi_id = int(analysis.key.roi_id)
+            analysis_name = analysis.key.analysis_name
             row_id = build_analysis_tree_row_id(
                 self.file_id,
-                analysis.key.analysis_name,
-                analysis.key.channel,
-                analysis.key.roi_id,
+                analysis_name,
+                channel,
+                roi_id,
             )
             row: dict[str, object] = {
                 ACQ_TREE_ROW_ID_FIELD: row_id,
                 ACQ_TREE_PATH_FIELD: [self.file_id, row_id],
                 ACQ_TREE_ROW_TYPE_FIELD: ACQ_TREE_ROW_TYPE_ANALYSIS,
-                ACQ_TREE_ANALYSIS_NAME_FIELD: analysis.key.analysis_name,
-                ACQ_TREE_ANALYSIS_CHANNEL_FIELD: int(analysis.key.channel),
-                ACQ_TREE_ANALYSIS_ROI_ID_FIELD: int(analysis.key.roi_id),
+                ACQ_TREE_ANALYSIS_NAME_FIELD: analysis_name,
+                ACQ_TREE_ANALYSIS_CHANNEL_FIELD: channel,
+                ACQ_TREE_ANALYSIS_ROI_ID_FIELD: roi_id,
+                'name': analysis_name,
+                'num_channels': channel,
+                'num_rois': roi_id,
             }
             for key in schema_keys:
                 row.setdefault(key, None)

@@ -54,12 +54,13 @@ class MetadataView(BaseView):
         Returns:
             Root element for this view.
         """
+        root_classes = "w-full gap-2 h-full min-h-0 flex-1 overflow-y-auto pr-1"
         if parent is None:
-            with ui.column().classes("w-full gap-2") as self.root:
+            with ui.column().classes(root_classes) as self.root:
                 self._container = ui.column().classes("w-full gap-2")
         else:
             with parent:
-                with ui.column().classes("w-full gap-2") as self.root:
+                with ui.column().classes(root_classes) as self.root:
                     self._container = ui.column().classes("w-full gap-2")
         self.after_build()
         return self.root
