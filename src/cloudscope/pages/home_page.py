@@ -95,6 +95,15 @@ class HomePage:
             home_controller=self.controller,
         )
         app_state = self.controller.state
+        dark_mode = bool(self.app_config.data.dark_mode)
+
+        def _dark_mode() -> bool:
+            """Return the current persisted application dark-mode state.
+
+            Returns:
+                True when dark mode is enabled.
+            """
+            return bool(self.app_config.data.dark_mode)
 
         def _home_view_visible(view_id: ViewId) -> bool:
             """Return startup visibility for one Home page view.
@@ -128,6 +137,8 @@ class HomePage:
             self.event_bus,
             title='Primary image',
             initially_visible=True,
+            dark_mode=dark_mode,
+            dark_mode_provider=_dark_mode,
         )
         acq_analysis_plot = AcqAnalysisPlotView(
             self.event_bus,
@@ -139,6 +150,8 @@ class HomePage:
             self.event_bus,
             title='Reference image',
             initially_visible=_home_view_visible(ViewId.REFERENCE_IMAGE),
+            dark_mode=dark_mode,
+            dark_mode_provider=_dark_mode,
         )
         footer = FooterView(
             event_bus=self.event_bus,
@@ -233,7 +246,11 @@ class HomePage:
         self.event_bus.subscribe(SetHomeViewVisibleIntent, _set_home_view_visible)
 
         ui.page_title('CloudScope')
-        build_main_header(title='CloudScope', app_config=self.app_config)
+        build_main_header(
+            title='CloudScope',
+            app_config=self.app_config,
+            event_bus=self.event_bus,
+        )
         footer.build()
         view_manager.register(footer)
         task_progress_dialog.build()

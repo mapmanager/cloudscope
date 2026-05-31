@@ -17,6 +17,8 @@ from nicegui import app
 from nicegui import ui
 
 from cloudscope.app_config import AppConfig
+from cloudscope.event_bus import EventBus
+from cloudscope.events.theme import ThemeChanged
 
 CLOUDSCOPE_GITHUB_URL = "https://github.com/mapmanager/cloudscope"
 
@@ -34,7 +36,12 @@ def _open_external(url: str) -> None:
     ui.run_javascript(f'window.open("{url}", "_blank")')
 
 
-def build_main_header(*, title: str = "CloudScope", app_config: AppConfig | None = None) -> None:
+def build_main_header(
+    *,
+    title: str = "CloudScope",
+    app_config: AppConfig | None = None,
+    event_bus: EventBus | None = None,
+) -> None:
     """Create the shared page header (layout element, top-level only).
 
     Mirrors KymFlow's compact header: ``dense`` toolbar, contrasting background,
@@ -43,6 +50,7 @@ def build_main_header(*, title: str = "CloudScope", app_config: AppConfig | None
     Args:
         title: Left-aligned application title text.
         app_config: When set, adds a light/dark toggle (persisted) before the GitHub link.
+        event_bus: Optional page-scoped event bus used to publish theme state changes.
     """
     with ui.header().classes(
         "items-center justify-between bg-gray-900 text-gray-100"
@@ -54,7 +62,12 @@ def build_main_header(*, title: str = "CloudScope", app_config: AppConfig | None
                 dark_mode_el = ui.dark_mode(value=bool(app_config.data.dark_mode))
                 theme_btn = ui.button(
                     icon="light_mode" if app_config.data.dark_mode else "dark_mode",
-                    on_click=lambda: _toggle_dark_mode(app_config, dark_mode_el, theme_btn),
+                    on_click=lambda: _toggle_dark_mode(
+                        app_config,
+                        dark_mode_el,
+                        theme_btn,
+                        event_bus=event_bus,
+                    ),
                 ).props("flat dense round")
                 theme_btn.tooltip("Toggle light / dark theme")
             github_icon = ui.image("https://cdn.simpleicons.org/github/ffffff").classes(
@@ -64,11 +77,29 @@ def build_main_header(*, title: str = "CloudScope", app_config: AppConfig | None
             github_icon.tooltip("Open CloudScope GitHub repository")
 
 
-def _toggle_dark_mode(app_config: AppConfig, dark_mode_el: Any, theme_btn: Any) -> None:
-    """Flip persisted dark mode and sync NiceGUI page theme + button icon."""
+def _toggle_dark_mode(
+    app_config: AppConfig,
+    dark_mode_el: Any,
+    theme_btn: Any,
+    *,
+    event_bus: EventBus | None = None,
+) -> None:
+    """Flip persisted dark mode and publish the new application theme.
+
+    Args:
+        app_config: Mutable application configuration.
+        dark_mode_el: NiceGUI dark-mode element to update.
+        theme_btn: Header theme button whose icon should track the mode.
+        event_bus: Optional page-scoped event bus for ``ThemeChanged``.
+
+    Returns:
+        None.
+    """
     app_config.data.dark_mode = not bool(app_config.data.dark_mode)
     dark_mode_el.value = app_config.data.dark_mode
     theme_btn.props(
         f'icon={"light_mode" if app_config.data.dark_mode else "dark_mode"} flat dense round'
     )
     app_config.save()
+    if event_bus is not None:
+        event_bus.publish(ThemeChanged(dark_mode=bool(app_config.data.dark_mode)))

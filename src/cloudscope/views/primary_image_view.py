@@ -25,10 +25,14 @@ from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader
 from cloudscope.event_bus import EventBus
 from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind
 from cloudscope.events.roi import RoiChanged
+from cloudscope.events.theme import ThemeChanged
 from cloudscope.utils.logging import get_logger
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
 from nicewidgets.raster_viewer.backend.image_model import RasterGridSpec
+from nicewidgets.raster_viewer.frontend.plotly_display_options import (
+    PlotlyRasterViewerDisplayOptions,
+)
 from nicewidgets.raster_viewer.frontend.plotly_viewer import PlotlyRasterViewer
 from nicewidgets.raster_viewer.frontend.roi_overlay import RectRoiOverlay
 from nicewidgets.raster_viewer.frontend.trace_overlay import PlotlyTraceOverlay
@@ -138,6 +142,9 @@ class PrimaryImageView(BaseView):
         event_bus: Page-scoped event bus.
         title: Card title.
         initially_visible: Whether this view starts visible.
+        dark_mode: Initial Plotly raster-viewer theme state.
+        dark_mode_provider: Optional callable returning the current application
+            dark-mode state when the view is shown after being hidden.
     """
 
     view_id = ViewId.PRIMARY_IMAGE
@@ -149,12 +156,19 @@ class PrimaryImageView(BaseView):
         *,
         title: str = 'Primary image',
         initially_visible: bool = True,
+        dark_mode: bool = False,
+        dark_mode_provider: Callable[[], bool] | None = None,
     ) -> None:
         super().__init__(event_bus=event_bus, app_state=None, initially_visible=initially_visible)
         self._title = title
         self._client: Any = None
-        self._viewer = PlotlyRasterViewer()
+        self._viewer = PlotlyRasterViewer(
+            display_options=PlotlyRasterViewerDisplayOptions(
+                theme='dark' if dark_mode else 'light',
+            )
+        )
         self._current_grid: RasterGridSpec | None = None
+        self._dark_mode_provider = dark_mode_provider
 
     def build(self, parent: ui.element | None = None) -> ui.element:
         """Create the card, title, and Plotly raster element.
@@ -196,6 +210,31 @@ class PrimaryImageView(BaseView):
         """
         self.add_subscription(self.event_bus.subscribe(RoiChanged, self._on_roi_changed))
         self.add_subscription(self.event_bus.subscribe(AnalysisCompleted, self._on_analysis_completed))
+        self.add_subscription(self.event_bus.subscribe(ThemeChanged, self._on_theme_changed))
+
+    def _on_theme_changed(self, event: ThemeChanged) -> None:
+        """Apply an application theme change to the Plotly raster viewer.
+
+        Args:
+            event: Theme state event published by the page header.
+
+        Returns:
+            None.
+        """
+        self._viewer.set_dark_mode(event.dark_mode)
+
+    def _sync_theme_from_provider(self) -> None:
+        """Apply the current application theme when a provider is available.
+
+        Hidden views do not consume event traffic, so this keeps the Plotly
+        viewer synchronized when the view is shown after a theme change.
+
+        Returns:
+            None.
+        """
+        if self._dark_mode_provider is None:
+            return
+        self._viewer.set_dark_mode(bool(self._dark_mode_provider()))
 
     def on_primary_selection_changed(self) -> None:
         """Refresh raster after BaseView updates the primary selection.
@@ -211,6 +250,7 @@ class PrimaryImageView(BaseView):
         Returns:
             None.
         """
+        self._sync_theme_from_provider()
         self._refresh_raster_from_current_selection()
 
     def _run_ui(self, fn: Callable[[], None]) -> None:
