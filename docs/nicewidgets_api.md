@@ -65,6 +65,7 @@ PlotlyRasterViewer(
         show_rois=True,
         show_trace_overlays=True,
         show_axis_labels=False,
+        theme='light',
     )
 )
 ```
@@ -79,7 +80,7 @@ The context menu currently provides:
 - Copy To Clipboard
 ```
 
-Checked items are prefixed with `✓`. Visibility toggles must not delete source widget state. ROI visibility is applied through Plotly shape `visible`; trace overlay visibility is applied through Plotly trace `visible`; axis labels are updated through `Plotly.relayout`; and toolbar visibility is updated through Plotly config.
+Checked items are prefixed with `✓`. Visibility toggles must not delete source widget state. ROI visibility is applied through Plotly shape `visible`; trace overlay visibility is applied through Plotly trace `visible`; axis display is updated through `Plotly.relayout` and includes title text, tick labels, tick marks, axis line, zero line, and grid lines; toolbar visibility is updated through Plotly config. Plotly light/dark theme changes are also applied through `Plotly.relayout` without rebuilding the raster image.
 
 Public display API:
 
@@ -88,6 +89,8 @@ set_roi_overlays_visible(visible: bool) -> None
 set_trace_overlays_visible(visible: bool) -> None
 set_axis_labels_visible(visible: bool) -> None
 set_plotly_toolbar_visible(visible: bool) -> None
+set_theme(theme: Literal['light', 'dark']) -> None
+set_dark_mode(enabled: bool) -> None
 copy_plot_to_clipboard() -> None
 ```
 

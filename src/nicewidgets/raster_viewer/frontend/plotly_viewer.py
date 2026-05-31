@@ -34,6 +34,11 @@ from nicewidgets.raster_viewer.frontend.plotly_context_menu import (
 from nicewidgets.raster_viewer.frontend.plotly_display_options import (
     PlotlyRasterViewerDisplayOptions,
 )
+from nicewidgets.raster_viewer.frontend.plotly_theme import (
+    PlotlyRasterViewerThemeName,
+    normalize_plotly_raster_viewer_theme,
+    theme_for_name,
+)
 from nicewidgets.raster_viewer.frontend.roi_overlay import (
     PlotlyRoiOverlayLayer,
     RectRoiOverlay,
@@ -422,10 +427,14 @@ Plotly.relayout(plotDiv, {{
         self._restyle_trace_overlay_visibility()
 
     def set_axis_labels_visible(self, visible: bool) -> None:
-        """Set x/y axis title visibility without rebuilding the plot.
+        """Set x/y axis decoration visibility without rebuilding the plot.
+
+        The public method keeps its original name for API compatibility, but it
+        now controls the full axis decoration set: title text, numeric tick
+        labels, tick marks, axis line, zero line, and grid lines.
 
         Args:
-            visible: Whether axis title text should be visible.
+            visible: Whether axis decorations should be visible.
 
         Returns:
             None.
@@ -433,6 +442,30 @@ Plotly.relayout(plotDiv, {{
         self._display_options.show_axis_labels = bool(visible)
         self._sync_axis_labels_to_plotly_dict()
         self._relayout_axis_labels()
+
+    def set_theme(self, theme: PlotlyRasterViewerThemeName) -> None:
+        """Set the Plotly raster viewer color theme.
+
+        Args:
+            theme: Theme name, either ``'light'`` or ``'dark'``.
+
+        Returns:
+            None.
+        """
+        self._display_options.theme = normalize_plotly_raster_viewer_theme(theme)
+        self._sync_theme_to_plotly_dict()
+        self._relayout_theme()
+
+    def set_dark_mode(self, enabled: bool) -> None:
+        """Set the Plotly raster viewer theme from a dark-mode flag.
+
+        Args:
+            enabled: Whether dark mode is enabled.
+
+        Returns:
+            None.
+        """
+        self.set_theme('dark' if enabled else 'light')
 
     def set_plotly_toolbar_visible(self, visible: bool) -> None:
         """Set Plotly modebar visibility.
@@ -484,6 +517,7 @@ Plotly.relayout(plotDiv, {{
     def _apply_display_options_to_plotly_dict(self) -> None:
         """Synchronize all display options into the local Plotly dictionary."""
         self._sync_plotly_config_to_plotly_dict()
+        self._sync_theme_to_plotly_dict()
         self._sync_axis_labels_to_plotly_dict()
         layout = self._plotly_dict.setdefault('layout', {})
         shapes = layout.get('shapes', [])
@@ -500,8 +534,9 @@ Plotly.relayout(plotDiv, {{
         self._plotly_dict['config'] = config
 
     def _sync_axis_labels_to_plotly_dict(self) -> None:
-        """Synchronize axis label visibility into the local figure dict."""
+        """Synchronize axis decoration visibility into the local figure dict."""
         layout = self._plotly_dict.setdefault('layout', {})
+        visible = bool(self._display_options.show_axis_labels)
         for axis_name in ('xaxis', 'yaxis'):
             axis = layout.setdefault(axis_name, {})
             if not isinstance(axis, dict):
@@ -511,11 +546,31 @@ Plotly.relayout(plotDiv, {{
             if not isinstance(title, dict):
                 title = {}
                 axis['title'] = title
-            title['text'] = (
-                self._axis_title_texts.get(axis_name, '')
-                if self._display_options.show_axis_labels
-                else ''
-            )
+            title['text'] = self._axis_title_texts.get(axis_name, '') if visible else ''
+            axis['showticklabels'] = visible
+            axis['ticks'] = 'outside' if visible else ''
+            axis['showline'] = visible
+            axis['zeroline'] = False
+            axis['showgrid'] = visible
+
+    def _sync_theme_to_plotly_dict(self) -> None:
+        """Synchronize the selected light/dark theme into the local figure dict."""
+        layout = self._plotly_dict.setdefault('layout', {})
+        theme = theme_for_name(self._display_options.theme)
+        layout['paper_bgcolor'] = theme.paper_bgcolor
+        layout['plot_bgcolor'] = theme.plot_bgcolor
+        layout['font'] = {'color': theme.font_color}
+
+        for axis_name in ('xaxis', 'yaxis'):
+            axis = layout.setdefault(axis_name, {})
+            if not isinstance(axis, dict):
+                axis = {}
+                layout[axis_name] = axis
+            axis['color'] = theme.axis_color
+            axis['linecolor'] = theme.axis_color
+            axis['tickcolor'] = theme.axis_color
+            axis['gridcolor'] = theme.grid_color
+            axis['zerolinecolor'] = theme.zero_line_color
 
     def _set_roi_shape_visibility(self, shapes: list[object]) -> None:
         """Apply global ROI visibility to managed ROI shapes.
@@ -546,17 +601,53 @@ Plotly.relayout(plotDiv, {{
                 )
 
     def _relayout_axis_labels(self) -> None:
-        """Push only x/y axis title text to the browser."""
+        """Push x/y axis decoration visibility to the browser."""
         if self._plot is None:
             return
-        x_text = self._axis_title_texts.get('xaxis', '') if self._display_options.show_axis_labels else ''
-        y_text = self._axis_title_texts.get('yaxis', '') if self._display_options.show_axis_labels else ''
+        layout = self._plotly_dict.setdefault('layout', {})
+        relayout: dict[str, object] = {}
+        for axis_name in ('xaxis', 'yaxis'):
+            axis = layout.get(axis_name, {})
+            if not isinstance(axis, dict):
+                continue
+            title = axis.get('title', {})
+            title_text = title.get('text', '') if isinstance(title, dict) else ''
+            relayout[f'{axis_name}.title.text'] = title_text
+            relayout[f'{axis_name}.showticklabels'] = axis.get('showticklabels', True)
+            relayout[f'{axis_name}.ticks'] = axis.get('ticks', '')
+            relayout[f'{axis_name}.showline'] = axis.get('showline', False)
+            relayout[f'{axis_name}.zeroline'] = axis.get('zeroline', False)
+            relayout[f'{axis_name}.showgrid'] = axis.get('showgrid', True)
         js = f"""
 {self._js_plotly_graph_div()}
-Plotly.relayout(plotDiv, {{
-  'xaxis.title.text': {json.dumps(x_text)},
-  'yaxis.title.text': {json.dumps(y_text)}
-}});
+Plotly.relayout(plotDiv, {json.dumps(relayout)});
+"""
+        self._plot.client.run_javascript(js, timeout=2.0)
+
+    def _relayout_theme(self) -> None:
+        """Push light/dark theme layout properties to the browser."""
+        if self._plot is None:
+            return
+        layout = self._plotly_dict.setdefault('layout', {})
+        relayout: dict[str, object] = {
+            'paper_bgcolor': layout.get('paper_bgcolor', 'white'),
+            'plot_bgcolor': layout.get('plot_bgcolor', 'white'),
+        }
+        font = layout.get('font', {})
+        if isinstance(font, dict):
+            relayout['font.color'] = font.get('color', '#111827')
+        for axis_name in ('xaxis', 'yaxis'):
+            axis = layout.get(axis_name, {})
+            if not isinstance(axis, dict):
+                continue
+            relayout[f'{axis_name}.color'] = axis.get('color')
+            relayout[f'{axis_name}.linecolor'] = axis.get('linecolor')
+            relayout[f'{axis_name}.tickcolor'] = axis.get('tickcolor')
+            relayout[f'{axis_name}.gridcolor'] = axis.get('gridcolor')
+            relayout[f'{axis_name}.zerolinecolor'] = axis.get('zerolinecolor')
+        js = f"""
+{self._js_plotly_graph_div()}
+Plotly.relayout(plotDiv, {json.dumps(relayout)});
 """
         self._plot.client.run_javascript(js, timeout=2.0)
 
