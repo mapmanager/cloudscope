@@ -17,6 +17,8 @@ class PlotlyRasterViewerDisplayOptions:
         show_trace_overlays: Whether managed x/y trace overlays are visible.
         show_axis_labels: Whether axis title text, tick labels, ticks, axis
             lines, and grid lines are visible.
+        square_plot: Whether Plotly should constrain the visible raster plot to
+            a square plot area.
         theme: Plotly raster viewer color theme.
     """
 
@@ -24,4 +26,5 @@ class PlotlyRasterViewerDisplayOptions:
     show_rois: bool = True
     show_trace_overlays: bool = True
     show_axis_labels: bool = False
+    square_plot: bool = False
     theme: PlotlyRasterViewerThemeName = 'light'

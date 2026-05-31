@@ -34,8 +34,23 @@ def test_build_before_set_data_returns_empty_figure(monkeypatch: pytest.MonkeyPa
     captured: dict[str, object] = {}
 
     class DummyElement:
+        id = 1
+
         def on(self, *_args, **_kwargs) -> 'DummyElement':
             return self
+
+    class DummyContextMenu:
+        def clear(self) -> 'DummyContextMenu':
+            return self
+
+        def __enter__(self) -> 'DummyContextMenu':
+            return self
+
+        def __exit__(self, *_args) -> None:
+            return None
+
+        def open(self) -> None:
+            return None
 
     class DummyUI:
         @staticmethod
@@ -43,9 +58,17 @@ def test_build_before_set_data_returns_empty_figure(monkeypatch: pytest.MonkeyPa
             captured['figure'] = figure
             return DummyElement()
 
+        @staticmethod
+        def context_menu() -> DummyContextMenu:
+            return DummyContextMenu()
+
     import types
 
-    monkeypatch.setattr(plotly_viewer_module, 'ui', types.SimpleNamespace(plotly=DummyUI.plotly))
+    monkeypatch.setattr(
+        plotly_viewer_module,
+        'ui',
+        types.SimpleNamespace(plotly=DummyUI.plotly, context_menu=DummyUI.context_menu),
+    )
 
     viewer = PlotlyRasterViewer()
     viewer.build()
@@ -53,6 +76,67 @@ def test_build_before_set_data_returns_empty_figure(monkeypatch: pytest.MonkeyPa
     figure = captured['figure']
     assert isinstance(figure, dict)
     assert figure['data'] == []
+
+
+def test_set_data_auto_enables_square_plot_for_square_source() -> None:
+    """Square source arrays should initialize with square Plotly constraints."""
+    viewer = PlotlyRasterViewer()
+    data = np.arange(16, dtype=np.float32).reshape(4, 4)
+
+    asyncio.run(viewer.set_data(data, grid=_GRID))
+
+    layout = viewer.figure['layout']
+    assert viewer.display_options.square_plot is True
+    assert layout['xaxis']['constrain'] == 'domain'
+    assert layout['yaxis']['constrain'] == 'domain'
+    assert layout['yaxis']['scaleanchor'] == 'x'
+    assert layout['yaxis']['scaleratio'] == 1.0
+
+
+def test_set_data_auto_disables_square_plot_for_non_square_source() -> None:
+    """Non-square source arrays should initialize without square constraints."""
+    viewer = PlotlyRasterViewer()
+    data = np.arange(32, dtype=np.float32).reshape(4, 8)
+
+    asyncio.run(viewer.set_data(data, grid=_GRID))
+
+    layout = viewer.figure['layout']
+    assert viewer.display_options.square_plot is False
+    assert 'constrain' not in layout['xaxis']
+    assert 'constrain' not in layout['yaxis']
+    assert layout['yaxis']['scaleanchor'] is False
+    assert 'scaleratio' not in layout['yaxis']
+
+
+def test_set_square_plot_can_force_non_square_source_square() -> None:
+    """The context-menu action can force square layout for any current source."""
+    viewer = PlotlyRasterViewer()
+    data = np.arange(32, dtype=np.float32).reshape(4, 8)
+    asyncio.run(viewer.set_data(data, grid=_GRID))
+
+    viewer.set_square_plot(True)
+
+    layout = viewer.figure['layout']
+    assert viewer.display_options.square_plot is True
+    assert layout['xaxis']['constrain'] == 'domain'
+    assert layout['yaxis']['constrain'] == 'domain'
+    assert layout['yaxis']['scaleanchor'] == 'x'
+    assert layout['yaxis']['scaleratio'] == 0.5
+
+
+def test_set_data_reapplies_auto_square_plot_after_user_toggle() -> None:
+    """Loading new data should re-auto-evaluate square layout state."""
+    viewer = PlotlyRasterViewer()
+    non_square = np.arange(32, dtype=np.float32).reshape(4, 8)
+    asyncio.run(viewer.set_data(non_square, grid=_GRID))
+    viewer.set_square_plot(True)
+
+    asyncio.run(viewer.set_data(non_square, grid=_GRID))
+
+    layout = viewer.figure['layout']
+    assert viewer.display_options.square_plot is False
+    assert layout['yaxis']['scaleanchor'] is False
+    assert 'scaleratio' not in layout['yaxis']
 
 
 def test_set_x_axis_range_preserves_y_row_col_extent() -> None:

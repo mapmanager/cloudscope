@@ -45,6 +45,10 @@ class PlotlyRasterViewerContextMenu:
             on_click=lambda: viewer.set_axis_labels_visible(not options.show_axis_labels),
         )
         ui.menu_item(
+            self._toggle_label('Square Plot', options.square_plot),
+            on_click=lambda: viewer.set_square_plot(not options.square_plot),
+        )
+        ui.menu_item(
             self._toggle_label('Plotly Toolbar', options.show_plotly_toolbar),
             on_click=lambda: viewer.set_plotly_toolbar_visible(not options.show_plotly_toolbar),
         )

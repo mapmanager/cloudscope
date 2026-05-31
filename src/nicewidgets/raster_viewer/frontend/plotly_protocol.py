@@ -80,10 +80,6 @@ def build_plotly_figure(
     }
 
     if response.mode == 'image_png':
-        # Image traces default yaxis.scaleanchor to x so pixels stay square; that
-        # letterboxes inside a tall/wide container. Heatmaps do not; match that.
-        yaxis['scaleanchor'] = False
-
         data = [{
             'type': 'image',
             'source': response.png_data_uri,

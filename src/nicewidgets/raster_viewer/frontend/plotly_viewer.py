@@ -93,6 +93,7 @@ class PlotlyRasterViewer:
         self._plotly_trace_overlays = PlotlyTraceOverlayLayer()
         self._display_options = display_options or PlotlyRasterViewerDisplayOptions()
         self._axis_title_texts: dict[str, str] = {'xaxis': '', 'yaxis': ''}
+        self._square_plot_scaleratio = 1.0
         self._ctx_menu: ui.context_menu | None = None
         self._context_menu_builder: PlotlyRasterViewerContextMenu | None = None
 
@@ -167,6 +168,8 @@ if (!plotDiv || !plotDiv.data) return;
             Initial full-image PNG response for the new dataset.
         """
         source = BackendImage(data, grid=grid)
+        self._display_options.square_plot = source.height == source.width
+        self._square_plot_scaleratio = self._square_plot_scaleratio_for_source(source)
         pyramid = ImagePyramid(source)
         self._service = RasterViewService(
             source=source,
@@ -443,6 +446,20 @@ Plotly.relayout(plotDiv, {{
         self._sync_axis_labels_to_plotly_dict()
         self._relayout_axis_labels()
 
+    def set_square_plot(self, enabled: bool) -> None:
+        """Set whether Plotly constrains the raster plot to a square plot area.
+
+        Args:
+            enabled: Whether the raster plot should be square inside its
+                enclosing Plotly container.
+
+        Returns:
+            None.
+        """
+        self._display_options.square_plot = bool(enabled)
+        self._sync_square_plot_to_plotly_dict()
+        self._relayout_square_plot()
+
     def set_theme(self, theme: PlotlyRasterViewerThemeName) -> None:
         """Set the Plotly raster viewer color theme.
 
@@ -519,6 +536,7 @@ Plotly.relayout(plotDiv, {{
         self._sync_plotly_config_to_plotly_dict()
         self._sync_theme_to_plotly_dict()
         self._sync_axis_labels_to_plotly_dict()
+        self._sync_square_plot_to_plotly_dict()
         layout = self._plotly_dict.setdefault('layout', {})
         shapes = layout.get('shapes', [])
         if isinstance(shapes, list):
@@ -571,6 +589,30 @@ Plotly.relayout(plotDiv, {{
             axis['tickcolor'] = theme.axis_color
             axis['gridcolor'] = theme.grid_color
             axis['zerolinecolor'] = theme.zero_line_color
+
+    def _sync_square_plot_to_plotly_dict(self) -> None:
+        """Synchronize square-plot layout constraints into the local figure dict."""
+        layout = self._plotly_dict.setdefault('layout', {})
+        xaxis = layout.setdefault('xaxis', {})
+        yaxis = layout.setdefault('yaxis', {})
+        if not isinstance(xaxis, dict):
+            xaxis = {}
+            layout['xaxis'] = xaxis
+        if not isinstance(yaxis, dict):
+            yaxis = {}
+            layout['yaxis'] = yaxis
+
+        if self._display_options.square_plot:
+            xaxis['constrain'] = 'domain'
+            yaxis['constrain'] = 'domain'
+            yaxis['scaleanchor'] = 'x'
+            yaxis['scaleratio'] = self._square_plot_scaleratio
+            return
+
+        xaxis.pop('constrain', None)
+        yaxis.pop('constrain', None)
+        yaxis['scaleanchor'] = False
+        yaxis.pop('scaleratio', None)
 
     def _set_roi_shape_visibility(self, shapes: list[object]) -> None:
         """Apply global ROI visibility to managed ROI shapes.
@@ -645,6 +687,31 @@ Plotly.relayout(plotDiv, {json.dumps(relayout)});
             relayout[f'{axis_name}.tickcolor'] = axis.get('tickcolor')
             relayout[f'{axis_name}.gridcolor'] = axis.get('gridcolor')
             relayout[f'{axis_name}.zerolinecolor'] = axis.get('zerolinecolor')
+        js = f"""
+{self._js_plotly_graph_div()}
+Plotly.relayout(plotDiv, {json.dumps(relayout)});
+"""
+        self._plot.client.run_javascript(js, timeout=2.0)
+
+    def _relayout_square_plot(self) -> None:
+        """Push square-plot layout constraints to the browser."""
+        if self._plot is None:
+            return
+        relayout: dict[str, object] = {}
+        if self._display_options.square_plot:
+            relayout = {
+                'xaxis.constrain': 'domain',
+                'yaxis.constrain': 'domain',
+                'yaxis.scaleanchor': 'x',
+                'yaxis.scaleratio': self._square_plot_scaleratio,
+            }
+        else:
+            relayout = {
+                'xaxis.constrain': None,
+                'yaxis.constrain': None,
+                'yaxis.scaleanchor': False,
+                'yaxis.scaleratio': None,
+            }
         js = f"""
 {self._js_plotly_graph_div()}
 Plotly.relayout(plotDiv, {json.dumps(relayout)});
@@ -996,3 +1063,19 @@ return {{
     def _new_uirevision() -> str:
         """Return a new Plotly UI revision token."""
         return uuid4().hex
+
+    @staticmethod
+    def _square_plot_scaleratio_for_source(source: BackendImage) -> float:
+        """Return the Plotly y/x scale ratio that makes the full source square.
+
+        Args:
+            source: Current backend image.
+
+        Returns:
+            Plotly ``yaxis.scaleratio`` value for square display.
+        """
+        y_extent = float(source.width) * float(source.grid.dy)
+        if y_extent <= 0:
+            return 1.0
+        x_extent = float(source.height) * float(source.grid.dx)
+        return x_extent / y_extent

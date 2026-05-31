@@ -43,7 +43,8 @@ def test_build_plotly_figure_for_png_response() -> None:
     assert figure.get('config', {}).get('responsive') is True
     assert figure['layout'].get('autosize') is True
     assert figure['layout'].get('dragmode') == 'zoom'
-    assert figure['layout']['yaxis'].get('scaleanchor') is False
+    assert 'scaleanchor' not in figure['layout']['yaxis']
+    assert 'scaleratio' not in figure['layout']['yaxis']
 
 
 def test_build_plotly_figure_heatmap_uses_builtin_greys_colorscale() -> None:
@@ -72,6 +73,8 @@ def test_build_plotly_figure_for_heatmap_response() -> None:
     assert figure['data'][0]['z'] == [[1.0, 2.0], [3.0, 4.0]]
     assert figure['data'][0]['colorscale'] == 'Greys'
     assert figure['data'][0].get('showscale') is False
+    assert 'scaleanchor' not in figure['layout']['yaxis']
+    assert 'scaleratio' not in figure['layout']['yaxis']
 
 
 def test_build_plotly_figure_heatmap_accepts_colorscale_override() -> None:
