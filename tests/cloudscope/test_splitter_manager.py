@@ -10,7 +10,7 @@ from cloudscope.app_config import (
     HOME_LEFT_TOOLBAR_CLOSED_SPLITTER_PCT,
     AppConfig,
 )
-from cloudscope.views.splitter_manager import SplitterId, SplitterManager
+from cloudscope.views.splitter_manager import HOME_SPLITTER_PRESETS, SplitterId, SplitterManager
 
 
 @dataclass
@@ -38,6 +38,28 @@ def test_splitter_manager_set_value_clamps_and_remembers(tmp_path: Path) -> None
     assert splitter.value == 60.0
     assert splitter.update_count == 1
     assert cfg.get_home_splitter_value('file_list') == 60.0
+
+
+def test_splitter_manager_allows_zero_for_collapsible_content_splitters(tmp_path: Path) -> None:
+    """Content splitter before panes should be fully collapsible."""
+    cfg = AppConfig(path=tmp_path / 'app_config.json')
+    manager = SplitterManager(cfg)
+
+    for splitter_id in (SplitterId.FILE_LIST, SplitterId.PRIMARY_IMAGE, SplitterId.ANALYSIS_REFERENCE):
+        splitter = FakeSplitter(value=25.0)
+        manager.register(splitter_id, splitter)
+
+        applied = manager.set_value(splitter_id, -1.0)
+
+        assert HOME_SPLITTER_PRESETS[splitter_id].limits[0] == 0.0
+        assert applied == 0.0
+        assert splitter.value == 0.0
+        assert cfg.get_home_splitter_value(splitter_id.value) == 0.0
+
+
+def test_splitter_manager_keeps_left_toolbar_closed_limit() -> None:
+    """Left toolbar keeps its closed rail instead of collapsing fully."""
+    assert HOME_SPLITTER_PRESETS[SplitterId.LEFT_TOOLBAR].limits[0] == HOME_LEFT_TOOLBAR_CLOSED_SPLITTER_PCT
 
 
 def test_splitter_manager_left_toolbar_open_closed(tmp_path: Path) -> None:

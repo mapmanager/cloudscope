@@ -200,6 +200,18 @@ class HomePage:
             base = 'w-full h-full min-h-0 gap-3 p-3 overflow-hidden flex flex-col'
             return f'{base} {extra}'.strip()
 
+        def _scrollable_fill_column_classes(extra: str = '') -> str:
+            """Return classes for fill-layout panes with internal scrolling.
+
+            Args:
+                extra: Extra Tailwind/NiceGUI classes.
+
+            Returns:
+                Class string for scrollable fill-layout columns.
+            """
+            base = 'w-full h-full min-h-0 gap-3 p-3 overflow-auto flex flex-col'
+            return f'{base} {extra}'.strip()
+
         def _capture(splitter_id: SplitterId) -> None:
             """Capture a user-adjusted splitter value in AppConfig memory.
 
@@ -323,7 +335,7 @@ class HomePage:
                                             view_manager.register(acq_analysis_plot)
 
                                     with analysis_reference_splitter.after:
-                                        with ui.column().classes(_fill_column_classes()):
+                                        with ui.column().classes(_scrollable_fill_column_classes()):
                                             reference_image.build()
                                             view_manager.register(reference_image)
 

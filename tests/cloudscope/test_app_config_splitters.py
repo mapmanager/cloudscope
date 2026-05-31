@@ -39,6 +39,21 @@ def test_app_config_home_splitter_values_round_trip(tmp_path: Path) -> None:
     assert loaded.get_home_splitter_value('primary_image') == 70.0
 
 
+def test_app_config_restores_zero_for_collapsible_home_splitters(tmp_path: Path) -> None:
+    """Persisted zero values should survive config normalization on load."""
+    cfg = AppConfig(path=tmp_path / 'app_config.json')
+    cfg.set_home_splitter_value('file_list', 0.0)
+    cfg.set_home_splitter_value('primary_image', 0.0)
+    cfg.set_home_splitter_value('analysis_reference', 0.0)
+    cfg.save()
+
+    loaded = AppConfig.load(config_path=cfg.path)
+
+    assert loaded.get_home_splitter_value('file_list') == 0.0
+    assert loaded.get_home_splitter_value('primary_image') == 0.0
+    assert loaded.get_home_splitter_value('analysis_reference') == 0.0
+
+
 def test_app_config_reset_home_splitters(tmp_path: Path) -> None:
     """Reset should restore factory splitter values without saving implicitly."""
     cfg = AppConfig(path=tmp_path / 'app_config.json')

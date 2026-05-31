@@ -363,19 +363,19 @@ class AppConfig:
         )
         self.data.home_file_list_splitter_pct = _clamp_float(
             self.data.home_file_list_splitter_pct,
-            5.0,
+            0.0,
             60.0,
             DEFAULT_HOME_FILE_LIST_SPLITTER_PCT,
         )
         self.data.home_primary_image_splitter_pct = _clamp_float(
             self.data.home_primary_image_splitter_pct,
-            10.0,
+            0.0,
             90.0,
             DEFAULT_HOME_PRIMARY_IMAGE_SPLITTER_PCT,
         )
         self.data.home_analysis_reference_splitter_pct = _clamp_float(
             self.data.home_analysis_reference_splitter_pct,
-            10.0,
+            0.0,
             90.0,
             DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT,
         )

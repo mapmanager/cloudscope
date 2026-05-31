@@ -59,12 +59,12 @@ HOME_SPLITTER_PRESETS: dict[SplitterId, SplitterPreset] = {
         HOME_LEFT_TOOLBAR_CLOSED_SPLITTER_PCT,
         (HOME_LEFT_TOOLBAR_CLOSED_SPLITTER_PCT, 70.0),
     ),
-    SplitterId.FILE_LIST: SplitterPreset(SplitterId.FILE_LIST, DEFAULT_HOME_FILE_LIST_SPLITTER_PCT, (5.0, 60.0)),
-    SplitterId.PRIMARY_IMAGE: SplitterPreset(SplitterId.PRIMARY_IMAGE, DEFAULT_HOME_PRIMARY_IMAGE_SPLITTER_PCT, (10.0, 90.0)),
+    SplitterId.FILE_LIST: SplitterPreset(SplitterId.FILE_LIST, DEFAULT_HOME_FILE_LIST_SPLITTER_PCT, (0.0, 60.0)),
+    SplitterId.PRIMARY_IMAGE: SplitterPreset(SplitterId.PRIMARY_IMAGE, DEFAULT_HOME_PRIMARY_IMAGE_SPLITTER_PCT, (0.0, 90.0)),
     SplitterId.ANALYSIS_REFERENCE: SplitterPreset(
         SplitterId.ANALYSIS_REFERENCE,
         DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT,
-        (10.0, 90.0),
+        (0.0, 90.0),
     ),
 }
 
