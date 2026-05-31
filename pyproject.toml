@@ -39,6 +39,7 @@ dependencies = [
     "scikit-image>=0.24.0",
     "pyperclip",
     "pooch>=1.9.0",
+    "pyperclipimg>=0.2.0",
 ]
 
 [build-system]
