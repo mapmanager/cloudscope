@@ -54,6 +54,43 @@ viewer.add_roi(...)
 viewer.delete_roi(...)
 ```
 
+## Plotly raster viewer context menu
+
+The Plotly raster viewer owns its right-click menu and exposes display toggles through public widget APIs. Callers may provide initial display defaults with:
+
+```python
+PlotlyRasterViewer(
+    display_options=PlotlyRasterViewerDisplayOptions(
+        show_plotly_toolbar=False,
+        show_rois=True,
+        show_trace_overlays=True,
+        show_axis_labels=False,
+    )
+)
+```
+
+The context menu currently provides:
+
+```text
+- ROIs
+- Traces
+- Axis Labels
+- Plotly Toolbar
+- Copy To Clipboard
+```
+
+Checked items are prefixed with `✓`. Visibility toggles must not delete source widget state. ROI visibility is applied through Plotly shape `visible`; trace overlay visibility is applied through Plotly trace `visible`; axis labels are updated through `Plotly.relayout`; and toolbar visibility is updated through Plotly config.
+
+Public display API:
+
+```python
+set_roi_overlays_visible(visible: bool) -> None
+set_trace_overlays_visible(visible: bool) -> None
+set_axis_labels_visible(visible: bool) -> None
+set_plotly_toolbar_visible(visible: bool) -> None
+copy_plot_to_clipboard() -> None
+```
+
 ## ROI overlay API
 
 Current/desired public API:

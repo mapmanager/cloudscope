@@ -23,6 +23,17 @@ from nicewidgets.raster_viewer.frontend.plotly_coord_transform import (
     PlotlyCoordTransform,
     merge_partial_relayout,
 )
+from nicewidgets.raster_viewer.frontend.plotly_clipboard import (
+    copy_plotly_png_to_browser_clipboard,
+    copy_png_bytes_to_native_clipboard,
+    get_plotly_png_bytes,
+)
+from nicewidgets.raster_viewer.frontend.plotly_context_menu import (
+    PlotlyRasterViewerContextMenu,
+)
+from nicewidgets.raster_viewer.frontend.plotly_display_options import (
+    PlotlyRasterViewerDisplayOptions,
+)
 from nicewidgets.raster_viewer.frontend.roi_overlay import (
     PlotlyRoiOverlayLayer,
     RectRoiOverlay,
@@ -54,7 +65,11 @@ class PlotlyRasterViewer:
     bounds live in the backend; plot coordinates use :class:`PlotlyCoordTransform`.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        display_options: PlotlyRasterViewerDisplayOptions | None = None,
+    ) -> None:
         self._plot: Element | None = None
         self._service: RasterViewService | None = None
         self._plotly_dict: dict[str, object] = {}
@@ -71,6 +86,10 @@ class PlotlyRasterViewer:
         self._contrast_zmax: float | None = None
         self._plotly_rois = PlotlyRoiOverlayLayer()
         self._plotly_trace_overlays = PlotlyTraceOverlayLayer()
+        self._display_options = display_options or PlotlyRasterViewerDisplayOptions()
+        self._axis_title_texts: dict[str, str] = {'xaxis': '', 'yaxis': ''}
+        self._ctx_menu: ui.context_menu | None = None
+        self._context_menu_builder: PlotlyRasterViewerContextMenu | None = None
 
     def _js_plotly_graph_div(self) -> str:
         """Resolve the Plotly graph div from NiceGUI; bail out if missing (cf. ``el.data`` guard)."""
@@ -113,6 +132,11 @@ if (!plotDiv || !plotDiv.data) return;
         """Return the current figure dictionary."""
         return self._plotly_dict
 
+    @property
+    def display_options(self) -> PlotlyRasterViewerDisplayOptions:
+        """Return mutable display options used by context-menu actions."""
+        return self._display_options
+
     def build(self) -> Element:
         """Create the NiceGUI Plotly element."""
         self._plotly_dict = self._build_initial_figure()
@@ -121,6 +145,9 @@ if (!plotDiv || !plotDiv.data) return;
         self._plot.on('plotly_relayout', self._on_plotly_relayout)
         self._plot.on('plotly_autosize', self._on_plotly_autosize)
         self._plot.on('plotly_doubleclick', self._on_plotly_doubleclick)
+        self._ctx_menu = ui.context_menu()
+        self._context_menu_builder = PlotlyRasterViewerContextMenu(get_viewer=lambda: self)
+        self._plot.on('contextmenu', self._on_context_menu_event)
 
         return self._plot
 
@@ -145,6 +172,7 @@ if (!plotDiv || !plotDiv.data) return;
             ncols=source.width,
             grid=grid,
         )
+        self._axis_title_texts = {'xaxis': grid.x_unit or '', 'yaxis': grid.y_unit or ''}
         self._current_bounds = self._transform.full_row_col_bounds()
         self._uirevision = self._new_uirevision()
         self._heatmap_colorscale = DEFAULT_HEATMAP_COLORSCALE
@@ -161,6 +189,7 @@ if (!plotDiv || !plotDiv.data) return;
         )
         self._sync_roi_shapes_to_plotly_dict()
         self._sync_trace_overlays_to_plotly_dict()
+        self._apply_display_options_to_plotly_dict()
 
         if self._plot is not None:
             self._plot.figure = self._plotly_dict
@@ -180,6 +209,7 @@ if (!plotDiv || !plotDiv.data) return;
         )
         self._sync_roi_shapes_to_plotly_dict()
         self._sync_trace_overlays_to_plotly_dict()
+        self._apply_display_options_to_plotly_dict()
 
         self._plot.figure = self._plotly_dict
         self._plot.update()
@@ -295,6 +325,7 @@ if (!plotDiv || !plotDiv.data) return;
         if not isinstance(data, list):
             data = []
         self._plotly_dict['data'] = self._plotly_trace_overlays.merge_traces(data)
+        self._set_trace_overlay_visibility(self._plotly_dict['data'])
 
     def _redraw_trace_overlays(self) -> None:
         """Replace managed browser-side trace overlays without pushing raster data.
@@ -305,6 +336,7 @@ if (!plotDiv || !plotDiv.data) return;
         if self._plot is None:
             return
         overlay_traces = self._plotly_trace_overlays.to_traces()
+        self._set_trace_overlay_visibility(overlay_traces)
         js = f"""
 {self._js_plotly_graph_div()}
 const baseTraceCount = 1;
@@ -343,6 +375,7 @@ return overlayPromise.then(() => {{
         if not isinstance(existing_shapes, list):
             existing_shapes = []
         layout['shapes'] = self._plotly_rois.merge_shapes(existing_shapes)
+        self._set_roi_shape_visibility(layout['shapes'])
 
     def _relayout_shapes(self) -> None:
         """Push only ``layout.shapes`` to the browser with ``Plotly.relayout``.
@@ -359,6 +392,212 @@ return overlayPromise.then(() => {{
 Plotly.relayout(plotDiv, {{
   shapes: {json.dumps(shapes)}
 }});
+"""
+        self._plot.client.run_javascript(js, timeout=2.0)
+
+    def set_roi_overlays_visible(self, visible: bool) -> None:
+        """Set ROI overlay visibility without changing ROI state.
+
+        Args:
+            visible: Whether ROI shapes should be visible.
+
+        Returns:
+            None.
+        """
+        self._display_options.show_rois = bool(visible)
+        self._sync_roi_shapes_to_plotly_dict()
+        self._relayout_shapes()
+
+    def set_trace_overlays_visible(self, visible: bool) -> None:
+        """Set managed trace overlay visibility without changing overlay state.
+
+        Args:
+            visible: Whether managed trace overlays should be visible.
+
+        Returns:
+            None.
+        """
+        self._display_options.show_trace_overlays = bool(visible)
+        self._sync_trace_overlays_to_plotly_dict()
+        self._restyle_trace_overlay_visibility()
+
+    def set_axis_labels_visible(self, visible: bool) -> None:
+        """Set x/y axis title visibility without rebuilding the plot.
+
+        Args:
+            visible: Whether axis title text should be visible.
+
+        Returns:
+            None.
+        """
+        self._display_options.show_axis_labels = bool(visible)
+        self._sync_axis_labels_to_plotly_dict()
+        self._relayout_axis_labels()
+
+    def set_plotly_toolbar_visible(self, visible: bool) -> None:
+        """Set Plotly modebar visibility.
+
+        Args:
+            visible: Whether Plotly's modebar should be visible.
+
+        Returns:
+            None.
+        """
+        self._display_options.show_plotly_toolbar = bool(visible)
+        self._sync_plotly_config_to_plotly_dict()
+        self._react_plotly_config()
+
+    async def copy_plot_to_clipboard(self) -> None:
+        """Copy the current Plotly plot image to the native clipboard when available.
+
+        Browser/cloud mode currently reports a warning because robust image
+        clipboard support is browser-permission dependent. Native mode uses the
+        optional ``pyperclipimg`` stack.
+        """
+        if self._plot is None:
+            ui.notify('No plot to copy.', type='warning')
+            return
+
+        try:
+            from nicegui import app
+
+            native_cfg = getattr(app, 'native', None)
+            is_native_window = getattr(native_cfg, 'main_window', None) is not None
+            if is_native_window:
+                png_bytes = await get_plotly_png_bytes(self._plot)
+                copy_png_bytes_to_native_clipboard(png_bytes)
+            else:
+                await copy_plotly_png_to_browser_clipboard(self._plot)
+            ui.notify('Plot copied to clipboard.', type='positive')
+        except Exception as exc:
+            logger.exception('Failed to copy Plotly plot to clipboard.')
+            ui.notify(f'Copy failed: {exc}', type='negative')
+
+    def _on_context_menu_event(self, _event) -> None:
+        """Rebuild and open the Plotly raster viewer context menu."""
+        if self._ctx_menu is None or self._context_menu_builder is None:
+            return
+        with self._ctx_menu.clear():
+            self._context_menu_builder.build()
+        self._ctx_menu.open()
+
+    def _apply_display_options_to_plotly_dict(self) -> None:
+        """Synchronize all display options into the local Plotly dictionary."""
+        self._sync_plotly_config_to_plotly_dict()
+        self._sync_axis_labels_to_plotly_dict()
+        layout = self._plotly_dict.setdefault('layout', {})
+        shapes = layout.get('shapes', [])
+        if isinstance(shapes, list):
+            self._set_roi_shape_visibility(shapes)
+        data = self._plotly_dict.get('data', [])
+        if isinstance(data, list):
+            self._set_trace_overlay_visibility(data)
+
+    def _sync_plotly_config_to_plotly_dict(self) -> None:
+        """Synchronize Plotly config options into the local figure dict."""
+        config = dict(RASTER_VIEWER_PLOTLY_CONFIG)
+        config['displayModeBar'] = bool(self._display_options.show_plotly_toolbar)
+        self._plotly_dict['config'] = config
+
+    def _sync_axis_labels_to_plotly_dict(self) -> None:
+        """Synchronize axis label visibility into the local figure dict."""
+        layout = self._plotly_dict.setdefault('layout', {})
+        for axis_name in ('xaxis', 'yaxis'):
+            axis = layout.setdefault(axis_name, {})
+            if not isinstance(axis, dict):
+                axis = {}
+                layout[axis_name] = axis
+            title = axis.setdefault('title', {})
+            if not isinstance(title, dict):
+                title = {}
+                axis['title'] = title
+            title['text'] = (
+                self._axis_title_texts.get(axis_name, '')
+                if self._display_options.show_axis_labels
+                else ''
+            )
+
+    def _set_roi_shape_visibility(self, shapes: list[object]) -> None:
+        """Apply global ROI visibility to managed ROI shapes.
+
+        Args:
+            shapes: Mutable Plotly layout shape list.
+
+        Returns:
+            None.
+        """
+        for shape in shapes:
+            if PlotlyRoiOverlayLayer.is_roi_shape(shape):
+                shape['visible'] = bool(self._display_options.show_rois)
+
+    def _set_trace_overlay_visibility(self, traces: list[object]) -> None:
+        """Apply global trace-overlay visibility to managed overlay traces.
+
+        Args:
+            traces: Mutable Plotly data list.
+
+        Returns:
+            None.
+        """
+        for trace in traces:
+            if PlotlyTraceOverlayLayer.is_trace_overlay(trace):
+                trace['visible'] = bool(
+                    trace.get('visible', True) and self._display_options.show_trace_overlays
+                )
+
+    def _relayout_axis_labels(self) -> None:
+        """Push only x/y axis title text to the browser."""
+        if self._plot is None:
+            return
+        x_text = self._axis_title_texts.get('xaxis', '') if self._display_options.show_axis_labels else ''
+        y_text = self._axis_title_texts.get('yaxis', '') if self._display_options.show_axis_labels else ''
+        js = f"""
+{self._js_plotly_graph_div()}
+Plotly.relayout(plotDiv, {{
+  'xaxis.title.text': {json.dumps(x_text)},
+  'yaxis.title.text': {json.dumps(y_text)}
+}});
+"""
+        self._plot.client.run_javascript(js, timeout=2.0)
+
+    def _restyle_trace_overlay_visibility(self) -> None:
+        """Push only managed trace-overlay ``visible`` values to the browser."""
+        if self._plot is None:
+            return
+        data = self._plotly_dict.get('data', [])
+        visibility_by_trace_id: dict[str, bool] = {}
+        if isinstance(data, list):
+            for trace in data:
+                trace_id = PlotlyTraceOverlayLayer.trace_id_from_trace(trace)
+                if trace_id is not None and isinstance(trace, dict):
+                    visibility_by_trace_id[str(trace_id)] = bool(trace.get('visible', True))
+
+        js = f"""
+{self._js_plotly_graph_div()}
+const visibilityByTraceId = {json.dumps(visibility_by_trace_id)};
+const indices = [];
+const visibleValues = [];
+plotDiv.data.forEach((trace, index) => {{
+  const traceId = trace?.meta?.trace_id;
+  if (trace?.meta?.nicewidgets_overlay_type === 'trace' && traceId in visibilityByTraceId) {{
+    indices.push(index);
+    visibleValues.push(visibilityByTraceId[traceId]);
+  }}
+}});
+if (indices.length > 0) {{
+  Plotly.restyle(plotDiv, {{visible: visibleValues}}, indices);
+}}
+"""
+        self._plot.client.run_javascript(js, timeout=2.0)
+
+    def _react_plotly_config(self) -> None:
+        """Push Plotly config changes without creating a new NiceGUI plot."""
+        if self._plot is None:
+            return
+        config = self._plotly_dict.get('config', {})
+        js = f"""
+{self._js_plotly_graph_div()}
+Plotly.react(plotDiv, plotDiv.data, plotDiv.layout, {json.dumps(config)});
 """
         self._plot.client.run_javascript(js, timeout=2.0)
 
@@ -590,7 +829,7 @@ return {{
     def _build_initial_figure(self) -> dict:
         """Return the figure shown before or after data is set."""
         if self._service is None or self._transform is None:
-            return {
+            self._plotly_dict = {
                 'data': [],
                 'layout': {
                     'margin': {'l': 40, 'r': 20, 't': 20, 'b': 40},
@@ -602,6 +841,8 @@ return {{
                 },
                 'config': dict(RASTER_VIEWER_PLOTLY_CONFIG),
             }
+            self._apply_display_options_to_plotly_dict()
+            return self._plotly_dict
 
         logger.info('making initial default png -->> never called?')
 
@@ -621,7 +862,9 @@ return {{
         if not isinstance(data, list):
             data = []
         figure['data'] = self._plotly_trace_overlays.merge_traces(data)
-        return figure
+        self._plotly_dict = figure
+        self._apply_display_options_to_plotly_dict()
+        return self._plotly_dict
 
     def _display_style(self) -> RasterDisplayStyle:
         """Return backend PNG / heatmap styling derived from viewer state."""
