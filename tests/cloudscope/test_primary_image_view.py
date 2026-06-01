@@ -74,16 +74,23 @@ def test_raster_grid_spec_raises_on_nan_calibration() -> None:
 
 
 def test_load_plane_payload_placeholder_without_acq() -> None:
-    plane, grid = _load_plane_payload('/x', None, 0)
+    plane, grid, is_placeholder = _load_plane_payload('/x', None, 0)
     assert plane.shape == (2, 2)
     assert grid.dx == 1.0 and grid.dy == 1.0
+    assert is_placeholder is True
 
 
 def test_placeholder_plane_returns_float32() -> None:
     plane, _ = _placeholder_plane()
     assert plane.dtype == np.float32
 
+import asyncio
+
+from acqstore.acq_image.image_contrast import ImageContrast
 from cloudscope.event_bus import EventBus
+from cloudscope.events.contrast import ImageContrastChanged
+from cloudscope.events.raster import PrimaryPlaneLoaded
+from cloudscope.state import PrimarySelection
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.primary_image_view import PrimaryImageView
 from cloudscope.views.view_ids import ViewId
@@ -96,3 +103,167 @@ def test_primary_image_view_is_base_view_and_not_disabled_when_busy() -> None:
     assert isinstance(view, BaseView)
     assert view.view_id is ViewId.PRIMARY_IMAGE
     assert view.disable_when_busy is False
+
+
+class _FakeViewer:
+    """Tracks viewer calls for contrast tests."""
+
+    def __init__(self) -> None:
+        self.colorscale_calls: list[str] = []
+        self.contrast_calls: list[tuple[float, float]] = []
+
+    async def set_heatmap_colorscale(self, colorscale: str) -> None:
+        self.colorscale_calls.append(colorscale)
+
+    async def set_heatmap_contrast(self, *, zmin: float, zmax: float) -> None:
+        self.contrast_calls.append((zmin, zmax))
+
+
+class _FakeAcqImage:
+    def __init__(self, contrast: ImageContrast | None) -> None:
+        self._contrast = contrast
+
+    def get_image_contrast(self, _channel: int) -> ImageContrast | None:
+        return self._contrast
+
+
+def test_apply_contrast_pushes_lut_and_window_to_viewer() -> None:
+    bus = EventBus()
+    view = PrimaryImageView(bus)
+    fake = _FakeViewer()
+    view._viewer = fake  # type: ignore[assignment]
+    acq = _FakeAcqImage(
+        ImageContrast(color_lut='Plasma', value_min=10, value_max=200, img_min=0, img_max=255)
+    )
+    asyncio.run(view._apply_contrast(acq, 0))
+    assert fake.colorscale_calls == ['Plasma']
+    assert fake.contrast_calls == [(10.0, 200.0)]
+
+
+def test_apply_contrast_translates_named_channel_lut() -> None:
+    """``Green`` is mapped through ``get_colorscale`` to Plotly's ``Greens``."""
+    view = PrimaryImageView(EventBus())
+    fake = _FakeViewer()
+    view._viewer = fake  # type: ignore[assignment]
+    acq = _FakeAcqImage(
+        ImageContrast(color_lut='Green', value_min=5, value_max=240, img_min=0, img_max=255)
+    )
+    asyncio.run(view._apply_contrast(acq, 1))
+    assert fake.colorscale_calls == ['Greens']
+
+
+def test_apply_contrast_noop_without_contrast_entry() -> None:
+    view = PrimaryImageView(EventBus())
+    fake = _FakeViewer()
+    view._viewer = fake  # type: ignore[assignment]
+    asyncio.run(view._apply_contrast(_FakeAcqImage(None), 0))
+    assert fake.colorscale_calls == []
+    assert fake.contrast_calls == []
+
+
+def test_on_image_contrast_changed_only_for_current_selection() -> None:
+    bus = EventBus()
+    view = PrimaryImageView(bus)
+    fake = _FakeViewer()
+    view._viewer = fake  # type: ignore[assignment]
+    contrast = ImageContrast(
+        color_lut='Plasma', value_min=10, value_max=200, img_min=0, img_max=255
+    )
+    acq = _FakeAcqImage(contrast)
+    view.current_selection = PrimarySelection(file_id='f', channel=0)
+    view.get_selected_acq_image = lambda: acq  # type: ignore[assignment]
+
+    async def _run() -> None:
+        view._on_image_contrast_changed(
+            ImageContrastChanged(file_id='other', channel=0, contrast=contrast)
+        )
+        view._on_image_contrast_changed(
+            ImageContrastChanged(file_id='f', channel=0, contrast=contrast)
+        )
+        # Yield enough times for the scheduled task to complete.
+        for _ in range(5):
+            await asyncio.sleep(0)
+
+    asyncio.run(_run())
+    assert fake.colorscale_calls == ['Plasma']
+    assert fake.contrast_calls == [(10.0, 200.0)]
+
+
+def test_publishes_primary_plane_loaded_after_set_data() -> None:
+    bus = EventBus()
+    view = PrimaryImageView(bus)
+    fake = _FakeViewer()
+
+    class _DataViewer(_FakeViewer):
+        async def set_data(self, *_a, **_k) -> None:
+            return None
+
+    fake = _DataViewer()
+    view._viewer = fake  # type: ignore[assignment]
+
+    plane = np.array([[1, 2], [3, 4]], dtype=np.uint8)
+    grid = raster_grid_spec_from_image_header
+
+    contrast = ImageContrast(
+        color_lut='Gray', value_min=0, value_max=4, img_min=0, img_max=4
+    )
+
+    class _Acq:
+        rois: list = []  # type: ignore[assignment]
+
+        def get_image_contrast(self, _c: int):
+            return contrast
+
+    seen: list[PrimaryPlaneLoaded] = []
+    bus.subscribe(PrimaryPlaneLoaded, seen.append)
+
+    async def _run() -> None:
+        from cloudscope.views import primary_image_view as pim
+
+        original = pim._load_plane_payload
+        from nicewidgets.raster_viewer.backend.image_model import (
+            RasterGridSpec as RGS,
+        )
+
+        pim._load_plane_payload = (
+            lambda *_a, **_k: (plane, RGS(dx=1.0, dy=1.0, x_unit='Y', y_unit='X'), False)
+        )
+        view._refresh_roi_overlays = lambda **_k: None  # type: ignore[assignment]
+        view._refresh_diameter_trace_overlays = lambda **_k: None  # type: ignore[assignment]
+        try:
+            await view._refresh_raster_async('f', _Acq(), 0)
+        finally:
+            pim._load_plane_payload = original
+
+    asyncio.run(_run())
+    assert len(seen) == 1
+    assert seen[0].file_id == 'f'
+    assert seen[0].channel == 0
+    assert seen[0].plane.flags.writeable is False
+
+
+def test_does_not_publish_primary_plane_loaded_for_placeholder() -> None:
+    bus = EventBus()
+    view = PrimaryImageView(bus)
+
+    class _Viewer:
+        async def set_data(self, *_a, **_k) -> None:
+            return None
+
+        async def set_heatmap_colorscale(self, *_a, **_k) -> None:
+            return None
+
+        async def set_heatmap_contrast(self, **_k) -> None:
+            return None
+
+    view._viewer = _Viewer()  # type: ignore[assignment]
+    seen: list[PrimaryPlaneLoaded] = []
+    bus.subscribe(PrimaryPlaneLoaded, seen.append)
+    view._refresh_roi_overlays = lambda **_k: None  # type: ignore[assignment]
+    view._refresh_diameter_trace_overlays = lambda **_k: None  # type: ignore[assignment]
+
+    async def _run() -> None:
+        await view._refresh_raster_async(None, None, None)
+
+    asyncio.run(_run())
+    assert seen == []

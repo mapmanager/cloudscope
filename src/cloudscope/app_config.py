@@ -29,6 +29,10 @@ DEFAULT_HOME_LEFT_TOOLBAR_OPEN_SPLITTER_PCT = 28.0
 DEFAULT_HOME_FILE_LIST_SPLITTER_PCT = 18.0
 DEFAULT_HOME_PRIMARY_IMAGE_SPLITTER_PCT = 65.0
 DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT = 50.0
+DEFAULT_CONTRAST_AUTO_PERCENTILE_LOW = 1.0
+DEFAULT_CONTRAST_AUTO_PERCENTILE_HIGH = 99.5
+DEFAULT_CHANNEL_COLOR_LUT: dict[str, str] = {'0': 'Green', '1': 'Red', '2': 'Blue'}
+DEFAULT_FALLBACK_COLOR_LUT = 'Gray'
 _HOME_SPLITTER_KEYS = {
     'left_toolbar': 'home_left_toolbar_open_splitter_pct',
     'file_list': 'home_file_list_splitter_pct',
@@ -44,6 +48,43 @@ def _default_home_view_visible() -> dict[str, bool]:
         Mapping from stable view id string to default visibility.
     """
     return {descriptor.view_id.value: True for descriptor in CONFIGURABLE_HOME_VIEWS}
+
+
+def _default_channel_color_lut() -> dict[str, str]:
+    """Return the factory-default channel LUT mapping (stringified channel index keys)."""
+    return dict(DEFAULT_CHANNEL_COLOR_LUT)
+
+
+def _parse_channel_color_lut(raw: object) -> dict[str, str]:
+    """Parse persisted ``default_channel_color_lut`` values.
+
+    Unknown/non-string entries are dropped silently. Missing channel keys keep
+    the factory default values so adding/removing channels does not require a
+    schema bump.
+
+    Args:
+        raw: JSON value from the app config payload.
+
+    Returns:
+        Normalized mapping with stringified channel keys and string LUT values.
+    """
+    result = _default_channel_color_lut()
+    if not isinstance(raw, dict):
+        return result
+    for key, value in raw.items():
+        key_str = str(key).strip()
+        if not key_str:
+            continue
+        try:
+            int(key_str, 10)
+        except (TypeError, ValueError):
+            logger.warning('Skipping non-int channel key in default_channel_color_lut: %r', key)
+            continue
+        if isinstance(value, str) and value.strip():
+            result[key_str] = value.strip()
+        else:
+            logger.warning('Skipping non-string LUT value for channel %s: %r', key_str, value)
+    return result
 
 
 def _parse_home_view_visible(raw: object) -> dict[str, bool]:
@@ -121,6 +162,9 @@ class AppConfigData:
     home_primary_image_splitter_pct: float = DEFAULT_HOME_PRIMARY_IMAGE_SPLITTER_PCT
     home_analysis_reference_splitter_pct: float = DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT
     home_view_visible: dict[str, bool] = field(default_factory=_default_home_view_visible)
+    contrast_auto_percentile_low: float = DEFAULT_CONTRAST_AUTO_PERCENTILE_LOW
+    contrast_auto_percentile_high: float = DEFAULT_CONTRAST_AUTO_PERCENTILE_HIGH
+    default_channel_color_lut: dict[str, str] = field(default_factory=_default_channel_color_lut)
 
     def to_json_dict(self) -> dict[str, object]:
         """Return payload as JSON-serializable dictionary."""
@@ -213,6 +257,17 @@ class AppConfigData:
                 DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT,
             ),
             home_view_visible=_parse_home_view_visible(payload.get('home_view_visible', {})),
+            contrast_auto_percentile_low=_float_field(
+                'contrast_auto_percentile_low',
+                DEFAULT_CONTRAST_AUTO_PERCENTILE_LOW,
+            ),
+            contrast_auto_percentile_high=_float_field(
+                'contrast_auto_percentile_high',
+                DEFAULT_CONTRAST_AUTO_PERCENTILE_HIGH,
+            ),
+            default_channel_color_lut=_parse_channel_color_lut(
+                payload.get('default_channel_color_lut', {})
+            ),
         )
 
 
@@ -381,6 +436,33 @@ class AppConfig:
         )
         self.data.home_view_visible = _parse_home_view_visible(self.data.home_view_visible)
 
+        low, high = self._normalize_contrast_percentiles(
+            self.data.contrast_auto_percentile_low,
+            self.data.contrast_auto_percentile_high,
+        )
+        self.data.contrast_auto_percentile_low = low
+        self.data.contrast_auto_percentile_high = high
+        self.data.default_channel_color_lut = _parse_channel_color_lut(
+            self.data.default_channel_color_lut
+        )
+
+    @staticmethod
+    def _normalize_contrast_percentiles(low: object, high: object) -> tuple[float, float]:
+        """Clamp and order contrast percentile values to ``0.0 <= low <= high <= 100.0``.
+
+        Args:
+            low: Stored lower percentile candidate.
+            high: Stored upper percentile candidate.
+
+        Returns:
+            Validated ``(low, high)`` pair using factory defaults when unparseable.
+        """
+        low_f = _clamp_float(low, 0.0, 100.0, DEFAULT_CONTRAST_AUTO_PERCENTILE_LOW)
+        high_f = _clamp_float(high, 0.0, 100.0, DEFAULT_CONTRAST_AUTO_PERCENTILE_HIGH)
+        if low_f > high_f:
+            low_f, high_f = high_f, low_f
+        return low_f, high_f
+
     def get_recent_files(self) -> list[str]:
         """Return recent file paths."""
         return list(self.data.recent_files)
@@ -533,6 +615,65 @@ class AppConfig:
             None.
         """
         self.data.home_view_visible = _default_home_view_visible()
+
+    def get_contrast_auto_percentiles(self) -> tuple[float, float]:
+        """Return the ``(low, high)`` percentile pair used for Auto contrast.
+
+        Returns:
+            Tuple of two floats in ``[0.0, 100.0]`` with ``low <= high``.
+        """
+        return (
+            float(self.data.contrast_auto_percentile_low),
+            float(self.data.contrast_auto_percentile_high),
+        )
+
+    def set_contrast_auto_percentiles(self, low: float, high: float) -> None:
+        """Set the ``(low, high)`` percentile pair used for Auto contrast.
+
+        Values are clamped to ``[0.0, 100.0]`` and swapped if ``low > high``.
+
+        Args:
+            low: Lower percentile.
+            high: Upper percentile.
+
+        Returns:
+            None.
+        """
+        low_f, high_f = self._normalize_contrast_percentiles(low, high)
+        self.data.contrast_auto_percentile_low = low_f
+        self.data.contrast_auto_percentile_high = high_f
+
+    def get_default_channel_color_lut(self, channel: int) -> str:
+        """Return the default color LUT identifier for one channel index.
+
+        Args:
+            channel: Zero-based channel index.
+
+        Returns:
+            Stored LUT identifier for ``channel`` when present;
+            :data:`DEFAULT_FALLBACK_COLOR_LUT` otherwise.
+        """
+        return self.data.default_channel_color_lut.get(
+            str(int(channel)), DEFAULT_FALLBACK_COLOR_LUT
+        )
+
+    def set_default_channel_color_lut(self, channel: int, lut: str) -> None:
+        """Set the default color LUT identifier for one channel index.
+
+        Args:
+            channel: Zero-based channel index.
+            lut: LUT identifier (non-empty string).
+
+        Returns:
+            None.
+
+        Raises:
+            ValueError: If ``lut`` is empty after stripping.
+        """
+        lut_str = str(lut).strip()
+        if not lut_str:
+            raise ValueError('lut must be a non-empty string')
+        self.data.default_channel_color_lut[str(int(channel))] = lut_str
 
     def get_attribute(self, key: str) -> object | None:
         """Get attribute value by key.

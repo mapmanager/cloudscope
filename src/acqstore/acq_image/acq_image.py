@@ -19,6 +19,7 @@ from .supported_import_extensions import (
 )
 from .acq_analysis_set import AcqAnalysisSet
 from .analysis.data_provider import AcqImageAnalysisDataProvider
+from .image_contrast import ImageContrast, contrast_clip_min_max
 from .tree_rows import (
     ACQ_TREE_ANALYSIS_CHANNEL_FIELD,
     ACQ_TREE_ANALYSIS_NAME_FIELD,
@@ -42,6 +43,12 @@ _ACQIMAGE_SIDECAR_REQUIRED_KEYS = {
     'image_header_metadata',
     'analysis',  # [dict], one dict per item in analysis set
 }
+# Keys that may appear in the sidecar without being required. They are tolerated
+# on load (no "unknown key" warning) and written on save when present.
+# To disable image_contrast persistence entirely, comment out 'image_contrast'
+# below and the region-marked blocks in _build_sidecar_payload and
+# _apply_loaded_sidecar_payload; the in-memory defaults flow continues to work.
+_ACQIMAGE_SIDECAR_OPTIONAL_KEYS = {'image_contrast'}
 
 
 def parent_grandparent_folder_names(
@@ -134,7 +141,9 @@ class AcqImage:
             self.path,
             data_provider=AcqImageAnalysisDataProvider(self),
         )
-        
+        self._image_contrasts: dict[int, ImageContrast] = {}
+        self._image_contrast_dirty = False
+
         self.load_sidecar_json()
 
     @property
@@ -153,6 +162,7 @@ class AcqImage:
         return (
             self._rois.is_dirty()
             or self._acq_analysis_set.is_dirty()
+            or getattr(self, '_image_contrast_dirty', False)
             or any(section.is_dirty() for section in self.get_metadata_sections())
         )
 
@@ -168,6 +178,7 @@ class AcqImage:
         # set dirty flags to false
         self._rois.set_clean()
         self._acq_analysis_set.set_clean()
+        self._image_contrast_dirty = False
         for section in self.get_metadata_sections():
             section.set_clean()
 
@@ -186,16 +197,41 @@ class AcqImage:
         Returns:
             JSON-serializable sidecar payload.
         """
-        return {
+        payload: dict[str, object] = {
             'version': _ACQIMAGE_SIDECAR_VERSION,
             'accepted': bool(self._accept),
             'rois': self._rois.to_list(),
             'experiment_metadata': self._experimental_metadata.to_dict(),
             # Saved for forward compatibility; not hydrated in phase 1 load path.
             'image_header_metadata': self._image_header_metadata.get_values(),
-            
+
             'analysis': self._acq_analysis_set.serialize_json_analysis(),
         }
+        # region image_contrast persistence
+        # Comment out this region (and the matching one in
+        # _apply_loaded_sidecar_payload) to disable image_contrast persistence;
+        # in-memory defaults seeded by PrimaryPlaneLoaded continue to work.
+        payload['image_contrast'] = self._serialize_image_contrast_for_sidecar()
+        # endregion image_contrast persistence
+        return payload
+
+    def _serialize_image_contrast_for_sidecar(self) -> dict[str, dict[str, object]]:
+        """Return ``{str(channel): {...}}`` for the current ``_image_contrasts``.
+
+        Returns:
+            JSON-serializable mapping from stringified channel index to contrast
+            fields. Empty dict when no entries exist (keeps file format predictable).
+        """
+        out: dict[str, dict[str, object]] = {}
+        for channel, contrast in sorted(self._image_contrasts.items()):
+            out[str(int(channel))] = {
+                'color_lut': str(contrast.color_lut),
+                'value_min': int(contrast.value_min),
+                'value_max': int(contrast.value_max),
+                'img_min': int(contrast.img_min),
+                'img_max': int(contrast.img_max),
+            }
+        return out
 
     def _apply_loaded_sidecar_payload(self, payload: dict[str, object]) -> None:
         """Apply validated sidecar payload to runtime state.
@@ -224,6 +260,71 @@ class AcqImage:
         self._acq_analysis_set.load_json_analysis(analysis_obj)
         self._acq_analysis_set.load_all_results_dfs_from_csv(self.path)
 
+        # region image_contrast persistence
+        # Comment out this region (and the matching one in
+        # _build_sidecar_payload) to disable image_contrast persistence;
+        # in-memory defaults seeded by PrimaryPlaneLoaded continue to work.
+        self._image_contrasts = self._parse_image_contrast_from_sidecar(
+            payload.get('image_contrast', {})
+        )
+        self._image_contrast_dirty = False
+        # endregion image_contrast persistence
+
+    def _parse_image_contrast_from_sidecar(
+        self,
+        raw: object,
+    ) -> dict[int, ImageContrast]:
+        """Parse a sidecar ``image_contrast`` value into the in-memory dict.
+
+        Args:
+            raw: Value read from ``payload.get('image_contrast', {})``.
+
+        Returns:
+            Mapping from integer channel index to :class:`ImageContrast`.
+            Returns an empty dict (with a warning) when the payload is malformed
+            so a broken sidecar entry never blocks loading other state.
+        """
+        if not isinstance(raw, dict):
+            logger.warning(
+                "Sidecar field 'image_contrast' must be an object for %s; ignoring",
+                self.path,
+            )
+            return {}
+        result: dict[int, ImageContrast] = {}
+        for key, value in raw.items():
+            try:
+                channel = int(str(key), 10)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "Skipping image_contrast entry with non-int channel key %r in %s",
+                    key,
+                    self.path,
+                )
+                continue
+            if not isinstance(value, dict):
+                logger.warning(
+                    "Skipping image_contrast entry for channel %s in %s: value is not an object",
+                    channel,
+                    self.path,
+                )
+                continue
+            try:
+                result[channel] = ImageContrast(
+                    color_lut=str(value['color_lut']),
+                    value_min=int(value['value_min']),
+                    value_max=int(value['value_max']),
+                    img_min=int(value['img_min']),
+                    img_max=int(value['img_max']),
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                logger.warning(
+                    "Skipping malformed image_contrast entry for channel %s in %s: %s",
+                    channel,
+                    self.path,
+                    exc,
+                )
+        return result
+
     def save_sidecar_json(self) -> None:
         """Persist sidecar JSON for this acquisition file."""
         sidecar_path = Path(self.get_sidecar_json_path())
@@ -251,7 +352,11 @@ class AcqImage:
             if missing:
                 raise ValueError(f'Sidecar JSON missing required keys: {missing}')
 
-            extra = sorted(set(raw.keys()) - _ACQIMAGE_SIDECAR_REQUIRED_KEYS)
+            extra = sorted(
+                set(raw.keys())
+                - _ACQIMAGE_SIDECAR_REQUIRED_KEYS
+                - _ACQIMAGE_SIDECAR_OPTIONAL_KEYS
+            )
             if extra:
                 logger.warning('Ignoring unknown AcqImage sidecar keys for %s: %s', self.path, extra)
 
@@ -275,6 +380,79 @@ class AcqImage:
     def rois(self) -> RoiSet:
         """Return ROI helper for this file."""
         return self._rois
+
+    def get_image_contrast(self, channel: int) -> ImageContrast | None:
+        """Return the current contrast state for one channel.
+
+        Args:
+            channel: Zero-based channel index.
+
+        Returns:
+            Stored :class:`ImageContrast` for ``channel``, or ``None`` when no
+            entry exists (no plane has been provided yet).
+        """
+        return self._image_contrasts.get(int(channel))
+
+    def set_image_contrast(self, channel: int, contrast: ImageContrast) -> None:
+        """Set the contrast state for one channel and mark the file dirty.
+
+        Args:
+            channel: Zero-based channel index.
+            contrast: New contrast snapshot. A copy is stored.
+        """
+        self._image_contrasts[int(channel)] = contrast.copy()
+        self._image_contrast_dirty = True
+
+    def ensure_image_contrast_from_plane(
+        self,
+        channel: int,
+        plane: np.ndarray,
+        *,
+        default_color_lut: str,
+        percentile_low: float,
+        percentile_high: float,
+    ) -> ImageContrast:
+        """Return the channel's contrast, seeding from ``plane`` when missing.
+
+        Seeding uses :func:`contrast_clip_min_max` for ``value_min``/``value_max``
+        and the raw plane min/max for ``img_min``/``img_max``. The default
+        seeding path does NOT mark the file dirty (only :meth:`set_image_contrast`
+        does), so loading a file and viewing every channel never produces an
+        unsolicited save prompt.
+
+        Args:
+            channel: Zero-based channel index.
+            plane: 2D ndarray ``(Y, X)`` supplied by the caller. AcqImage never
+                decodes its own slice for contrast.
+            default_color_lut: LUT identifier used when no entry exists yet.
+            percentile_low: Lower percentile for auto clipping.
+            percentile_high: Upper percentile for auto clipping.
+
+        Returns:
+            Stored :class:`ImageContrast` for ``channel`` (existing or newly
+            seeded).
+
+        Raises:
+            ValueError: If ``plane`` is empty.
+        """
+        key = int(channel)
+        existing = self._image_contrasts.get(key)
+        if existing is not None:
+            return existing
+        value_min, value_max = contrast_clip_min_max(
+            plane,
+            percentile_low=percentile_low,
+            percentile_high=percentile_high,
+        )
+        contrast = ImageContrast(
+            color_lut=str(default_color_lut),
+            value_min=value_min,
+            value_max=value_max,
+            img_min=int(plane.min()),
+            img_max=int(plane.max()),
+        )
+        self._image_contrasts[key] = contrast
+        return contrast
 
     def get_metadata_sections(self) -> tuple[ExperimentMetadata | ImageHeaderMetadata, ...]:
         """Return metadata section objects exposed for schema-driven UIs."""

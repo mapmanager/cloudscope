@@ -24,11 +24,14 @@ from acqstore.acq_image.roi import RectROI
 from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader
 from cloudscope.event_bus import EventBus
 from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind
+from cloudscope.events.contrast import ImageContrastChanged
+from cloudscope.events.raster import PrimaryPlaneLoaded
 from cloudscope.events.roi import RoiChanged
 from cloudscope.events.theme import ThemeChanged
 from cloudscope.utils.logging import get_logger
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
+from nicewidgets.contrast_widget.colorscales import get_colorscale
 from nicewidgets.raster_viewer.backend.image_model import RasterGridSpec
 from nicewidgets.raster_viewer.frontend.plotly_display_options import (
     PlotlyRasterViewerDisplayOptions,
@@ -89,8 +92,8 @@ def _load_plane_payload(
     file_id: str | None,
     acq_image: AcqImage | None,
     channel: int | None,
-) -> tuple[np.ndarray, RasterGridSpec]:
-    """Load ``(array, grid)`` for a selection.
+) -> tuple[np.ndarray, RasterGridSpec, bool]:
+    """Load ``(array, grid, is_placeholder)`` for a selection.
 
     This function is safe to run off the UI thread with ``run.io_bound``.
 
@@ -100,19 +103,22 @@ def _load_plane_payload(
         channel: Selected channel index, if any.
 
     Returns:
-        Two-dimensional array ``(Y, X)`` and its :class:`RasterGridSpec`.
+        Tuple of two-dimensional array ``(Y, X)``, its :class:`RasterGridSpec`,
+        and a flag indicating whether the result is the neutral placeholder
+        (no contrast publish should occur for placeholders).
 
     Raises:
         ValueError: If header calibration cannot be mapped.
         IndexError: If ``channel`` is out of range for the loader.
     """
     if file_id is None or acq_image is None or channel is None:
-        return _placeholder_plane()
+        plane, grid = _placeholder_plane()
+        return plane, grid, True
     grid = raster_grid_spec_from_image_header(acq_image.images.header)
     plane = np.asarray(acq_image.images.get_slice_data(channel))
     if plane.ndim != 2:
         raise ValueError(f'Expected 2D slice (Y, X), got shape={plane.shape}')
-    return plane, grid
+    return plane, grid, False
 
 
 def _schedule_coro(coro: Coroutine[Any, Any, None]) -> None:
@@ -211,6 +217,9 @@ class PrimaryImageView(BaseView):
         self.add_subscription(self.event_bus.subscribe(RoiChanged, self._on_roi_changed))
         self.add_subscription(self.event_bus.subscribe(AnalysisCompleted, self._on_analysis_completed))
         self.add_subscription(self.event_bus.subscribe(ThemeChanged, self._on_theme_changed))
+        self.add_subscription(
+            self.event_bus.subscribe(ImageContrastChanged, self._on_image_contrast_changed)
+        )
 
     def _on_theme_changed(self, event: ThemeChanged) -> None:
         """Apply an application theme change to the Plotly raster viewer.
@@ -301,7 +310,9 @@ class PrimaryImageView(BaseView):
             None.
         """
         try:
-            plane, grid = await run.io_bound(_load_plane_payload, file_id, acq_image, channel)
+            plane, grid, is_placeholder = await run.io_bound(
+                _load_plane_payload, file_id, acq_image, channel
+            )
         except Exception as exc:
             logger.exception('Primary plane load failed file_id=%r channel=%r', file_id, channel)
             err_msg = str(exc)
@@ -321,10 +332,70 @@ class PrimaryImageView(BaseView):
             await self._viewer.set_data(plane, grid=grid)
             self._refresh_roi_overlays(acq_image=acq_image, grid=grid)
             self._refresh_diameter_trace_overlays(acq_image=acq_image, grid=grid)
+            if not is_placeholder and file_id is not None and channel is not None and acq_image is not None:
+                await self._apply_contrast(acq_image, int(channel))
+                try:
+                    plane.setflags(write=False)
+                except (AttributeError, ValueError):
+                    # Non-ndarray or already read-only; safe to proceed.
+                    pass
+                self.event_bus.publish(
+                    PrimaryPlaneLoaded(file_id=file_id, channel=int(channel), plane=plane)
+                )
         except RuntimeError as exc:
             logger.exception('set_data failed: %s', exc)
             err_msg = str(exc)
             self._run_ui(lambda: ui.notify(err_msg, type='negative'))
+
+    def _on_image_contrast_changed(self, event: ImageContrastChanged) -> None:
+        """Re-apply heatmap LUT/contrast for the current selection.
+
+        Args:
+            event: Contrast state event.
+
+        Returns:
+            None.
+        """
+        selection = self.current_selection
+        if selection.file_id != event.file_id or selection.channel != int(event.channel):
+            return
+        acq_image = self.get_selected_acq_image()
+        if acq_image is None:
+            return
+        _schedule_coro(self._apply_contrast(acq_image, int(event.channel)))
+
+    async def _apply_contrast(self, acq_image: AcqImage, channel: int) -> None:
+        """Apply the AcqImage's stored contrast for ``channel`` to the viewer.
+
+        Looks up :class:`ImageContrast` on ``acq_image`` and pushes the LUT and
+        intensity window into the underlying :class:`PlotlyRasterViewer`. No-op
+        when no contrast entry exists (the next ``PrimaryPlaneLoaded`` seeder
+        will populate it).
+
+        Args:
+            acq_image: Current acquisition image.
+            channel: Zero-based channel index.
+
+        Returns:
+            None.
+        """
+        contrast = acq_image.get_image_contrast(int(channel))
+        if contrast is None:
+            return
+        scale = get_colorscale(contrast.color_lut)
+        if not isinstance(scale, str):
+            # Custom non-string colorscales (e.g. 'inverted_grays') are not
+            # supported by the current PlotlyRasterViewer string-only API; fall
+            # back to a similar built-in to keep behavior predictable.
+            scale = 'Greys'
+        try:
+            await self._viewer.set_heatmap_colorscale(scale)
+            await self._viewer.set_heatmap_contrast(
+                zmin=float(contrast.value_min),
+                zmax=float(contrast.value_max),
+            )
+        except RuntimeError as exc:
+            logger.warning('Skipping contrast apply (viewer not ready): %s', exc)
 
     def _on_roi_changed(self, event: RoiChanged) -> None:
         """Refresh ROI overlays after the selected file ROI model changes.

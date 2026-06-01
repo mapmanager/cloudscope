@@ -11,6 +11,7 @@ from nicewidgets.gui_defaults import setUpGuiDefaults
 
 from cloudscope.app_config import AppConfig
 from cloudscope.controllers.analysis_controller import AnalysisController
+from cloudscope.controllers.contrast_controller import ContrastController
 from cloudscope.controllers.event_analysis_controller import EventAnalysisController
 from cloudscope.controllers.home_page_controller import HomePageController
 from cloudscope.controllers.load_save_controller import LoadSaveController
@@ -96,6 +97,10 @@ class HomePage:
             event_bus=self.event_bus,
             home_controller=self.controller,
         )
+        contrast_controller = ContrastController(
+            event_bus=self.event_bus,
+            home_controller=self.controller,
+        )
         app_state = self.controller.state
         dark_mode = bool(self.app_config.data.dark_mode)
 
@@ -134,6 +139,7 @@ class HomePage:
         image_toolbar = ImageToolbarView(
             event_bus=self.event_bus,
             initially_visible=True,
+            app_config=self.app_config,
         )
         primary_image = PrimaryImageView(
             self.event_bus,
@@ -374,6 +380,7 @@ class HomePage:
         analysis_controller.bind()
         roi_controller.bind()
         event_analysis_controller.bind()
+        contrast_controller.bind()
         self.controller.load_demo_files([])
 
         last_path = self.app_config.get_last_path().strip()

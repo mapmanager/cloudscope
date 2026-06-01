@@ -9,6 +9,7 @@ import numpy as np
 import tifffile
 
 from acqstore.acq_image.acq_image import AcqImage
+from acqstore.acq_image.image_contrast import ImageContrast
 from acqstore.acq_image.roi import LineEndpoints, RectRoiBounds
 
 
@@ -39,6 +40,7 @@ def test_save_writes_expected_top_level_contract(tmp_path: Path) -> None:
         'accepted',
         'analysis',
         'experiment_metadata',
+        'image_contrast',
         'image_header_metadata',
         'rois',
         'version',
@@ -46,6 +48,7 @@ def test_save_writes_expected_top_level_contract(tmp_path: Path) -> None:
     assert payload['version'] == 2
     assert isinstance(payload['rois'], list)
     assert payload['experiment_metadata']['species'] == 'mouse'
+    assert payload['image_contrast'] == {}
 
 
 def test_load_round_trip_restores_rois_and_experiment_metadata(tmp_path: Path) -> None:
@@ -94,3 +97,124 @@ def test_malformed_or_invalid_sidecar_is_ignored(tmp_path: Path) -> None:
     assert loaded.rois.num_rois == 0
     exp = loaded.get_metadata_section('experiment_metadata')
     assert exp.species == ''
+
+
+def test_image_contrast_round_trip_single_and_many_channels(tmp_path: Path) -> None:
+    """``image_contrast`` round-trips through the sidecar for multiple channels."""
+    path = tmp_path / 'sample.tif'
+    _write_tif(path)
+    source = AcqImage(str(path))
+    source.set_image_contrast(
+        0, ImageContrast(color_lut='Green', value_min=5, value_max=240, img_min=0, img_max=255)
+    )
+    source.set_image_contrast(
+        2, ImageContrast(color_lut='Plasma', value_min=10, value_max=200, img_min=0, img_max=4095)
+    )
+    source.save()
+
+    payload = json.loads(Path(source.get_sidecar_json_path()).read_text(encoding='utf-8'))
+    assert payload['image_contrast'] == {
+        '0': {
+            'color_lut': 'Green',
+            'value_min': 5,
+            'value_max': 240,
+            'img_min': 0,
+            'img_max': 255,
+        },
+        '2': {
+            'color_lut': 'Plasma',
+            'value_min': 10,
+            'value_max': 200,
+            'img_min': 0,
+            'img_max': 4095,
+        },
+    }
+
+    loaded = AcqImage(str(path))
+    a = loaded.get_image_contrast(0)
+    b = loaded.get_image_contrast(2)
+    assert a is not None and a.color_lut == 'Green' and (a.value_min, a.value_max) == (5, 240)
+    assert b is not None and b.color_lut == 'Plasma' and (b.value_min, b.value_max) == (10, 200)
+    # Loaded entries should not mark the file dirty.
+    assert loaded.is_dirty is False
+
+
+def test_load_succeeds_when_image_contrast_key_is_absent(tmp_path: Path) -> None:
+    """Old v2 sidecars (without ``image_contrast``) load cleanly and produce no entries."""
+    path = tmp_path / 'sample.tif'
+    _write_tif(path)
+    sidecar_path = Path(str(path.resolve()) + '.json')
+    sidecar_path.write_text(
+        json.dumps(
+            {
+                'version': 2,
+                'accepted': True,
+                'rois': [],
+                'experiment_metadata': {},
+                'image_header_metadata': {},
+                'analysis': [],
+            }
+        ),
+        encoding='utf-8',
+    )
+
+    loaded = AcqImage(str(path))
+    assert loaded.get_image_contrast(0) is None
+    assert loaded.is_dirty is False
+
+
+def test_load_tolerates_malformed_image_contrast_entries(tmp_path: Path) -> None:
+    """Malformed entries are skipped with a warning; valid entries still load."""
+    path = tmp_path / 'sample.tif'
+    _write_tif(path)
+    sidecar_path = Path(str(path.resolve()) + '.json')
+    sidecar_path.write_text(
+        json.dumps(
+            {
+                'version': 2,
+                'accepted': True,
+                'rois': [],
+                'experiment_metadata': {},
+                'image_header_metadata': {},
+                'analysis': [],
+                'image_contrast': {
+                    '0': {
+                        'color_lut': 'Gray',
+                        'value_min': 0,
+                        'value_max': 255,
+                        'img_min': 0,
+                        'img_max': 255,
+                    },
+                    'not-a-channel': {
+                        'color_lut': 'Gray',
+                        'value_min': 0,
+                        'value_max': 255,
+                        'img_min': 0,
+                        'img_max': 255,
+                    },
+                    '7': {'color_lut': 'Gray'},  # missing required keys
+                    '9': 'not-an-object',
+                },
+            }
+        ),
+        encoding='utf-8',
+    )
+
+    loaded = AcqImage(str(path))
+    a = loaded.get_image_contrast(0)
+    assert a is not None and a.color_lut == 'Gray'
+    assert loaded.get_image_contrast(7) is None
+    assert loaded.get_image_contrast(9) is None
+
+
+def test_image_contrast_key_does_not_trigger_unknown_key_warning(
+    tmp_path: Path, caplog
+) -> None:
+    """Writing the optional ``image_contrast`` key must not warn on the next load."""
+    path = tmp_path / 'sample.tif'
+    _write_tif(path)
+    src = AcqImage(str(path))
+    src.save()
+    with caplog.at_level('WARNING'):
+        AcqImage(str(path))
+    assert not any('Ignoring unknown AcqImage sidecar keys' in r.message for r in caplog.records)
