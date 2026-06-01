@@ -91,6 +91,8 @@ class LoadSaveView(BaseView):
         Returns:
             Root element for this view.
         """
+        logger.info('!!! debug timeout reset')
+        
         self._client = ui.context.client
         if parent is None:
             with ui.row().classes('w-full items-center gap-2') as self.root:

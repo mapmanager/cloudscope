@@ -69,6 +69,8 @@ class HomePage:
         Returns:
             None.
         """
+        logger.info('!!! debug timeout reset')
+
         text_size = self.app_config.get_attribute('text_size')
         setUpGuiDefaults(text_size)
 
@@ -447,6 +449,8 @@ def home_page() -> None:
     Returns:
         None.
     """
+    logger.info('!!! debug timeout reset')
+    
     event_bus = EventBus()
     app_config = AppConfig.load(create_if_missing=False)
     controller = HomePageController(event_bus=event_bus)
