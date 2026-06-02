@@ -16,6 +16,7 @@ from cloudscope.controllers.event_analysis_controller import EventAnalysisContro
 from cloudscope.controllers.home_page_controller import HomePageController
 from cloudscope.controllers.load_save_controller import LoadSaveController
 from cloudscope.controllers.roi_controller import RoiController
+from cloudscope.controllers.x_range_controller import XRangeController
 from cloudscope.event_bus import EventBus
 from cloudscope.task_runner import TaskRunner
 from cloudscope.events.files import LoadPathIntent, LoadPathKind
@@ -98,6 +99,10 @@ class HomePage:
             home_controller=self.controller,
         )
         contrast_controller = ContrastController(
+            event_bus=self.event_bus,
+            home_controller=self.controller,
+        )
+        x_range_controller = XRangeController(
             event_bus=self.event_bus,
             home_controller=self.controller,
         )
@@ -381,6 +386,7 @@ class HomePage:
         roi_controller.bind()
         event_analysis_controller.bind()
         contrast_controller.bind()
+        x_range_controller.bind()
         self.controller.load_demo_files([])
 
         last_path = self.app_config.get_last_path().strip()

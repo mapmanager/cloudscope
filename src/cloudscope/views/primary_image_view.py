@@ -28,6 +28,7 @@ from cloudscope.events.contrast import ImageContrastChanged
 from cloudscope.events.raster import PrimaryPlaneLoaded
 from cloudscope.events.roi import RoiChanged
 from cloudscope.events.theme import ThemeChanged
+from cloudscope.events.x_range import PrimaryXRangeChanged, SetPrimaryXRangeIntent
 from cloudscope.utils.logging import get_logger
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
@@ -171,10 +172,15 @@ class PrimaryImageView(BaseView):
         self._viewer = PlotlyRasterViewer(
             display_options=PlotlyRasterViewerDisplayOptions(
                 theme='dark' if dark_mode else 'light',
-            )
+            ),
+            on_x_range_changed=self._on_viewer_x_range_changed,
         )
         self._current_grid: RasterGridSpec | None = None
         self._dark_mode_provider = dark_mode_provider
+        # Latest app-level ``primary_x_range`` cache, updated from
+        # ``PrimaryXRangeChanged``. Re-applied to the viewer after every
+        # raster reload so user/state range survives ``set_data`` rotations.
+        self._primary_x_range: tuple[float | None, float | None] = (None, None)
 
     def build(self, parent: ui.element | None = None) -> ui.element:
         """Create the card, title, and Plotly raster element.
@@ -219,6 +225,59 @@ class PrimaryImageView(BaseView):
         self.add_subscription(self.event_bus.subscribe(ThemeChanged, self._on_theme_changed))
         self.add_subscription(
             self.event_bus.subscribe(ImageContrastChanged, self._on_image_contrast_changed)
+        )
+        self.add_subscription(
+            self.event_bus.subscribe(PrimaryXRangeChanged, self._on_primary_x_range_changed)
+        )
+
+    def _on_viewer_x_range_changed(
+        self, x_min: float | None, x_max: float | None
+    ) -> None:
+        """Producer hook: turn a viewer pan/zoom into an app-level intent.
+
+        Args:
+            x_min: Minimum x value reported by Plotly, or ``None`` for auto.
+            x_max: Maximum x value reported by Plotly, or ``None`` for auto.
+
+        Returns:
+            None.
+        """
+        self.event_bus.publish(SetPrimaryXRangeIntent(x_min=x_min, x_max=x_max))
+
+    def _on_primary_x_range_changed(self, event: PrimaryXRangeChanged) -> None:
+        """Consumer: cache the authoritative x-range and apply it to the viewer.
+
+        Args:
+            event: State event from :class:`XRangeController`.
+
+        Returns:
+            None.
+        """
+        self._primary_x_range = (event.x_min, event.x_max)
+        self._apply_primary_x_range_to_viewer()
+
+    def _apply_primary_x_range_to_viewer(self) -> None:
+        """Push the cached ``primary_x_range`` to the Plotly viewer.
+
+        Behavior matches the agreed contract:
+
+        * ``(None, None)`` -> no-op. ``set_data`` already auto-ranges the
+          Plotly view on the new ``uirevision``; we only override when the
+          state asks for a non-auto window.
+        * ``(x_min, x_max)`` -> schedule ``set_x_axis_range``.
+
+        Skipped silently when the viewer has no data yet.
+
+        Returns:
+            None.
+        """
+        if not self._viewer.has_data:
+            return
+        x_min, x_max = self._primary_x_range
+        if x_min is None or x_max is None:
+            return
+        asyncio.create_task(
+            self._viewer.set_x_axis_range(x_min=x_min, x_max=x_max)
         )
 
     def _on_theme_changed(self, event: ThemeChanged) -> None:
@@ -342,6 +401,11 @@ class PrimaryImageView(BaseView):
                 self.event_bus.publish(
                     PrimaryPlaneLoaded(file_id=file_id, channel=int(channel), plane=plane)
                 )
+            # Re-apply any non-auto app-level x-range that survives ``set_data``
+            # (e.g. analysis-row click within the same file). When the cached
+            # range is ``(None, None)`` this is a no-op and ``set_data``'s own
+            # auto-range stands.
+            self._apply_primary_x_range_to_viewer()
         except RuntimeError as exc:
             logger.exception('set_data failed: %s', exc)
             err_msg = str(exc)
@@ -383,14 +447,9 @@ class PrimaryImageView(BaseView):
         if contrast is None:
             return
         scale = get_colorscale(contrast.color_lut)
-        if not isinstance(scale, str):
-            # Custom non-string colorscales (e.g. 'inverted_grays') are not
-            # supported by the current PlotlyRasterViewer string-only API; fall
-            # back to a similar built-in to keep behavior predictable.
-            scale = 'Greys'
         try:
-            await self._viewer.set_heatmap_colorscale(scale)
-            await self._viewer.set_heatmap_contrast(
+            await self._viewer.set_heatmap_style(
+                colorscale=scale,
                 zmin=float(contrast.value_min),
                 zmax=float(contrast.value_max),
             )

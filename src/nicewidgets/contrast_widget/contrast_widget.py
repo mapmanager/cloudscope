@@ -22,7 +22,7 @@ from nicegui.events import ValueChangeEventArguments
 
 from nicewidgets.contrast_widget.colorscales import (
     COLORSCALE_OPTIONS,
-    colorscale_option_values,
+    colorscale_option_value_to_label,
 )
 from nicewidgets.contrast_widget.intent import ContrastChangedIntent
 from nicewidgets.utils.logging import get_logger
@@ -37,8 +37,14 @@ DEFAULT_RANGE_MIN = 0
 DEFAULT_RANGE_MAX = 255
 
 
-class ContrastWidget(ui.row):
-    """One-row NiceGUI widget with color LUT select, Auto button, and min/max range.
+class ContrastWidget:
+    """NiceGUI contrast controls: color LUT select, Auto button, and min/max range.
+
+    The widget does not own a layout container. Child controls are created in
+    the caller's active NiceGUI slot so the parent fully controls layout (sit
+    on a shared row with other widgets, wrap into a column, etc.). This is
+    the same composition pattern used by :class:`EChartWidget` and
+    :class:`PlotlyRasterViewer`.
 
     Args:
         on_intent: Callback invoked with a single :class:`ContrastChangedIntent`
@@ -60,8 +66,6 @@ class ContrastWidget(ui.row):
         auto_contrast_callback: AutoContrastCallback | None = None,
         widget_name: str = 'contrast_widget',
     ) -> None:
-        super().__init__()
-        self.classes('w-full items-center flex-wrap gap-2 p-1')
         self._widget_name = widget_name
         self._on_intent = on_intent
         self._auto_contrast_callback = auto_contrast_callback
@@ -75,26 +79,24 @@ class ContrastWidget(ui.row):
         self._img_max: int = DEFAULT_RANGE_MAX
         self._image: np.ndarray | None = None
 
-        with self:
-            self._lut_select = ui.select(
-                options=colorscale_option_values(),
-                value=self._color_lut,
-                label='Color LUT',
-                on_change=self._on_lut_change,
-            ).classes('w-40').props('outlined')
-            self._auto_btn = ui.button('Auto', on_click=self._on_auto_click)
-            self._auto_btn.tooltip('Auto contrast (percentile clip)')
-            self._min_label = ui.label(str(self._value_min)).classes('w-12 text-right')
-            self._range = ui.range(
-                min=self._img_min,
-                max=self._img_max,
-                value={'min': self._value_min, 'max': self._value_max},
-                step=1,
-                on_change=self._on_range_change,
-            ).classes('flex-1 min-w-32').props('debounce=200')
-            self._max_label = ui.label(str(self._value_max)).classes('w-12 text-left')
+        self._lut_select = ui.select(
+            options=colorscale_option_value_to_label(),
+            value=self._color_lut,
+            label='Color LUT',
+            on_change=self._on_lut_change,
+        ).classes('w-32').props('outlined')
+        self._auto_btn = ui.button('Auto', on_click=self._on_auto_click)
+        self._auto_btn.tooltip('Auto contrast (percentile clip)')
+        self._min_label = ui.label(str(self._value_min)).classes('w-10 text-right')
+        self._range = ui.range(
+            min=self._img_min,
+            max=self._img_max,
+            value={'min': self._value_min, 'max': self._value_max},
+            step=1,
+            on_change=self._on_range_change,
+        ).props('debounce=200')
+        self._max_label = ui.label(str(self._value_max)).classes('w-10 text-left')
 
-        # Keep labels reactive to the slider; bound expressions read v['min']/v['max'].
         self._min_label.bind_text_from(
             self._range, 'value', backward=lambda v: str(int(v['min']))
         )

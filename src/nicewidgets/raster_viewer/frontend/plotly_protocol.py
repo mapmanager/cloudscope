@@ -12,7 +12,11 @@ from nicewidgets.utils.logging import get_logger
 logger = get_logger(__name__)
 
 # Plotly built-in sequential scale name (``Gray`` / ``Grays`` are not valid).
-DEFAULT_HEATMAP_COLORSCALE = 'Greys'
+DEFAULT_HEATMAP_COLORSCALE: str = 'Greys'
+
+# Plotly accepts a colorscale as a built-in name or a list of ``[stop, color]``
+# pairs; both forms are valid for heatmap traces and the PNG encoder.
+PlotlyColorscale = str | list[list[float | str]]
 
 # ``responsive: true`` lets the plot resize with the NiceGUI container.
 # See https://plotly.com/javascript/configuration-options/
@@ -42,14 +46,14 @@ def build_plotly_figure(
     response: RenderResponse,
     uirevision: str = 'raster-viewer',
     *,
-    heatmap_colorscale: str | None = None,
+    heatmap_colorscale: PlotlyColorscale | None = None,
 ) -> dict:
     """Build a Plotly figure dict from a backend render response."""
 
     logger.info('')
-    logger.info('RenderResponse:')
-    print(response)
-    logger.info(f'heatmap_colorscale:{heatmap_colorscale}')
+    # logger.info('RenderResponse:')
+    # print(response)
+    # logger.info(f'heatmap_colorscale:{heatmap_colorscale}')
 
     transform = PlotlyCoordTransform(
         nrows=response.shape[0],
@@ -71,7 +75,8 @@ def build_plotly_figure(
     }
 
     layout: dict[str, object] = {
-        'margin': {'l': 40, 'r': 20, 't': 20, 'b': 40},
+        # 'margin': {'l': 40, 'r': 20, 't': 20, 'b': 40},
+        'margin': {'l': 40, 'r': 10, 't': 10, 'b': 40},
         'uirevision': uirevision,
         'autosize': True,
         'dragmode': 'zoom',
@@ -111,7 +116,7 @@ def build_plotly_figure(
     else:
         raise ValueError(f'Unsupported render mode: {response.mode}')
 
-    logger.debug(f'RenderResponse:{response.mode}')
+    # logger.debug(f'RenderResponse:{response.mode}')
 
     return {'data': data, 'layout': layout, 'config': dict(RASTER_VIEWER_PLOTLY_CONFIG)}
 

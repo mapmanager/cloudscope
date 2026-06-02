@@ -4,18 +4,25 @@ from __future__ import annotations
 
 import base64
 import binascii
-import logging
-from io import BytesIO
 from typing import TYPE_CHECKING
 
 from nicegui import ui
 
+from nicewidgets.utils.clipboard import copy_png_bytes_to_native_clipboard
 from nicewidgets.utils.logging import get_logger
 
 if TYPE_CHECKING:
     from nicegui.element import Element
 
 logger = get_logger(__name__)
+
+
+__all__ = [
+    "copy_plotly_png_to_browser_clipboard",
+    "copy_png_bytes_to_native_clipboard",
+    "get_plotly_png_bytes",
+    "json_or_null",
+]
 
 
 async def get_plotly_png_bytes(
@@ -156,30 +163,6 @@ async def copy_plotly_png_to_browser_clipboard(
     result = await ui.run_javascript(js, timeout=30.0)
     if not isinstance(result, dict) or not result.get('ok'):
         raise RuntimeError(f'Browser clipboard copy failed: {result}')
-
-
-def copy_png_bytes_to_native_clipboard(png_bytes: bytes) -> None:
-    """Copy PNG image bytes to the native OS clipboard.
-
-    Args:
-        png_bytes: PNG image bytes to copy.
-
-    Raises:
-        RuntimeError: If optional clipboard dependencies are not installed.
-    """
-    try:
-        from PIL import Image
-        import pyperclipimg as pci
-
-        logging.getLogger('PIL').setLevel(logging.ERROR)
-    except ImportError as exc:
-        raise RuntimeError(
-            'Missing dependencies for image clipboard. Install pyperclipimg and pillow.'
-        ) from exc
-
-    image = Image.open(BytesIO(png_bytes))
-    pci.copy(image)
-    logger.info('Copied Plotly PNG to native clipboard: %d bytes', len(png_bytes))
 
 
 def json_or_null(value: int | None) -> str:

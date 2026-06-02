@@ -7,6 +7,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from nicewidgets.contrast_widget.colorscales import (
+    colorscale_option_value_to_label,
+)
 from nicewidgets.contrast_widget.contrast_widget import (
     DEFAULT_LUT,
     DEFAULT_RANGE_MAX,
@@ -27,6 +30,19 @@ def test_construct_defaults(widget: ContrastWidget) -> None:
     assert widget.get_range() == (DEFAULT_RANGE_MIN, DEFAULT_RANGE_MAX)
     assert widget.get_image_bounds() == (DEFAULT_RANGE_MIN, DEFAULT_RANGE_MAX)
     assert widget.get_image() is None
+
+
+def test_lut_select_uses_value_to_label_mapping(widget: ContrastWidget) -> None:
+    """ui.select.options is a {value: label} dict so dropdown shows labels.
+
+    The wire value remains the internal identifier (e.g. ``'inverted_grays'``)
+    while the displayed label is human-friendly (``'Inverted Gray'``).
+    """
+    options = widget._lut_select.options
+    assert options == colorscale_option_value_to_label()
+    assert options['inverted_grays'] == 'Inverted Gray'
+    assert options['Gray'] == 'Gray'
+    assert options['Plasma'] == 'Plasma'
 
 
 def test_set_lut_ext_does_not_emit() -> None:

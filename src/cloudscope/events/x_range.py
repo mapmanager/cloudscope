@@ -1,0 +1,51 @@
+"""App-level x-axis range sync between the primary raster and the 1D plot.
+
+The producers are :class:`PlotlyRasterViewer` (pan/zoom on the Plotly heatmap)
+and :class:`EChartWidget` (datazoom on the 1D analysis trace). The consumers
+are the same two widgets via their respective views. The x-axis is shared
+because the Plotly heatmap's plot-x dimension and the 1D analysis trace's
+x-axis are in the same physical units and share an origin.
+
+Reset semantics: the controller subscribes to :class:`FileSelectionChanged`
+and resets the x-range to ``(None, None)`` (auto) on file transitions only.
+``ChannelSelectionChanged`` is intentionally ignored because channels of one
+``AcqImage`` share the same image shape and physical calibration; preserving
+the x-range across channel switches matches what users expect when they pan
+or zoom in to inspect a feature and then cycle channels to compare.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from cloudscope.events.base import IntentEvent, StateEvent
+
+
+@dataclass(frozen=True)
+class SetPrimaryXRangeIntent(IntentEvent):
+    """Request a change to the primary x-axis range.
+
+    ``None`` for either bound means "auto" (reset to the full x extent).
+    Both producers may emit this; the controller dedups before publishing
+    a state change.
+
+    Args:
+        x_min: New minimum x value, or ``None`` for auto.
+        x_max: New maximum x value, or ``None`` for auto.
+    """
+
+    x_min: float | None
+    x_max: float | None
+
+
+@dataclass(frozen=True)
+class PrimaryXRangeChanged(StateEvent):
+    """Authoritative x-axis range state after the controller mutated it.
+
+    Args:
+        x_min: Current minimum x value, or ``None`` for auto.
+        x_max: Current maximum x value, or ``None`` for auto.
+    """
+
+    x_min: float | None
+    x_max: float | None

@@ -106,17 +106,25 @@ def test_primary_image_view_is_base_view_and_not_disabled_when_busy() -> None:
 
 
 class _FakeViewer:
-    """Tracks viewer calls for contrast tests."""
+    """Tracks viewer calls for contrast tests.
+
+    Surfaces ``colorscale_calls`` / ``contrast_calls`` views as a convenience
+    so legacy assertions continue to read naturally even though the production
+    code now uses the combined :meth:`set_heatmap_style` API. Each entry of
+    ``style_calls`` is ``(colorscale, zmin, zmax)``.
+    """
 
     def __init__(self) -> None:
-        self.colorscale_calls: list[str] = []
+        self.style_calls: list[tuple[object, float, float]] = []
+        self.colorscale_calls: list[object] = []
         self.contrast_calls: list[tuple[float, float]] = []
 
-    async def set_heatmap_colorscale(self, colorscale: str) -> None:
+    async def set_heatmap_style(
+        self, *, colorscale, zmin: float, zmax: float
+    ) -> None:
+        self.style_calls.append((colorscale, float(zmin), float(zmax)))
         self.colorscale_calls.append(colorscale)
-
-    async def set_heatmap_contrast(self, *, zmin: float, zmax: float) -> None:
-        self.contrast_calls.append((zmin, zmax))
+        self.contrast_calls.append((float(zmin), float(zmax)))
 
 
 class _FakeAcqImage:
@@ -140,6 +148,23 @@ def test_apply_contrast_pushes_lut_and_window_to_viewer() -> None:
     assert fake.contrast_calls == [(10.0, 200.0)]
 
 
+def test_apply_contrast_uses_single_combined_style_call() -> None:
+    """LUT + window must reach the viewer through exactly one ``set_heatmap_style`` call.
+
+    Two separate ``set_heatmap_colorscale`` + ``set_heatmap_contrast`` calls
+    can race in the browser layer when both are awaited back-to-back; a single
+    combined call keeps the heatmap restyle atomic.
+    """
+    view = PrimaryImageView(EventBus())
+    fake = _FakeViewer()
+    view._viewer = fake  # type: ignore[assignment]
+    acq = _FakeAcqImage(
+        ImageContrast(color_lut='Plasma', value_min=10, value_max=200, img_min=0, img_max=255)
+    )
+    asyncio.run(view._apply_contrast(acq, 0))
+    assert fake.style_calls == [('Plasma', 10.0, 200.0)]
+
+
 def test_apply_contrast_translates_named_channel_lut() -> None:
     """``Green`` is mapped through ``get_colorscale`` to Plotly's ``Greens``."""
     view = PrimaryImageView(EventBus())
@@ -150,6 +175,23 @@ def test_apply_contrast_translates_named_channel_lut() -> None:
     )
     asyncio.run(view._apply_contrast(acq, 1))
     assert fake.colorscale_calls == ['Greens']
+
+
+def test_apply_contrast_passes_inverted_grays_list_form() -> None:
+    """``inverted_grays`` reaches the viewer as a 2-stop list, not ``'Greys'``."""
+    view = PrimaryImageView(EventBus())
+    fake = _FakeViewer()
+    view._viewer = fake  # type: ignore[assignment]
+    acq = _FakeAcqImage(
+        ImageContrast(
+            color_lut='inverted_grays', value_min=0, value_max=255, img_min=0, img_max=255
+        )
+    )
+    asyncio.run(view._apply_contrast(acq, 0))
+    assert len(fake.colorscale_calls) == 1
+    scale = fake.colorscale_calls[0]
+    assert isinstance(scale, list)
+    assert scale == [[0, 'rgb(255,255,255)'], [1, 'rgb(0,0,0)']]
 
 
 def test_apply_contrast_noop_without_contrast_entry() -> None:
@@ -195,6 +237,8 @@ def test_publishes_primary_plane_loaded_after_set_data() -> None:
     fake = _FakeViewer()
 
     class _DataViewer(_FakeViewer):
+        has_data = True
+
         async def set_data(self, *_a, **_k) -> None:
             return None
 
@@ -247,13 +291,12 @@ def test_does_not_publish_primary_plane_loaded_for_placeholder() -> None:
     view = PrimaryImageView(bus)
 
     class _Viewer:
+        has_data = True
+
         async def set_data(self, *_a, **_k) -> None:
             return None
 
-        async def set_heatmap_colorscale(self, *_a, **_k) -> None:
-            return None
-
-        async def set_heatmap_contrast(self, **_k) -> None:
+        async def set_heatmap_style(self, **_k) -> None:
             return None
 
     view._viewer = _Viewer()  # type: ignore[assignment]

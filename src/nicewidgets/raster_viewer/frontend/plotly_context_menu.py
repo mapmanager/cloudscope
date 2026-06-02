@@ -52,6 +52,10 @@ class PlotlyRasterViewerContextMenu:
             self._toggle_label('Plotly Toolbar', options.show_plotly_toolbar),
             on_click=lambda: viewer.set_plotly_toolbar_visible(not options.show_plotly_toolbar),
         )
+        ui.menu_item(
+            self._toggle_label('Hover Info', options.show_hover_info),
+            on_click=lambda: viewer.set_hover_info_visible(not options.show_hover_info),
+        )
 
         ui.separator()
         ui.menu_item('Copy To Clipboard', on_click=viewer.copy_plot_to_clipboard)

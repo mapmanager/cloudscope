@@ -33,12 +33,18 @@ class HomePageState:
             currently visible, filtered, sorted file-table rows. Set by the
             page composer once the file-table view exists; ``None`` while the
             file table is not yet reachable.
+        primary_x_range: Current ``(x_min, x_max)`` pair for the synced x-axis
+            shared by the primary raster and the 1D analysis plot. ``(None,
+            None)`` means "auto" (use each widget's full extent). Mutated by
+            :class:`XRangeController`; reset on ``FileSelectionChanged`` to
+            different files, preserved across ``ChannelSelectionChanged``.
     """
 
     file_ids: list[str]
     selection: PrimarySelection
     acq_image_list: AcqImageList | None = None
     visible_file_ids_provider: Callable[[], Awaitable[list[str]]] | None = field(default=None)
+    primary_x_range: tuple[float | None, float | None] = (None, None)
 
 
 class HomePageController:

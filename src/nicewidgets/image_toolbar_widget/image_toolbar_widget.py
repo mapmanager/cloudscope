@@ -38,8 +38,13 @@ class ImageToolbarMode(Enum):
     EDITING = auto()
 
 
-class ImageToolbarWidget(ui.row):
+class ImageToolbarWidget:
     """Toolbar with file label, channel/ROI selects, and ROI edit controls.
+
+    The widget does not own a layout container. Child controls are created in
+    the caller's active NiceGUI slot so the parent fully controls layout (sit
+    on a shared row with other widgets, etc.). This matches the composition
+    pattern used by other ``nicewidgets`` (e.g. :class:`EChartWidget`).
 
     Programmatic updates use ``*_ext`` methods and never invoke ``on_intent``.
     User gestures emit frozen intent objects via ``on_intent``.
@@ -61,8 +66,6 @@ class ImageToolbarWidget(ui.row):
                 are disabled (selects still emit selection intents when enabled).
             widget_name: Host-visible identifier for logging or debugging.
         """
-        super().__init__()
-        self.classes('w-full flex-none items-center flex-wrap gap-2 p-1')
         self._widget_name = widget_name
         self._on_intent = on_intent
         self._suppress_intent = False
@@ -75,40 +78,35 @@ class ImageToolbarWidget(ui.row):
         self._channel: int | None = None
         self._roi_id: int | None = None
 
-        # self._file_label = ui.label('—')
+        self._channel_select = ui.select(
+            options=[],
+            label='Channel',
+            value=None,
+            on_change=self._on_channel_change,
+        ).props('name=channel outlined')
 
-        with ui.row().classes('gap-1 items-center'):
+        self._roi_select = ui.select(
+            options=[],
+            label='ROI',
+            value=None,
+            on_change=self._on_roi_change,
+        ).props('name=roi outlined')
 
-            self._channel_select = ui.select(
-                options=[],
-                label='Channel',
-                value=None,
-                on_change=self._on_channel_change,
-            ).props('name=channel outlined')
+        self._add_btn = ui.button(icon='add', on_click=self._on_add_click).props('flat round')
+        self._add_btn.tooltip('Add ROI')
+        self._delete_btn = ui.button(icon='remove', on_click=self._on_delete_click).props('flat round')
+        self._delete_btn.tooltip('Delete ROI')
+        self._edit_btn = ui.button(icon='edit', on_click=self._on_edit_click).props('flat round')
+        self._edit_btn.tooltip('Edit ROI')
+        self._full_width_btn = ui.button(icon='swap_horiz', on_click=self._on_full_width_click).props('flat round')
+        self._full_width_btn.tooltip('Full width')
+        self._full_height_btn = ui.button(icon='swap_vert', on_click=self._on_full_height_click).props('flat round')
+        self._full_height_btn.tooltip('Full height')
+        self._ok_btn = ui.button('OK', on_click=self._on_ok_click).props('flat')
+        self._ok_btn.tooltip('Submit ROI edit')
+        self._cancel_btn = ui.button('Cancel', on_click=self._on_cancel_click).props('flat')
+        self._cancel_btn.tooltip('Cancel ROI edit')
 
-            self._roi_select = ui.select(
-                options=[],
-                label='ROI',
-                value=None,
-                on_change=self._on_roi_change,
-            ).props('name=roi outlined')
-
-            self._add_btn = ui.button(icon='add', on_click=self._on_add_click).props('flat round')
-            self._add_btn.tooltip('Add ROI')
-            self._delete_btn = ui.button(icon='remove', on_click=self._on_delete_click).props('flat round')
-            self._delete_btn.tooltip('Delete ROI')
-            self._edit_btn = ui.button(icon='edit', on_click=self._on_edit_click).props('flat round')
-            self._edit_btn.tooltip('Edit ROI')
-            self._full_width_btn = ui.button(icon='swap_horiz', on_click=self._on_full_width_click).props('flat round')
-            self._full_width_btn.tooltip('Full width')
-            self._full_height_btn = ui.button(icon='swap_vert', on_click=self._on_full_height_click).props('flat round')
-            self._full_height_btn.tooltip('Full height')
-            self._ok_btn = ui.button('OK', on_click=self._on_ok_click).props('flat')
-            self._ok_btn.tooltip('Submit ROI edit')
-            self._cancel_btn = ui.button('Cancel', on_click=self._on_cancel_click).props('flat')
-            self._cancel_btn.tooltip('Cancel ROI edit')
-
-        #
         self._apply_roi_mode_to_ui()
 
     @contextmanager

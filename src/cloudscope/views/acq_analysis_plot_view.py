@@ -20,6 +20,7 @@ from cloudscope.events.analysis import (
     CancelPlotXRangeSelection,
 )
 from cloudscope.events.roi import RoiChanged
+from cloudscope.events.x_range import PrimaryXRangeChanged, SetPrimaryXRangeIntent
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
 from nicewidgets.echart_widget.widget import EChartWidget
@@ -60,6 +61,11 @@ class AcqAnalysisPlotView(BaseView):
         # self._status_label: ui.label | None = None
         self._chart: EChartWidget | None = None
         self._events_visible = True
+        # Latest app-level ``primary_x_range`` cache, updated from
+        # ``PrimaryXRangeChanged``. Re-applied to the chart after every
+        # ``_refresh_plot`` so user/state range survives analysis-row clicks
+        # (same file) where the controller intentionally does not reset.
+        self._primary_x_range: tuple[float | None, float | None] = (None, None)
 
     def build(self, parent: ui.element | None = None) -> ui.element:
         """Build the analysis plot view.
@@ -92,6 +98,9 @@ class AcqAnalysisPlotView(BaseView):
         self.add_subscription(self.event_bus.subscribe(CancelPlotXRangeSelection, self._on_cancel_plot_x_range_selection))
         self.add_subscription(self.event_bus.subscribe(AcqImageEventsChanged, self._on_acq_image_events_changed))
         self.add_subscription(self.event_bus.subscribe(AcqImageEventSelectionChanged, self._on_acq_image_event_selection_changed))
+        self.add_subscription(
+            self.event_bus.subscribe(PrimaryXRangeChanged, self._on_primary_x_range_changed)
+        )
 
     def refresh_from_state(self) -> None:
         """Refresh the plot from the current selection.
@@ -142,7 +151,10 @@ class AcqAnalysisPlotView(BaseView):
         # each view is adding this label with name, comment it out
         # ui.label(self.title).classes("text-lg font-semibold shrink-0")
         
-        self._chart = EChartWidget(on_x_range_selected=self._on_x_range_selected)
+        self._chart = EChartWidget(
+            on_x_range_selected=self._on_x_range_selected,
+            on_x_range_changed=self._on_chart_x_range_changed,
+        )
         self._chart.container.classes("w-full h-full min-h-0 flex-1")
 
         # self._status_label = ui.label("No analysis selected").classes("text-sm opacity-70 shrink-0")
@@ -256,6 +268,50 @@ class AcqAnalysisPlotView(BaseView):
             )
         )
 
+    def _on_chart_x_range_changed(
+        self, x_min: float | None, x_max: float | None
+    ) -> None:
+        """Producer hook: turn chart datazoom into an app-level intent.
+
+        Args:
+            x_min: Minimum x value, or ``None`` for auto.
+            x_max: Maximum x value, or ``None`` for auto.
+
+        Returns:
+            None.
+        """
+        self.event_bus.publish(SetPrimaryXRangeIntent(x_min=x_min, x_max=x_max))
+
+    def _on_primary_x_range_changed(self, event: PrimaryXRangeChanged) -> None:
+        """Consumer: cache the authoritative x-range and apply it to the chart.
+
+        Args:
+            event: State event from :class:`XRangeController`.
+
+        Returns:
+            None.
+        """
+        self._primary_x_range = (event.x_min, event.x_max)
+        self._apply_primary_x_range_to_chart()
+
+    def _apply_primary_x_range_to_chart(self) -> None:
+        """Push the cached ``primary_x_range`` to the chart.
+
+        Idempotent: ``(None, None)`` calls ``reset_x_axis_limits``; otherwise
+        ``set_x_axis_limits(x_min, x_max)``. Skipped when the chart has not
+        been built yet.
+
+        Returns:
+            None.
+        """
+        if self._chart is None:
+            return
+        x_min, x_max = self._primary_x_range
+        if x_min is None or x_max is None:
+            self._chart.reset_x_axis_limits()
+            return
+        self._chart.set_x_axis_limits(x_min, x_max)
+
     def _copy_current_selection(self):
         """Return a copied current selection."""
         from cloudscope.state import PrimarySelection
@@ -291,6 +347,11 @@ class AcqAnalysisPlotView(BaseView):
             series_name=plot_data.series_name,
         )
         self._refresh_event_overlays()
+        # Re-apply the cached app-level x-range; ``set_line_data`` resets the
+        # chart's own ``_x_range`` to whatever it was before this call, so the
+        # explicit re-apply keeps the chart aligned with ``HomePageState`` on
+        # analysis-row clicks within the same file.
+        self._apply_primary_x_range_to_chart()
         # self._status_label.text = f"{plot_data.series_name}: {len(plot_data.x)} points"
 
     def _refresh_event_overlays(self) -> None:

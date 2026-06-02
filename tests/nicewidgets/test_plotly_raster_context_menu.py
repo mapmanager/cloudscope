@@ -45,6 +45,7 @@ def test_display_options_defaults_match_context_menu_requirements() -> None:
     assert options.show_rois is True
     assert options.show_trace_overlays is True
     assert options.show_axis_labels is False
+    assert options.show_hover_info is False
     assert options.theme == 'light'
 
 
@@ -167,3 +168,24 @@ def test_context_menu_toggle_label_uses_check_prefix() -> None:
     """Context menu labels should show a check mark only when enabled."""
     assert PlotlyRasterViewerContextMenu._toggle_label('ROIs', True) == '✓ ROIs'
     assert PlotlyRasterViewerContextMenu._toggle_label('ROIs', False) == 'ROIs'
+
+
+def test_hover_info_defaults_to_skip_on_initial_data_set() -> None:
+    """Default ``show_hover_info=False`` writes ``hoverinfo='skip'`` on the raster trace."""
+    viewer = _viewer_with_data()
+    trace0 = viewer.figure['data'][0]
+    assert trace0['hoverinfo'] == 'skip'
+
+
+def test_hover_info_setter_updates_local_figure_dict_in_both_directions() -> None:
+    """Toggling hover info should flip the raster trace's ``hoverinfo`` value."""
+    viewer = _viewer_with_data()
+    assert viewer.figure['data'][0]['hoverinfo'] == 'skip'
+
+    viewer.set_hover_info_visible(True)
+    assert viewer.display_options.show_hover_info is True
+    assert viewer.figure['data'][0]['hoverinfo'] == 'all'
+
+    viewer.set_hover_info_visible(False)
+    assert viewer.display_options.show_hover_info is False
+    assert viewer.figure['data'][0]['hoverinfo'] == 'skip'

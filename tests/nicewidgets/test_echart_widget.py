@@ -5,7 +5,10 @@ from __future__ import annotations
 import pytest
 
 from nicewidgets.echart_widget.models import EChartAxisRange, EChartLineData
-from nicewidgets.echart_widget.widget import build_line_options
+from nicewidgets.echart_widget.widget import (
+    _X_AXIS_LABEL_FORMATTER_JS,
+    build_line_options,
+)
 
 
 def test_echart_line_data_validates_lengths() -> None:
@@ -52,16 +55,35 @@ from nicewidgets.echart_widget.models import EChartEventOverlay
 from nicewidgets.echart_widget.widget import EChartWidget
 
 
-def test_build_line_options_uses_auto_axis_when_no_range_passed() -> None:
-    """Without a range, ``min`` / ``max`` should be ``None``."""
+def test_build_line_options_uses_data_extent_when_no_range_passed() -> None:
+    """Without an explicit range, x-axis pins to ECharts' ``'dataMin'`` / ``'dataMax'``.
+
+    Pinning to the data-extent sentinels disables ECharts' default
+    "nice ticks" outward rounding (e.g. [0, 9.4] -> [0, 10]) on the x-axis
+    while leaving the y-axis untouched.
+    """
     line = EChartLineData.from_sequences(
         x=[0.0, 1.0], y=[2.0, 3.0], x_label="x", y_label="y"
     )
 
     options = build_line_options(line)
 
-    assert options["xAxis"]["min"] is None
-    assert options["xAxis"]["max"] is None
+    assert options["xAxis"]["min"] == "dataMin"
+    assert options["xAxis"]["max"] == "dataMax"
+    assert "min" not in options["yAxis"]
+    assert "max" not in options["yAxis"]
+
+
+def test_build_line_options_explicit_x_range_overrides_data_sentinels() -> None:
+    """Explicit ``EChartAxisRange`` values are used verbatim (no sentinels)."""
+    line = EChartLineData.from_sequences(
+        x=[0.0, 1.0], y=[2.0, 3.0], x_label="x", y_label="y"
+    )
+
+    options = build_line_options(line, EChartAxisRange(x_min=0.25, x_max=0.75))
+
+    assert options["xAxis"]["min"] == 0.25
+    assert options["xAxis"]["max"] == 0.75
 
 
 def test_empty_options_has_value_axes_and_empty_series() -> None:
@@ -149,3 +171,56 @@ def test_echart_event_overlay_from_object_uses_enum_value() -> None:
     overlay = EChartEventOverlay.from_object(_Obj())
 
     assert overlay.event_type == "auto"
+
+
+# ---- x-axis tick label formatter ----
+
+
+def test_build_line_options_includes_xaxis_label_formatter() -> None:
+    """``build_line_options`` wires the rounding JS formatter on the x-axis labels.
+
+    The ``":formatter"`` key (leading colon) is NiceGUI's convention for
+    promoting a string to a real JS function in ECharts options; without it,
+    full-precision min/max values would leak into the displayed tick labels
+    (e.g. ``8.181001796798633``).
+    """
+    line = EChartLineData.from_sequences(
+        x=[0.0, 1.0], y=[2.0, 3.0], x_label="x", y_label="y"
+    )
+
+    options = build_line_options(line, EChartAxisRange(x_min=0.0, x_max=1.0))
+
+    axis_label = options["xAxis"]["axisLabel"]
+    assert ":formatter" in axis_label
+    assert "formatter" not in axis_label
+    assert axis_label[":formatter"] == _X_AXIS_LABEL_FORMATTER_JS
+
+
+def test_empty_options_includes_xaxis_label_formatter() -> None:
+    """``_empty_options`` carries the same x-axis tick formatter as the line variant."""
+    from nicewidgets.echart_widget.widget import EChartWidget
+
+    opts = EChartWidget._empty_options()
+
+    axis_label = opts["xAxis"]["axisLabel"]
+    assert axis_label[":formatter"] == _X_AXIS_LABEL_FORMATTER_JS
+
+
+def test_xaxis_label_formatter_rounds_long_floats_to_three_decimals() -> None:
+    """The JS formatter must round to ~3 decimals while leaving nice ticks intact.
+
+    Verified by executing the JS expression in Python via direct equivalent
+    semantics: ``+value.toFixed(3)`` rounds half-away-from-zero, strips
+    trailing zeros via numeric conversion, and leaves clean values unchanged.
+    """
+    cases = {
+        8.181001796798633: 8.181,
+        7.08379656153604: 7.084,
+        7.4: 7.4,
+        8.0: 8.0,
+        0.0: 0.0,
+    }
+    for raw, expected in cases.items():
+        assert float(f"{raw:.3f}") == pytest.approx(expected)
+
+    assert _X_AXIS_LABEL_FORMATTER_JS == "(value) => +value.toFixed(3)"

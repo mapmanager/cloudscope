@@ -124,6 +124,10 @@ class ImageToolbarView(BaseView):
     def build(self, parent: ui.element | None = None) -> ui.element:
         """Build the image toolbar view.
 
+        The toolbar and contrast widgets do not own layout containers; this
+        view wraps them in one ``ui.row`` so all controls share a single
+        horizontal line and wrap together when the container narrows.
+
         Args:
             parent: Optional NiceGUI parent element. If omitted, the widget is
                 built in the current slot.
@@ -132,11 +136,11 @@ class ImageToolbarView(BaseView):
             Root element for this view.
         """
         if parent is None:
-            with ui.row().classes("w-full items-center") as self.root:
+            with ui.row().classes("w-full items-center flex-wrap gap-2 p-1") as self.root:
                 self._build_children()
         else:
             with parent:
-                with ui.row().classes("w-full items-center") as self.root:
+                with ui.row().classes("w-full items-center flex-wrap gap-2 p-1") as self.root:
                     self._build_children()
         self.after_build()
         return self.root

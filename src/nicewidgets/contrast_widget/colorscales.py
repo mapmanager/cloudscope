@@ -31,6 +31,19 @@ def colorscale_option_values() -> list[str]:
     return [opt['value'] for opt in COLORSCALE_OPTIONS]
 
 
+def colorscale_option_value_to_label() -> dict[str, str]:
+    """Return ``{value: label}`` mapping suitable for NiceGUI ``ui.select``.
+
+    The wire value (what handlers receive and what callers store) remains the
+    internal identifier such as ``'inverted_grays'``; only the displayed label
+    differs (``'Inverted Gray'``).
+
+    Returns:
+        Ordered mapping from LUT value to user-facing label.
+    """
+    return {opt['value']: opt['label'] for opt in COLORSCALE_OPTIONS}
+
+
 def get_colorscale(name: str) -> str | list[list[float | str]]:
     """Map a widget LUT identifier to a Plotly-compatible colorscale value.
 

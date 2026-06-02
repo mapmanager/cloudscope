@@ -28,9 +28,12 @@ class RasterDisplayStyle:
     """Colorscale and intensity window shared by PNG overview and heatmap.
 
     ``zmin`` / ``zmax`` of ``None`` mean use the data min / max of each clip.
+    ``colorscale`` accepts either a Plotly built-in name or a list of
+    ``[stop, color]`` pairs; both forms are valid for the heatmap trace and
+    for the PNG encoder via ``plotly.colors.sample_colorscale``.
     """
 
-    colorscale: str = 'Greys'
+    colorscale: str | list[list[float | str]] = 'Greys'
     zmin: float | None = None
     zmax: float | None = None
 

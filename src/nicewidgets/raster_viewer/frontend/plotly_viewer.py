@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+import math
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -62,6 +63,35 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+# Plotly accepts a colorscale either as a built-in name (e.g. ``'Greys'``) or as
+# a list of ``[stop, color]`` pairs (e.g. ``[[0, 'rgb(255,255,255)'], [1, 'rgb(0,0,0)']]``).
+# Both heatmap traces and the PNG encoder via ``plotly.colors.sample_colorscale``
+# accept either form, so we surface the union through the public API.
+PlotlyColorscale = str | list[list[float | str]]
+
+# Callback for user-driven x-axis range changes (relayout / double-click reset).
+# ``(None, None)`` means "auto / reset to full extent".
+OnPlotlyXRangeChanged = Callable[[float | None, float | None], None]
+
+_X_RANGE_ECHO_EPS = 1e-9
+
+
+def _x_range_equal(
+    a: tuple[float | None, float | None],
+    b: tuple[float | None, float | None],
+) -> bool:
+    """Compare two ``(x_min, x_max)`` pairs with float tolerance and ``None`` support."""
+    for av, bv in zip(a, b, strict=True):
+        if av is None or bv is None:
+            if av is not bv:
+                return False
+            continue
+        if not (math.isfinite(av) and math.isfinite(bv)):
+            return False
+        if abs(av - bv) > _X_RANGE_ECHO_EPS:
+            return False
+    return True
+
 
 class PlotlyRasterViewer:
     """Small frontend adapter around :class:`RasterViewService`.
@@ -74,10 +104,16 @@ class PlotlyRasterViewer:
         self,
         *,
         display_options: PlotlyRasterViewerDisplayOptions | None = None,
+        on_x_range_changed: OnPlotlyXRangeChanged | None = None,
     ) -> None:
         self._plot: Element | None = None
         self._service: RasterViewService | None = None
         self._plotly_dict: dict[str, object] = {}
+        self._on_x_range_changed = on_x_range_changed
+        # Last x-range applied via set_x_axis_range / set_data / double-click
+        # reset; used to suppress echo relayouts that Plotly fires whenever
+        # the x-axis range changes (whether user- or programmatic).
+        self._last_applied_x_range: tuple[float | None, float | None] | None = None
         self._current_bounds = RowColBounds(
             row_min=0.0,
             row_max=1.0,
@@ -86,7 +122,7 @@ class PlotlyRasterViewer:
         )
         self._transform: PlotlyCoordTransform | None = None
         self._uirevision = self._new_uirevision()
-        self._heatmap_colorscale: str = DEFAULT_HEATMAP_COLORSCALE
+        self._heatmap_colorscale: PlotlyColorscale = DEFAULT_HEATMAP_COLORSCALE
         self._contrast_zmin: float | None = None
         self._contrast_zmax: float | None = None
         self._plotly_rois = PlotlyRoiOverlayLayer()
@@ -190,6 +226,12 @@ if (!plotDiv || !plotDiv.data) return;
 
         response = self._service.full_image_png(display_style=self._display_style())
         self._current_bounds = response.bounds
+        # Pin echo dedup to the new data extent so the follow-up
+        # ``plotly_relayout`` Plotly fires after ``_uirevision`` rotation
+        # (carrying the auto-ranged data extent) is suppressed by value, not by
+        # a one-shot guard. ``_is_x_range_echo`` compares with float tolerance.
+        x_lo_data, x_hi_data = self._transform.row_col_to_plot_x_range(self._current_bounds)
+        self._last_applied_x_range = (x_lo_data, x_hi_data)
         self._plotly_dict = build_plotly_figure(
             response=response,
             uirevision=self._uirevision,
@@ -497,6 +539,36 @@ Plotly.relayout(plotDiv, {{
         self._sync_plotly_config_to_plotly_dict()
         self._react_plotly_config()
 
+    def set_hover_info_visible(self, visible: bool) -> None:
+        """Set Plotly hover-info visibility for the raster trace.
+
+        When disabled (``visible=False``, the default), ``hoverinfo='skip'`` is
+        applied to the raster trace so Plotly does not display tooltips and
+        does not emit hover events.
+
+        Args:
+            visible: Whether hover info should be visible.
+
+        Returns:
+            None.
+        """
+        self._display_options.show_hover_info = bool(visible)
+        self._sync_hover_info_to_plotly_dict()
+        self._restyle_hover_info()
+
+    def _restyle_hover_info(self) -> None:
+        """Push ``hoverinfo`` change to the browser via ``Plotly.restyle``."""
+        if self._plot is None:
+            return
+        value = 'all' if self._display_options.show_hover_info else 'skip'
+        js = f"""
+{self._js_plotly_graph_div()}
+Plotly.restyle(plotDiv, {{
+  hoverinfo: [{json.dumps(value)}]
+}}, [0]);
+"""
+        self._plot.client.run_javascript(js, timeout=2.0)
+
     async def copy_plot_to_clipboard(self) -> None:
         """Copy the current Plotly plot image to the native clipboard when available.
 
@@ -537,6 +609,7 @@ Plotly.relayout(plotDiv, {{
         self._sync_theme_to_plotly_dict()
         self._sync_axis_labels_to_plotly_dict()
         self._sync_square_plot_to_plotly_dict()
+        self._sync_hover_info_to_plotly_dict()
         layout = self._plotly_dict.setdefault('layout', {})
         shapes = layout.get('shapes', [])
         if isinstance(shapes, list):
@@ -544,6 +617,21 @@ Plotly.relayout(plotDiv, {{
         data = self._plotly_dict.get('data', [])
         if isinstance(data, list):
             self._set_trace_overlay_visibility(data)
+
+    def _sync_hover_info_to_plotly_dict(self) -> None:
+        """Synchronize hover-info visibility into the raster trace dict.
+
+        Uses ``hoverinfo='skip'`` when disabled (suppresses Plotly's hover
+        events entirely) so the browser does not emit hover traffic when the
+        user toggles this off.
+        """
+        data = self._plotly_dict.get('data', [])
+        if not isinstance(data, list) or not data:
+            return
+        trace0 = data[0]
+        if not isinstance(trace0, dict):
+            return
+        trace0['hoverinfo'] = 'all' if self._display_options.show_hover_info else 'skip'
 
     def _sync_plotly_config_to_plotly_dict(self) -> None:
         """Synchronize Plotly config options into the local figure dict."""
@@ -823,7 +911,16 @@ Plotly.relayout(plotDiv, {{
         self._plot.client.run_javascript(js, timeout=2.0)
 
     async def set_x_axis_range(self, *, x_min: float, x_max: float) -> None:
-        """Set visible **x** (plot row / physical-x) axis range; y extent unchanged."""
+        """Set visible **x** (plot row / physical-x) axis range; y extent unchanged.
+
+        Args:
+            x_min: Minimum plot x value.
+            x_max: Maximum plot x value.
+
+        Records the applied value so a follow-up Plotly relayout echo (which
+        Plotly emits whenever ranges change, including programmatic changes)
+        does not re-fire ``on_x_range_changed``.
+        """
         if self._plot is None or self._transform is None:
             raise RuntimeError('Viewer must be built and data set before setting axis ranges.')
 
@@ -838,6 +935,7 @@ Plotly.relayout(plotDiv, {{
         )
 
         self._layout_pin_xy_ranges(x_lo=x_lo, x_hi=x_hi, y_lo=fy_lo, y_hi=fy_hi)
+        self._last_applied_x_range = (x_lo, x_hi)
 
         js = f"""
 {self._js_plotly_graph_div()}
@@ -849,6 +947,16 @@ Plotly.relayout(plotDiv, {{
 }});
 """
         self._plot.client.run_javascript(js, timeout=2.0)
+
+    def reset_x_axis_range(self) -> None:
+        """Record that the next user x-range should be treated as auto.
+
+        Callers use this when the consumer-side state event arrives with
+        ``(None, None)``. The actual reset of Plotly's view happens on the next
+        full render (or via the existing double-click handler); recording
+        ``None`` here is enough to clear echo suppression.
+        """
+        self._last_applied_x_range = (None, None)
 
     async def set_heatmap_contrast(self, *, zmin: float, zmax: float) -> None:
         """Pin intensity window for heatmap (``Plotly.restyle``) and PNG overview (re-encode)."""
@@ -880,9 +988,17 @@ Plotly.restyle(plotDiv, {{
         else:
             raise RuntimeError('No raster trace to style. Load data and show a heatmap or overview image first.')
 
-    async def set_heatmap_colorscale(self, colorscale: str) -> None:
-        """Set Plotly colorscale name for heatmap and for PNG overview LUT encoding."""
-        self._heatmap_colorscale = str(colorscale)
+    async def set_heatmap_colorscale(self, colorscale: PlotlyColorscale) -> None:
+        """Set Plotly colorscale for heatmap and PNG overview LUT encoding.
+
+        Accepts either a built-in name (``'Greys'``, ``'Viridis'``, ...) or a
+        list of ``[stop, color]`` pairs for custom 2-stop scales such as the
+        contrast widget's ``inverted_grays``.
+
+        Args:
+            colorscale: Plotly colorscale name or stop list.
+        """
+        self._heatmap_colorscale = colorscale
 
         if self._heatmap_trace_active():
             data = self._plotly_dict.get('data', [])
@@ -906,8 +1022,66 @@ Plotly.restyle(plotDiv, {{
         else:
             raise RuntimeError('No raster trace to style. Load data and show a heatmap or overview image first.')
 
+    async def set_heatmap_style(
+        self,
+        *,
+        colorscale: PlotlyColorscale,
+        zmin: float,
+        zmax: float,
+    ) -> None:
+        """Apply colorscale and intensity window in a single browser round trip.
+
+        Equivalent to calling :meth:`set_heatmap_colorscale` and
+        :meth:`set_heatmap_contrast` back-to-back, but issues exactly one
+        ``Plotly.restyle`` (when a heatmap trace is active) or one PNG overview
+        re-encode (when an image trace is active). Use this when both the LUT
+        and the intensity window change together (e.g. ``ImageContrast``
+        applied for the current channel).
+
+        Args:
+            colorscale: Plotly colorscale name or stop list.
+            zmin: Minimum intensity for the colorscale mapping.
+            zmax: Maximum intensity for the colorscale mapping.
+        """
+        z_lo, z_hi = (float(min(zmin, zmax)), float(max(zmin, zmax)))
+        self._heatmap_colorscale = colorscale
+        self._contrast_zmin = z_lo
+        self._contrast_zmax = z_hi
+
+        if self._heatmap_trace_active():
+            data = self._plotly_dict.get('data', [])
+            skip_restyle = False
+            if isinstance(data, list) and data and isinstance(data[0], dict):
+                trace0 = data[0]
+                if (
+                    trace0.get('colorscale') == self._heatmap_colorscale
+                    and trace0.get('zmin') == z_lo
+                    and trace0.get('zmax') == z_hi
+                ):
+                    skip_restyle = True
+                else:
+                    trace0['colorscale'] = self._heatmap_colorscale
+                    trace0['zmin'] = z_lo
+                    trace0['zmax'] = z_hi
+            if not skip_restyle:
+                js = f"""
+{self._js_plotly_graph_div()}
+Plotly.restyle(plotDiv, {{
+  colorscale: [{json.dumps(self._heatmap_colorscale)}],
+  zmin: [{json.dumps(z_lo)}],
+  zmax: [{json.dumps(z_hi)}]
+}}, [0]);
+"""
+                self._plot.client.run_javascript(js, timeout=2.0)
+        elif self._image_trace_active():
+            await self._refresh_full_png()
+        else:
+            raise RuntimeError(
+                'No raster trace to style. Load data and show a heatmap or overview image first.'
+            )
+
     async def _on_plotly_doubleclick(self, event) -> None:
-        """Reset to full overview PNG (same path as initial load)."""
+        """Reset to full overview PNG (same path as initial load) and emit auto x-range."""
         if self._service is None or self._plot is None:
             return
 
@@ -916,6 +1090,15 @@ Plotly.restyle(plotDiv, {{
         self._uirevision = self._new_uirevision()
         response = self._service.full_image_png(display_style=self._display_style())
         await self.apply_response(response)
+        # Pin echo dedup to the freshly reset data extent so the follow-up
+        # relayout Plotly fires after ``_uirevision`` rotation does not leak
+        # into ``on_x_range_changed`` and overwrite the ``(None, None)`` state
+        # we emit below.
+        if self._transform is not None:
+            x_lo_data, x_hi_data = self._transform.row_col_to_plot_x_range(self._current_bounds)
+            self._last_applied_x_range = (x_lo_data, x_hi_data)
+        if self._on_x_range_changed is not None:
+            self._on_x_range_changed(None, None)
 
     async def _on_plotly_autosize(self, event) -> None:
         """Handle NiceGUI Plotly autosize events (no-op for now)."""
@@ -940,11 +1123,61 @@ Plotly.restyle(plotDiv, {{
             return
 
         merged = merge_partial_relayout(args, self._transform, self._current_bounds)
+        self._emit_x_range_from_relayout(merged)
         viewport = await self._build_viewport_payload(relayout=merged)
         if viewport is None:
             return
 
         await self.rerender_from_plotly(viewport)
+
+    def _emit_x_range_from_relayout(self, merged: dict[str, object]) -> None:
+        """Invoke ``on_x_range_changed`` from a merged relayout payload.
+
+        Echo relayouts (whether driven by ``set_x_axis_range`` or by the
+        follow-up Plotly emits when ``_uirevision`` rotates in ``set_data`` /
+        ``_on_plotly_doubleclick``) are deduped by value against
+        ``_last_applied_x_range``. Both call sites update that field before
+        any browser-side relayout can race the python-side emit.
+
+        Args:
+            merged: Plotly relayout payload after partial-key merging.
+
+        Returns:
+            None.
+        """
+        if self._on_x_range_changed is None:
+            return
+        x_lo = merged.get('xaxis.range[0]')
+        x_hi = merged.get('xaxis.range[1]')
+        try:
+            new_x_min = float(x_lo) if x_lo is not None else None
+            new_x_max = float(x_hi) if x_hi is not None else None
+        except (TypeError, ValueError):
+            return
+        if new_x_min is None or new_x_max is None:
+            return
+        new_range = (new_x_min, new_x_max)
+        if self._is_x_range_echo(new_range):
+            return
+        self._last_applied_x_range = new_range
+        self._on_x_range_changed(new_x_min, new_x_max)
+
+    def _is_x_range_echo(
+        self, new_range: tuple[float | None, float | None]
+    ) -> bool:
+        """Return whether ``new_range`` echoes the last programmatic apply.
+
+        Args:
+            new_range: Candidate ``(x_min, x_max)`` from a relayout event.
+
+        Returns:
+            ``True`` when both values match the last applied pair within
+            tolerance.
+        """
+        last = self._last_applied_x_range
+        if last is None:
+            return False
+        return _x_range_equal(last, new_range)
 
     async def _build_viewport_payload(
         self,
@@ -990,7 +1223,8 @@ return {{
             self._plotly_dict = {
                 'data': [],
                 'layout': {
-                    'margin': {'l': 40, 'r': 20, 't': 20, 'b': 40},
+                    # 'margin': {'l': 40, 'r': 20, 't': 20, 'b': 40},
+                    'margin': {'l': 40, 'r': 10, 't': 10, 'b': 40},
                     'uirevision': self._uirevision,
                     'autosize': True,
                     'xaxis': {'range': [0.0, 1.0]},
