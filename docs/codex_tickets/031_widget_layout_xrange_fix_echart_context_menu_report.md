@@ -352,13 +352,67 @@ Changes:
       exact float values from the bug report (8.181001796798633 → 8.181,
       7.08379656153604 → 7.084) and that clean values are unchanged.
 
+### FU6 — Contrast widget wrap fix (internal nowrap group + bounded range)
+
+Reported symptom: when the image toolbar row narrows, the contrast
+widget's `ui.range` stretches wide and the trailing `_max_label` breaks
+onto the next line, separated from its companion slider.
+
+Root cause (visible from the build chain): `ImageToolbarView.build`
+creates one shared `ui.row().classes("w-full items-center flex-wrap
+gap-2 p-1")`, then `_build_children` constructs `ImageToolbarWidget`
+followed by `ContrastWidget`. Both widgets (post-FU1/FU2 composition
+pattern) push their controls directly into that shared row, so the five
+contrast children — LUT select, Auto button, min label, range, max
+label — sit as flat siblings of every toolbar control. With
+`flex-wrap` on the parent and no local grouping, Quasar's `q-range`
+(which has a substantial intrinsic width) competes for space against
+peers individually, and the trailing `_max_label` peels off first.
+
+Fix (minimal, structural): give `ContrastWidget` its own internal
+`ui.row` so its five children act as a single flex item in the host
+row. The widget still does not inherit from `ui.row` (composition
+preserved — the caller still chooses *where* the widget sits).
+
+* `src/nicewidgets/contrast_widget/contrast_widget.py`
+    * `__init__` now creates one
+      `with ui.row().classes('items-center gap-2 flex-nowrap'):` block and
+      builds all five controls (and the two `bind_text_from` calls) inside
+      it. `flex-nowrap` keeps min/range/max anchored together; the whole
+      group wraps as one unit when the host row narrows.
+    * The range slider gains
+      `.classes('flex-1 min-w-32 max-w-64')`. It grows with available
+      space (replacing the unbounded post-FU1 behavior) but stays bounded
+      between 8 rem and 16 rem so it never swallows its companion labels.
+    * Class docstring updated to describe the internal layout row and the
+      bounded range, distinguishing this widget's pattern from
+      `class ContrastWidget(ui.row)` inheritance.
+    * `from typing import Iterator` moved to
+      `from collections.abc import Iterator` to clear an adjacent
+      pre-existing Ruff warning.
+
+* `tests/nicewidgets/test_contrast_widget.py`
+    * `test_range_slider_uses_bounded_flex_classes` — asserts
+      `flex-1`, `min-w-32`, and `max-w-64` are present on the range so
+      future edits cannot silently revert to the unbounded shape.
+    * `test_range_companion_labels_keep_fixed_width` — asserts the min
+      and max labels keep their `w-10` fixed width so the group stays
+      compact.
+
+What this does *not* change:
+
+* Widget public API (no new params, no renamed methods).
+* `_apply_roi_mode_to_ui` / image-toolbar visibility semantics.
+* `ImageToolbarView` build order or its shared `ui.row` host.
+
 ### Test command (final) and result
 
 ```bash
 uv run pytest -q
 ```
 
-`966 passed, 3 warnings in 2.77s` (the same 3 pre-existing warnings).
+`968 passed, 3 warnings in 2.81s` (the same 3 pre-existing warnings;
+two new tests added in FU6, plus the three from FU5).
 
 ## Concerns and follow-ups
 

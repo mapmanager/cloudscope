@@ -12,9 +12,8 @@ External callers use ``*_ext`` setters to push state without emitting intents
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from typing import Iterator
 
 import numpy as np
 from nicegui import ui
@@ -40,11 +39,17 @@ DEFAULT_RANGE_MAX = 255
 class ContrastWidget:
     """NiceGUI contrast controls: color LUT select, Auto button, and min/max range.
 
-    The widget does not own a layout container. Child controls are created in
-    the caller's active NiceGUI slot so the parent fully controls layout (sit
-    on a shared row with other widgets, wrap into a column, etc.). This is
-    the same composition pattern used by :class:`EChartWidget` and
-    :class:`PlotlyRasterViewer`.
+    The widget builds its five child controls inside one internal
+    ``ui.row`` with ``flex-nowrap`` so the contrast group always travels
+    together: when the host row narrows, the whole group wraps as one unit
+    instead of letting the range and its companion min/max labels break
+    onto separate lines. The widget itself does not inherit from
+    ``ui.row`` — the caller still chooses where this group sits in its own
+    layout (same composition pattern used by :class:`EChartWidget` and
+    :class:`PlotlyRasterViewer`).
+
+    The range slider is bounded by ``min-w-32 max-w-64`` and grows with
+    ``flex-1`` so it uses available space without dominating its row.
 
     Args:
         on_intent: Callback invoked with a single :class:`ContrastChangedIntent`
@@ -79,30 +84,31 @@ class ContrastWidget:
         self._img_max: int = DEFAULT_RANGE_MAX
         self._image: np.ndarray | None = None
 
-        self._lut_select = ui.select(
-            options=colorscale_option_value_to_label(),
-            value=self._color_lut,
-            label='Color LUT',
-            on_change=self._on_lut_change,
-        ).classes('w-32').props('outlined')
-        self._auto_btn = ui.button('Auto', on_click=self._on_auto_click)
-        self._auto_btn.tooltip('Auto contrast (percentile clip)')
-        self._min_label = ui.label(str(self._value_min)).classes('w-10 text-right')
-        self._range = ui.range(
-            min=self._img_min,
-            max=self._img_max,
-            value={'min': self._value_min, 'max': self._value_max},
-            step=1,
-            on_change=self._on_range_change,
-        ).props('debounce=200')
-        self._max_label = ui.label(str(self._value_max)).classes('w-10 text-left')
+        with ui.row().classes('items-center gap-2 flex-nowrap'):
+            self._lut_select = ui.select(
+                options=colorscale_option_value_to_label(),
+                value=self._color_lut,
+                label='Color LUT',
+                on_change=self._on_lut_change,
+            ).classes('w-32').props('outlined')
+            self._auto_btn = ui.button('Auto', on_click=self._on_auto_click)
+            self._auto_btn.tooltip('Auto contrast (percentile clip)')
+            self._min_label = ui.label(str(self._value_min)).classes('w-10 text-right')
+            self._range = ui.range(
+                min=self._img_min,
+                max=self._img_max,
+                value={'min': self._value_min, 'max': self._value_max},
+                step=1,
+                on_change=self._on_range_change,
+            ).classes('flex-1 min-w-32 max-w-64').props('debounce=200')
+            self._max_label = ui.label(str(self._value_max)).classes('w-10 text-left')
 
-        self._min_label.bind_text_from(
-            self._range, 'value', backward=lambda v: str(int(v['min']))
-        )
-        self._max_label.bind_text_from(
-            self._range, 'value', backward=lambda v: str(int(v['max']))
-        )
+            self._min_label.bind_text_from(
+                self._range, 'value', backward=lambda v: str(int(v['min']))
+            )
+            self._max_label.bind_text_from(
+                self._range, 'value', backward=lambda v: str(int(v['max']))
+            )
 
     @contextmanager
     def _intent_suppressed(self) -> Iterator[None]:

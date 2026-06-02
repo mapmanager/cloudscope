@@ -182,3 +182,23 @@ def test_callback_exception_suppressed_and_no_emit() -> None:
     w.set_image_ext(np.array([[1, 9]], dtype=np.uint16))
     w._on_auto_click()
     assert seen == []
+
+
+def test_range_slider_uses_bounded_flex_classes(widget: ContrastWidget) -> None:
+    """Range slider must flex but stay bounded so it does not dominate the row.
+
+    The previous fix removed a fixed ``w-56`` and made the slider unbounded,
+    which then pushed ``_max_label`` onto the next line whenever the host row
+    narrowed. The widget now ships ``flex-1 min-w-32 max-w-64`` on the range
+    so it grows with available space but never swallows its companion labels.
+    """
+    classes = widget._range.classes
+    assert 'flex-1' in classes
+    assert 'min-w-32' in classes
+    assert 'max-w-64' in classes
+
+
+def test_range_companion_labels_keep_fixed_width(widget: ContrastWidget) -> None:
+    """Min/max labels keep their narrow fixed width so the group stays compact."""
+    assert 'w-10' in widget._min_label.classes
+    assert 'w-10' in widget._max_label.classes
