@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 import json
 from pathlib import Path
 
 from nicegui import app, ui
 
+from acqstore.acq_image.supported_import_extensions import get_allowed_import_extensions
+from acqstore.upload_store import (
+    UploadCollisionError,
+    UploadError,
+    store_uploaded_file,
+)
 from cloudscope.event_bus import EventBus
 from cloudscope.events.acq_image_events import AcqImageEventsChanged
 from cloudscope.events.analysis import AnalysisCompleted
@@ -27,8 +34,18 @@ from cloudscope.app_config import AppConfig, normalize_stored_path
 from cloudscope.utils.logging import get_logger
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
+from nicewidgets.upload_widget import CancelToken, UploadWidget
 
 logger = get_logger(__name__)
+
+_UPLOAD_COMPACT_CSS_CLASS = 'cloudscope-upload-compact'
+_UPLOAD_COMPACT_CSS = """
+.cloudscope-upload-compact { min-height: 36px; }
+.cloudscope-upload-compact .q-uploader__list { display: none; }
+.cloudscope-upload-compact .q-uploader__header-content { padding: 4px 8px; min-height: 36px; }
+.cloudscope-upload-compact .q-uploader__title { font-size: 0.85rem; font-weight: 500; }
+.cloudscope-upload-compact .q-uploader__subtitle { display: none; }
+"""
 
 
 def _recent_target_exists(path: str, kind: LoadPathKind) -> bool:
@@ -81,6 +98,8 @@ class LoadSaveView(BaseView):
         self._history_menu_container: ui.element | None = None
         self._history_button: ui.button | None = None
         self._recent_menu: ui.menu | None = None
+        self._upload_widget: UploadWidget | None = None
+        self._upload_progress: _UploadProgressDialog | None = None
 
     def build(self, parent: ui.element | None = None) -> ui.element:
         """Build toolbar UI.
@@ -157,6 +176,7 @@ class LoadSaveView(BaseView):
         ui.button('Load Folder', on_click=lambda: self._on_load_clicked(LoadPathKind.FOLDER))
         ui.button('Load CSV', on_click=lambda: self._on_load_clicked(LoadPathKind.CSV))
         ui.button('Load Sample Data', on_click=self._on_load_sample_data_clicked)
+        self._build_upload_control()
 
         self._save_selected_button = ui.button(
             'Save Selected',
@@ -166,6 +186,26 @@ class LoadSaveView(BaseView):
             'Save All',
             on_click=self._on_save_all_clicked,
         )
+
+    def _build_upload_control(self) -> None:
+        """Mount the inline compact upload widget that doubles as a drop target.
+
+        Returns:
+            None.
+        """
+        ui.add_css(_UPLOAD_COMPACT_CSS)
+        with ui.element('div').classes('inline-flex items-center shrink-0').style('width: 220px'):
+            self._upload_widget = UploadWidget(
+                label='Upload File',
+                accept=_accepted_upload_extensions(),
+                multiple=False,
+                max_files=1,
+                on_paths_ready=self._on_upload_paths_ready,
+                on_progress=self._on_upload_progress,
+                show_inline_status=False,
+                extra_props='flat dense bordered hide-upload-btn no-thumbnails',
+                extra_classes=_UPLOAD_COMPACT_CSS_CLASS,
+            )
 
     def _open_recent_menu(self) -> None:
         """Open the recent-paths menu (used by the history button)."""
@@ -253,6 +293,127 @@ class LoadSaveView(BaseView):
     def _on_load_sample_data_clicked(self) -> None:
         """Emit a request to load the default sample dataset."""
         self.event_bus.publish(LoadSampleDataIntent(name='demo-small'))
+
+    def _on_upload_progress(self, fraction: float, message: str | None) -> None:
+        """Update or open the upload progress dialog from widget progress events.
+
+        Args:
+            fraction: Progress fraction in ``[0.0, 1.0]``.
+            message: Optional human-readable status message.
+
+        Returns:
+            None.
+        """
+        if self._upload_progress is None:
+            self._upload_progress = self._open_upload_progress_dialog()
+        if message is not None:
+            self._upload_progress.set_status(message)
+        if fraction >= 1.0:
+            self._close_upload_progress_dialog()
+
+    async def _on_upload_paths_ready(self, paths: list[Path], cancel: CancelToken) -> None:
+        """Persist uploaded paths and emit a load intent.
+
+        Args:
+            paths: Normalized upload paths produced by the upload widget.
+            cancel: Cancellation token shared with the upload widget.
+
+        Returns:
+            None.
+        """
+        if cancel.cancelled or not paths:
+            return
+        source_path = paths[0]
+        widget = self._upload_widget
+        original_filename = (
+            widget.get_original_filename(source_path) if widget is not None else source_path.name
+        )
+        if self._upload_progress is None:
+            self._upload_progress = self._open_upload_progress_dialog()
+        self._upload_progress.set_status(f'Storing {original_filename}…')
+        result = self._handle_upload_paths(source_path=source_path, original_filename=original_filename)
+        if result.intent is not None:
+            self.event_bus.publish(result.intent)
+        if result.notify is not None:
+            ui.notify(result.notify.message, type=result.notify.type)
+
+    def _handle_upload_paths(
+        self,
+        *,
+        source_path: Path,
+        original_filename: str,
+    ) -> _UploadOutcome:
+        """Persist one upload and decide on follow-up intent and user notice.
+
+        Args:
+            source_path: Normalized upload path on disk.
+            original_filename: Original filename supplied by the browser.
+
+        Returns:
+            Outcome describing whether to publish a load intent and what user
+            notification (if any) to surface.
+        """
+        try:
+            stored_path = store_uploaded_file(source_path, original_filename=original_filename)
+        except UploadCollisionError as exc:
+            logger.warning('Upload collision: %s', exc)
+            return _UploadOutcome(
+                notify=_UploadNotice(message=f'File already exists: {original_filename}', type='warning'),
+            )
+        except (UploadError, ValueError) as exc:
+            logger.warning('Upload rejected: %s', exc)
+            return _UploadOutcome(notify=_UploadNotice(message=str(exc), type='warning'))
+        except Exception as exc:
+            logger.exception('Upload failed')
+            return _UploadOutcome(notify=_UploadNotice(message=f'Upload failed: {exc}', type='negative'))
+
+        return _UploadOutcome(
+            intent=LoadPathIntent(
+                path=str(stored_path),
+                kind=LoadPathKind.FILE,
+                from_recent=False,
+            ),
+            notify=_UploadNotice(message=f'Uploaded {stored_path.name}', type='positive'),
+        )
+
+    def _open_upload_progress_dialog(self) -> _UploadProgressDialog:
+        """Create and open a persistent upload progress dialog.
+
+        Returns:
+            Handle bundling the dialog and its status label.
+        """
+        with ui.dialog().props('persistent') as dialog, ui.card().classes('w-[360px]'):
+            ui.label('Uploading file').classes('text-base font-semibold')
+            with ui.row().classes('items-center gap-3 w-full'):
+                ui.spinner(size='md')
+                status_label = ui.label('Upload received').classes('text-sm text-gray-700')
+            with ui.row().classes('justify-end w-full'):
+                ui.button('Cancel', on_click=self._on_upload_cancel_clicked).props('flat')
+        dialog.open()
+        return _UploadProgressDialog(dialog=dialog, status_label=status_label)
+
+    def _close_upload_progress_dialog(self) -> None:
+        """Close and forget the active upload progress dialog if any."""
+        progress = self._upload_progress
+        self._upload_progress = None
+        if progress is None:
+            return
+        try:
+            progress.dialog.close()
+        except Exception:
+            logger.debug('upload progress dialog close failed', exc_info=True)
+        if self._upload_widget is not None:
+            self._upload_widget.reset_cancel()
+
+    def _on_upload_cancel_clicked(self) -> None:
+        """Cancel the current upload and close the progress dialog.
+
+        Returns:
+            None.
+        """
+        if self._upload_widget is not None:
+            self._upload_widget.cancel()
+        self._close_upload_progress_dialog()
 
     async def _on_load_clicked(self, kind: LoadPathKind) -> None:
         """Open native picker in native mode, else use text input path."""
@@ -416,3 +577,53 @@ class LoadSaveView(BaseView):
                 logger.warning('UI update dropped (no client): %s', exc)
                 return
             self._client.safe_invoke(fn)
+
+
+def _accepted_upload_extensions() -> str:
+    """Return browser accept text for acquisition uploads."""
+    return ','.join(f'.{extension}' for extension in get_allowed_import_extensions())
+
+
+@dataclass(slots=True)
+class _UploadNotice:
+    """User-visible notification produced by the upload pipeline."""
+
+    message: str
+    type: str
+
+
+@dataclass(slots=True)
+class _UploadOutcome:
+    """Result of persisting one uploaded file.
+
+    Attributes:
+        intent: Optional load intent to publish on success.
+        notify: Optional user-facing notice to surface.
+    """
+
+    intent: LoadPathIntent | None = None
+    notify: _UploadNotice | None = None
+
+
+@dataclass(slots=True)
+class _UploadProgressDialog:
+    """Handle to an open upload progress dialog.
+
+    Attributes:
+        dialog: The dialog element.
+        status_label: Inline label updated during upload progress.
+    """
+
+    dialog: ui.dialog
+    status_label: ui.label
+
+    def set_status(self, message: str) -> None:
+        """Update the inline status text.
+
+        Args:
+            message: Status text to display.
+
+        Returns:
+            None.
+        """
+        self.status_label.text = message

@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from cloudscope.app_config import AppConfig
 from cloudscope.event_bus import EventBus
-from cloudscope.events.files import LoadPathKind
+from cloudscope.events.files import LoadPathIntent, LoadPathKind
 from cloudscope.views.load_save_view import (
     LoadSaveView,
+    _accepted_upload_extensions,
     _path_display,
     _recent_target_exists,
 )
@@ -236,3 +239,114 @@ def test_load_sample_data_clicked_publishes_default_sample_intent(tmp_path) -> N
     view._on_load_sample_data_clicked()
 
     assert events == [LoadSampleDataIntent(name='demo-small')]
+
+
+# ---- upload helpers ----
+
+
+def test_accepted_upload_extensions_includes_default_acquisition_suffixes() -> None:
+    """The accept string should advertise the AcqStore default acquisition suffixes."""
+    accepted = _accepted_upload_extensions()
+    parts = set(accepted.split(','))
+    assert {'.tif', '.oir', '.czi'}.issubset(parts)
+
+
+def test_handle_upload_paths_publishes_load_intent_on_success(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Successful upload persistence should yield a load intent and a positive notice."""
+    view = _new_view(tmp_path)
+
+    src = tmp_path / 'source.tmp'
+    src.write_bytes(b'data')
+    upload_dir = tmp_path / 'uploads'
+
+    import cloudscope.views.load_save_view as load_save_module
+
+    def fake_store(source_path: Path, *, original_filename: str) -> Path:
+        from acqstore.upload_store import store_uploaded_file
+
+        return store_uploaded_file(
+            source_path,
+            original_filename=original_filename,
+            upload_dir=upload_dir,
+        )
+
+    monkeypatch.setattr(load_save_module, 'store_uploaded_file', fake_store)
+
+    outcome = view._handle_upload_paths(source_path=src, original_filename='sample.oir')
+
+    assert outcome.intent == LoadPathIntent(
+        path=str(upload_dir / 'sample.oir'),
+        kind=LoadPathKind.FILE,
+        from_recent=False,
+    )
+    assert outcome.notify is not None
+    assert outcome.notify.type == 'positive'
+    assert (upload_dir / 'sample.oir').read_bytes() == b'data'
+
+
+def test_handle_upload_paths_warns_on_collision(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An existing upload should yield no intent and a warning notice."""
+    view = _new_view(tmp_path)
+
+    src = tmp_path / 'source.tmp'
+    src.write_bytes(b'data')
+    upload_dir = tmp_path / 'uploads'
+    upload_dir.mkdir()
+    (upload_dir / 'sample.oir').write_bytes(b'existing')
+
+    import cloudscope.views.load_save_view as load_save_module
+
+    def fake_store(source_path: Path, *, original_filename: str) -> Path:
+        from acqstore.upload_store import store_uploaded_file
+
+        return store_uploaded_file(
+            source_path,
+            original_filename=original_filename,
+            upload_dir=upload_dir,
+        )
+
+    monkeypatch.setattr(load_save_module, 'store_uploaded_file', fake_store)
+
+    outcome = view._handle_upload_paths(source_path=src, original_filename='sample.oir')
+
+    assert outcome.intent is None
+    assert outcome.notify is not None
+    assert outcome.notify.type == 'warning'
+    assert 'already exists' in outcome.notify.message
+
+
+def test_handle_upload_paths_warns_on_unsupported_extension(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unsupported extensions should be rejected at the view layer with a warning."""
+    view = _new_view(tmp_path)
+
+    src = tmp_path / 'source.tmp'
+    src.write_bytes(b'data')
+    upload_dir = tmp_path / 'uploads'
+
+    import cloudscope.views.load_save_view as load_save_module
+
+    def fake_store(source_path: Path, *, original_filename: str) -> Path:
+        from acqstore.upload_store import store_uploaded_file
+
+        return store_uploaded_file(
+            source_path,
+            original_filename=original_filename,
+            upload_dir=upload_dir,
+        )
+
+    monkeypatch.setattr(load_save_module, 'store_uploaded_file', fake_store)
+
+    outcome = view._handle_upload_paths(source_path=src, original_filename='sample.png')
+
+    assert outcome.intent is None
+    assert outcome.notify is not None
+    assert outcome.notify.type == 'warning'
