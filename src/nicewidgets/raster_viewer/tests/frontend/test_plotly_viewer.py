@@ -12,6 +12,7 @@ from nicewidgets.raster_viewer.backend.image_model import RasterGridSpec, RowCol
 from nicewidgets.raster_viewer.frontend.plotly_coord_transform import PlotlyCoordTransform
 from nicewidgets.raster_viewer.frontend.plotly_protocol import PlotlyViewportPayload
 from nicewidgets.raster_viewer.frontend.plotly_viewer import PlotlyRasterViewer
+from nicewidgets.raster_viewer.frontend.roi_overlay import RectRoiOverlay
 
 _GRID = RasterGridSpec(dx=1.0, dy=1.0, x_unit='', y_unit='')
 
@@ -172,3 +173,43 @@ def test_request_before_set_data_raises() -> None:
     payload = PlotlyViewportPayload(relayout={}, width_px=100, height_px=100)
     with pytest.raises(RuntimeError, match='No data set'):
         viewer.request_from_plotly(payload=payload)
+
+
+def test_set_roi_editing_marks_only_active_shape_editable() -> None:
+    """ROI edit mode should make only the target shape editable."""
+    viewer = PlotlyRasterViewer()
+    viewer.set_rois(
+        [
+            RectRoiOverlay(roi_id=1, x0=0.0, x1=1.0, y0=0.0, y1=1.0),
+            RectRoiOverlay(roi_id=2, x0=2.0, x1=3.0, y0=2.0, y1=3.0),
+        ]
+    )
+
+    viewer.set_roi_editing(True, 2)
+
+    shapes = viewer.figure['layout']['shapes']
+    editable_by_name = {shape['name']: shape['editable'] for shape in shapes}
+    assert editable_by_name == {'roi:1': False, 'roi:2': True}
+    assert viewer.figure['config']['edits']['shapePosition'] is True
+
+
+def test_roi_shape_relayout_updates_overlay_and_emits_preview() -> None:
+    """Shape relayout during edit mode should update the active ROI preview."""
+    previews: list[tuple[int, float, float, float, float]] = []
+    viewer = PlotlyRasterViewer(on_roi_bounds_preview=lambda *args: previews.append(args))
+    viewer.set_rois([RectRoiOverlay(roi_id=7, x0=1.0, x1=4.0, y0=2.0, y1=5.0)])
+    viewer.set_roi_editing(True, 7)
+
+    handled = viewer._handle_roi_shape_relayout(
+        {
+            'shapes[0].x0': 2.0,
+            'shapes[0].x1': 6.0,
+            'shapes[0].y0': 3.0,
+            'shapes[0].y1': 8.0,
+        }
+    )
+
+    assert handled is True
+    assert previews == [(7, 2.0, 6.0, 3.0, 8.0)]
+    shape = viewer.figure['layout']['shapes'][0]
+    assert (shape['x0'], shape['x1'], shape['y0'], shape['y1']) == (2.0, 6.0, 3.0, 8.0)

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
+from acqstore.acq_image.roi import RectRoiBounds
 from cloudscope.events.base import IntentEvent, StateEvent
 from cloudscope.state import PrimarySelection
 
@@ -135,3 +136,16 @@ class RoiEditModeChanged(StateEvent):
     is_editing: bool
     selection: PrimarySelection | None
     message: str = ''
+
+
+@dataclass(frozen=True)
+class RoiEditPreviewChanged(StateEvent):
+    """Emitted when a staged rectangular ROI edit preview changes.
+
+    Args:
+        selection: File/channel/ROI snapshot identifying the edit target.
+        bounds: Preview bounds in canonical acqstore pixel coordinates.
+    """
+
+    selection: PrimarySelection
+    bounds: RectRoiBounds

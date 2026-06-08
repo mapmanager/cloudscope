@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+from acqstore.acq_image.roi import ImageBounds, RectROI, RectRoiBounds
 from cloudscope.controllers.roi_controller import RoiController
 from cloudscope.event_bus import EventBus
 from cloudscope.events.roi import (
@@ -14,9 +15,9 @@ from cloudscope.events.roi import (
     RoiChanged,
     RoiChangeKind,
     RoiEditModeChanged,
+    RoiEditPreviewChanged,
     SubmitEditRoiIntent,
 )
-from cloudscope.events.status import StatusLevel
 from cloudscope.state import PrimarySelection
 
 
@@ -36,38 +37,56 @@ class FakeAnalysis:
     key: FakeKey
 
 
-@dataclass
-class FakeRoi:
-    """Fake ROI."""
-
-    roi_id: int
-
-
 class FakeRoiSet:
     """Fake ROI set implementing the controller API."""
 
     def __init__(self, roi_ids: list[int] | None = None) -> None:
-        self.roi_ids = list(roi_ids or [])
-        self.next_id = max(self.roi_ids, default=0) + 1
+        self.image_bounds = ImageBounds(width=100, height=50)
+        self.rois = {
+            roi_id: RectROI(
+                roi_id=roi_id,
+                bounds=RectRoiBounds(
+                    dim0_start=roi_id,
+                    dim0_stop=roi_id + 10,
+                    dim1_start=roi_id,
+                    dim1_stop=roi_id + 20,
+                ),
+            )
+            for roi_id in list(roi_ids or [])
+        }
+        self.next_id = max(self.rois, default=0) + 1
 
-    def create_rect_roi(self) -> FakeRoi:
+    def create_rect_roi(self) -> RectROI:
         """Create a fake ROI."""
-        roi = FakeRoi(self.next_id)
-        self.roi_ids.append(roi.roi_id)
+        roi = RectROI(
+            roi_id=self.next_id,
+            bounds=RectRoiBounds.from_image_bounds(self.image_bounds),
+        )
+        self.rois[roi.roi_id] = roi
         self.next_id += 1
         return roi
 
     def has_roi(self, roi_id: int) -> bool:
         """Return whether ROI exists."""
-        return roi_id in self.roi_ids
+        return roi_id in self.rois
 
     def get_roi_ids(self) -> list[int]:
         """Return ROI ids."""
-        return list(self.roi_ids)
+        return list(self.rois)
+
+    def get(self, roi_id: int) -> RectROI | None:
+        """Return ROI by id."""
+        return self.rois.get(roi_id)
+
+    def edit_rect_roi(self, roi_id: int, *, bounds: RectRoiBounds) -> RectROI:
+        """Edit fake rectangular ROI bounds."""
+        roi = self.rois[roi_id]
+        roi.bounds = bounds.clamped_to(self.image_bounds)
+        return roi
 
     def delete(self, roi_id: int) -> None:
         """Delete ROI."""
-        self.roi_ids.remove(roi_id)
+        del self.rois[roi_id]
 
 
 class FakeAnalysisSet:
@@ -245,44 +264,91 @@ def test_roi_controller_cancel_edit_publishes_idle_edit_mode() -> None:
     ]
 
 
-def test_roi_controller_submit_edit_exits_mode_and_warns() -> None:
-    """SubmitEditRoiIntent should exit edit mode until geometry editing exists."""
+def test_roi_controller_submit_edit_commits_pending_bounds() -> None:
+    """SubmitEditRoiIntent should commit the latest staged bounds."""
     bus = EventBus()
     image = FakeAcqImage()
     home = FakeHomeController(image)
     mode_events: list[RoiEditModeChanged] = []
-    status_events = []
+    changed_events: list[RoiChanged] = []
     bus.subscribe(RoiEditModeChanged, mode_events.append)
-    from cloudscope.events.status import AppStatusChanged
-    bus.subscribe(AppStatusChanged, status_events.append)
-    controller = RoiController(bus, home)  # type: ignore[arg-type]
-    controller.bind()
-
-    bus.publish(SubmitEditRoiIntent(selection=PrimarySelection(file_id="file-a", channel=0, roi_id=1)))
-
-    assert mode_events == [
-        RoiEditModeChanged(
-            is_editing=False,
-            selection=None,
-            message="ROI edit submitted; geometry editing is not implemented yet.",
-        )
-    ]
-    assert status_events[-1].level is StatusLevel.WARNING
-
-
-def test_roi_controller_full_extent_edit_intents_warn_only() -> None:
-    """Full-width/full-height edit intents are placeholders in ROI-2."""
-    bus = EventBus()
-    image = FakeAcqImage()
-    home = FakeHomeController(image)
-    from cloudscope.events.status import AppStatusChanged
-    status_events: list[AppStatusChanged] = []
-    bus.subscribe(AppStatusChanged, status_events.append)
+    bus.subscribe(RoiChanged, changed_events.append)
     controller = RoiController(bus, home)  # type: ignore[arg-type]
     controller.bind()
 
     selection = PrimarySelection(file_id="file-a", channel=0, roi_id=1)
+    bounds = RectRoiBounds(dim0_start=3, dim0_stop=12, dim1_start=4, dim1_stop=18)
+    bus.publish(BeginEditRoiIntent(selection=selection))
+    bus.publish(RoiEditPreviewChanged(selection=selection, bounds=bounds))
+    bus.publish(SubmitEditRoiIntent(selection=selection))
+
+    assert image.rois.get(1).bounds == bounds
+    assert home.selected_roi_ids == [1]
+    assert changed_events[-1] == RoiChanged(
+        operation=RoiChangeKind.EDIT,
+        selection=selection,
+        removed_analysis_count=0,
+    )
+    assert mode_events[-1] == RoiEditModeChanged(
+        is_editing=False,
+        selection=None,
+        message="ROI 1 edit submitted.",
+    )
+
+
+def test_roi_controller_submit_edit_with_analysis_waits_for_confirmation() -> None:
+    """Submitting edited ROI with dependencies should wait for dialog confirmation."""
+    FakeDialog.instances.clear()
+    bus = EventBus()
+    image = FakeAcqImage()
+    image.analysis_set = FakeAnalysisSet([FakeAnalysis(FakeKey("diameter", 0, 1))])
+    home = FakeHomeController(image)
+    changed_events: list[RoiChanged] = []
+    bus.subscribe(RoiChanged, changed_events.append)
+    controller = RoiController(bus, home, dialog_factory=FakeDialog)  # type: ignore[arg-type]
+    controller.bind()
+
+    selection = PrimarySelection(file_id="file-a", channel=0, roi_id=1)
+    bounds = RectRoiBounds(dim0_start=5, dim0_stop=15, dim1_start=6, dim1_stop=16)
+    bus.publish(BeginEditRoiIntent(selection=selection))
+    bus.publish(RoiEditPreviewChanged(selection=selection, bounds=bounds))
+    bus.publish(SubmitEditRoiIntent(selection=selection))
+
+    assert image.rois.get(1).bounds != bounds
+    assert FakeDialog.instances and FakeDialog.instances[-1].opened
+    assert "diameter" in FakeDialog.instances[-1].kwargs["message"]
+
+    FakeDialog.instances[-1].kwargs["on_yes"]()
+
+    assert image.rois.get(1).bounds == bounds
+    assert image.analysis_set.deleted_roi_ids == [1]
+    assert changed_events[-1].removed_analysis_count == 1
+
+
+def test_roi_controller_full_extent_edit_intents_publish_previews() -> None:
+    """Full-width/full-height edit intents should stage preview bounds only."""
+    bus = EventBus()
+    image = FakeAcqImage()
+    home = FakeHomeController(image)
+    preview_events: list[RoiEditPreviewChanged] = []
+    bus.subscribe(RoiEditPreviewChanged, preview_events.append)
+    controller = RoiController(bus, home)  # type: ignore[arg-type]
+    controller.bind()
+
+    selection = PrimarySelection(file_id="file-a", channel=0, roi_id=1)
+    bus.publish(BeginEditRoiIntent(selection=selection))
     bus.publish(ApplyRoiFullWidthIntent(selection=selection))
     bus.publish(ApplyRoiFullHeightIntent(selection=selection))
 
-    assert [event.level for event in status_events[-2:]] == [StatusLevel.WARNING, StatusLevel.WARNING]
+    assert preview_events[-2].bounds == RectRoiBounds(
+        dim0_start=0,
+        dim0_stop=50,
+        dim1_start=1,
+        dim1_stop=21,
+    )
+    assert preview_events[-1].bounds == RectRoiBounds(
+        dim0_start=0,
+        dim0_stop=50,
+        dim1_start=0,
+        dim1_stop=100,
+    )

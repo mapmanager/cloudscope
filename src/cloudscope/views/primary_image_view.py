@@ -20,13 +20,13 @@ from nicegui import run, ui
 
 from acqstore.acq_image.acq_image import AcqImage
 from acqstore.acq_image.analysis.model import AnalysisKey, AnalysisOverlayTraceData
-from acqstore.acq_image.roi import RectROI
+from acqstore.acq_image.roi import RectROI, RectRoiBounds
 from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader
 from cloudscope.event_bus import EventBus
 from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind
 from cloudscope.events.contrast import ImageContrastChanged
 from cloudscope.events.raster import PrimaryPlaneLoaded
-from cloudscope.events.roi import RoiChanged
+from cloudscope.events.roi import RoiChanged, RoiEditModeChanged, RoiEditPreviewChanged
 from cloudscope.events.theme import ThemeChanged
 from cloudscope.events.x_range import PrimaryXRangeChanged, SetPrimaryXRangeIntent
 from cloudscope.utils.logging import get_logger
@@ -174,6 +174,7 @@ class PrimaryImageView(BaseView):
                 theme='dark' if dark_mode else 'light',
             ),
             on_x_range_changed=self._on_viewer_x_range_changed,
+            on_roi_bounds_preview=self._on_viewer_roi_bounds_preview,
         )
         self._current_grid: RasterGridSpec | None = None
         self._dark_mode_provider = dark_mode_provider
@@ -221,6 +222,10 @@ class PrimaryImageView(BaseView):
             None.
         """
         self.add_subscription(self.event_bus.subscribe(RoiChanged, self._on_roi_changed))
+        self.add_subscription(self.event_bus.subscribe(RoiEditModeChanged, self._on_roi_edit_mode_changed))
+        self.add_subscription(
+            self.event_bus.subscribe(RoiEditPreviewChanged, self._on_roi_edit_preview_changed)
+        )
         self.add_subscription(self.event_bus.subscribe(AnalysisCompleted, self._on_analysis_completed))
         self.add_subscription(self.event_bus.subscribe(ThemeChanged, self._on_theme_changed))
         self.add_subscription(
@@ -243,6 +248,44 @@ class PrimaryImageView(BaseView):
             None.
         """
         self.event_bus.publish(SetPrimaryXRangeIntent(x_min=x_min, x_max=x_max))
+
+    def _on_viewer_roi_bounds_preview(
+        self,
+        roi_id: int,
+        x0: float,
+        x1: float,
+        y0: float,
+        y1: float,
+    ) -> None:
+        """Producer hook: turn a viewer ROI drag into a preview state event.
+
+        Args:
+            roi_id: ROI id whose Plotly shape changed.
+            x0: First x coordinate in Plotly coordinate space.
+            x1: Second x coordinate in Plotly coordinate space.
+            y0: First y coordinate in Plotly coordinate space.
+            y1: Second y coordinate in Plotly coordinate space.
+
+        Returns:
+            None.
+        """
+        selection = self.current_selection
+        if selection.file_id is None or selection.roi_id != roi_id:
+            return
+        acq_image = self.get_selected_acq_image()
+        grid = self._current_grid
+        if acq_image is None or grid is None:
+            return
+        bounds = _rect_roi_bounds_from_plot_coords(
+            x0=x0,
+            x1=x1,
+            y0=y0,
+            y1=y1,
+            grid=grid,
+        ).clamped_to(acq_image.rois.image_bounds)
+        self.event_bus.publish(
+            RoiEditPreviewChanged(selection=selection, bounds=bounds)
+        )
 
     def _on_primary_x_range_changed(self, event: PrimaryXRangeChanged) -> None:
         """Consumer: cache the authoritative x-range and apply it to the viewer.
@@ -471,6 +514,51 @@ class PrimaryImageView(BaseView):
             self._refresh_roi_overlays_from_current_selection()
             self._refresh_diameter_trace_overlays_from_current_selection()
 
+    def _on_roi_edit_mode_changed(self, event: RoiEditModeChanged) -> None:
+        """Enable or disable direct ROI editing in the raster viewer.
+
+        Args:
+            event: ROI edit-mode state event.
+
+        Returns:
+            None.
+        """
+        if event.is_editing:
+            if event.selection is None or event.selection.file_id != self.current_selection.file_id:
+                return
+            roi_id = event.selection.roi_id
+            if roi_id is None:
+                return
+            self._viewer.select_roi(roi_id)
+            self._viewer.set_roi_editing(True, roi_id)
+            return
+
+        self._viewer.set_roi_editing(False, None)
+        self._refresh_roi_overlays_from_current_selection()
+
+    def _on_roi_edit_preview_changed(self, event: RoiEditPreviewChanged) -> None:
+        """Apply staged ROI edit bounds to the visible overlay only.
+
+        Args:
+            event: ROI edit preview state event.
+
+        Returns:
+            None.
+        """
+        selection = self.current_selection
+        if event.selection.file_id != selection.file_id or event.selection.roi_id != selection.roi_id:
+            return
+        acq_image = self.get_selected_acq_image()
+        grid = self._current_grid
+        if acq_image is None or grid is None:
+            return
+        self._refresh_roi_overlays(
+            acq_image=acq_image,
+            grid=grid,
+            preview_bounds=event.bounds,
+            preview_roi_id=event.selection.roi_id,
+        )
+
     def _on_analysis_completed(self, event: AnalysisCompleted) -> None:
         """Refresh diameter trace overlays when analysis completes.
 
@@ -505,12 +593,16 @@ class PrimaryImageView(BaseView):
         *,
         acq_image: AcqImage | None,
         grid: RasterGridSpec | None,
+        preview_bounds: RectRoiBounds | None = None,
+        preview_roi_id: int | None = None,
     ) -> None:
         """Push current rectangular ROI overlays into the Plotly viewer.
 
         Args:
             acq_image: Current acquisition image, or None.
             grid: Current raster viewer grid, or None.
+            preview_bounds: Optional staged bounds for one ROI.
+            preview_roi_id: ROI id receiving staged bounds.
 
         Returns:
             None.
@@ -521,6 +613,13 @@ class PrimaryImageView(BaseView):
             self._viewer.set_rois([])
             return
         overlays = _rect_roi_overlays_from_acq_image(acq_image, grid=grid)
+        if preview_bounds is not None and preview_roi_id is not None:
+            overlays = [
+                _rect_roi_overlay_from_bounds(preview_roi_id, preview_bounds, grid=grid)
+                if overlay.roi_id == preview_roi_id
+                else overlay
+                for overlay in overlays
+            ]
         self._viewer.set_rois(overlays)
         self._viewer.select_roi(self.current_selection.roi_id)
 
@@ -638,6 +737,62 @@ def _rect_roi_overlay_from_rect_roi(roi: RectROI, *, grid: RasterGridSpec) -> Re
         y0=float(bounds.dim1_start) * grid.dy,
         y1=float(bounds.dim1_stop) * grid.dy,
         label=str(roi.roi_id),
+    )
+
+
+def _rect_roi_overlay_from_bounds(
+    roi_id: int,
+    bounds: RectRoiBounds,
+    *,
+    grid: RasterGridSpec,
+) -> RectRoiOverlay:
+    """Convert rectangular bounds to a Plotly physical-coordinate overlay.
+
+    Args:
+        roi_id: ROI identifier.
+        bounds: Rectangular ROI bounds in image pixel coordinates.
+        grid: Raster viewer grid with physical spacing.
+
+    Returns:
+        Rectangular ROI overlay in Plotly coordinate space.
+    """
+    return RectRoiOverlay(
+        roi_id=roi_id,
+        x0=float(bounds.dim0_start) * grid.dx,
+        x1=float(bounds.dim0_stop) * grid.dx,
+        y0=float(bounds.dim1_start) * grid.dy,
+        y1=float(bounds.dim1_stop) * grid.dy,
+        label=str(roi_id),
+    )
+
+
+def _rect_roi_bounds_from_plot_coords(
+    *,
+    x0: float,
+    x1: float,
+    y0: float,
+    y1: float,
+    grid: RasterGridSpec,
+) -> RectRoiBounds:
+    """Convert Plotly physical ROI coordinates to pixel-coordinate bounds.
+
+    Args:
+        x0: First x coordinate in Plotly coordinate space.
+        x1: Second x coordinate in Plotly coordinate space.
+        y0: First y coordinate in Plotly coordinate space.
+        y1: Second y coordinate in Plotly coordinate space.
+        grid: Raster viewer grid with physical spacing.
+
+    Returns:
+        Rectangular ROI bounds in acqstore row/column coordinates.
+    """
+    dim0_start, dim0_stop = sorted((int(round(x0 / grid.dx)), int(round(x1 / grid.dx))))
+    dim1_start, dim1_stop = sorted((int(round(y0 / grid.dy)), int(round(y1 / grid.dy))))
+    return RectRoiBounds(
+        dim0_start=dim0_start,
+        dim0_stop=dim0_stop,
+        dim1_start=dim1_start,
+        dim1_stop=dim1_stop,
     )
 
 

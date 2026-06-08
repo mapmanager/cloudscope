@@ -72,6 +72,7 @@ PlotlyColorscale = str | list[list[float | str]]
 # Callback for user-driven x-axis range changes (relayout / double-click reset).
 # ``(None, None)`` means "auto / reset to full extent".
 OnPlotlyXRangeChanged = Callable[[float | None, float | None], None]
+OnRoiBoundsPreview = Callable[[int, float, float, float, float], None]
 
 _X_RANGE_ECHO_EPS = 1e-9
 
@@ -105,11 +106,13 @@ class PlotlyRasterViewer:
         *,
         display_options: PlotlyRasterViewerDisplayOptions | None = None,
         on_x_range_changed: OnPlotlyXRangeChanged | None = None,
+        on_roi_bounds_preview: OnRoiBoundsPreview | None = None,
     ) -> None:
         self._plot: Element | None = None
         self._service: RasterViewService | None = None
         self._plotly_dict: dict[str, object] = {}
         self._on_x_range_changed = on_x_range_changed
+        self._on_roi_bounds_preview = on_roi_bounds_preview
         # Last x-range applied via set_x_axis_range / set_data / double-click
         # reset; used to suppress echo relayouts that Plotly fires whenever
         # the x-axis range changes (whether user- or programmatic).
@@ -314,6 +317,22 @@ if (!plotDiv || !plotDiv.data) return;
         """
         self._plotly_rois.delete_roi(roi_id)
         self._sync_roi_shapes_to_plotly_dict()
+        self._relayout_shapes()
+
+    def set_roi_editing(self, enabled: bool, roi_id: int | None = None) -> None:
+        """Enable or disable direct editing for one ROI shape.
+
+        Args:
+            enabled: Whether ROI shape editing should be active.
+            roi_id: ROI id to make editable when ``enabled`` is True.
+
+        Returns:
+            None.
+        """
+        self._plotly_rois.set_roi_editing(roi_id if enabled else None)
+        self._sync_plotly_config_to_plotly_dict()
+        self._sync_roi_shapes_to_plotly_dict()
+        self._react_plotly_config()
         self._relayout_shapes()
 
     def set_trace_overlays(self, overlays: Sequence[PlotlyTraceOverlay]) -> None:
@@ -637,6 +656,13 @@ Plotly.restyle(plotDiv, {{
         """Synchronize Plotly config options into the local figure dict."""
         config = dict(RASTER_VIEWER_PLOTLY_CONFIG)
         config['displayModeBar'] = bool(self._display_options.show_plotly_toolbar)
+        config['edits'] = {
+            'shapePosition': self._plotly_rois.editing_roi_id is not None,
+            'titleText': False,
+            'axisTitleText': False,
+            'legendText': False,
+            'legendPosition': False,
+        }
         self._plotly_dict['config'] = config
 
     def _sync_axis_labels_to_plotly_dict(self) -> None:
@@ -1119,6 +1145,9 @@ Plotly.restyle(plotDiv, {{
         # pprint args, skipping 'shapes' key
         
 
+        if self._handle_roi_shape_relayout(args):
+            return
+
         if not any(k.startswith('xaxis.range') or k.startswith('yaxis.range') for k in args):
             return
 
@@ -1129,6 +1158,119 @@ Plotly.restyle(plotDiv, {{
             return
 
         await self.rerender_from_plotly(viewport)
+
+    def _handle_roi_shape_relayout(self, args: dict[str, object]) -> bool:
+        """Handle Plotly shape drag relayout while ROI editing is active.
+
+        Args:
+            args: Raw Plotly relayout payload.
+
+        Returns:
+            True when the payload was an ROI edit payload and should not be
+            processed as an axis range update.
+        """
+        editing_roi_id = self._plotly_rois.editing_roi_id
+        if editing_roi_id is None:
+            return False
+        if not any(key.startswith('shapes[') for key in args):
+            return False
+
+        layout = self._plotly_dict.setdefault('layout', {})
+        shapes = layout.get('shapes', [])
+        if not isinstance(shapes, list):
+            return True
+
+        pending: dict[int, dict[str, float]] = {}
+        snapback = False
+        for key, value in args.items():
+            parsed = self._parse_shape_coord_relayout_key(key)
+            if parsed is None:
+                continue
+            shape_index, coord = parsed
+            if not (0 <= shape_index < len(shapes)):
+                snapback = True
+                break
+            shape = shapes[shape_index]
+            if not isinstance(shape, dict):
+                snapback = True
+                break
+            roi_id = PlotlyRoiOverlayLayer.roi_id_from_shape(shape)
+            if roi_id != editing_roi_id:
+                snapback = True
+                break
+            try:
+                fval = float(value)
+            except (TypeError, ValueError):
+                continue
+            pending.setdefault(roi_id, {})[coord] = fval
+
+        if snapback:
+            self._sync_roi_shapes_to_plotly_dict()
+            self._relayout_shapes()
+            return True
+
+        edited = False
+        for roi_id, coords in pending.items():
+            roi = self._plotly_roi_by_id(roi_id)
+            if roi is None:
+                continue
+            x0 = coords.get('x0', roi.x0)
+            x1 = coords.get('x1', roi.x1)
+            y0 = coords.get('y0', roi.y0)
+            y1 = coords.get('y1', roi.y1)
+            updated = self._plotly_rois.update_roi_bounds(
+                roi_id,
+                x0=x0,
+                x1=x1,
+                y0=y0,
+                y1=y1,
+            )
+            if updated is None:
+                continue
+            edited = True
+            if self._on_roi_bounds_preview is not None:
+                self._on_roi_bounds_preview(roi_id, updated.x0, updated.x1, updated.y0, updated.y1)
+
+        if edited:
+            self._sync_roi_shapes_to_plotly_dict()
+            self._relayout_shapes()
+        return True
+
+    @staticmethod
+    def _parse_shape_coord_relayout_key(key: str) -> tuple[int, str] | None:
+        """Parse ``shapes[N].x0`` style relayout keys.
+
+        Args:
+            key: Plotly relayout key.
+
+        Returns:
+            Tuple of shape index and coordinate name, or None for non-ROI
+            shape coordinate keys.
+        """
+        if not key.startswith('shapes['):
+            return None
+        try:
+            prefix, coord = key.split('].', 1)
+            index = int(prefix[len('shapes['):])
+        except (ValueError, IndexError):
+            return None
+        if coord not in {'x0', 'x1', 'y0', 'y1'}:
+            return None
+        return index, coord
+
+    def _plotly_roi_by_id(self, roi_id: int) -> RectRoiOverlay | None:
+        """Return a managed ROI overlay by id.
+
+        Args:
+            roi_id: ROI identifier.
+
+        Returns:
+            Matching ROI overlay, or None.
+        """
+        for roi in self._plotly_rois.rois:
+            if roi.roi_id == roi_id:
+                return roi
+        return None
 
     def _emit_x_range_from_relayout(self, merged: dict[str, object]) -> None:
         """Invoke ``on_x_range_changed`` from a merged relayout payload.
