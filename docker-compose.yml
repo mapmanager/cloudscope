@@ -8,8 +8,9 @@
 #   docker compose up --build cloudscope-dev
 #   then visit http://localhost:8080
 #
-# Optional local data mount:
-#   create ./data and place server-side files there; inside the app use /data
+# Server-side data mount:
+#   create ./data for local compose runs; inside the app use /data.
+#   On Oracle/prod, prefer an absolute host path such as /srv/cloudscope/data:/data.
 
 services:
   cloudscope:
@@ -26,9 +27,13 @@ services:
       CLOUDSCOPE_RELOAD: "0"
       CLOUDSCOPE_HOST: "0.0.0.0"
       PORT: "8080"
-      CLOUDSCOPE_SAMPLE_DATA_DIR: "/data/sample-data"
+      CLOUDSCOPE_DATA_DIR: "/data"
+      CLOUDSCOPE_SAMPLE_DATA_DIR: "/data/shared/sample-data"
+      CLOUDSCOPE_DEMO_SESSION_QUOTA_MB: "500"
+      CLOUDSCOPE_DEMO_MAX_UPLOAD_MB: "250"
+      CLOUDSCOPE_DEMO_MAX_SESSION_AGE_HOURS: "24"
     volumes:
-      - ./example-data:/data
+      - ./data:/data
 
   cloudscope-dev:
     build:
@@ -44,6 +49,11 @@ services:
       CLOUDSCOPE_RELOAD: "0"
       CLOUDSCOPE_HOST: "0.0.0.0"
       PORT: "8080"
+      CLOUDSCOPE_DATA_DIR: "/data"
+      CLOUDSCOPE_SAMPLE_DATA_DIR: "/data/shared/sample-data"
+      CLOUDSCOPE_DEMO_SESSION_QUOTA_MB: "500"
+      CLOUDSCOPE_DEMO_MAX_UPLOAD_MB: "250"
+      CLOUDSCOPE_DEMO_MAX_SESSION_AGE_HOURS: "24"
     volumes:
       - ./src:/app/src
-      - ./example-data:/data
+      - ./data:/data

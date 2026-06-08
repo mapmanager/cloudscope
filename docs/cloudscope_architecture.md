@@ -747,3 +747,48 @@ Cancellation depends on backend APIs checking cancellation callbacks. Any new lo
 ## Project Rules
 
 See `docs/cloudscope_project_rules.md` for repository layout, package boundary, API, testing, and development workflow rules.
+
+## User/workspace context
+
+CloudScope resolves a per-page `UserContext` before constructing the Home page. The
+context owns filesystem boundaries for GUI configuration, uploads, sample data,
+and future workspace files. This keeps page/controller state per-client while
+also avoiding shared persisted config in remote deployments.
+
+Supported context kinds:
+
+```text
+LOCAL_OS_USER
+    Native/local desktop usage. No CloudScope login is required; the logged-in
+    operating-system user is the user. Paths come from platformdirs.
+
+SERVER_DEMO
+    Anonymous cloud demo usage. The Home page uses fresh non-persistent
+    AppConfig defaults, shared sample data, and a disposable per-browser-session
+    upload directory under the server data root. Demo upload storage is checked
+    against per-upload and per-session quotas before files are copied. Demo
+    session directories have a `.last_used` marker and expired sessions are
+    cleaned up when a new demo context is resolved.
+
+SERVER_AUTH_USER
+    Future authenticated cloud usage. The authenticated identity maps to a
+    persistent directory under the server data root.
+```
+
+Remote deployments should set:
+
+```text
+CLOUDSCOPE_DATA_DIR=/data
+CLOUDSCOPE_DEMO_SESSION_QUOTA_MB=500
+CLOUDSCOPE_DEMO_MAX_UPLOAD_MB=250
+CLOUDSCOPE_DEMO_MAX_SESSION_AGE_HOURS=24
+```
+
+The Docker Compose file bind-mounts host data into `/data`. For local compose
+runs this can be `./data:/data`; for Oracle/prod prefer an absolute host path
+such as `/srv/cloudscope/data:/data` so user files are clearly outside the git
+working tree and survive container rebuilds/restarts.
+
+`AppConfig` remains the concrete config class for now, but it is loaded through
+`UserContext.config_path`. Demo contexts use non-persistent AppConfig defaults so
+demo users do not inherit saved UI layout, recent paths, or last-loaded paths.

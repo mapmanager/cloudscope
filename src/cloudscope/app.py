@@ -9,8 +9,8 @@ from typing import Any
 from nicegui import app, ui
 
 from acqstore.utils.logging import setup_logging as setup_acqstore_logging
-from cloudscope.app_config import AppConfig
 from cloudscope.pages.home_page import home_page  # noqa: F401  # registers page route
+from cloudscope.user_context import resolve_user_context
 from cloudscope.devtools.mvc_telemetry import is_mvc_telemetry_enabled
 from cloudscope.utils.logging import get_logger, setup_logging
 from nicewidgets.utils.logging import setup_logging as setup_nicewidgets_logging
@@ -171,7 +171,8 @@ def configure_native_window(config: CloudScopeRunConfig) -> None:
         logger.info('Skipping native window configuration because native mode is disabled.')
         return
 
-    app_config = AppConfig.load()
+    user_context = resolve_user_context(remote=config.remote, native=config.native)
+    app_config = user_context.load_app_config()
     x, y, w, h = app_config.get_window_rect()
     logger.info(f'initial window rect: x:{x}, y:{y}, w:{w}, h:{h}')
 

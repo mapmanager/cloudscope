@@ -780,8 +780,9 @@ def test_load_sample_data_intent_ensures_sample_then_loads_folder(tmp_path, monk
     fake_list = _FakeList([_FakeFile(str(sample_folder / 'a.oir'))])
     captured: dict[str, object] = {}
 
-    def _ensure_sample(name: str):
+    def _ensure_sample(name: str, *, sample_data_dir=None):
         captured['sample_name'] = name
+        captured['sample_data_dir'] = sample_data_dir
         return sample_folder
 
     def _load_safe(path: str, *, kind, **kwargs):

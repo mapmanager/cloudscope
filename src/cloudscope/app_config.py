@@ -274,9 +274,30 @@ class AppConfigData:
 class AppConfig:
     """Manager for loading and saving ``AppConfigData`` to disk."""
 
-    def __init__(self, *, path: Path, data: AppConfigData | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        path: Path,
+        data: AppConfigData | None = None,
+        persistent: bool = True,
+    ) -> None:
         self.path = path
         self.data = data if data is not None else AppConfigData()
+        self.persistent = persistent
+
+    @classmethod
+    def ephemeral(cls, *, config_path: Path | None = None) -> AppConfig:
+        """Return a non-persistent config initialized with factory defaults.
+
+        Args:
+            config_path: Optional nominal path used for diagnostics/tests.
+
+        Returns:
+            Non-persistent app config. Calls to ``save()`` are intentionally
+            ignored so demo sessions do not reuse saved UI state.
+        """
+        path = config_path or cls.default_config_path()
+        return cls(path=path, data=AppConfigData(), persistent=False)
 
     @staticmethod
     def default_config_path(
@@ -338,7 +359,10 @@ class AppConfig:
             return cls(path=path, data=default_data)
 
     def save(self) -> None:
-        """Persist current config data to disk."""
+        """Persist current config data to disk when persistence is enabled."""
+        if not self.persistent:
+            logger.debug('Skipping non-persistent AppConfig save for %s', self.path)
+            return
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps(self.data.to_json_dict(), indent=2), encoding='utf-8')
 

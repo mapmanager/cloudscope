@@ -19,6 +19,7 @@ from cloudscope.controllers.roi_controller import RoiController
 from cloudscope.controllers.x_range_controller import XRangeController
 from cloudscope.event_bus import EventBus
 from cloudscope.task_runner import TaskRunner
+from cloudscope.user_context import UserContext, resolve_user_context_from_env
 from cloudscope.events.files import LoadPathIntent, LoadPathKind
 from cloudscope.events.layout import ResetHomeLayoutIntent, SetHomeViewVisibleIntent
 from cloudscope.views.file_list_tree_view import AcqImageListTreeView
@@ -58,12 +59,14 @@ class HomePage:
         load_save_controller: Load/save controller.
         event_bus: Page-scoped event bus.
         app_config: Shared app configuration.
+        user_context: User/workspace context for config and storage paths.
     """
 
     controller: HomePageController
     load_save_controller: LoadSaveController
     event_bus: EventBus
     app_config: AppConfig
+    user_context: UserContext
 
     def build(self) -> None:
         """Build the page UI and load initial AcqStore state.
@@ -139,6 +142,7 @@ class HomePage:
         load_save_view = LoadSaveView(
             event_bus=self.event_bus,
             app_config=self.app_config,
+            user_context=self.user_context,
             initially_visible=True,
         )
         image_toolbar = ImageToolbarView(
@@ -455,6 +459,24 @@ class HomePage:
         app.on_shutdown(_persist_on_shutdown)
 
 
+def _get_or_create_demo_session_id() -> str | None:
+    """Return a browser-stable demo session id when NiceGUI storage is available."""
+    try:
+        browser_storage = app.storage.browser
+    except Exception:
+        logger.debug('NiceGUI browser storage unavailable for demo session id', exc_info=True)
+        return None
+    key = 'cloudscope_demo_session_id'
+    value = browser_storage.get(key)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    from uuid import uuid4
+
+    value = uuid4().hex
+    browser_storage[key] = value
+    return value
+
+
 @ui.page("/")
 def home_page() -> None:
     """Create all per-page objects for the CloudScope home page.
@@ -465,18 +487,21 @@ def home_page() -> None:
     logger.info('!!! debug timeout reset')
     
     event_bus = EventBus()
-    app_config = AppConfig.load(create_if_missing=False)
+    user_context = resolve_user_context_from_env(demo_session_id=_get_or_create_demo_session_id())
+    app_config = user_context.load_app_config(create_if_missing=False)
     controller = HomePageController(event_bus=event_bus)
     load_save_controller = LoadSaveController(
         event_bus=event_bus,
         home_controller=controller,
         app_config=app_config,
+        user_context=user_context,
     )
     page = HomePage(
         controller=controller,
         load_save_controller=load_save_controller,
         event_bus=event_bus,
         app_config=app_config,
+        user_context=user_context,
     )
     page.build()
 

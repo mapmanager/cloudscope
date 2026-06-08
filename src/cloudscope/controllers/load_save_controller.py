@@ -37,6 +37,7 @@ from cloudscope.events.files import (
 )
 from cloudscope.events.status import AppStatusChanged, StatusLevel, StatusSource
 from cloudscope.task_runner import TaskCancelled, TaskContext, TaskRunner
+from cloudscope.user_context import UserContext
 from cloudscope.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -120,6 +121,7 @@ class LoadSaveController:
         event_bus: Page-scoped event bus.
         home_controller: State-owner controller for loaded files and selection.
         app_config: Shared app configuration.
+        user_context: Optional user/workspace context for sample-data roots.
         task_runner: Optional single-active-task runner. When absent, operations
             run synchronously for tests and non-NiceGUI contexts.
     """
@@ -127,6 +129,7 @@ class LoadSaveController:
     event_bus: EventBus
     home_controller: HomePageController
     app_config: AppConfig
+    user_context: UserContext | None = None
     task_runner: TaskRunner | None = None
 
     def bind(self) -> None:
@@ -324,7 +327,8 @@ class LoadSaveController:
         """
         context.raise_if_cancelled()
         context.report_progress(0.0, f'Downloading sample {event.name}')
-        sample_path = ensure_sample(event.name)
+        sample_data_dir = self.user_context.sample_data_dir if self.user_context is not None else None
+        sample_path = ensure_sample(event.name, sample_data_dir=sample_data_dir)
         context.raise_if_cancelled()
         context.report_progress(0.5, f'Loading sample {event.name}')
 

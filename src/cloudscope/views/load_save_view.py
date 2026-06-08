@@ -31,6 +31,8 @@ from cloudscope.events.files import (
 from cloudscope.events.status import AppStatusChanged, StatusLevel, StatusSource
 from cloudscope._py_web_view import _prompt_for_path
 from cloudscope.app_config import AppConfig, normalize_stored_path
+from cloudscope.quota import QuotaExceededError, ensure_within_quota
+from cloudscope.user_context import UserContext
 from cloudscope.utils.logging import get_logger
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
@@ -77,6 +79,7 @@ class LoadSaveView(BaseView):
     Args:
         event_bus: Page-scoped event bus.
         app_config: Shared app configuration for recents and native dialog defaults.
+        user_context: Optional user/workspace context for upload storage.
         initially_visible: Whether the view starts visible.
     """
 
@@ -88,10 +91,12 @@ class LoadSaveView(BaseView):
         *,
         event_bus: EventBus,
         app_config: AppConfig,
+        user_context: UserContext | None = None,
         initially_visible: bool = True,
     ) -> None:
         super().__init__(event_bus=event_bus, app_state=None, initially_visible=initially_visible)
         self.app_config = app_config
+        self.user_context = user_context
         self._save_selected_button: ui.button | None = None
         self._save_all_button: ui.button | None = None
         self._client = None
@@ -354,7 +359,28 @@ class LoadSaveView(BaseView):
             notification (if any) to surface.
         """
         try:
-            stored_path = store_uploaded_file(source_path, original_filename=original_filename)
+            upload_dir = self.user_context.upload_dir if self.user_context is not None else None
+            if self.user_context is not None:
+                try:
+                    incoming_bytes = source_path.stat().st_size
+                except OSError:
+                    incoming_bytes = 0
+                ensure_within_quota(
+                    root=self.user_context.data_dir,
+                    incoming_bytes=incoming_bytes,
+                    quota_bytes=self.user_context.quota_bytes,
+                    max_upload_bytes=self.user_context.max_upload_bytes,
+                )
+            stored_path = store_uploaded_file(
+                source_path,
+                original_filename=original_filename,
+                upload_dir=upload_dir,
+            )
+            if self.user_context is not None:
+                self.user_context.touch_last_used()
+        except QuotaExceededError as exc:
+            logger.warning('Upload rejected by quota: %s', exc)
+            return _UploadOutcome(notify=_UploadNotice(message=str(exc), type='warning'))
         except UploadCollisionError as exc:
             logger.warning('Upload collision: %s', exc)
             return _UploadOutcome(

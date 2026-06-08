@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from cloudscope.app_config import AppConfig
+from cloudscope.quota import StorageQuota
 from cloudscope.event_bus import EventBus
 from cloudscope.events.files import LoadPathIntent, LoadPathKind
 from cloudscope.views.load_save_view import (
@@ -260,17 +261,17 @@ def test_handle_upload_paths_publishes_load_intent_on_success(
 
     src = tmp_path / 'source.tmp'
     src.write_bytes(b'data')
-    upload_dir = tmp_path / 'uploads'
+    target_upload_dir = tmp_path / 'uploads'
 
     import cloudscope.views.load_save_view as load_save_module
 
-    def fake_store(source_path: Path, *, original_filename: str) -> Path:
+    def fake_store(source_path: Path, *, original_filename: str, upload_dir=None) -> Path:
         from acqstore.upload_store import store_uploaded_file
 
         return store_uploaded_file(
             source_path,
             original_filename=original_filename,
-            upload_dir=upload_dir,
+            upload_dir=upload_dir or target_upload_dir,
         )
 
     monkeypatch.setattr(load_save_module, 'store_uploaded_file', fake_store)
@@ -278,13 +279,13 @@ def test_handle_upload_paths_publishes_load_intent_on_success(
     outcome = view._handle_upload_paths(source_path=src, original_filename='sample.oir')
 
     assert outcome.intent == LoadPathIntent(
-        path=str(upload_dir / 'sample.oir'),
+        path=str(target_upload_dir / 'sample.oir'),
         kind=LoadPathKind.FILE,
         from_recent=False,
     )
     assert outcome.notify is not None
     assert outcome.notify.type == 'positive'
-    assert (upload_dir / 'sample.oir').read_bytes() == b'data'
+    assert (target_upload_dir / 'sample.oir').read_bytes() == b'data'
 
 
 def test_handle_upload_paths_warns_on_collision(
@@ -296,19 +297,19 @@ def test_handle_upload_paths_warns_on_collision(
 
     src = tmp_path / 'source.tmp'
     src.write_bytes(b'data')
-    upload_dir = tmp_path / 'uploads'
-    upload_dir.mkdir()
-    (upload_dir / 'sample.oir').write_bytes(b'existing')
+    target_upload_dir = tmp_path / 'uploads'
+    target_upload_dir.mkdir()
+    (target_upload_dir / 'sample.oir').write_bytes(b'existing')
 
     import cloudscope.views.load_save_view as load_save_module
 
-    def fake_store(source_path: Path, *, original_filename: str) -> Path:
+    def fake_store(source_path: Path, *, original_filename: str, upload_dir=None) -> Path:
         from acqstore.upload_store import store_uploaded_file
 
         return store_uploaded_file(
             source_path,
             original_filename=original_filename,
-            upload_dir=upload_dir,
+            upload_dir=upload_dir or target_upload_dir,
         )
 
     monkeypatch.setattr(load_save_module, 'store_uploaded_file', fake_store)
@@ -330,17 +331,17 @@ def test_handle_upload_paths_warns_on_unsupported_extension(
 
     src = tmp_path / 'source.tmp'
     src.write_bytes(b'data')
-    upload_dir = tmp_path / 'uploads'
+    target_upload_dir = tmp_path / 'uploads'
 
     import cloudscope.views.load_save_view as load_save_module
 
-    def fake_store(source_path: Path, *, original_filename: str) -> Path:
+    def fake_store(source_path: Path, *, original_filename: str, upload_dir=None) -> Path:
         from acqstore.upload_store import store_uploaded_file
 
         return store_uploaded_file(
             source_path,
             original_filename=original_filename,
-            upload_dir=upload_dir,
+            upload_dir=upload_dir or target_upload_dir,
         )
 
     monkeypatch.setattr(load_save_module, 'store_uploaded_file', fake_store)
@@ -350,3 +351,97 @@ def test_handle_upload_paths_warns_on_unsupported_extension(
     assert outcome.intent is None
     assert outcome.notify is not None
     assert outcome.notify.type == 'warning'
+
+
+def test_handle_upload_paths_uses_user_context_upload_dir(tmp_path: Path) -> None:
+    """Upload persistence should use the per-user upload directory when supplied."""
+    from cloudscope.user_context import resolve_user_context
+
+    context = resolve_user_context(remote=True, native=False, demo_session_id='demo-upload')
+    context = context.__class__(
+        kind=context.kind,
+        user_id=context.user_id,
+        config_path=tmp_path / 'demo' / 'app_config.json',
+        data_dir=tmp_path / 'demo',
+        upload_dir=tmp_path / 'demo' / 'uploads',
+        sample_data_dir=tmp_path / 'shared' / 'sample-data',
+        cache_dir=tmp_path / 'demo' / 'cache',
+        quota=StorageQuota(quota_bytes=1024),
+        last_used_path=tmp_path / 'demo' / '.last_used',
+        persistent=False,
+    )
+    cfg = AppConfig.ephemeral(config_path=context.config_path)
+    view = LoadSaveView(event_bus=EventBus(), app_config=cfg, user_context=context, initially_visible=False)
+    src = tmp_path / 'source.tmp'
+    src.write_bytes(b'data')
+
+    outcome = view._handle_upload_paths(source_path=src, original_filename='sample.oir')
+
+    assert outcome.intent == LoadPathIntent(
+        path=str(context.upload_dir / 'sample.oir'),
+        kind=LoadPathKind.FILE,
+        from_recent=False,
+    )
+    assert (context.upload_dir / 'sample.oir').read_bytes() == b'data'
+
+
+def test_handle_upload_paths_rejects_user_context_quota(tmp_path: Path) -> None:
+    """Uploads that exceed the per-context quota should be rejected before copying."""
+    from cloudscope.user_context import resolve_user_context
+
+    context = resolve_user_context(remote=True, native=False, demo_session_id='demo-quota')
+    context = context.__class__(
+        kind=context.kind,
+        user_id=context.user_id,
+        config_path=tmp_path / 'demo' / 'app_config.json',
+        data_dir=tmp_path / 'demo',
+        upload_dir=tmp_path / 'demo' / 'uploads',
+        sample_data_dir=tmp_path / 'shared' / 'sample-data',
+        cache_dir=tmp_path / 'demo' / 'cache',
+        quota=StorageQuota(quota_bytes=1),
+        last_used_path=tmp_path / 'demo' / '.last_used',
+        persistent=False,
+    )
+    cfg = AppConfig.ephemeral(config_path=context.config_path)
+    view = LoadSaveView(event_bus=EventBus(), app_config=cfg, user_context=context, initially_visible=False)
+    src = tmp_path / 'source.tmp'
+    src.write_bytes(b'data')
+
+    outcome = view._handle_upload_paths(source_path=src, original_filename='sample.oir')
+
+    assert outcome.intent is None
+    assert outcome.notify is not None
+    assert outcome.notify.type == 'warning'
+    assert 'quota' in outcome.notify.message.lower()
+    assert not (context.upload_dir / 'sample.oir').exists()
+
+
+def test_handle_upload_paths_rejects_user_context_max_upload(tmp_path: Path) -> None:
+    """Uploads larger than the per-context file limit should be rejected before copying."""
+    from cloudscope.user_context import resolve_user_context
+
+    context = resolve_user_context(remote=True, native=False, demo_session_id='demo-max-upload')
+    context = context.__class__(
+        kind=context.kind,
+        user_id=context.user_id,
+        config_path=tmp_path / 'demo' / 'app_config.json',
+        data_dir=tmp_path / 'demo',
+        upload_dir=tmp_path / 'demo' / 'uploads',
+        sample_data_dir=tmp_path / 'shared' / 'sample-data',
+        cache_dir=tmp_path / 'demo' / 'cache',
+        quota=StorageQuota(quota_bytes=1024, max_upload_bytes=1),
+        last_used_path=tmp_path / 'demo' / '.last_used',
+        persistent=False,
+    )
+    cfg = AppConfig.ephemeral(config_path=context.config_path)
+    view = LoadSaveView(event_bus=EventBus(), app_config=cfg, user_context=context, initially_visible=False)
+    src = tmp_path / 'source.tmp'
+    src.write_bytes(b'data')
+
+    outcome = view._handle_upload_paths(source_path=src, original_filename='sample.oir')
+
+    assert outcome.intent is None
+    assert outcome.notify is not None
+    assert outcome.notify.type == 'warning'
+    assert 'larger' in outcome.notify.message.lower()
+    assert not (context.upload_dir / 'sample.oir').exists()
