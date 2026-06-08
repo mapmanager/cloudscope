@@ -47,6 +47,7 @@ class _FakeAcqImage:
             'path': self.path,
             'parent': parent,
             'grandparent': grandparent,
+            'condition': '',
             'genotype': '',
             'num_channels': 1,
             'num_rois': 0 if self._default_roi is None else 1,
@@ -123,6 +124,7 @@ def test_get_schema_rows_match_backend_schema(tmp_path: Path) -> None:
 
     rows = file_list.get_schema_rows()
     assert list(rows[0].keys()) == list(ACQ_FILE_LIST_SCHEMA.field_names())
+    assert rows[0]['condition'] == ''
 
 
 def test_build_file_list_folder_depth_one_skips_subdirs(tmp_path: Path) -> None:

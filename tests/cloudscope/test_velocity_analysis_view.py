@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from cloudscope.app_config import AppConfig
 from cloudscope.event_bus import EventBus
 from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind, RunAnalysisIntent
 from cloudscope.events.roi import RoiChanged, RoiChangeKind
 from cloudscope.state import PrimarySelection
 from cloudscope.views.base_view import BaseView
+from cloudscope.views.event_analysis_view import EventAnalysisView
 from cloudscope.views.velocity_analysis_view import (
     VelocityAnalysisView,
     _load_radon_velocity_analysis_class,
@@ -23,6 +25,26 @@ def test_velocity_analysis_view_is_base_view() -> None:
 
     assert isinstance(view, BaseView)
     assert view.view_id is ViewId.VELOCITY_ANALYSIS
+
+
+def test_velocity_analysis_view_owns_event_analysis_view(tmp_path) -> None:
+    """VelocityAnalysisView should embed the event editor controls."""
+    config = AppConfig.load(config_path=tmp_path / "app_config.json")
+    view = VelocityAnalysisView(event_bus=EventBus(), app_config=config)
+
+    assert isinstance(view.event_analysis_view, EventAnalysisView)
+    assert view.event_analysis_view.is_visible is False
+
+
+def test_velocity_analysis_view_forwards_visibility_to_event_view() -> None:
+    """Embedded event controls should subscribe only while velocity is visible."""
+    view = VelocityAnalysisView(event_bus=EventBus(), initially_visible=False)
+
+    view.set_visible(True)
+    assert view.event_analysis_view.is_visible is True
+
+    view.set_visible(False)
+    assert view.event_analysis_view.is_visible is False
 
 
 def test_velocity_analysis_view_selection_snapshot_uses_base_selection() -> None:

@@ -257,12 +257,22 @@ ACQ_FILE_LIST_SCHEMA = SchemaDefinition(
             group='File',
         ),
         FieldSchema(
+            name='condition',
+            display_name='Condition',
+            value_type=ValueType.STR,
+            description='Experimental condition or treatment.',
+            default_value='',
+            visible=False,
+            group='Experiment',
+        ),
+        FieldSchema(
             name='genotype',
             display_name='Genotype',
             value_type=ValueType.STR,
             description='Genotype or strain label.',
             default_value='',
-            group='Animal',
+            visible=False,
+            group='Experiment',
         ),
         FieldSchema(
             name='num_channels',

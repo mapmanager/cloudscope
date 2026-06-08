@@ -28,7 +28,7 @@ from cloudscope.events.files import (
     SaveAllIntent,
     SaveSelectedIntent,
 )
-from cloudscope.events.status import AppStatusChanged, StatusLevel, StatusSource
+from cloudscope.events.status import AppStatusChanged
 from cloudscope._py_web_view import _prompt_for_path
 from cloudscope.app_config import AppConfig, normalize_stored_path
 from cloudscope.quota import QuotaExceededError, ensure_within_quota
@@ -42,6 +42,7 @@ logger = get_logger(__name__)
 
 _UPLOAD_COMPACT_CSS_CLASS = 'cloudscope-upload-compact'
 _UPLOAD_COMPACT_CSS = """
+.q-uploader.cloudscope-upload-compact { width: fit-content; min-width: 0; }
 .cloudscope-upload-compact { min-height: 36px; }
 .cloudscope-upload-compact .q-uploader__list { display: none; }
 .cloudscope-upload-compact .q-uploader__header-content { padding: 4px 8px; min-height: 36px; }
@@ -179,14 +180,12 @@ class LoadSaveView(BaseView):
 
         ui.button('Load File', on_click=lambda: self._on_load_clicked(LoadPathKind.FILE))
         ui.button('Load Folder', on_click=lambda: self._on_load_clicked(LoadPathKind.FOLDER))
-        ui.button('Load CSV', on_click=lambda: self._on_load_clicked(LoadPathKind.CSV))
-        ui.button('Load Sample Data', on_click=self._on_load_sample_data_clicked)
         self._build_upload_control()
 
         self._save_selected_button = ui.button(
             'Save Selected',
             on_click=self._on_save_selected_clicked,
-        )
+        ).classes('ml-auto')
         self._save_all_button = ui.button(
             'Save All',
             on_click=self._on_save_all_clicked,
@@ -195,11 +194,17 @@ class LoadSaveView(BaseView):
     def _build_upload_control(self) -> None:
         """Mount the inline compact upload widget that doubles as a drop target.
 
+        Skipped in native mode: native runs use the pywebview file picker via
+        ``Load File`` and do not support the browser ``ui.upload`` flow, so the
+        upload control is only built for browser/remote runs.
+
         Returns:
             None.
         """
+        if self._is_native_mode():
+            return
         ui.add_css(_UPLOAD_COMPACT_CSS)
-        with ui.element('div').classes('inline-flex items-center shrink-0').style('width: 220px'):
+        with ui.element('div').classes('inline-flex items-center shrink-0'):
             self._upload_widget = UploadWidget(
                 label='Upload File',
                 accept=_accepted_upload_extensions(),
@@ -254,6 +259,10 @@ class LoadSaveView(BaseView):
                 ui.menu_item(label, lambda p=item, k=kind: self._load_recent(p, k))
             if recent_folders or recent_files:
                 ui.separator()
+            ui.menu_item('Load CSV', lambda: self._on_load_clicked(LoadPathKind.CSV))
+            ui.menu_item('Load Sample Data', self._on_load_sample_data_clicked)
+            if recent_folders or recent_files:
+                ui.separator()
                 ui.menu_item('Clear recents', lambda: self.event_bus.publish(ClearRecentPathsIntent()))
 
     def _rebuild_history_menu_impl(self) -> None:
@@ -280,11 +289,7 @@ class LoadSaveView(BaseView):
     def _update_history_button_enabled(self) -> None:
         if self._history_button is None:
             return
-        has_any = bool(self.app_config.get_recent_folders() or self.app_config.get_recent_files())
-        if has_any:
-            self._history_button.enable()
-        else:
-            self._history_button.disable()
+        self._history_button.enable()
 
     # def _emit_load(self, kind: LoadPathKind) -> None:
     #     if self._path_input is None:

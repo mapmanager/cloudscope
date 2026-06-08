@@ -48,8 +48,9 @@ class _FakeRois:
 class _FakeMetadata:
     """Small metadata-section test double for schema-row generation."""
 
-    def __init__(self, *, genotype: str = 'wt') -> None:
+    def __init__(self, *, genotype: str = 'wt', condition: str = '') -> None:
         self.genotype = genotype
+        self.condition = condition
 
     def is_dirty(self) -> bool:
         """Return clean state for tests."""
@@ -92,7 +93,7 @@ def _make_acq_image(path: Path, *, with_analysis: bool = True) -> AcqImage:
     acq_image.path = str(path.resolve())
     acq_image._accept = True
     acq_image._images = _FakeImages(num_channels=2)
-    acq_image._experimental_metadata = _FakeMetadata(genotype='wt')
+    acq_image._experimental_metadata = _FakeMetadata(genotype='wt', condition='control')
     acq_image._image_header_metadata = _FakeMetadata(genotype='')
     acq_image._rois = _FakeRois(num_rois=3)
     acq_image._acq_analysis_set = AcqAnalysisSet(acq_image.path)
@@ -127,6 +128,7 @@ def test_acq_image_tree_rows_file_row_carries_schema_keys_with_values(tmp_path: 
 
     for key, value in schema_row.items():
         assert file_row[key] == value
+    assert file_row['condition'] == 'control'
     assert file_row[ACQ_TREE_ROW_ID_FIELD] == acq_image.file_id
     assert file_row[ACQ_TREE_ROW_TYPE_FIELD] == ACQ_TREE_ROW_TYPE_FILE
     assert file_row[ACQ_TREE_ANALYSIS_NAME_FIELD] is None

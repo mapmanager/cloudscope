@@ -11,12 +11,14 @@ from nicegui import ui
 from acqstore.acq_image.analysis.batch.preview import preview_batch_rows, roi_intersection_across_acq_images
 from acqstore.acq_image.analysis.batch.roi_mode import RoiBatchMode
 from acqstore.acq_image.analysis.model import AnalysisKey
+from cloudscope.app_config import AppConfig
 from cloudscope.event_bus import EventBus
 from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind, RunAnalysisIntent, RunBatchAnalysisIntent
 from cloudscope.events.roi import RoiChanged
 from cloudscope.state import PrimarySelection
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.dialogs.batch_analysis_dialog import BatchAnalysisDialog, BatchAnalysisDialogResult
+from cloudscope.views.event_analysis_view import EventAnalysisView
 from cloudscope.views.view_ids import ViewId
 
 from cloudscope.utils.logging import get_logger
@@ -48,6 +50,7 @@ class VelocityAnalysisView(BaseView):
         event_bus: Page-scoped event bus.
         app_state: Optional page/controller state object.
         initially_visible: Whether this view starts visible.
+        app_config: Shared app configuration used by embedded event controls.
     """
 
     view_id = ViewId.VELOCITY_ANALYSIS
@@ -58,6 +61,7 @@ class VelocityAnalysisView(BaseView):
         app_state: Any | None = None,
         *,
         initially_visible: bool = False,
+        app_config: AppConfig | None = None,
     ) -> None:
         super().__init__(event_bus=event_bus, app_state=app_state, initially_visible=initially_visible)
         self._params_container: ui.column | None = None
@@ -65,6 +69,13 @@ class VelocityAnalysisView(BaseView):
         self._run_button: ui.button | None = None
         self._batch_button: ui.button | None = None
         self._param_controls: dict[str, Any] = {}
+        table_font_size_px = 12 if app_config is None else int(app_config.data.table_font_size_px)
+        self.event_analysis_view = EventAnalysisView(
+            event_bus=event_bus,
+            app_state=app_state,
+            initially_visible=False,
+            table_font_size_px=table_font_size_px,
+        )
 
     def build(self, parent: ui.element | None = None) -> ui.element:
         """Build the velocity analysis panel.
@@ -75,7 +86,7 @@ class VelocityAnalysisView(BaseView):
         Returns:
             Root element for this view.
         """
-        card_classes = "w-full h-full min-h-0 flex flex-col"
+        card_classes = "w-full h-full min-h-0 flex flex-col overflow-y-auto"
         if parent is None:
             with ui.card().classes(card_classes) as self.root:
                 self._build_content()
@@ -85,6 +96,24 @@ class VelocityAnalysisView(BaseView):
                     self._build_content()
         self.after_build()
         return self.root
+
+    def on_show(self) -> None:
+        """Show the velocity panel and embedded event controls.
+
+        Returns:
+            None.
+        """
+        super().on_show()
+        self.event_analysis_view.set_visible(True)
+
+    def on_hide(self) -> None:
+        """Hide the velocity panel and embedded event controls.
+
+        Returns:
+            None.
+        """
+        super().on_hide()
+        self.event_analysis_view.set_visible(False)
 
     def subscribe_events(self) -> None:
         """Subscribe to analysis completion events while visible.
@@ -152,18 +181,17 @@ class VelocityAnalysisView(BaseView):
         """
         ui.label("Velocity analysis").classes("text-lg font-semibold shrink-0")
         self.build_selection_label()
-        self._params_container = ui.column().classes(
-            "w-full gap-2 min-h-0 flex-1 overflow-y-auto pr-1"
-        )
+        self._params_container = ui.column().classes("w-full gap-2 min-h-0 pr-1")
         self._build_param_controls()
-        self._results_container = ui.column().classes("w-full gap-2 shrink-0")
+        self._results_container = ui.column().classes("w-full gap-2")
         self._build_results_controls()
         self._run_button = ui.button("Run Radon Analysis", on_click=self._on_run_clicked).classes(
-            "w-full shrink-0"
+            "w-full"
         )
         self._batch_button = ui.button("Batch analyze visible rows", on_click=self._on_batch_clicked).classes(
-            "w-full shrink-0"
+            "w-full"
         )
+        self.event_analysis_view.build()
         self._refresh_run_button()
 
     def _build_param_controls(self) -> None:

@@ -32,11 +32,6 @@ from cloudscope.views.view_ids import ViewId
 from nicewidgets.contrast_widget.contrast_widget import ContrastWidget
 from nicewidgets.contrast_widget.intent import ContrastChangedIntent
 from nicewidgets.image_toolbar_widget.image_toolbar_widget import ImageToolbarWidget
-
-logger = get_logger(__name__)
-
-_USE_CURRENT_ROI: Final = object()
-
 from nicewidgets.image_toolbar_widget.intent import (
     ImageToolbarIntent,
     ImageToolbarRoiAddRequestIntent,
@@ -49,6 +44,10 @@ from nicewidgets.image_toolbar_widget.intent import (
     ImageToolbarSelectChannelIntent,
     ImageToolbarSelectRoiIntent,
 )
+
+logger = get_logger(__name__)
+
+_USE_CURRENT_ROI: Final = object()
 
 
 class _ImageHelperProtocol(Protocol):
@@ -148,10 +147,11 @@ class ImageToolbarView(BaseView):
     def _build_children(self) -> None:
         """Build the image toolbar and contrast widget on the same row."""
         self._toolbar = ImageToolbarWidget(on_intent=self._on_toolbar_intent)
-        self._contrast = ContrastWidget(
-            on_intent=self._on_contrast_intent,
-            auto_contrast_callback=self._compute_auto_contrast,
-        )
+        with ui.element('div').classes('ml-auto'):
+            self._contrast = ContrastWidget(
+                on_intent=self._on_contrast_intent,
+                auto_contrast_callback=self._compute_auto_contrast,
+            )
         # Wait for a real plane before enabling the contrast controls.
         self._contrast.set_enabled_ext(False)
 

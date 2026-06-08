@@ -159,6 +159,18 @@ def test_is_native_mode_false_when_app_lacks_native(monkeypatch) -> None:
     assert LoadSaveView._is_native_mode() is False
 
 
+def test_build_upload_control_skipped_in_native_mode(monkeypatch, tmp_path) -> None:
+    """Native runs should not build the browser upload control."""
+    from nicegui import app as nicegui_app
+
+    monkeypatch.setattr(nicegui_app, "native", object(), raising=False)
+    view = _new_view(tmp_path)
+
+    view._build_upload_control()
+
+    assert view._upload_widget is None
+
+
 # ---- _update_button_states with fake buttons ----
 
 
