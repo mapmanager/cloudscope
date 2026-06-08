@@ -38,9 +38,9 @@ class LeftToolbarTab:
 
 _LEFT_TOOLBAR_TABS: tuple[LeftToolbarTab, ...] = (
     LeftToolbarTab(ViewId.METADATA, "Metadata", "description"),
-    LeftToolbarTab(ViewId.VELOCITY_ANALYSIS, "Velocity", "timeline"),
+    LeftToolbarTab(ViewId.VELOCITY_ANALYSIS, "Velocity", "speed"),
     LeftToolbarTab(ViewId.DIAMETER_ANALYSIS, "Diameter", "straighten"),
-    LeftToolbarTab(ViewId.EVENT_ANALYSIS, "Events", "event"),
+    LeftToolbarTab(ViewId.EVENT_ANALYSIS, "Events", "event"),  # move to inside VELOCITY_ANALYSIS
     LeftToolbarTab(ViewId.APP_CONFIG, "Config", "settings"),
     LeftToolbarTab(ViewId.APP_INFO, "App info", "info"),
 )
