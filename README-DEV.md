@@ -26,10 +26,10 @@ acqstore
 
     zip -r cloudscope_src_20260513_v1.zip src/cloudscope -i '*.py' '*.md'
 
-    zip -r cloudscope_src_20260602_v1.zip src -i '*.py' '*.md'
-    zip -r cloudscope_tests_20260602_v1.zip tests -i '*.py' '*.md'
-    zip -r cloudscope_docs_20260602_v1.zip docs -i '*.py' '*.md'
-    zip -r cloudscope_scripts_20260602_v1.zip scripts -i '*.py' '*.md'
+    zip -r cloudscope_src_20260607_v1.zip src -i '*.py' '*.md'
+    zip -r cloudscope_tests_20260607_v1.zip tests -i '*.py' '*.md'
+    zip -r cloudscope_docs_20260607_v1.zip docs -i '*.py' '*.md'
+    zip -r cloudscope_scripts_20260607_v1.zip scripts -i '*.py' '*.md'
 
     zip -r cloudscope_scripts_20260525_v6.zip scripts -i '*.py' '*.md'
     zip -r cloudscope_sandbox_20260525_v6.zip sandbox -i '*.py' '*.md'
