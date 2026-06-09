@@ -11,6 +11,7 @@ from nicegui import run, ui
 
 from acqstore.acq_image.acq_image import AcqImage
 from acqstore.acq_image.file_loaders.base_file_loader import ReferenceImagePlane
+from acqstore.acq_image.image_contrast import contrast_clip_min_max
 from cloudscope.event_bus import EventBus
 from cloudscope.events.theme import ThemeChanged
 from cloudscope.utils.logging import get_logger
@@ -84,6 +85,31 @@ def _load_reference_plane_payload(
     reference_plane = reference_image.get_plane(channel)
     grid = raster_grid_spec_from_reference_plane(reference_plane)
     return np.asarray(reference_plane.array), grid, 'Reference image'
+
+
+def reference_contrast_window(plane: np.ndarray) -> tuple[float, float] | None:
+    """Return a stable percentile contrast window for a reference image plane.
+
+    Reuses :func:`contrast_clip_min_max` (percentiles 1.0 / 99.5) so the
+    reference image PNG uses the same default-window logic as the primary
+    image. The window is baked into the PNG pixels by the raster service, which
+    keeps the overview contrast stable across pan/zoom instead of per-clip
+    auto-stretching.
+
+    Args:
+        plane: 2D reference image array.
+
+    Returns:
+        ``(zmin, zmax)`` floats, or ``None`` when the plane is empty or the
+        window is degenerate (``zmax <= zmin``, e.g. the placeholder plane). A
+        ``None`` result leaves the viewer's per-clip auto-stretch in place.
+    """
+    if plane.size == 0:
+        return None
+    lo, hi = contrast_clip_min_max(plane)
+    if hi <= lo:
+        return None
+    return float(lo), float(hi)
 
 
 def _schedule_coro(coro: Coroutine[Any, Any, None]) -> None:
@@ -295,9 +321,33 @@ class ReferenceImageView(BaseView):
 
         try:
             await self._viewer.set_data(plane, grid=grid)
+            await self._apply_reference_contrast(plane)
             if self._status_label is not None:
                 self._status_label.text = message
         except RuntimeError as exc:
             logger.exception('Reference image set_data failed: %s', exc)
             err_msg = str(exc)
             self._run_ui(lambda: ui.notify(err_msg, type='negative'))
+
+    async def _apply_reference_contrast(self, plane: np.ndarray) -> None:
+        """Bake a stable percentile contrast window into the reference PNG.
+
+        No-op for empty or degenerate planes (e.g. the placeholder), which
+        keeps the viewer's default per-clip auto-stretch. This is not wired to
+        the contrast toolbar; the window is derived directly from the loaded
+        plane.
+
+        Args:
+            plane: 2D reference image array just passed to the viewer.
+
+        Returns:
+            None.
+        """
+        window = reference_contrast_window(plane)
+        if window is None:
+            return
+        zmin, zmax = window
+        try:
+            await self._viewer.set_heatmap_contrast(zmin=zmin, zmax=zmax)
+        except RuntimeError as exc:
+            logger.warning('Skipping reference contrast (viewer not ready): %s', exc)

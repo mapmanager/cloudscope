@@ -11,6 +11,7 @@ from cloudscope.views.reference_image_view import (
     ReferenceImageView,
     _load_reference_plane_payload,
     raster_grid_spec_from_reference_plane,
+    reference_contrast_window,
 )
 from cloudscope.views.view_ids import ViewId
 
@@ -93,6 +94,32 @@ def test_reference_image_payload_uses_acqstore_plane_api() -> None:
     assert grid.x_unit == "um"
     assert grid.y_unit == "um"
     assert message == "Reference image"
+
+
+def test_reference_contrast_window_uses_percentiles() -> None:
+    """A non-degenerate plane yields a percentile (zmin, zmax) window."""
+    plane = np.arange(100, dtype=np.uint16).reshape(10, 10)
+
+    window = reference_contrast_window(plane)
+
+    assert window is not None
+    zmin, zmax = window
+    assert isinstance(zmin, float)
+    assert isinstance(zmax, float)
+    assert zmin < zmax
+    # Percentile clip (1.0 / 99.5) keeps the window inside the data extent.
+    assert zmin >= 0.0
+    assert zmax <= 99.0
+
+
+def test_reference_contrast_window_empty_plane_returns_none() -> None:
+    """An empty plane produces no window (viewer keeps auto-stretch)."""
+    assert reference_contrast_window(np.empty((0, 0), dtype=np.uint16)) is None
+
+
+def test_reference_contrast_window_flat_plane_returns_none() -> None:
+    """A flat plane (placeholder) is degenerate and returns no window."""
+    assert reference_contrast_window(np.zeros((2, 2), dtype=np.float32)) is None
 
 
 def test_raster_grid_spec_from_reference_plane() -> None:
