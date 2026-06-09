@@ -649,7 +649,7 @@ class PrimaryImageView(BaseView):
             None.
         """
 
-        logger.info('xxx may be slow down causing reset xxx')
+        # logger.info('xxx may be slow down causing reset xxx')
 
         if acq_image is None or grid is None:
             self._viewer.clear_trace_overlays()
@@ -679,7 +679,7 @@ class PrimaryImageView(BaseView):
         overlays = roi_local_traces_to_plotly_overlays(traces, roi=roi, grid=grid)
         self._viewer.set_trace_overlays(overlays)
 
-        logger.info('')
+        # logger.info('')
 
 def roi_local_traces_to_plotly_overlays(
     traces: tuple[AnalysisOverlayTraceData, ...],

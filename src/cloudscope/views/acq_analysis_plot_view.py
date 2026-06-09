@@ -116,7 +116,7 @@ class AcqAnalysisPlotView(BaseView):
         Returns:
             None.
         """
-        logger.info('')
+        # logger.info('')
 
         self._refresh_plot()
 

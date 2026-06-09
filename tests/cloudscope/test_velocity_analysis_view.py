@@ -221,6 +221,72 @@ def test_refresh_run_button_uses_valid_selection_helper() -> None:
     assert view._run_button.enabled is True
 
 
+# ---- copy results to clipboard ----
+
+
+class _FakeResult:
+    def __init__(self, table: object) -> None:
+        self.table = table
+
+
+class _FakeAnalysis:
+    def __init__(self, table: object, bookkeeping: object) -> None:
+        self.result = _FakeResult(table)
+        self._bookkeeping = bookkeeping
+
+    def table_with_bookkeeping(self) -> object:
+        return self._bookkeeping
+
+
+def test_on_copy_results_copies_tsv(monkeypatch) -> None:
+    """Copy handler should write the bookkeeping table as TSV to the clipboard."""
+    import pandas as pd
+
+    import cloudscope.views.velocity_analysis_view as mod
+
+    captured: dict[str, str] = {}
+    monkeypatch.setattr(mod, "copy_to_clipboard", lambda text: captured.update(text=text))
+    monkeypatch.setattr(mod.ui, "notify", lambda *args, **kwargs: None)
+
+    view = VelocityAnalysisView(event_bus=EventBus())
+    bookkeeping = pd.DataFrame({"channel": [0], "roi_id": [1], "velocity": [1.5]})
+    analysis = _FakeAnalysis(table=pd.DataFrame({"velocity": [1.5]}), bookkeeping=bookkeeping)
+    view._selected_analysis = lambda: analysis  # type: ignore[method-assign]
+
+    view._on_copy_results_clicked()
+
+    assert "\t" in captured["text"]
+    assert "velocity" in captured["text"]
+    assert "channel" in captured["text"]
+
+
+def test_on_copy_results_noop_when_no_table(monkeypatch) -> None:
+    """Copy handler should not touch the clipboard when there is no result table."""
+    import cloudscope.views.velocity_analysis_view as mod
+
+    calls: list[str] = []
+    monkeypatch.setattr(mod, "copy_to_clipboard", lambda text: calls.append(text))
+    monkeypatch.setattr(mod.ui, "notify", lambda *args, **kwargs: None)
+
+    view = VelocityAnalysisView(event_bus=EventBus())
+    view._selected_analysis = lambda: None  # type: ignore[method-assign]
+
+    view._on_copy_results_clicked()
+
+    assert calls == []
+
+
+def test_refresh_run_button_disables_copy_without_results() -> None:
+    """Copy button should be disabled when the selection has no result table."""
+    view = VelocityAnalysisView(event_bus=EventBus())
+    view._copy_button = _FakeButton()
+    view._selected_analysis = lambda: None  # type: ignore[method-assign]
+
+    view._refresh_run_button()
+
+    assert view._copy_button.enabled is False
+
+
 def test_refresh_selection_label_displays_no_file_when_unset() -> None:
     """No file selection should set the label to 'No file selected'."""
     view = VelocityAnalysisView(event_bus=EventBus())

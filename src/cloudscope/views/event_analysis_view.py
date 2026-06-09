@@ -224,7 +224,12 @@ class EventAnalysisView(BaseView):
             Root element.
         """
         embedded = self._table_height_px is not None
-        root_classes = "w-full shrink-0 gap-2" if embedded else "w-full h-full min-h-0 gap-2"
+        background = "bg-slate-50 dark:bg-slate-800 rounded-md p-2"
+        root_classes = (
+            f"w-full shrink-0 gap-2 {background}"
+            if embedded
+            else f"w-full h-full min-h-0 gap-2 {background}"
+        )
         if parent is None:
             self.root = ui.column().classes(root_classes)
         else:

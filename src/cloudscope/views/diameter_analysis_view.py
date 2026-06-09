@@ -18,6 +18,7 @@ from cloudscope.state import PrimarySelection
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.dialogs.batch_analysis_dialog import BatchAnalysisDialog, BatchAnalysisDialogResult
 from cloudscope.views.view_ids import ViewId
+from nicewidgets.utils.clipboard import copy_to_clipboard
 
 
 def _load_diameter_analysis_class() -> type[Any] | None:
@@ -76,6 +77,7 @@ class DiameterAnalysisView(BaseView):
         self._results_container: ui.column | None = None
         self._run_button: ui.button | None = None
         self._batch_button: ui.button | None = None
+        self._copy_button: ui.button | None = None
         self._param_controls: dict[str, Any] = {}
         self._schema_by_name: dict[str, DetectionParamSchema] = {}
 
@@ -170,6 +172,10 @@ class DiameterAnalysisView(BaseView):
             self._run_button = ui.button("Run Diameter Analysis", on_click=self._on_run_clicked).classes(
                 "flex-1 min-w-0"
             )
+            self._copy_button = ui.button(
+                icon="content_copy", on_click=self._on_copy_results_clicked
+            ).classes("shrink-0")
+            self._copy_button.tooltip("Copy results to clipboard")
             self._batch_button = ui.button("Batch analysis", on_click=self._on_batch_clicked).classes(
                 "flex-1 min-w-0"
             )
@@ -278,10 +284,7 @@ class DiameterAnalysisView(BaseView):
                 ui.label("No diameter result for this channel/ROI.").classes("text-xs opacity-70")
                 return
             summary = analysis.result.summary
-            table = analysis.result.table
             ui.label(f"Summary: {summary}").classes("text-xs break-all")
-            # if table is not None:
-            #     ui.label(f"Rows: {len(table)}").classes("text-xs opacity-70")
 
     def _current_detection_params(self) -> dict[str, object]:
         """Return current detection parameter values from controls.
@@ -429,7 +432,7 @@ class DiameterAnalysisView(BaseView):
         self._build_results_controls()
 
     def _refresh_run_button(self) -> None:
-        """Refresh run button state.
+        """Refresh run, batch, and copy button state.
 
         Returns:
             None.
@@ -441,6 +444,47 @@ class DiameterAnalysisView(BaseView):
         if self._batch_button is not None:
             self._batch_button.enabled = enabled and self._visible_file_ids_provider() is not None
             self._batch_button.update()
+        if self._copy_button is not None:
+            analysis = self._selected_analysis()
+            self._copy_button.enabled = analysis is not None and analysis.result.table is not None
+            self._copy_button.update()
+
+    def _selected_analysis(self) -> Any | None:
+        """Return the diameter analysis for the current selection.
+
+        Returns:
+            Matching analysis instance, or ``None`` when the selection is
+            incomplete or no analysis exists for it.
+        """
+        acq_image = self.get_selected_acq_image()
+        selection = self.current_selection
+        if acq_image is None or selection.channel is None or selection.roi_id is None:
+            return None
+        key = AnalysisKey(
+            analysis_name=AnalysisKind.DIAMETER.value,
+            channel=int(selection.channel),
+            roi_id=int(selection.roi_id),
+        )
+        return acq_image.analysis_set.get(key)
+
+    def _on_copy_results_clicked(self) -> None:
+        """Copy the current analysis result table to the clipboard as TSV.
+
+        Returns:
+            None.
+        """
+        analysis = self._selected_analysis()
+        if analysis is None or analysis.result.table is None:
+            ui.notify("No results to copy.", type="warning")
+            return
+        try:
+            df = analysis.table_with_bookkeeping()
+            text = df.to_csv(sep="\t", index=False)
+            copy_to_clipboard(text)
+        except Exception as exc:
+            ui.notify(f"Could not copy results: {exc}", type="negative")
+            return
+        ui.notify("Results copied to clipboard", type="positive")
 
     def _visible_file_ids_provider(self) -> Callable[[], Awaitable[list[str]]] | None:
         """Return the file-table visible-rows provider from ``app_state``.
