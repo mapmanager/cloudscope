@@ -24,6 +24,10 @@ from cloudscope.views.view_ids import ViewId
 from cloudscope.utils.logging import get_logger
 logger = get_logger(__name__)
 
+# Fixed height (px) for the embedded event table so it renders below the
+# velocity controls while the whole panel scrolls top-to-bottom.
+_EMBEDDED_EVENT_TABLE_HEIGHT_PX = 300
+
 
 def _load_radon_velocity_analysis_class() -> type[Any] | None:
     """Load the optional AcqStore Radon velocity analysis class.
@@ -73,8 +77,9 @@ class VelocityAnalysisView(BaseView):
         self.event_analysis_view = EventAnalysisView(
             event_bus=event_bus,
             app_state=app_state,
-            initially_visible=False,
+            initially_visible=True,
             table_font_size_px=table_font_size_px,
+            table_height_px=_EMBEDDED_EVENT_TABLE_HEIGHT_PX,
         )
 
     def build(self, parent: ui.element | None = None) -> ui.element:
@@ -86,7 +91,10 @@ class VelocityAnalysisView(BaseView):
         Returns:
             Root element for this view.
         """
-        card_classes = "w-full h-full min-h-0 flex flex-col overflow-y-auto"
+        # Quasar q-card enables flex-wrap by default; with a fixed panel height that
+        # wraps later children (batch button, embedded event view) into a second
+        # column starting at the top instead of stacking below the run button.
+        card_classes = "w-full h-full min-h-0 flex flex-col flex-nowrap overflow-y-auto"
         if parent is None:
             with ui.card().classes(card_classes) as self.root:
                 self._build_content()
@@ -98,22 +106,31 @@ class VelocityAnalysisView(BaseView):
         return self.root
 
     def on_show(self) -> None:
-        """Show the velocity panel and embedded event controls.
+        """Show the velocity panel and activate embedded event controls.
+
+        The embedded event view is permanently visible content nested in this
+        panel's card; the card's own visibility (DOM nesting) is what shows or
+        hides it. Here we only forward the lifecycle so the event view subscribes
+        to its state events and refreshes while the velocity panel is visible.
 
         Returns:
             None.
         """
         super().on_show()
-        self.event_analysis_view.set_visible(True)
+        self.event_analysis_view.on_show()
 
     def on_hide(self) -> None:
-        """Hide the velocity panel and embedded event controls.
+        """Hide the velocity panel and deactivate embedded event controls.
+
+        Forwards only the lifecycle so the embedded event view unsubscribes from
+        its state events. The event view root stays visible; it is hidden in the
+        DOM together with this panel's card.
 
         Returns:
             None.
         """
         super().on_hide()
-        self.event_analysis_view.set_visible(False)
+        self.event_analysis_view.on_hide()
 
     def subscribe_events(self) -> None:
         """Subscribe to analysis completion events while visible.
@@ -179,18 +196,23 @@ class VelocityAnalysisView(BaseView):
         Returns:
             None.
         """
+        # The card is a fixed-height, no-wrap flex column that scrolls. Every
+        # direct child must be shrink-0 so flexbox does not squeeze it (an
+        # unguarded child collapses, e.g. the params column to 0 height, visually
+        # overlapping the next row).
         ui.label("Velocity analysis").classes("text-lg font-semibold shrink-0")
         self.build_selection_label()
-        self._params_container = ui.column().classes("w-full gap-2 min-h-0 pr-1")
+        self._params_container = ui.column().classes("w-full gap-2 shrink-0 pr-1")
         self._build_param_controls()
-        self._results_container = ui.column().classes("w-full gap-2")
+        self._results_container = ui.column().classes("w-full gap-2 shrink-0")
         self._build_results_controls()
-        self._run_button = ui.button("Run Radon Analysis", on_click=self._on_run_clicked).classes(
-            "w-full"
-        )
-        self._batch_button = ui.button("Batch analyze visible rows", on_click=self._on_batch_clicked).classes(
-            "w-full"
-        )
+        with ui.row().classes("w-full gap-2 shrink-0 flex-nowrap"):
+            self._run_button = ui.button("Run Radon Analysis", on_click=self._on_run_clicked).classes(
+                "flex-1 min-w-0"
+            )
+            self._batch_button = ui.button("Batch analysis", on_click=self._on_batch_clicked).classes(
+                "flex-1 min-w-0"
+            )
         self.event_analysis_view.build()
         self._refresh_run_button()
 
@@ -268,8 +290,8 @@ class VelocityAnalysisView(BaseView):
             summary = analysis.result.summary
             table = analysis.result.table
             ui.label(f"Summary: {summary}").classes("text-xs break-all")
-            if table is not None:
-                ui.label(f"Rows: {len(table)}").classes("text-xs opacity-70")
+            # if table is not None:
+            #     ui.label(f"Rows: {len(table)}").classes("text-xs opacity-70")
 
     def _current_detection_params(self) -> dict[str, object]:
         """Return current detection parameter values from controls.

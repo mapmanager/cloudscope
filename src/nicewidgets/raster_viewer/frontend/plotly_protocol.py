@@ -82,6 +82,15 @@ def build_plotly_figure(
         'dragmode': 'zoom',
         'xaxis': xaxis,
         'yaxis': yaxis,
+        # Render the trace legend horizontally below the plot instead of the
+        # default vertical legend on the right. Harmless when no legend shows.
+        'legend': {
+            'orientation': 'h',
+            'xanchor': 'center',
+            'x': 0.5,
+            'yanchor': 'top',
+            'y': -0.15,
+        },
     }
 
     if response.mode == 'image_png':

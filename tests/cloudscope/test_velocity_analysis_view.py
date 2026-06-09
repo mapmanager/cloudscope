@@ -10,6 +10,7 @@ from cloudscope.state import PrimarySelection
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.event_analysis_view import EventAnalysisView
 from cloudscope.views.velocity_analysis_view import (
+    _EMBEDDED_EVENT_TABLE_HEIGHT_PX,
     VelocityAnalysisView,
     _load_radon_velocity_analysis_class,
 )
@@ -33,18 +34,28 @@ def test_velocity_analysis_view_owns_event_analysis_view(tmp_path) -> None:
     view = VelocityAnalysisView(event_bus=EventBus(), app_config=config)
 
     assert isinstance(view.event_analysis_view, EventAnalysisView)
-    assert view.event_analysis_view.is_visible is False
-
-
-def test_velocity_analysis_view_forwards_visibility_to_event_view() -> None:
-    """Embedded event controls should subscribe only while velocity is visible."""
-    view = VelocityAnalysisView(event_bus=EventBus(), initially_visible=False)
-
-    view.set_visible(True)
     assert view.event_analysis_view.is_visible is True
 
+
+def test_velocity_analysis_view_embeds_event_view_with_fixed_table_height() -> None:
+    """Embedded event view should use a fixed table height so it renders inline."""
+    view = VelocityAnalysisView(event_bus=EventBus())
+
+    assert view.event_analysis_view._table_height_px == _EMBEDDED_EVENT_TABLE_HEIGHT_PX
+
+
+def test_velocity_analysis_view_forwards_subscription_lifecycle_to_event_view() -> None:
+    """Embedded event view stays visible; only its subscriptions follow velocity."""
+    view = VelocityAnalysisView(event_bus=EventBus(), initially_visible=False)
+    event_view = view.event_analysis_view
+
+    view.set_visible(True)
+    assert event_view.is_visible is True
+    assert len(event_view._subscriptions) > 0
+
     view.set_visible(False)
-    assert view.event_analysis_view.is_visible is False
+    assert event_view.is_visible is True
+    assert len(event_view._subscriptions) == 0
 
 
 def test_velocity_analysis_view_selection_snapshot_uses_base_selection() -> None:

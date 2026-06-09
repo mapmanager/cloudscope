@@ -60,12 +60,23 @@ class CloudScopeRunConfig:
         Returns:
             Keyword arguments suitable for ``nicegui.ui.run``.
         """
+
+        icon_path = 'src/cloudscope/assets/icons/cloudscope.png'
+
         kwargs: dict[str, Any] = {
             'title': 'CloudScope',
             'reload': self.reload,
             'native': self.native,
             'storage_secret': self.storage_secret,
-        }
+
+            # 1. This handles the browser favicon for web mode
+            'favicon': icon_path,
+            
+            # 2. This handles the desktop window icon for native mode
+            # 'window_args': {
+            #     'icon': icon_path
+            # }
+                    }
         if self.host is not None:
             kwargs['host'] = self.host
         if self.port is not None:
@@ -183,6 +194,7 @@ def configure_native_window(config: CloudScopeRunConfig) -> None:
             'width': w,
             'height': h,
             'confirm_close': True,
+            # 'icon': 'assets/icons/cloudscope.png',
         })
         logger.info(f'global app.native.window_args: {app.native.window_args}')
     except Exception:

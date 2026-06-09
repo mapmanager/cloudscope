@@ -454,6 +454,14 @@ class TableWidget:
             'defaultColDef': default_col_def,
             ':getRowId': _get_row_id_js_expression(self._row_id_field),
             ':onRowClicked': js_on_row_clicked(emit_event=self._evt_select, row_id_field=self._row_id_field),
+            # AG Grid Enterprise ships its own right-click menu (Copy, Copy with
+            # Headers, Export, etc.) and intercepts the contextmenu event before
+            # NiceGUI's ui.context_menu can see it. TableWidget owns the
+            # right-click menu via _build_context_menu_content, so suppress AG
+            # Grid's menu and ask AG Grid to also block the browser's native menu
+            # over the grid surface.
+            'suppressContextMenu': True,
+            'preventDefaultOnContextMenu': True,
         }
         rh = self._config.row_height
         if rh is not None:

@@ -166,12 +166,13 @@ class DiameterAnalysisView(BaseView):
         self._build_param_controls()
         self._results_container = ui.column().classes("w-full gap-2 shrink-0")
         self._build_results_controls()
-        self._run_button = ui.button("Run Diameter Analysis", on_click=self._on_run_clicked).classes(
-            "w-full shrink-0"
-        )
-        self._batch_button = ui.button("Batch analyze visible rows", on_click=self._on_batch_clicked).classes(
-            "w-full shrink-0"
-        )
+        with ui.row().classes("w-full gap-2 shrink-0 flex-nowrap"):
+            self._run_button = ui.button("Run Diameter Analysis", on_click=self._on_run_clicked).classes(
+                "flex-1 min-w-0"
+            )
+            self._batch_button = ui.button("Batch analysis", on_click=self._on_batch_clicked).classes(
+                "flex-1 min-w-0"
+            )
         self._refresh_run_button()
 
     def _selected_diameter_method(self) -> str:
@@ -279,8 +280,8 @@ class DiameterAnalysisView(BaseView):
             summary = analysis.result.summary
             table = analysis.result.table
             ui.label(f"Summary: {summary}").classes("text-xs break-all")
-            if table is not None:
-                ui.label(f"Rows: {len(table)}").classes("text-xs opacity-70")
+            # if table is not None:
+            #     ui.label(f"Rows: {len(table)}").classes("text-xs opacity-70")
 
     def _current_detection_params(self) -> dict[str, object]:
         """Return current detection parameter values from controls.

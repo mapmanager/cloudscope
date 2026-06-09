@@ -125,6 +125,15 @@ def test_build_aggrid_options_omits_font_when_cell_font_size_px_none() -> None:
     assert 'headerStyle' not in opts['defaultColDef']
 
 
+def test_build_aggrid_options_suppresses_enterprise_context_menu() -> None:
+    """AG Grid Enterprise menu must be suppressed so only our menu shows."""
+    cols = (ColumnDef(field='id', headerName='ID'),)
+    tw = TableWidget(cols, 'id', rows=[{'id': 'a'}], config=TableWidgetConfig())
+    opts = tw._build_aggrid_options()
+    assert opts['suppressContextMenu'] is True
+    assert opts['preventDefaultOnContextMenu'] is True
+
+
 def test_get_row_id_js_expression_escapes_field_name() -> None:
     js = _get_row_id_js_expression('path')
     assert 'params.data' in js

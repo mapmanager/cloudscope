@@ -83,14 +83,14 @@ class ImageToolbarWidget:
             label='Channel',
             value=None,
             on_change=self._on_channel_change,
-        ).props('name=channel outlined')
+        ).props('name=channel outlined').classes('min-w-28')
 
         self._roi_select = ui.select(
             options=[],
             label='ROI',
             value=None,
             on_change=self._on_roi_change,
-        ).props('name=roi outlined')
+        ).props('name=roi outlined').classes('min-w-28')
 
         self._add_btn = ui.button(icon='add', on_click=self._on_add_click).props('flat round')
         self._add_btn.tooltip('Add ROI')

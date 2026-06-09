@@ -36,6 +36,17 @@ def _view() -> EventAnalysisView:
 # ---- _event_columns ----
 
 
+def test_table_height_px_defaults_to_none() -> None:
+    """Standalone view fills its parent height (no fixed table height)."""
+    assert _view()._table_height_px is None
+
+
+def test_table_height_px_is_stored_when_provided() -> None:
+    """Embedded view stores the fixed table height for inline rendering."""
+    view = EventAnalysisView(event_bus=EventBus(), initially_visible=False, table_height_px=300)
+    assert view._table_height_px == 300
+
+
 def test_event_columns_has_expected_field_set() -> None:
     """Column definitions should include the expected event/pre/post stat columns."""
     names = {col.field for col in _event_columns()}

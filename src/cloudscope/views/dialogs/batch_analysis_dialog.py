@@ -37,7 +37,7 @@ class BatchAnalysisDialogResult:
 
 
 class BatchAnalysisDialog:
-    """Modal dialog for batch analysis over visible table rows.
+    """Modal dialog for batch analysis over table rows.
 
     Args:
         event_bus: Page-scoped event bus for progress, results, and cancellation.
@@ -99,7 +99,7 @@ class BatchAnalysisDialog:
             dialog.props("persistent")
             ui.label(f"Batch analyze {self._analysis_label}").classes("text-lg font-semibold")
             ui.label(
-                f"This will analyze {len(self._file_ids)} visible/filtered file-table rows "
+                f"This will analyze {len(self._file_ids)} files "
                 f"using channel={self._channel}."
             ).classes("text-sm")
             self._roi_mode_radio = ui.radio(
@@ -114,7 +114,7 @@ class BatchAnalysisDialog:
             self._roi_select = ui.select(
                 options={roi_id: f"ROI {roi_id}" for roi_id in self._common_roi_ids},
                 value=default_roi,
-                label="Existing ROI present in every visible file",
+                label="Existing ROI present in every file",
                 on_change=lambda _event=None: self._on_roi_inputs_changed(),
             ).classes("w-full")
             self._preview_table = ui.table(
@@ -169,7 +169,7 @@ class BatchAnalysisDialog:
         roi_mode = self._current_roi_mode()
         roi_id = self._current_roi_id_for_mode(roi_mode)
         if roi_mode is RoiBatchMode.ANALYZE_EXISTING_ROI and roi_id is None:
-            ui.notify("Choose an ROI that is present in every visible file.", type="warning")
+            ui.notify("Choose an ROI that is present in every file.", type="warning")
             return
         self._set_running_chrome()
         self._on_run(

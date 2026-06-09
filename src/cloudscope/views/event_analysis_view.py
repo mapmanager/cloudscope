@@ -184,6 +184,7 @@ class EventAnalysisView(BaseView):
         *,
         initially_visible: bool = True,
         table_font_size_px: int = 12,
+        table_height_px: int | None = None,
     ) -> None:
         """Create the event-analysis view.
 
@@ -192,10 +193,16 @@ class EventAnalysisView(BaseView):
             app_state: Home-page state object.
             initially_visible: Whether this view starts visible.
             table_font_size_px: Table cell font size in pixels.
+            table_height_px: When set, the view sizes to its content and the
+                event table uses this fixed pixel height instead of filling the
+                available vertical space. Used when the view is embedded inside
+                another scrolling panel. When ``None`` (default) the view fills
+                its parent height and the table grows to fill remaining space.
         """
         super().__init__(event_bus=event_bus, app_state=app_state, initially_visible=initially_visible)
         self._controls: EventControlsCard | None = None
         self._table_font_size_px = int(table_font_size_px)
+        self._table_height_px = None if table_height_px is None else int(table_height_px)
         self._table: TableWidget | None = None
         self._rows: list[dict[str, object]] = []
         self._selected_event_id: int | None = None
@@ -216,11 +223,13 @@ class EventAnalysisView(BaseView):
         Returns:
             Root element.
         """
+        embedded = self._table_height_px is not None
+        root_classes = "w-full shrink-0 gap-2" if embedded else "w-full h-full min-h-0 gap-2"
         if parent is None:
-            self.root = ui.column().classes("w-full h-full min-h-0 gap-2")
+            self.root = ui.column().classes(root_classes)
         else:
             with parent:
-                self.root = ui.column().classes("w-full h-full min-h-0 gap-2")
+                self.root = ui.column().classes(root_classes)
         with self.root:
             self._controls = EventControlsCard(
                 on_add=self._add_event,
@@ -236,7 +245,11 @@ class EventAnalysisView(BaseView):
             self._build_param_controls()
             self._results_container = ui.column().classes("w-full gap-2")
             self._build_results_controls()
-            with ui.column().classes("w-full min-w-0 min-h-0 flex-1") as table_parent:
+            table_parent = ui.column().classes("w-full min-w-0 min-h-0 flex-1")
+            if embedded:
+                table_parent.classes(remove="flex-1", add="shrink-0")
+                table_parent.style(f"height: {self._table_height_px}px")
+            with table_parent:
                 font_px = int(self._table_font_size_px)
                 row_h, header_h = scaled_row_header_heights_px(font_px)
                 self._table = TableWidget(
@@ -584,12 +597,12 @@ def _event_columns() -> tuple[ColumnDef, ...]:
         ColumnDef("id", "ID"),
         ColumnDef("event_type", "Type"),
         ColumnDef("x0", "x0", extra={"type": "numericColumn"}),
-        ColumnDef("x1", "x1", extra={"type": "numericColumn"}),
+        ColumnDef("x1", "x1", hide=True, extra={"type": "numericColumn"}),
         ColumnDef("duration", "Duration", extra={"type": "numericColumn"}),
-        ColumnDef("event_mean", "Event mean", extra={"type": "numericColumn"}),
+        ColumnDef("event_mean", "Event mean", hide=True, extra={"type": "numericColumn"}),
         ColumnDef("pre_mean", "Pre mean", extra={"type": "numericColumn"}),
-        ColumnDef("post_mean", "Post mean", extra={"type": "numericColumn"}),
-        ColumnDef("event_n", "Event n", extra={"type": "numericColumn"}),
-        ColumnDef("pre_n", "Pre n", extra={"type": "numericColumn"}),
-        ColumnDef("post_n", "Post n", extra={"type": "numericColumn"}),
+        ColumnDef("post_mean", "Post mean", hide=True, extra={"type": "numericColumn"}),
+        ColumnDef("event_n", "Event n", hide=True, extra={"type": "numericColumn"}),
+        ColumnDef("pre_n", "Pre n", hide=True, extra={"type": "numericColumn"}),
+        ColumnDef("post_n", "Post n", hide=True, extra={"type": "numericColumn"}),
     )
