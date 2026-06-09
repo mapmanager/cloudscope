@@ -92,6 +92,74 @@ def test_full_image_png_respects_display_style_colorscale(raster_service: Raster
         assert im.mode == 'RGB'
 
 
+def test_full_image_png_default_uses_coarse_overview(raster_service: RasterViewService) -> None:
+    """Without a pixel budget, the overview uses the conservative coarse level."""
+    response = raster_service.full_image_png()
+    # Fixture pyramid (8x16) has 4 levels; coarse overview is min(num_levels-1, 3).
+    assert response.level == 3
+
+
+def test_full_image_png_max_pixels_selects_finest_fitting_level(
+    raster_service: RasterViewService,
+) -> None:
+    """A generous budget selects the finest (full-resolution) level."""
+    response = raster_service.full_image_png(max_pixels=8 * 16)
+    assert response.level == 0
+
+
+def test_full_image_png_max_pixels_steps_to_coarser_level(
+    raster_service: RasterViewService,
+) -> None:
+    """A tight budget selects the finest level whose size fits the budget."""
+    # Level 0 = 128 px (too big), level 1 = 4x8 = 32 px (fits first).
+    response = raster_service.full_image_png(max_pixels=40)
+    assert response.level == 1
+
+
+def test_full_image_png_max_pixels_too_small_uses_coarsest_level(
+    raster_service: RasterViewService,
+) -> None:
+    """When no level fits the budget, the coarsest level is used."""
+    response = raster_service.full_image_png(max_pixels=1)
+    assert response.level == raster_service.pyramid.num_levels - 1
+
+
+def test_full_image_png_explicit_level_overrides_max_pixels(
+    raster_service: RasterViewService,
+) -> None:
+    """An explicit ``level`` takes precedence over ``max_pixels``."""
+    response = raster_service.full_image_png(level=2, max_pixels=8 * 16)
+    assert response.level == 2
+
+
+def _decode_png_rgb(data_uri: str) -> np.ndarray:
+    """Decode a PNG data URI into an RGB ndarray ``(rows, cols, 3)``."""
+    raw = base64.b64decode(data_uri.split(',', 1)[1])
+    with Image.open(io.BytesIO(raw)) as im:
+        return np.asarray(im.convert('RGB'))
+
+
+def test_png_greys_matches_plotly_js_direction() -> None:
+    """``Greys`` PNG must map low->dark, high->bright to match the Plotly.js heatmap."""
+    arr = np.array([[0.0, 255.0]], dtype=np.float32)  # low | high
+    style = RasterDisplayStyle(colorscale='Greys', zmin=0.0, zmax=255.0)
+    rgb = _decode_png_rgb(RasterViewService.array_to_png_data_uri(arr, style=style))
+    low, high = rgb[0, 0], rgb[0, 1]
+    assert int(low.mean()) < int(high.mean())
+    np.testing.assert_array_equal(low, (0, 0, 0))
+    np.testing.assert_array_equal(high, (255, 255, 255))
+
+
+def test_png_explicit_inverted_grays_unaffected() -> None:
+    """Explicit stop lists are read literally; the reversal fix must not touch them."""
+    arr = np.array([[0.0, 255.0]], dtype=np.float32)
+    inverted = [[0, 'rgb(255,255,255)'], [1, 'rgb(0,0,0)']]
+    style = RasterDisplayStyle(colorscale=inverted, zmin=0.0, zmax=255.0)
+    rgb = _decode_png_rgb(RasterViewService.array_to_png_data_uri(arr, style=style))
+    np.testing.assert_array_equal(rgb[0, 0], (255, 255, 255))
+    np.testing.assert_array_equal(rgb[0, 1], (0, 0, 0))
+
+
 def test_render_heatmap_uses_display_style_z_window(raster_service: RasterViewService) -> None:
     """Pinned z-range from :class:`RasterDisplayStyle` should appear on heatmap responses."""
     request = ViewRequest(

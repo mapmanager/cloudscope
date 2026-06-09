@@ -128,6 +128,10 @@ class PlotlyRasterViewer:
         self._heatmap_colorscale: PlotlyColorscale = DEFAULT_HEATMAP_COLORSCALE
         self._contrast_zmin: float | None = None
         self._contrast_zmax: float | None = None
+        # Pixel budget for full-extent overview PNGs. ``None`` keeps the
+        # service's conservative coarse overview; a value lets small images
+        # render at full resolution. Set per dataset via ``set_data``.
+        self._overview_max_pixels: int | None = None
         self._plotly_rois = PlotlyRoiOverlayLayer()
         self._plotly_trace_overlays = PlotlyTraceOverlayLayer()
         self._display_options = display_options or PlotlyRasterViewerDisplayOptions()
@@ -196,12 +200,23 @@ if (!plotDiv || !plotDiv.data) return;
 
         return self._plot
 
-    async def set_data(self, data: np.ndarray, *, grid: RasterGridSpec) -> RenderResponse:
+    async def set_data(
+        self,
+        data: np.ndarray,
+        *,
+        grid: RasterGridSpec,
+        overview_max_pixels: int | None = None,
+    ) -> RenderResponse:
         """Set a new 2D dataset and fully refresh the plot.
 
         Args:
             data: New full-resolution 2D array ``(rows, columns)``.
             grid: Physical spacing and axis labels (``dx``/``dy`` must be positive).
+            overview_max_pixels: Optional pixel budget for full-extent overview
+                PNGs (initial render and double-click reset). When ``None``, the
+                service's conservative coarse overview is used. A value lets
+                small images render the full extent at full resolution so the
+                overview matches the zoomed-in heatmap.
 
         Returns:
             Initial full-image PNG response for the new dataset.
@@ -225,9 +240,13 @@ if (!plotDiv || !plotDiv.data) return;
         self._heatmap_colorscale = DEFAULT_HEATMAP_COLORSCALE
         self._contrast_zmin = None
         self._contrast_zmax = None
+        self._overview_max_pixels = overview_max_pixels
         self._plotly_trace_overlays.clear_overlays()
 
-        response = self._service.full_image_png(display_style=self._display_style())
+        response = self._service.full_image_png(
+            display_style=self._display_style(),
+            max_pixels=self._overview_max_pixels,
+        )
         self._current_bounds = response.bounds
         # Pin echo dedup to the new data extent so the follow-up
         # ``plotly_relayout`` Plotly fires after ``_uirevision`` rotation
@@ -1114,7 +1133,10 @@ Plotly.restyle(plotDiv, {{
         logger.info('')
 
         self._uirevision = self._new_uirevision()
-        response = self._service.full_image_png(display_style=self._display_style())
+        response = self._service.full_image_png(
+            display_style=self._display_style(),
+            max_pixels=self._overview_max_pixels,
+        )
         await self.apply_response(response)
         # Pin echo dedup to the freshly reset data extent so the follow-up
         # relayout Plotly fires after ``_uirevision`` rotation does not leak
@@ -1380,7 +1402,10 @@ return {{
 
         logger.info('making initial default png -->> never called?')
 
-        response = self._service.full_image_png(display_style=self._display_style())
+        response = self._service.full_image_png(
+            display_style=self._display_style(),
+            max_pixels=self._overview_max_pixels,
+        )
         self._current_bounds = response.bounds
         figure = build_plotly_figure(
             response=response,
@@ -1412,7 +1437,10 @@ return {{
         """Re-run full-image PNG render with :meth:`_display_style` and push to the plot."""
         if self._service is None or self._plot is None:
             raise RuntimeError('Viewer must be built with data before refreshing the overview.')
-        response = self._service.full_image_png(display_style=self._display_style())
+        response = self._service.full_image_png(
+            display_style=self._display_style(),
+            max_pixels=self._overview_max_pixels,
+        )
         await self.apply_response(response)
 
     def _heatmap_trace_active(self) -> bool:

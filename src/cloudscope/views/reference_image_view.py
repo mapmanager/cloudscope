@@ -27,6 +27,12 @@ logger = get_logger(__name__)
 
 _PLACEHOLDER_GRID = RasterGridSpec(dx=1.0, dy=1.0, x_unit='Pixels', y_unit='Pixels')
 
+# Overview pixel budget for the reference image. Typical reference images
+# (e.g. 512x512, 2048x2048) fit within this budget and render the full extent
+# at full pyramid resolution, so the static overview PNG matches the crisp
+# zoomed-in heatmap instead of a coarse box-averaged thumbnail.
+_REFERENCE_OVERVIEW_MAX_PIXELS = 4_000_000
+
 
 def _placeholder_plane() -> tuple[np.ndarray, RasterGridSpec, str]:
     """Return a tiny placeholder image for empty reference-image states.
@@ -320,7 +326,11 @@ class ReferenceImageView(BaseView):
             message = f'Reference image error: {err_msg}'
 
         try:
-            await self._viewer.set_data(plane, grid=grid)
+            await self._viewer.set_data(
+                plane,
+                grid=grid,
+                overview_max_pixels=_REFERENCE_OVERVIEW_MAX_PIXELS,
+            )
             await self._apply_reference_contrast(plane)
             if self._status_label is not None:
                 self._status_label.text = message

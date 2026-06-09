@@ -20,6 +20,15 @@ from nicewidgets.raster_viewer.backend.image_model import (
 )
 from nicewidgets.raster_viewer.backend.pyramid import ImagePyramid
 
+# Plotly.py resolves these named colorscales in the OPPOSITE direction from
+# Plotly.js. The heatmap trace is rendered by Plotly.js, but the PNG LUT is
+# built here with Plotly.py's ``sample_colorscale``. For these names we sample
+# at reversed positions so the encoded PNG matches the heatmap (e.g. for
+# ``Greys``: low intensity -> black, high intensity -> white). Explicit
+# ``[stop, color]`` lists are read identically by both renderers and are
+# unaffected.
+_PLOTLY_PY_REVERSED_VS_JS: frozenset[str] = frozenset({'Greys', 'Greens', 'Blues'})
+
 
 class RasterViewService:
     """Serve view-specific raster payloads from an image pyramid.
@@ -136,19 +145,28 @@ class RasterViewService:
         level: int | None = None,
         *,
         display_style: RasterDisplayStyle | None = None,
+        max_pixels: int | None = None,
     ) -> RenderResponse:
         """Return a full-image PNG response.
 
         Args:
-            level: Optional pyramid level. When omitted, a conservative coarse
-                overview level is used.
+            level: Optional pyramid level. When provided, it takes precedence
+                over ``max_pixels``.
+            display_style: Optional colorscale / intensity window. Defaults to
+                the service default style.
+            max_pixels: Optional pixel budget used only when ``level`` is
+                ``None``. The finest pyramid level whose array size does not
+                exceed this budget is selected, so small images render at full
+                resolution instead of a coarse overview. When both ``level``
+                and ``max_pixels`` are ``None``, a conservative coarse overview
+                level is used.
 
         Returns:
             PNG render response for the full image extent.
         """
         style = display_style if display_style is not None else RasterDisplayStyle()
         if level is None:
-            level = min(self._pyramid.num_levels - 1, 3)
+            level = self._overview_level(max_pixels)
         arr = self._pyramid.get_level(level)
         ds = float(self._pyramid.get_downsample(level))
         grid = self._source.grid
@@ -174,6 +192,27 @@ class RasterViewService:
             dy=plot_dy,
             png_data_uri=self.array_to_png_data_uri(png_arr, style=style),
         )
+
+    def _overview_level(self, max_pixels: int | None) -> int:
+        """Select a full-extent overview level.
+
+        Args:
+            max_pixels: Optional pixel budget. When ``None``, a conservative
+                coarse level is returned (``min(num_levels - 1, 3)``). Otherwise
+                the finest level whose array size does not exceed ``max_pixels``
+                is returned; when no level fits, the coarsest level is used.
+
+        Returns:
+            Pyramid level index.
+        """
+        if max_pixels is None:
+            return min(self._pyramid.num_levels - 1, 3)
+        # ``level_info`` is ordered finest (level 0) to coarsest; the first
+        # level that fits the budget is the finest acceptable overview.
+        for info in self._pyramid.level_info():
+            if info.shape[0] * info.shape[1] <= max_pixels:
+                return info.level
+        return self._pyramid.num_levels - 1
 
     def choose_level(self, request: ViewRequest) -> int:
         """Choose a pyramid level based on visible-data density.
@@ -243,9 +282,12 @@ class RasterViewService:
                 rgb = np.zeros((*a.shape, 3), dtype=np.uint8)
             else:
                 stops = np.linspace(0.0, 1.0, 256, dtype=np.float64)
+                query = stops
+                if isinstance(style.colorscale, str) and style.colorscale in _PLOTLY_PY_REVERSED_VS_JS:
+                    query = 1.0 - stops
                 tuples = plotly_colors.sample_colorscale(
                     style.colorscale,
-                    stops.tolist(),
+                    query.tolist(),
                     colortype='tuple',
                 )
                 lut = np.array(tuples, dtype=np.float64)
