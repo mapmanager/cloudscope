@@ -3,70 +3,76 @@
 [![Tests](https://github.com/mapmanager/cloudscope/actions/workflows/tests.yml/badge.svg)](https://github.com/mapmanager/cloudscope/actions/workflows/tests.yml)
 [![codecov](https://codecov.io/gh/mapmanager/cloudscope/branch/main/graph/badge.svg)](https://codecov.io/gh/mapmanager/cloudscope)
 
-CloudScope is a thin NiceGUI frontend for viewing, annotating, and analyzing acquisition-backed microscopy files.
+CloudScope is a desktop and browser application for viewing, annotating, and analyzing acquisition-backed microscopy files. It is designed for scientific image-analysis workflows where the same data and analysis code should be available from the GUI, from scripts, and from reproducible examples.
 
-## Local development
+The desktop app, browser app, and Python scripting workflows all use the same `acqstore` scientific backend. This is central to CloudScope's reproducibility model: GUI workflows and scripted workflows should execute the same backend analysis code rather than separate reimplementations.
 
-Run the app locally in native mode:
+## Try CloudScope
+
+- **Web app:** <https://cloudscope.mapmanager.net>
+- **Desktop downloads:** <https://github.com/mapmanager/cloudscope/releases>
+
+The web app is the fastest way to try CloudScope before installing a desktop build. The desktop apps provide the same core GUI and backend analysis workflow for local use on macOS and Windows.
+
+## Supported file formats
+
+CloudScope provides native support for commercial microscopy formats and open scientific image formats, including:
+
+- Olympus / Evident `.oir`
+- Zeiss `.czi`
+- TIFF `.tif`
+- OME-Zarr `.ome.zarr`
+
+## Scientific workflows
+
+CloudScope supports ROI-based image analysis workflows including velocity analysis and diameter analysis. The GUI is optimized for interactive use with linked panels and widgets, while the backend analysis engine remains scriptable through Python.
+
+Visualization and analysis are optimized separately. CloudScope can use image pyramids to display only the resolution required for the current view while preserving full-resolution image data for backend `acqstore` analysis. Intensive analysis paths can use multiprocessing or multithreading where available, and the same acceleration paths are available from the GUI and scripts.
+
+## Sample data
+
+Example datasets are maintained in the companion repository:
+
+<https://github.com/mapmanager/cloudscope-data>
+
+The CloudScope GUI includes a menu item to load sample data. The same data can also be fetched from Python scripts and notebooks through `acqstore.sample_data`.
+
+## Documentation
+
+Full documentation is built with MkDocs and organized by user type:
+
+- End users: installing, launching, opening data, running analysis, and using the GUI.
+- Scientific users and data scientists: algorithms, parameters, results, notebooks, and scripting with `acqstore`.
+- Developers: architecture, local development, testing, desktop builds, deployment, and contributing.
+
+Documentation site: <https://mapmanager.github.io/cloudscope/>
+
+## Minimal developer workflow
+
+Clone the repository, install dependencies with `uv`, and run the app locally:
 
 ```bash
+uv sync
 uv run python src/cloudscope/app.py
 ```
 
-Run the app locally in browser/web mode:
+Run in browser mode:
 
 ```bash
 CLOUDSCOPE_NATIVE=0 uv run python src/cloudscope/app.py
 ```
 
-Run tests with coverage and inspect missing lines:
+Run tests:
 
 ```bash
-uv run pytest \
-  --cov=src/cloudscope \
-  --cov=src/acqstore \
-  --cov=src/nicewidgets \
-  --cov-report=term-missing \
-  --cov-report=html \
-  --cov-report=xml
-open htmlcov/index.html
+uv run pytest
 ```
 
-Run ruff locally:
+Build and serve docs locally:
 
 ```bash
-uv run ruff check .
+uv sync --group docs
+uv run mkdocs serve
 ```
 
-Ruff is intentionally not enforced in GitHub Actions yet.
-
-## Docker
-
-Build and run locally:
-
-```bash
-docker build -t cloudscope:latest .
-docker run --rm -p 8080:8080 cloudscope:latest
-```
-
-Then open <http://localhost:8080>.
-
-Run with Docker Compose:
-
-```bash
-docker compose up --build cloudscope
-```
-
-For server-side files, mount a folder such as `./data:/data` and load files from `/data` inside the CloudScope UI.
-
-## Runtime environment variables
-
-| Variable | Purpose |
-| --- | --- |
-| `CLOUDSCOPE_REMOTE` | Set to `1` on remote/server deployments. |
-| `CLOUDSCOPE_NATIVE` | Set to `0` for browser/server mode. Defaults to native mode locally. |
-| `CLOUDSCOPE_RELOAD` | Set to `1` to enable NiceGUI reload mode. |
-| `CLOUDSCOPE_HOST` | Explicit NiceGUI host. Remote default is `0.0.0.0`. |
-| `CLOUDSCOPE_PORT` | Explicit NiceGUI port. |
-| `PORT` | Platform-provided port, preferred over `CLOUDSCOPE_PORT`. |
-| `CLOUDSCOPE_STORAGE_SECRET` | NiceGUI storage secret. |
+See the developer documentation for Docker, environment variables, testing with coverage, and release builds.

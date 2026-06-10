@@ -1,0 +1,112 @@
+site_name: CloudScope
+site_description: Desktop and browser scientific image analysis for acquisition-backed microscopy files.
+site_url: https://mapmanager.github.io/cloudscope/
+repo_url: https://github.com/mapmanager/cloudscope
+repo_name: mapmanager/cloudscope
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.indexes
+    - navigation.expand
+    - navigation.top
+    - toc.follow
+    - content.code.copy
+    - search.highlight
+    - search.suggest
+  palette:
+    - scheme: default
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+extra_css:
+  - assets/stylesheets/extra.css
+
+plugins:
+  - search
+  - section-index
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: google
+            show_source: true
+            show_signature_annotations: true
+            separate_signature: true
+            members_order: source
+            filters: ["!^_"]
+  - mkdocs-jupyter:
+      include_source: true
+      execute: false
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - End User:
+      - users/index.md
+      - Install Desktop Apps: users/install.md
+      - Browser App: users/web-app.md
+      - Quickstart: users/quickstart.md
+      - Supported File Formats: users/file-formats.md
+      - Sample Data: users/sample-data.md
+      - Recipes:
+          - Open Data: users/recipes/open-data.md
+          - Run Velocity Analysis: users/recipes/run-velocity-analysis.md
+          - Run Diameter Analysis: users/recipes/run-diameter-analysis.md
+          - Export Results: users/recipes/export-results.md
+      - Using the GUI: users/gui.md
+  - Scientific User / Data Scientist:
+      - scientists/index.md
+      - Reproducibility: scientists/reproducibility.md
+      - Sample Data: scientists/sample-data.md
+      - Algorithms and Results: scientists/algorithms.md
+      - Scripting with acqstore: scientists/scripting-acqstore.md
+      - Notebooks: scientists/notebooks.md
+      - Performance: scientists/performance-and-reproducibility.md
+      - Notebook - Load and Plot Image: notebooks/load-and-plot-image.ipynb
+      - Notebook - Velocity Analysis: notebooks/velocity-analysis.ipynb
+      - Notebook - Diameter Analysis: notebooks/diameter-analysis.ipynb
+  - Developer:
+      - developers/index.md
+      - Architecture: developers/architecture.md
+      - Performance: developers/performance.md
+      - Technologies and Strategy: developers/technologies.md
+      - AI-Assisted Development: developers/ai-assisted-development.md
+      - Clone and Run: developers/clone-run.md
+      - uv Workflow: developers/uv.md
+      - Testing: developers/testing.md
+      - Docker and Web Deployment: developers/docker.md
+      - Release Builds: developers/release-builds.md
+      - Contributing: developers/contributing.md
+  - API:
+      - api/index.md
+      - AcqImage: api/acq-image.md
+      - AcqImageList: api/acq-image-list.md
+      - Analysis Core: api/analysis-core.md
+      - Velocity Analysis: api/velocity-analysis.md
+      - Diameter Analysis: api/diameter-analysis.md
+      - Batch Analysis: api/batch-analysis.md
