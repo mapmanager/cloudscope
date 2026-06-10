@@ -86,14 +86,33 @@ jobs:
       - name: Extract release notes from CHANGELOG.md
         shell: bash
         run: |
-          TAG="${{ steps.release_tag.outputs.tag }}"
-          VERSION="${TAG#v}"
-          awk -v version="${VERSION}" '
-            $0 == "## [" version "]" || $0 ~ "^## \\[" version "\\] - " { found=1; print; next }
-            found && /^## \\[/ { exit }
-            found { print }
-          ' CHANGELOG.md > RELEASE_NOTES.md
-          test -s RELEASE_NOTES.md
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          import re
+          import sys
+
+          tag = "${{ steps.release_tag.outputs.tag }}"
+          version = tag.removeprefix("v")
+
+          changelog = Path("CHANGELOG.md").read_text(encoding="utf-8")
+          pattern = re.compile(
+              rf"^## \[{re.escape(version)}\](?: - .*)?\n(?P<body>.*?)(?=^## \[|\Z)",
+              re.MULTILINE | re.DOTALL,
+          )
+
+          match = pattern.search(changelog)
+          if not match:
+              print(f"ERROR: Could not find CHANGELOG.md section for version {version}")
+              sys.exit(1)
+
+          body = match.group("body").strip()
+          if not body:
+              print(f"ERROR: CHANGELOG.md section for version {version} is empty")
+              sys.exit(1)
+
+          Path("RELEASE_NOTES.md").write_text(body + "\n", encoding="utf-8")
+          PY
 
       - name: Create GitHub Release and upload artifacts
         env:
