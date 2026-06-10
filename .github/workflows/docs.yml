@@ -1,4 +1,5 @@
 name: Docs
+run-name: Docs • ${{ github.ref_name }} • ${{ github.event_name }}
 
 on:
   push:
@@ -17,6 +18,7 @@ concurrency:
 
 jobs:
   build:
+    name: Build MkDocs site
     runs-on: ubuntu-latest
 
     steps:
@@ -29,14 +31,14 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: '3.12'
 
       - name: Install dependencies
         run: uv sync --group docs
 
       - name: Build docs
         env:
-          DISABLE_MKDOCS_2_WARNING: "true"
+          DISABLE_MKDOCS_2_WARNING: 'true'
         run: uv run mkdocs build --strict
 
       - name: Configure Pages
@@ -48,6 +50,7 @@ jobs:
           path: site
 
   deploy:
+    name: Deploy GitHub Pages
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

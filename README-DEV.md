@@ -32,8 +32,16 @@ find docs -type f \( \
     -name "*.css" -o \
     -name "*.png" -o \
     -name "*.svg" \
-\) -print | zip cloudscope_docs_20260610_v2.zip -@
+\) -print | zip cloudscope_docs_20260610_v3.zip -@
 
+find src -type f \( \
+    -name "*.py" -o \
+    -name "*.md" -o \
+    -name "*.ipynb" -o \
+    -name "*.css" -o \
+    -name "*.png" -o \
+    -name "*.svg" \
+\) -print | zip cloudscope_src_20260610_v3.zip -@
 
     zip -r cloudscope_src_20260513_v1.zip src/cloudscope -i '*.py' '*.md'
 
@@ -184,3 +192,96 @@ docker run -d --name cloudscope --restart unless-stopped -p 8080:8080 cloudscope
 
 Prefer `docker compose` over raw `docker run` for anything beyond a quick smoke test — it keeps the env vars, ports, and volumes consistent with the deployed configuration.
 
+
+# CloudScope CI/CD and release workflow
+
+This section is a short reminder for the local release workflow. It is intentionally small and practical.
+
+## Normal development
+
+Work on `main` is acceptable for solo development.
+
+Pushes to `main` run:
+
+- tests
+- docs build/deploy
+
+A normal development push does **not** create a GitHub Release.
+
+## Preparing a release
+
+Before tagging, update:
+
+- `pyproject.toml` version, for example `version = "0.1.0"`
+- `CHANGELOG.md`, moving completed notes from `[Unreleased]` into the release section
+
+Example release section:
+
+```md
+## [0.1.0] - 2026-06-10
+
+### Added
+
+- Added first official release workflow.
+```
+
+## Local release sanity check
+
+Run this before creating a tag:
+
+```bash
+python scripts/check_release.py v0.1.0
+```
+
+The script checks:
+
+- current branch is `main`
+- working tree is clean
+- tag format looks like `vX.Y.Z`
+- local tag does not already exist
+- origin tag does not already exist
+- `pyproject.toml` version matches the tag
+- `CHANGELOG.md` has a section for the version
+
+## Creating and pushing a release tag
+
+Use explicit git paths when committing release edits. Do not use `git add .`.
+
+Example:
+
+```bash
+git add pyproject.toml CHANGELOG.md README-DEV.md scripts/check_release.py .github/workflows/release.yml .github/workflows/tests.yml .github/workflows/docs.yml
+git commit -m "Prepare v0.1.0 release"
+
+python scripts/check_release.py v0.1.0
+
+git tag v0.1.0
+git push origin main
+git push origin v0.1.0
+```
+
+Pushing the tag triggers `.github/workflows/release.yml`.
+
+## What the release workflow does
+
+On tag pushes matching `v*.*.*`, the release workflow:
+
+- installs Python 3.12 and uv
+- validates tag/version/changelog consistency
+- runs pytest
+- builds MkDocs with `--strict`
+- builds Python package artifacts with `uv build`
+- creates a source archive from the tagged commit
+- creates a zipped docs archive
+- creates a GitHub Release
+- uploads the package, source, and docs artifacts
+
+## Desktop app artifacts
+
+Windows and macOS desktop artifacts are intentionally not part of this first release workflow.
+
+Later phases can add:
+
+- Windows build workflow on `windows-latest`
+- unsigned Windows app zip attached to releases
+- macOS app zip, likely still signed/notarized locally until Apple credentials are intentionally moved into GitHub Actions secrets

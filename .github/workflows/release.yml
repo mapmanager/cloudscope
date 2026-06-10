@@ -1,0 +1,109 @@
+name: Release
+run-name: Release • ${{ github.ref_name }}
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to validate and publish, for example v0.1.0'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Test, build docs, and publish release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release tag
+        id: release_tag
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="${{ inputs.tag }}"
+            git fetch --tags origin "refs/tags/${TAG}:refs/tags/${TAG}"
+            git checkout "${TAG}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: uv sync --frozen --group dev --group docs
+
+      - name: Validate release metadata
+        run: uv run python scripts/check_release.py --ci "${{ steps.release_tag.outputs.tag }}"
+
+      - name: Run tests
+        run: uv run pytest
+
+      - name: Build docs
+        env:
+          DISABLE_MKDOCS_2_WARNING: 'true'
+        run: uv run mkdocs build --strict
+
+      - name: Build Python package artifacts
+        run: uv build
+
+      - name: Build source archive
+        shell: bash
+        run: |
+          TAG="${{ steps.release_tag.outputs.tag }}"
+          git archive --format=zip --output "cloudscope-${TAG}.source.zip" HEAD
+
+      - name: Build docs archive
+        shell: bash
+        run: |
+          TAG="${{ steps.release_tag.outputs.tag }}"
+          cd site
+          zip -r "../cloudscope-${TAG}.docs.zip" .
+
+      - name: Extract release notes from CHANGELOG.md
+        shell: bash
+        run: |
+          TAG="${{ steps.release_tag.outputs.tag }}"
+          VERSION="${TAG#v}"
+          awk -v version="${VERSION}" '
+            $0 == "## [" version "]" || $0 ~ "^## \\[" version "\\] - " { found=1; print; next }
+            found && /^## \\[/ { exit }
+            found { print }
+          ' CHANGELOG.md > RELEASE_NOTES.md
+          test -s RELEASE_NOTES.md
+
+      - name: Create GitHub Release and upload artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release_tag.outputs.tag }}
+        shell: bash
+        run: |
+          gh release create "${TAG}" \
+            --title "CloudScope ${TAG}" \
+            --notes-file RELEASE_NOTES.md \
+            dist/* \
+            "cloudscope-${TAG}.source.zip" \
+            "cloudscope-${TAG}.docs.zip"
