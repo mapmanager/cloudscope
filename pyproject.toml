@@ -53,6 +53,7 @@ docs = [
     "mkdocstrings[python]",
     "mkdocs-section-index",
     "mkdocs-jupyter",
+    "pymdown-extensions",
     "matplotlib",
 ]
 

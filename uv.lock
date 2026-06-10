@@ -444,6 +444,7 @@ docs = [
     { name = "mkdocs-material" },
     { name = "mkdocs-section-index" },
     { name = "mkdocstrings", extra = ["python"] },
+    { name = "pymdown-extensions" },
 ]
 
 [package.metadata]
@@ -478,6 +479,7 @@ docs = [
     { name = "mkdocs-material" },
     { name = "mkdocs-section-index" },
     { name = "mkdocstrings", extras = ["python"] },
+    { name = "pymdown-extensions" },
 ]
 
 [[package]]

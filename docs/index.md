@@ -4,7 +4,7 @@ CloudScope is a desktop and browser application for viewing, annotating, and ana
 
 <div class="grid cards" markdown>
 
--   :material-monitor-dashboard:{ .lg .middle } **Launch the web app**
+-   :material-web:{ .lg .middle } **Launch the web app**
 
     ---
 
