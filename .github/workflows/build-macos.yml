@@ -13,7 +13,7 @@ permissions:
 jobs:
   build-macos:
     name: Build signed and notarized macOS app artifact
-    runs-on: macos-15-arm64
+    runs-on: macos-14
 
     env:
       NOTARY_PROFILE: cloudscope-ci-notary-profile
