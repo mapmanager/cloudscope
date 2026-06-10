@@ -230,7 +230,7 @@ Example release section:
 Run this before creating a tag:
 
 ```bash
-python scripts/check_release.py v0.1.0
+uv run python scripts/check_release.py v0.1.0
 ```
 
 The script checks:
