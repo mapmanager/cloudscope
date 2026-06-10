@@ -26,6 +26,17 @@ acqstore
 
     zip -r cloudscope_docs_20260610_v1.zip docs -i '*.py' '*.md' '*.ipynb' '*.css' '*.png' '*.svg' 
 
+find packaging \
+    -type d \( -name build -o -name dist \) -prune -o \
+    -type f \( \
+        -name "*.md" -o \
+        -name "*.sh" -o \
+        -name "*.icns" -o \
+        -name "*.spec" -o \
+        -name "*.entitlements" -o \
+        -name "*.plist" \
+    \) -print | zip cloudscope_packaging_20260610_v1.zip -@
+        
 find docs -type f \( \
     -name "*.md" -o \
     -name "*.ipynb" -o \

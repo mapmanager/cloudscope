@@ -1,3 +1,8 @@
+---
+hide:
+  - toc
+---
+
 # CloudScope
 
 CloudScope is a desktop and browser application for viewing, annotating, and analyzing acquisition-backed microscopy files.
@@ -12,21 +17,13 @@ CloudScope is a desktop and browser application for viewing, annotating, and ana
 
     [:octicons-arrow-right-24: Open cloudscope.mapmanager.net](https://cloudscope.mapmanager.net){target="_blank" rel="noopener"}
 
--   :material-apple:{ .lg .middle } **Download for macOS**
+-   :material-download:{ .lg .middle } **Download the desktop app**
 
     ---
 
-    Download the latest macOS desktop build from GitHub Releases.
+    CloudScope desktop is the same application on macOS and Windows. Choose the build for your operating system from GitHub Releases.
 
-    [:octicons-arrow-right-24: macOS releases](https://github.com/mapmanager/cloudscope/releases){target="_blank" rel="noopener"}
-
--   :material-microsoft-windows:{ .lg .middle } **Download for Windows**
-
-    ---
-
-    Download the latest Windows desktop build from GitHub Releases.
-
-    [:octicons-arrow-right-24: Windows releases](https://github.com/mapmanager/cloudscope/releases){target="_blank" rel="noopener"}
+    [:material-apple: macOS](https://github.com/mapmanager/cloudscope/releases){target="_blank" rel="noopener"} · [:material-microsoft-windows: Windows](https://github.com/mapmanager/cloudscope/releases){target="_blank" rel="noopener"}
 
 </div>
 

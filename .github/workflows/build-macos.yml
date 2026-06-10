@@ -1,0 +1,152 @@
+name: Build macOS
+run-name: Build macOS • ${{ github.ref_name }}
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: read
+
+jobs:
+  build-macos:
+    name: Build signed and notarized macOS app artifact
+    runs-on: macos-15-arm64
+
+    env:
+      NOTARY_PROFILE: cloudscope-ci-notary-profile
+      CLOUDSCOPE_NATIVE: '1'
+      CLOUDSCOPE_REMOTE: '0'
+      CLOUDSCOPE_RELOAD: '0'
+      CLOUDSCOPE_STORAGE_SECRET: cloudscope-packaged-app-secret
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate required secrets
+        shell: bash
+        env:
+          MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          MACOS_SIGN_ID: ${{ secrets.MACOS_SIGN_ID }}
+        run: |
+          for name in \
+            MACOS_CERTIFICATE_BASE64 \
+            MACOS_CERTIFICATE_PASSWORD \
+            MACOS_KEYCHAIN_PASSWORD \
+            APPLE_ID \
+            APPLE_APP_SPECIFIC_PASSWORD \
+            APPLE_TEAM_ID \
+            MACOS_SIGN_ID
+          do
+            if [[ -z "${!name}" ]]; then
+              echo "ERROR: missing GitHub secret: $name" >&2
+              exit 2
+            fi
+          done
+
+      - name: Import Developer ID certificate
+        shell: bash
+        env:
+          MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+        run: |
+          CERTIFICATE_PATH="$RUNNER_TEMP/developer_id_application.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/cloudscope-build.keychain-db"
+
+          echo "$MACOS_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+
+          security create-keychain -p "$MACOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$MACOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security default-keychain -d user -s "$KEYCHAIN_PATH"
+
+          security import "$CERTIFICATE_PATH" \
+            -P "$MACOS_CERTIFICATE_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "$MACOS_KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
+
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      - name: Create notarytool profile and packaging secrets
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          MACOS_SIGN_ID: ${{ secrets.MACOS_SIGN_ID }}
+          NOTARY_PROFILE: ${{ env.NOTARY_PROFILE }}
+        run: |
+          xcrun notarytool store-credentials "$NOTARY_PROFILE" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD"
+
+          cat > packaging/macos/_secrets.sh <<EOF
+          #!/usr/bin/env bash
+          export SIGN_ID='$MACOS_SIGN_ID'
+          export NOTARY_PROFILE='$NOTARY_PROFILE'
+          EOF
+
+          chmod 600 packaging/macos/_secrets.sh
+
+      - name: Build app
+        shell: bash
+        run: ./packaging/macos/build_app.sh
+
+      - name: Sign and create notarization zip
+        shell: bash
+        run: ./packaging/macos/codesign_and_zip.sh
+
+      - name: Submit for notarization
+        shell: bash
+        run: ./packaging/macos/notary_submit.sh
+
+      - name: Poll notarization
+        shell: bash
+        run: ./packaging/macos/notary_poll_until_done.sh
+
+      - name: Staple and verify
+        shell: bash
+        run: ./packaging/macos/staple_and_verify.sh
+
+      - name: Create final macOS release zip
+        shell: bash
+        run: ./packaging/macos/make_release_zip.sh
+
+      - name: Upload macOS app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CloudScope-macos-arm64
+          path: |
+            packaging/macos/dist/CloudScope-*-macos.zip
+            packaging/macos/dist/CloudScope-*-macos-manifest.json
+          if-no-files-found: error
