@@ -1,9 +1,17 @@
 # cloudscope one off ignore
 *.zip
-# docs/
 
 # MkDocs build output
 site/
+
+# MkDocs build caches
+.cache/
+
+# Local docs development
+docs-dev/
+
+# Downloaded sample data
+example-data/sample-data/
 
 # macOS packaging local artifacts
 packaging/macos/_secrets.sh
