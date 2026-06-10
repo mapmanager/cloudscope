@@ -88,25 +88,35 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          import os
-          import re
           import sys
 
           tag = "${{ steps.release_tag.outputs.tag }}"
           version = tag.removeprefix("v")
+          header_prefix = f"## [{version}]"
 
-          changelog = Path("CHANGELOG.md").read_text(encoding="utf-8")
-          pattern = re.compile(
-              rf"^## \[{re.escape(version)}\](?: - .*)?\n(?P<body>.*?)(?=^## \[|\Z)",
-              re.MULTILINE | re.DOTALL,
-          )
+          lines = Path("CHANGELOG.md").read_text(encoding="utf-8").splitlines()
 
-          match = pattern.search(changelog)
-          if not match:
+          start = None
+          for index, line in enumerate(lines):
+              if line.startswith(header_prefix):
+                  start = index + 1
+                  break
+
+          if start is None:
               print(f"ERROR: Could not find CHANGELOG.md section for version {version}")
               sys.exit(1)
 
-          body = match.group("body").strip()
+          body_lines = []
+          for line in lines[start:]:
+              if line.startswith("## ["):
+                  break
+              body_lines.append(line)
+
+          body = "\n".join(body_lines).strip()
+
+          print(f"Extracted release notes for {tag}:")
+          print(body)
+
           if not body:
               print(f"ERROR: CHANGELOG.md section for version {version} is empty")
               sys.exit(1)
