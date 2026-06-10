@@ -24,6 +24,17 @@ acqstore
 
     zip -r kymflow_packaging.zip /Users/cudmore/Sites/kymflow_outer/kymflow/pyinstaller/macos/build_feb_2026 -i '*.py' '*.md' '*.sh' '*.spec' 
 
+    zip -r cloudscope_docs_20260610_v1.zip docs -i '*.py' '*.md' '*.ipynb' '*.css' '*.png' '*.svg' 
+
+find docs -type f \( \
+    -name "*.md" -o \
+    -name "*.ipynb" -o \
+    -name "*.css" -o \
+    -name "*.png" -o \
+    -name "*.svg" \
+\) -print | zip cloudscope_docs_20260610_v2.zip -@
+
+
     zip -r cloudscope_src_20260513_v1.zip src/cloudscope -i '*.py' '*.md'
 
     zip -r cloudscope_src_20260609_v1.zip src/acqstore -i '*.py' '*.md'

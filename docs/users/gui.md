@@ -4,15 +4,7 @@ CloudScope is designed around a simple workflow: load data, choose what to view,
 
 ## Main toolbar
 
-<img
-  src="../../assets/gui/load-save-view.png"
-  alt="CloudScope main toolbar with load and save controls"
-  class="cs-screenshot cs-screenshot-center"
-/>
-
-![CloudScope main toolbar](../assets/gui/load-save-view.png){ .cs-screenshot .cs-screenshot-center width="400" loading=lazy }
-
-![Image context menu](../assets/gui/image-widget-context-menu.png){ .cs-screenshot align=right width="200" loading=lazy }
+![CloudScope main toolbar with load and save controls](../assets/gui/load-save-view.png){ .cs-screenshot .cs-screenshot-center width="760" loading=lazy }
 
 The main toolbar is the starting point for loading and saving work.
 
@@ -24,11 +16,7 @@ Use the toolbar first when starting a new session, loading additional data, or s
 
 ## File list and acquisition tree
 
-<img
-  src="../assets/gui/file-list-tree.png"
-  alt="CloudScope file list and acquisition tree"
-  class="cs-screenshot cs-screenshot-center"
-/>
+![CloudScope file list and acquisition tree](../assets/gui/file-list-tree.png){ .cs-screenshot .cs-screenshot-center width="900" loading=lazy }
 
 The file list shows loaded acquisition files and their available channels, ROIs, and analysis entries. Selecting an item updates the rest of the interface. Linked views stay synchronized through CloudScope's MVC event system, so the image viewer, analysis panels, and result views follow the current selection.
 
@@ -45,11 +33,7 @@ The primary image viewer displays the selected acquisition image, channel, and R
 
 ## Image toolbar
 
-<img
-  src="../assets/gui/image-toolbar-view.png"
-  alt="CloudScope image toolbar"
-  class="cs-screenshot cs-screenshot-center"
-/>
+![CloudScope image toolbar](../assets/gui/image-toolbar-view.png){ .cs-screenshot .cs-screenshot-center width="760" loading=lazy }
 
 The image toolbar controls common display actions for the image viewer. Depending on the current selection, these controls may include display, zoom, ROI, contrast, and overlay actions.
 
@@ -57,11 +41,7 @@ Use this toolbar to adjust what is visible without changing the underlying acqui
 
 ## Image context menu
 
-<img
-  src="../assets/gui/image-widget-context-menu.png"
-  alt="CloudScope image viewer context menu"
-  class="cs-screenshot cs-screenshot-right"
-/>
+![CloudScope image viewer context menu](../assets/gui/image-widget-context-menu.png){ .cs-screenshot width="420" align=right loading=lazy }
 
 Right-click the primary image viewer to open the context menu. The context menu provides quick access to display and export actions for the current image view.
 
@@ -79,11 +59,7 @@ These controls affect how the image is displayed. They do not change the origina
 
 ## Left navigation toolbar
 
-<img
-  src="../assets/gui/left-toolbar.png"
-  alt="CloudScope left navigation toolbar"
-  class="cs-screenshot cs-screenshot-left"
-/>
+![CloudScope left navigation toolbar](../assets/gui/left-toolbar.png){ .cs-screenshot width="220" align=left loading=lazy }
 
 The left navigation toolbar switches between major CloudScope views and workflows. Each icon opens a focused panel such as home, loading, metadata, ROIs, velocity analysis, diameter analysis, or other analysis/result views.
 
@@ -93,11 +69,7 @@ The exact set of icons may change as CloudScope grows, but the purpose remains t
 
 ## Velocity analysis panel
 
-<img
-  src="../assets/gui/velocity-analysis-panel.png"
-  alt="CloudScope velocity analysis panel"
-  class="cs-screenshot cs-screenshot-center"
-/>
+![CloudScope velocity analysis panel](../assets/gui/velocity-analysis-panel.png){ .cs-screenshot .cs-screenshot-center width="980" loading=lazy }
 
 The velocity analysis panel is used to configure and run velocity analysis on the selected acquisition, channel, and ROI. The panel exposes scientific detection parameters and execution controls in the GUI, while the analysis itself is performed by the same backend code available to Python scripts and notebooks.
 

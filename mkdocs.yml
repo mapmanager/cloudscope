@@ -7,9 +7,9 @@ repo_name: mapmanager/cloudscope
 theme:
   name: material
   features:
-    - navigation.sections
+    # - navigation.sections
     - navigation.indexes
-    - navigation.expand
+    # - navigation.expand
     - navigation.top
     - toc.follow
     - content.code.copy
@@ -79,7 +79,7 @@ nav:
           - Run Diameter Analysis: users/recipes/run-diameter-analysis.md
           - Export Results: users/recipes/export-results.md
       - Using the GUI: users/gui.md
-  - Scientific User / Data Scientist:
+  - Data Scientist:
       - scientists/index.md
       - Reproducibility: scientists/reproducibility.md
       - Sample Data: scientists/sample-data.md

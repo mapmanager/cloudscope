@@ -1,21 +1,19 @@
 # Install CloudScope desktop apps
 
-CloudScope can be used as a native desktop app on macOS and Windows, or directly in a browser at [cloudscope.mapmanager.net](https://cloudscope.mapmanager.net){target="_blank" rel="noopener"}.
+CloudScope is available as the same desktop application for macOS and Windows. Choose the download for your operating system from the official CloudScope GitHub Releases page.
 
-## Download stable releases
+[Download CloudScope desktop releases](https://github.com/mapmanager/cloudscope/releases){target="_blank" rel="noopener"}
 
-Official desktop builds are published on the [CloudScope GitHub Releases page](https://github.com/mapmanager/cloudscope/releases){target="_blank" rel="noopener"}.
+## Stable versions
 
-Use official CloudScope releases when you need stable, repeatable analysis results. Released desktop builds and the matching source code are archived so you can return to the same version later.
+Use official CloudScope releases when you need stable, repeatable analysis results. Released desktop builds and matching source code are archived so you can return to the same CloudScope version later.
 
-## macOS
+The macOS and Windows builds provide the same CloudScope interface and use the same `acqstore` scientific backend. The difference is only the operating system target and release artifact.
 
-Download the latest macOS release artifact, unzip it, and open the CloudScope app. The macOS build is prepared through a signing and notarization workflow before distribution.
+## Try the browser app first
 
-## Windows
+You can try CloudScope before installing by opening the browser version:
 
-Download the latest Windows release artifact and run the CloudScope executable. Windows release packaging details will be documented as the release workflow stabilizes.
+[Open CloudScope web app](https://cloudscope.mapmanager.net){target="_blank" rel="noopener"}
 
-## Browser option
-
-If you want to try CloudScope before installing, start with the browser version at [cloudscope.mapmanager.net](https://cloudscope.mapmanager.net){target="_blank" rel="noopener"}. The browser and desktop apps use the same backend analysis code.
+The browser and desktop apps use the same backend analysis code, so the web app is a good way to explore the interface and sample data before installing a desktop build.
