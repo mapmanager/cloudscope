@@ -6,12 +6,16 @@ repo_name: mapmanager/cloudscope
 
 theme:
   name: material
+  custom_dir: docs/assets/overrides
+  logo: assets/cloudscope.png
+  favicon: assets/cloudscope.png
   features:
     # - navigation.sections
     - navigation.indexes
     # - navigation.expand
     - navigation.top
     - toc.follow
+    # - toc.integrate
     - content.code.copy
     - search.highlight
     - search.suggest

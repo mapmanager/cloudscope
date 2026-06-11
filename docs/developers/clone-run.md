@@ -22,4 +22,9 @@ uv sync --group docs
 uv run mkdocs serve
 ```
 
-`mkdocs serve` normally watches documentation files and live-reloads the browser when files change. If edits do not appear, check that you are editing files under the active MkDocs `docs_dir`, refresh the browser once, and make sure the terminal running `mkdocs serve` has not reported a build error.
+Sometimes need this (mkdocs hot reload is broken)
+
+```bash
+uv run mkdocs serve --livereload --dirtyreload
+```
+

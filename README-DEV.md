@@ -43,7 +43,15 @@ find docs -type f \( \
     -name "*.css" -o \
     -name "*.png" -o \
     -name "*.svg" \
-\) -print | zip cloudscope_docs_20260610_v3.zip -@
+\) -print | zip cloudscope_docs_20260611_v1.zip -@
+
+find docs-dev -type f \( \
+    -name "*.md" -o \
+    -name "*.ipynb" -o \
+    -name "*.css" -o \
+    -name "*.png" -o \
+    -name "*.svg" \
+\) -print | zip cloudscope_docs_dev_20260611_v1.zip -@
 
 find src -type f \( \
     -name "*.py" -o \
@@ -52,7 +60,17 @@ find src -type f \( \
     -name "*.css" -o \
     -name "*.png" -o \
     -name "*.svg" \
-\) -print | zip cloudscope_src_20260610_v3.zip -@
+\) -print | zip cloudscope_src_20260611_v1.zip -@
+
+find .github/workflows -type f \( \
+    -name "*.py" -o \
+    -name "*.md" -o \
+    -name "*.ipynb" -o \
+    -name "*.css" -o \
+    -name "*.png" -o \
+    -name "*.svg" \
+    -name "*.yml" \
+\) -print | zip cloudscope_workflows_20260611_v1.zip -@
 
     zip -r cloudscope_src_20260513_v1.zip src/cloudscope -i '*.py' '*.md'
 

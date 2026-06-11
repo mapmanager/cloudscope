@@ -1,9 +1,29 @@
 ---
 hide:
   - toc
+  - path
+  - footer
 ---
 
-# CloudScope
+<!-- # CloudScope -->
+
+<style>
+  /* Hides the auto-generated title block */
+  .md-typeset h1 { 
+    display: none !important; 
+  }
+  
+  /* Adds breathing room at the top of the page */
+  .md-content__inner { 
+    padding-top: 2rem !important; 
+  }
+
+  /* Hides the entire bottom footer background bar on this page */
+  .md-footer {
+    display: none !important;
+  }
+  
+</style>
 
 CloudScope is a desktop and browser application for viewing, annotating, and analyzing acquisition-backed microscopy files.
 
