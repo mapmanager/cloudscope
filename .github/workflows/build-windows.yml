@@ -8,7 +8,7 @@ on:
       - 'v*.*.*'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-windows:
@@ -96,3 +96,23 @@ jobs:
           name: ${{ steps.version.outputs.artifact_name }}
           path: ${{ steps.version.outputs.artifact_name }}.zip
           if-no-files-found: error
+
+      - name: Upload Windows app to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          ASSET: ${{ steps.version.outputs.artifact_name }}.zip
+        shell: bash
+        run: |
+          for attempt in {1..30}; do
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              gh release upload "$TAG" "$ASSET" --clobber
+              exit 0
+            fi
+            echo "Waiting for GitHub Release $TAG to exist..."
+            sleep 10
+          done
+
+          echo "ERROR: GitHub Release $TAG was not found after waiting." >&2
+          exit 1

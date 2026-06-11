@@ -27,3 +27,29 @@ This project uses a simple changelog format inspired by Keep a Changelog. During
 ### Changed
 
 - Improved GitHub Actions run names for easier reading in the Actions UI.
+
+## [0.1.1] - 2026-06-11
+
+### Added
+
+- Implemented MkDocs documentation site using Material for MkDocs and mkdocstrings.
+
+- Added expanded documentation structure for end users, scientific users, and developers.
+
+- Added GitHub Actions workflows for building Windows and macOS desktop application artifacts.
+
+- Added signed, notarized, and stapled macOS Apple Silicon application build workflow.
+
+- Added unsigned Windows desktop application build workflow using NiceGUI Pack and PyInstaller.
+
+### Changed
+
+- Added new ECharts context menu items.
+
+- Improved CI/CD release process for reproducible tagged CloudScope releases.
+
+- Improved desktop build artifact naming and packaging conventions.
+
+### Fixed
+
+- Fixed release notes extraction for GitHub Release generation.

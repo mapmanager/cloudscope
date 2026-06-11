@@ -8,7 +8,7 @@ on:
       - 'v*.*.*'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-macos:
@@ -37,6 +37,28 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Resolve project version
+        id: version
+        shell: bash
+        run: |
+          VERSION="$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Validate tag/version consistency
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${{ steps.version.outputs.version }}"
+          EXPECTED="v${VERSION}"
+
+          if [[ "${TAG}" != "${EXPECTED}" ]]; then
+            echo "ERROR: tag '${TAG}' does not match pyproject.toml version '${VERSION}'. Expected '${EXPECTED}'." >&2
+            exit 1
+          fi
+
+          echo "OK: tag '${TAG}' matches pyproject.toml version '${VERSION}'."
 
       - name: Validate required secrets
         shell: bash
@@ -145,8 +167,38 @@ jobs:
       - name: Upload macOS app artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CloudScope-macos-arm64
+          name: CloudScope-macos-release-assets
           path: |
             packaging/macos/dist/CloudScope-*-macos.zip
             packaging/macos/dist/CloudScope-*-macos-manifest.json
           if-no-files-found: error
+
+      - name: Upload macOS app to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          shopt -s nullglob
+          ASSETS=(
+            packaging/macos/dist/CloudScope-*-macos.zip
+            packaging/macos/dist/CloudScope-*-macos-manifest.json
+          )
+
+          if [[ "${#ASSETS[@]}" -eq 0 ]]; then
+            echo "ERROR: no macOS release assets found." >&2
+            exit 1
+          fi
+
+          for attempt in {1..30}; do
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              gh release upload "$TAG" "${ASSETS[@]}" --clobber
+              exit 0
+            fi
+            echo "Waiting for GitHub Release $TAG to exist..."
+            sleep 10
+          done
+
+          echo "ERROR: GitHub Release $TAG was not found after waiting." >&2
+          exit 1
