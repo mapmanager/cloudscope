@@ -26,6 +26,6 @@ single = AcqImageList('/path/to/file.tif')
 
 ## Documentation index
 
-- Repo hub: [`docs/packages/README.md`](../../docs/packages/README.md)
-- Schemas: [`docs/acqstore/schemas.md`](../../docs/acqstore/schemas.md)
-- Architecture: [`docs/architecture.md`](../../docs/architecture.md)
+- Repo hub: [`docs-dev/packages/README.md`](../../docs-dev/packages/README.md)
+- Schemas: [`docs-dev/acqstore/schemas.md`](../../docs-dev/acqstore/schemas.md)
+- Architecture: [`docs-dev/cloudscope_architecture.md`](../../docs-dev/cloudscope_architecture.md)

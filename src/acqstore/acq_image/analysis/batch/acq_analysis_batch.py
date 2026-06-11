@@ -1,4 +1,10 @@
-"""Generic batch runner for AcqImage analysis strategies."""
+"""Generic batch runner for AcqImage analyses.
+
+``AcqAnalysisBatch`` applies a one-file analysis strategy to many independent
+``AcqImage`` objects. File-level work is scheduled with a thread pool so batch
+runs can remain responsive and cancellable. Each strategy still uses the same
+single-file analysis creation and execution APIs used by CloudScope and scripts.
+"""
 
 from __future__ import annotations
 
@@ -34,10 +40,13 @@ class BatchAnalysisStrategy(Protocol):
 
 
 class AcqAnalysisBatch:
-    """Run one analysis strategy over many AcqImage objects.
+    """Run one analysis strategy over many acquisition files.
 
     File-level work uses a ``ThreadPoolExecutor``. Each file is independent;
-    inner analysis code may use multiprocessing per file.
+    inner analysis code may also use multiprocessing or threads as configured by
+    the concrete strategy. This preserves the same scientific analysis path used
+    by one-file GUI and scripting workflows while reducing wall-clock time for
+    large file collections.
 
     Args:
         files: Acquisition images to process.

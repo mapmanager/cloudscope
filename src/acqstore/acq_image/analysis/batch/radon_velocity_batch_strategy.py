@@ -1,4 +1,10 @@
-"""Batch strategy for Radon velocity analysis."""
+"""Batch strategy for Radon velocity analysis.
+
+The strategy chooses a target ROI for each file, creates a ``RadonVelocityAnalysis``
+through the file's ``AcqAnalysisSet``, configures runtime multiprocessing options,
+and returns a structured per-file result. It does not save files; callers decide
+when to persist changed analyses.
+"""
 
 from __future__ import annotations
 

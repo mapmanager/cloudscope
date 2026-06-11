@@ -51,4 +51,4 @@ Disables interaction (no intents); programmatic `*_ext` methods still run.
 - **Channel** options are `list[str]` in the select (e.g. `"0"`, `"1"`); programmatic `set_channel_ext` uses `int | None` and matches via `str(channel)`.
 - **ROI** options are **`list[int]`** in the API and in the NiceGUI select.
 
-See also: `docs/packages/README.md` for other packages and doc entry points.
+See also: `docs-dev/packages/README.md` for other packages and doc entry points.

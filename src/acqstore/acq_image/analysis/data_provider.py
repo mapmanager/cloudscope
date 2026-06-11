@@ -1,8 +1,9 @@
-"""Analysis data-provider interfaces.
+"""Data-provider interfaces used by analysis classes.
 
-The concrete provider is intentionally thin. It delegates image/ROI/header
-access to ``AcqImage`` so the analysis package does not duplicate ROI slicing
-logic.
+Analyses should not depend directly on ``AcqImage``. They receive an
+``AnalysisDataProvider`` so the analysis framework has a small, testable API for
+ROI image data and physical calibration. The concrete provider in this module
+adapts one ``AcqImage`` to that interface.
 """
 
 from __future__ import annotations
@@ -16,7 +17,13 @@ if TYPE_CHECKING:
 
 
 class AnalysisDataProvider(Protocol):
-    """Minimal data access surface needed by analyses."""
+    """Minimal data access surface needed by analyses.
+
+    Analysis implementations use this protocol instead of reaching into
+    ``AcqImage`` internals. The contract is intentionally small: ROI-local image
+    data and image physical spacing. This keeps analysis code reusable from GUI,
+    batch, test, and notebook workflows.
+    """
 
     def get_roi_image(self, channel: int, roi_id: int) -> np.ndarray:
         """Return image data for one channel cropped to one ROI.
@@ -40,7 +47,11 @@ class AnalysisDataProvider(Protocol):
 
 
 class AcqImageAnalysisDataProvider:
-    """Analysis data provider backed by one AcqImage.
+    """Analysis data provider backed by one ``AcqImage``.
+
+    The provider delegates ROI cropping and physical-unit lookup to the parent
+    acquisition image. It does not cache pixel data; each call reflects the
+    current ROI and file-loader state.
 
     Args:
         acq_image: Parent acquisition image.

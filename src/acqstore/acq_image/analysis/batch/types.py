@@ -1,4 +1,9 @@
-"""Shared batch analysis types."""
+"""Shared value types for batch analysis workflows.
+
+These small enums and dataclasses describe what kind of batch analysis is being
+run and what happened for each file. They are intentionally lightweight so GUI,
+script, and test code can consume batch results without inspecting exceptions.
+"""
 
 from __future__ import annotations
 

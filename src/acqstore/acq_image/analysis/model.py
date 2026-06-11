@@ -1,7 +1,14 @@
-"""Core analysis models for AcqStore.
+"""Core analysis models and value objects.
 
-This module contains the public base classes and value objects used by the
-AcqStore analysis system.
+This module defines the small public analysis framework used by velocity,
+diameter, and future analyses. Analysis instances are identified by analysis
+name, channel, and ROI; receive image data through an ``AnalysisDataProvider``;
+report progress/cancellation through ``AnalysisRunContext``; and return
+``AnalysisResult`` objects containing JSON-serializable summaries and optional
+pandas tables.
+
+These classes are part of the public API because they appear in generated docs,
+analysis signatures, and scripting workflows.
 """
 
 from __future__ import annotations
@@ -145,14 +152,19 @@ class AnalysisKey:
 
 @dataclass(slots=True)
 class AnalysisRunContext:
-    """Runtime context for progress reporting and cancellation.
+    """Runtime context for progress reporting and cooperative cancellation.
+
+    Analysis code receives this object from GUI controllers, batch runners, or
+    scripts. Derived analyses should call :meth:`report_progress` at natural
+    milestones and :meth:`raise_if_cancelled` or :meth:`is_cancelled` inside
+    long loops.
 
     Args:
         progress_callback: Optional callback receiving ``(fraction, message)``.
-            ``fraction`` should be between 0 and 1 when known, or None when
+            ``fraction`` should be between 0 and 1 when known, or ``None`` when
             progress is indeterminate.
-        cancel_callback: Optional callback returning True when cancellation has
-            been requested.
+        cancel_callback: Optional callback returning ``True`` when cancellation
+            has been requested.
     """
 
     progress_callback: Callable[[float | None, str], None] | None = None
@@ -195,15 +207,16 @@ class AnalysisRunContext:
 class AnalysisPlotData:
     """Display-ready x/y plot data for one analysis.
 
-    This is a backend-facing API for viewers. GUI packages should not need to
-    know analysis-specific table column names such as ``time_s`` or
-    ``velocity``.
+    GUI widgets and notebooks should be able to plot this object without knowing
+    analysis-specific table column names such as ``time_s``, ``velocity``, or
+    ``diameter_um``. Values are already in physical units when an analysis can
+    provide them.
 
     Args:
         x: X-axis values.
         y: Y-axis values.
-        x_label: Human-readable x-axis label.
-        y_label: Human-readable y-axis label.
+        x_label: Human-readable x-axis label including units when known.
+        y_label: Human-readable y-axis label including units when known.
         series_name: Human-readable series name.
     """
 
@@ -225,12 +238,17 @@ class AnalysisPlotData:
 
 @dataclass(slots=True)
 class AnalysisResult:
-    """Outputs from one analysis.
+    """Outputs from one completed or loaded analysis.
+
+    ``summary`` stores small JSON-serializable values that belong in an
+    acquisition sidecar. ``table`` stores larger per-row results that can be
+    saved to CSV and inspected in notebooks or GUI tables.
 
     Args:
         summary: Small JSON-serializable result dictionary.
-        table: Large tabular output. Tables produced by derived analyses must
-            not include reserved bookkeeping columns ``channel`` or ``roi_id``.
+        table: Optional large tabular output. Tables produced by derived
+            analyses must not include reserved bookkeeping columns ``channel``
+            or ``roi_id``; those are added by :meth:`BaseAnalysis.table_with_bookkeeping`.
     """
 
     summary: dict[str, Any] = field(default_factory=dict)
@@ -238,12 +256,20 @@ class AnalysisResult:
 
 
 class BaseAnalysis(ABC):
-    """Base class for one analysis instance.
+    """Base class for one ROI/channel analysis instance.
 
-    Derived classes define ``analysis_name`` and implement ``run``.
+    Derived classes define a stable ``analysis_name``, optional
+    ``detection_schema``, and a concrete :meth:`run` method. The base class owns
+    analysis identity, validated detection parameters, dirty state,
+    serialization helpers, and common table utilities.
+
+    Detection parameters describe scientific behavior and are serialized with
+    the analysis. Runtime execution options, such as multiprocessing worker
+    counts, should live on derived classes and should not be serialized unless
+    they change scientific results.
 
     Args:
-        channel: Channel index for this analysis.
+        channel: Zero-based channel index for this analysis.
         roi_id: ROI identifier for this analysis.
         detection_params: Optional detection parameter values. Missing values
             are filled from ``detection_schema`` defaults when available.
@@ -395,16 +421,18 @@ class BaseAnalysis(ABC):
     ) -> AnalysisResult:
         """Run analysis using a narrow data-provider API.
 
-        Derived implementations must call ``self.set_dirty()`` after mutating
-        results.
+        Derived implementations should read pixels and physical units only
+        through ``data_provider``. They should use ``context`` for progress and
+        cancellation, respect dependency analyses when declared, store results in
+        ``self.result``, and call ``self.set_dirty()`` after mutating results.
 
         Args:
             data_provider: Minimal image/header access provider.
-            context: Optional runtime context for progress/cancellation.
+            context: Optional runtime context for progress and cancellation.
             dependencies: Dependency analyses keyed by analysis name.
 
         Returns:
-            Analysis result.
+            Analysis result. Implementations usually return ``self.result``.
         """
         raise NotImplementedError
 

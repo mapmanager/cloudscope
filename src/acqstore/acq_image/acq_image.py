@@ -1,3 +1,16 @@
+"""Acquisition-file object for images, metadata, ROIs, and analysis results.
+
+``AcqImage`` is the central per-file object in ``acqstore``. It wraps one
+acquisition file, exposes image data through the file-loader API, owns
+experiment/image-header metadata, owns the ROI set, and owns the analysis set
+for that file. CloudScope GUI views, scripts, and notebooks all use this same
+object so analysis behavior does not depend on whether work is done in the GUI
+or in Python code.
+
+This module is intended for public scripting use. The most common entry points
+are ``AcqImage`` for one file and ``AcqImageList`` for collections of files.
+"""
+
 from pathlib import Path
 import json
 
@@ -118,10 +131,51 @@ __all__ = [
 ]
 
 class AcqImage:
-    """Backend-facing root object for one acquisition file."""
+    """Root object for one acquisition file.
+
+    An ``AcqImage`` represents one loaded acquisition file and its sidecar state.
+    It owns the file loader, metadata sections, ROI set, image-contrast state,
+    and ``AcqAnalysisSet`` for this file. The object is used directly by
+    CloudScope and is also the preferred starting point for scripts that need to
+    load one file, crop image data by ROI, run analysis, or save results.
+
+    The constructor loads image-header information from the source file and then
+    attempts to hydrate persisted sidecar state from ``<source-file>.json`` when
+    that file exists. Calling :meth:`save` writes the sidecar JSON and analysis
+    CSV files next to the source file.
+
+    Array conventions:
+        Two-dimensional image arrays use ``(Y, X)`` order, which corresponds to
+        ``(rows, columns)``. For line-scan kymographs, CloudScope interprets
+        ``Y`` as time/line index and ``X`` as distance along the sampled line.
+        ROI bounds use the same row/column coordinate system.
+
+    Examples:
+        Load a file, access the default channel, crop the first ROI, and inspect
+        physical pixel spacing::
+
+            from acqstore.acq_image import AcqImage
+
+            acq = AcqImage("example.tif")
+            channel = acq.get_default_channel()
+            roi_id = acq.get_default_roi()
+            if channel is not None and roi_id is not None:
+                roi_image = acq.get_roi_image(channel, roi_id)
+                step_y, step_x = acq.get_image_physical_units()
+
+    Args:
+        path: Filesystem path for one supported acquisition file.
+
+    Raises:
+        ValueError: If the file extension is not a supported acquisition format.
+    """
 
     def __init__(self, path: str):
-        """Create a new acquisition file wrapper.
+        """Create and hydrate an acquisition file object.
+
+        The source file is opened through the appropriate file loader, default
+        metadata/ROI/analysis containers are created, and sidecar JSON is loaded
+        when present. The constructor does not run analysis.
 
         Args:
             path: Filesystem path for this acquisition file.
@@ -167,7 +221,16 @@ class AcqImage:
         )
 
     def save(self) -> None:
-        """Persist pending changes for this file."""
+        """Persist metadata, ROIs, contrast state, and analysis results.
+
+        ``save`` writes the JSON sidecar for this acquisition and asks the
+        analysis set to write CSV result files. It then marks metadata sections,
+        ROI state, contrast state, and analysis state as clean.
+
+        Notes:
+            Source image pixels are not modified. Analysis CSV files are written
+            by analysis type, while per-file state is stored in the sidecar JSON.
+        """
         
         # save one json file for each acq image
         self.save_sidecar_json()
@@ -373,12 +436,24 @@ class AcqImage:
 
     @property
     def images(self) -> BaseFileLoader:
-        """Return image access helper for this file."""
+        """Return the file-loader image access object.
+
+        The loader owns source pixel access and image-header metadata. Scripts
+        may use it for direct image access when they need full slices or loader
+        details; analysis code should usually use :meth:`get_roi_image` through
+        ``AnalysisDataProvider`` instead.
+        """
         return self._images
 
     @property
     def rois(self) -> RoiSet:
-        """Return ROI helper for this file."""
+        """Return the ROI set for this acquisition.
+
+        ROIs are shared across channels for one ``AcqImage``. Rectangular ROI
+        bounds use the same row/column coordinate system as ``(Y, X)`` image
+        arrays. Mutating ROIs marks the file dirty and may invalidate analysis
+        associated with the edited ROI.
+        """
         return self._rois
 
     def get_image_contrast(self, channel: int) -> ImageContrast | None:
@@ -485,7 +560,12 @@ class AcqImage:
 
     @property
     def analysis_set(self) -> AcqAnalysisSet:
-        """Return analysis helper for this file."""
+        """Return the analysis set for this acquisition.
+
+        The analysis set creates, stores, runs, removes, serializes, and saves
+        analysis instances for this file. Analyses are keyed by analysis name,
+        channel, and ROI identifier.
+        """
         return self._acq_analysis_set
     
     def get_schema(self) -> SchemaDefinition:
@@ -625,17 +705,21 @@ class AcqImage:
         return roi_ids[0] if roi_ids else None
 
     def get_roi_image(self, channel: int, roi_id: int) -> np.ndarray:
-        """Return image data for one channel cropped to one rectangular ROI.
+        """Return full-resolution image data cropped to one rectangular ROI.
 
-        Uses slice ``z=0`` and ``t=0`` only (see :meth:`BaseFileLoader.get_slice_data`).
-        ROI bounds are clamped to :attr:`rois.image_bounds`.
+        This is the preferred scripting and analysis entry point for ROI-local
+        image data. It uses source-resolution pixels, not the display pyramid
+        used by the GUI for fast visualization. The current implementation reads
+        slice ``z=0`` and ``t=0`` from the selected channel and clamps ROI bounds
+        to the image bounds before cropping.
 
         Args:
-            channel: Channel index.
+            channel: Zero-based channel index.
             roi_id: Identifier of a :class:`~acqstore.acq_image.roi.RectROI`.
 
         Returns:
-            Two-dimensional ``(Y, X)`` ROI image data.
+            Two-dimensional ``(Y, X)`` array cropped to the ROI. For kymographs,
+            this is ``(time, space)`` in row/column order.
 
         Raises:
             ValueError: If ``roi_id`` is not present.
@@ -659,13 +743,14 @@ class AcqImage:
         return self._images.get_roi_rect_image(channel, bounds, z=0, t=0)
 
     def get_image_physical_units(self) -> tuple[float, float]:
-        """Return per-pixel physical step along ``Y`` then ``X`` for 2D image data.
+        """Return physical pixel spacing for two-dimensional image data.
 
-        Same calibration applies to full slices from :attr:`images` and to
-        crops from :meth:`get_roi_image`.
+        The returned tuple is aligned with the array layout returned by
+        :meth:`get_roi_image` and the file-loader slice APIs.
 
         Returns:
-            ``(step_y, step_x)`` aligned with ``(Y, X)`` arrays.
+            ``(step_y, step_x)`` for ``(Y, X)`` arrays. For line-scan
+            kymographs this is typically ``(seconds_per_line, microns_per_pixel)``.
 
         Raises:
             ValueError: If the file header does not define a ``Y``/``X`` plane.

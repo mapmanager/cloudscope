@@ -107,6 +107,12 @@ class EChartWidget:
         self._context_menu_builder = EChartWidgetContextMenu(get_widget=lambda: self)
         self.container.on("contextmenu", self._on_context_menu_event)
 
+        # Holding Shift switches click+drag from x-axis to y-axis zoom. We
+        # track the Shift key globally and flip the toolbox dataZoom axis on
+        # press / release. (Ctrl is avoided because on macOS Ctrl+click is the
+        # system secondary-click, which would open the context menu instead.)
+        ui.keyboard(on_key=self._on_zoom_modifier_key)
+
         # Start in "click+drag zooms the x-axis" mode so users get a chart
         # action by default. The toolbox itself stays hidden (per display
         # options) but the ``dataZoom`` feature is still in the options so the
@@ -220,6 +226,37 @@ class EChartWidget:
         self._display_options.show_hover_info = bool(visible)
         self.apply()
 
+    def set_axis_labels_visible(self, visible: bool) -> None:
+        """Show or hide axis decorations on both axes.
+
+        Controls the axis name, tick labels, tick marks, and axis line on the
+        x- and y-axes together (ECharts ``axisLabel`` / ``axisTick`` /
+        ``axisLine`` ``show`` plus blanking the axis ``name`` when off).
+
+        Args:
+            visible: Whether axis decorations should be visible.
+        """
+        self._display_options.show_axis_labels = bool(visible)
+        self.apply()
+
+    def set_horizontal_lines_visible(self, visible: bool) -> None:
+        """Show or hide horizontal grid lines (y-axis ``splitLine``).
+
+        Args:
+            visible: Whether horizontal grid lines should be visible.
+        """
+        self._display_options.show_horizontal_lines = bool(visible)
+        self.apply()
+
+    def set_vertical_lines_visible(self, visible: bool) -> None:
+        """Show or hide vertical grid lines (x-axis ``splitLine``).
+
+        Args:
+            visible: Whether vertical grid lines should be visible.
+        """
+        self._display_options.show_vertical_lines = bool(visible)
+        self.apply()
+
     async def copy_plot_to_clipboard(self) -> None:
         """Copy the current ECharts plot image to the active clipboard.
 
@@ -270,12 +307,54 @@ class EChartWidget:
             },
         )
 
+    def _set_zoom_axis(self, *, y_axis: bool) -> None:
+        """Point the click+drag rubber-band zoom at the x- or y-axis.
+
+        ECharts' ``dataZoomSelect`` cursor zooms whichever axes the toolbox
+        ``dataZoom`` feature enables, so the axis is switched by merging a new
+        feature config and re-arming the cursor. Both ``xAxisIndex`` and
+        ``yAxisIndex`` are set explicitly so a merge never leaves both as
+        ``'none'`` (which would zoom nothing).
+
+        Args:
+            y_axis: ``True`` to zoom the y-axis, ``False`` for the x-axis.
+        """
+        if y_axis:
+            feature = {"dataZoom": {"xAxisIndex": "none", "yAxisIndex": 0}}
+        else:
+            feature = {"dataZoom": {"xAxisIndex": 0, "yAxisIndex": "none"}}
+        self.container.run_chart_method(
+            "setOption", {"toolbox": {"feature": feature}}
+        )
+        self._activate_x_zoom_cursor()
+
+    def _on_zoom_modifier_key(self, event: Any) -> None:
+        """Switch zoom axis when the Shift key is pressed or released.
+
+        Args:
+            event: NiceGUI keyboard event.
+        """
+        if event.key != "Shift":
+            return
+        if event.action.keydown:
+            self._set_zoom_axis(y_axis=True)
+        elif event.action.keyup:
+            self._set_zoom_axis(y_axis=False)
+
     def apply(self) -> None:
-        """Apply current chart state to the NiceGUI ECharts element."""
+        """Apply current chart state to the NiceGUI ECharts element.
+
+        Each apply performs a full ``setOption``, which resets ECharts' global
+        cursor state. The default click+drag x-zoom cursor is therefore
+        re-armed after every apply (unless a one-shot brush selection is
+        active), so it stays live once data has loaded.
+        """
         options = self.build_options()
         self.container.options.clear()
         self.container.options.update(options)
         self.container.update()
+        if not self._selecting_x:
+            self._activate_x_zoom_cursor()
 
     def build_options(self) -> dict[str, Any]:
         """Build ECharts options for the current widget state.
@@ -309,6 +388,26 @@ class EChartWidget:
         tooltip = options.setdefault("tooltip", {"trigger": "axis"})
         if isinstance(tooltip, dict):
             tooltip["show"] = bool(self._display_options.show_hover_info)
+
+        show_labels = bool(self._display_options.show_axis_labels)
+        x_axis = options.setdefault("xAxis", {})
+        y_axis = options.setdefault("yAxis", {})
+        for axis in (x_axis, y_axis):
+            if not isinstance(axis, dict):
+                continue
+            axis.setdefault("axisLabel", {})["show"] = show_labels
+            axis.setdefault("axisTick", {})["show"] = show_labels
+            axis.setdefault("axisLine", {})["show"] = show_labels
+            if not show_labels:
+                axis["name"] = ""
+        if isinstance(x_axis, dict):
+            x_axis.setdefault("splitLine", {})["show"] = bool(
+                self._display_options.show_vertical_lines
+            )
+        if isinstance(y_axis, dict):
+            y_axis.setdefault("splitLine", {})["show"] = bool(
+                self._display_options.show_horizontal_lines
+            )
 
     def _on_datazoom(self, event: Any) -> None:
         """Forward ECharts dataZoom to ``on_x_range_changed`` (with echo dedup).

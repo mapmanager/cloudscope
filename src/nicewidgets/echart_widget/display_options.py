@@ -17,7 +17,20 @@ class EChartDisplayOptions:
             label with x/y values) is shown. Maps to ECharts' ``tooltip.show``
             option. Defaults to ``False`` so the chart starts uncluttered;
             users can toggle it via the right-click context menu.
+        show_axis_labels: Whether axis decorations (axis name, tick labels,
+            tick marks, and axis line) are shown on both axes. Maps to
+            ECharts' ``axisLabel.show`` / ``axisTick.show`` / ``axisLine.show``
+            (and blanks the axis ``name`` when off). Defaults to ``True``.
+        show_horizontal_lines: Whether horizontal grid lines are drawn at the
+            y-axis tick positions. Maps to ECharts' ``yAxis.splitLine.show``.
+            Defaults to ``False``.
+        show_vertical_lines: Whether vertical grid lines are drawn at the
+            x-axis tick positions. Maps to ECharts' ``xAxis.splitLine.show``.
+            Defaults to ``False``.
     """
 
     show_toolbar: bool = False
     show_hover_info: bool = False
+    show_axis_labels: bool = True
+    show_horizontal_lines: bool = False
+    show_vertical_lines: bool = False

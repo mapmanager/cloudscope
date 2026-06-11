@@ -1,4 +1,9 @@
-"""ROI mode enum for batch analysis."""
+"""ROI-selection modes for batch analysis strategies.
+
+A batch strategy can either create a new ROI for each file or require an
+existing ROI identifier. Keeping this as an enum makes GUI choices and scripted
+batch configuration use the same vocabulary.
+"""
 
 from __future__ import annotations
 

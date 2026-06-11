@@ -73,7 +73,7 @@ CloudScope currently has three source packages in this repository:
 Every ticket MUST create or update a report file under:
 
 ```text
-docs/codex_tickets/
+docs-dev/codex_tickets/
 ```
 
 The report filename MUST include the ticket number and short title.
@@ -81,7 +81,7 @@ The report filename MUST include the ticket number and short title.
 Example:
 
 ```text
-docs/codex_tickets/001_add_import_path_discovery_report.md
+docs-dev/codex_tickets/001_add_import_path_discovery_report.md
 ```
 
 The report file MUST include:
@@ -131,7 +131,8 @@ src/
   cloudscope/      # app, contracts, controller, GUI
 
 tests/             # unit tests
-docs/              # architecture, tickets, review docs
+docs/              # MkDocs site sources (published documentation)
+docs-dev/          # architecture, tickets, review docs (developer docs)
 scripts/           # development and API exercise scripts
 ```
 
@@ -148,14 +149,6 @@ After completing any ticket, provide a concise response that points to the repor
 5. Concerns or follow-ups
 
 The report file is still mandatory even if this response is provided.
-
----
-
-## Interaction with Code Review
-
-- Follow `docs/code_review.md` for quality standards when present.
-- Use it as validation before completing a task.
-- If `docs/code_review.md` is absent or conflicts with the ticket, follow the current ticket.
 
 ---
 

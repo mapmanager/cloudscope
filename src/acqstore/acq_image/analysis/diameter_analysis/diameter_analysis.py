@@ -1,4 +1,10 @@
-"""AcqStore wrapper for diameter analysis."""
+"""Diameter analysis for line-scan kymograph ROIs.
+
+This module provides the public ``BaseAnalysis`` wrapper around the diameter
+core algorithm. It runs on full-resolution ROI data, measures vessel width over
+time, exposes result tables and display-ready plot data, and returns ROI-local
+edge traces for overlay on raster viewers.
+"""
 
 from __future__ import annotations
 
@@ -24,7 +30,35 @@ _SHARED: tuple[str, ...] = ("threshold_width", "gradient_edges")
 
 @register_analysis_class
 class DiameterAnalysis(BaseAnalysis):
-    """Diameter analysis for one channel/ROI on a line-scan kymograph."""
+    """Measure vessel diameter over time for one channel/ROI.
+
+    The analysis runs on a full-resolution rectangular ROI crop from a line-scan
+    kymograph. Rows are interpreted as time and columns as distance. Diameter is
+    reported in microns when the source file provides physical calibration.
+
+    The analysis supports multiple detection methods through
+    ``diameter_method``. Detection parameters affect scientific results and are
+    serialized. Execution options set with :meth:`set_execution_options` control
+    threading for speed and are not serialized.
+
+    Examples:
+        Run diameter analysis through an ``AcqImage`` analysis set::
+
+            key = acq.analysis_set.create(
+                "diameter",
+                channel=0,
+                roi_id=1,
+                detection_params={"diameter_method": "gradient_edges"},
+            ).key
+            acq.analysis_set.run_analysis(key)
+            diameter_plot = acq.analysis_set.get(key).get_plot_data()
+
+    Args:
+        channel: Zero-based channel index for analysis.
+        roi_id: Rectangular ROI identifier for analysis.
+        detection_params: Optional detection parameters. Missing values are
+            filled from ``detection_schema`` defaults.
+    """
 
     analysis_name = "diameter"
     exclusive_group = "primary_kymograph"
@@ -200,18 +234,23 @@ class DiameterAnalysis(BaseAnalysis):
         context: AnalysisRunContext | None = None,
         dependencies: dict[str, BaseAnalysis] | None = None,
     ) -> AnalysisResult:
-        """Run diameter analysis on one ROI crop.
+        """Run diameter analysis on one full-resolution ROI crop.
 
         Args:
-            data_provider: Provider for ROI image data and physical units.
+            data_provider: Provider for ROI image data and physical spacing.
+                ``get_roi_image`` must return a 2D ``(Y, X)`` array; for
+                kymographs this is ``(time, space)``.
             context: Optional progress/cancellation context.
             dependencies: Unused for diameter analysis.
 
         Returns:
-            Populated analysis result.
+            Populated analysis result. The result table can include columns such
+            as ``time_s``, ``diameter_um``, ``diameter_um_filt``,
+            ``left_edge_um``, and ``right_edge_um`` depending on detection
+            method and filtering.
 
         Raises:
-            AnalysisCancelled: If the run is cancelled.
+            AnalysisCancelled: If the run is cancelled through ``context``.
         """
         _ = dependencies
         context = context or AnalysisRunContext()
@@ -238,10 +277,14 @@ class DiameterAnalysis(BaseAnalysis):
         return self.result
 
     def get_plot_data(self) -> AnalysisPlotData | None:
-        """Return diameter-vs-time plot data in ROI-local coordinates.
+        """Return diameter-versus-time plot data.
+
+        The filtered diameter column is preferred when present and non-empty;
+        otherwise the raw diameter column is used.
 
         Returns:
-            Plot data for filtered diameter versus time, or None when empty.
+            Plot data for diameter versus ``time_s``, or ``None`` when the
+            result table is missing or contains no plottable rows.
         """
         if self.result.table is None or self.result.table.empty:
             return None
@@ -264,10 +307,16 @@ class DiameterAnalysis(BaseAnalysis):
         )
 
     def get_overlay_traces(self) -> tuple[AnalysisOverlayTraceData, ...]:
-        """Return left/right edge traces in ROI-local physical coordinates.
+        """Return left/right vessel-edge traces for raster overlays.
+
+        Coordinates are ROI-local physical units: ``x`` is time in seconds from
+        the ROI start row and ``y`` is distance in microns from the ROI start
+        column. GUI layers translate these traces to full-image display
+        coordinates.
 
         Returns:
-            Overlay traces for left and right vessel edges.
+            Overlay traces for available left and right vessel edges. Empty when
+            the result table is missing or has no edge coordinates.
         """
         if self.result.table is None or self.result.table.empty:
             return ()

@@ -44,6 +44,22 @@ class EChartWidgetContextMenu:
             self._toggle_label("Hover Info", options.show_hover_info),
             on_click=lambda: widget.set_hover_info_visible(not options.show_hover_info),
         )
+        ui.menu_item(
+            self._toggle_label("Axis Labels", options.show_axis_labels),
+            on_click=lambda: widget.set_axis_labels_visible(not options.show_axis_labels),
+        )
+        ui.menu_item(
+            self._toggle_label("Horizontal Lines", options.show_horizontal_lines),
+            on_click=lambda: widget.set_horizontal_lines_visible(
+                not options.show_horizontal_lines
+            ),
+        )
+        ui.menu_item(
+            self._toggle_label("Vertical Lines", options.show_vertical_lines),
+            on_click=lambda: widget.set_vertical_lines_visible(
+                not options.show_vertical_lines
+            ),
+        )
         ui.separator()
         ui.menu_item("Copy To Clipboard", on_click=widget.copy_plot_to_clipboard)
 

@@ -1,3 +1,15 @@
+"""Collection loader for groups of acquisition files.
+
+``AcqImageList`` is the public collection object for loading one file, a folder
+of files, or a CSV-defined list of files. It keeps an ordered list of
+``AcqImage`` objects and exposes display-ready schema/tree rows used by
+CloudScope while remaining useful from scripts and notebooks.
+
+The class supports cooperative progress reporting and cancellation for GUI load
+and save workflows. Those same APIs are safe to use from Python code when a
+caller wants structured warnings rather than exceptions for every failed file.
+"""
+
 from __future__ import annotations
 
 import os
@@ -120,7 +132,45 @@ class LoadCancelled(RuntimeError):
 
 
 class AcqImageList:
-    """Backend-facing ordered collection of acquisition files."""
+    """Ordered collection of loaded acquisition files.
+
+    ``AcqImageList`` is the preferred entry point when a workflow operates on
+    more than one acquisition. It can load a single file, discover supported
+    files under a folder, or load file paths from a CSV. Files are stored in
+    stable display order and can be accessed by file identifier, index, or
+    iteration.
+
+    The constructor is strict and raises when loading fails. Use
+    :meth:`load_safe` for GUI-style workflows that should return partial results
+    and non-fatal warnings instead of failing the entire load.
+
+    Examples:
+        Load a folder and iterate files::
+
+            from acqstore.acq_image.acq_image_list import AcqImageList
+
+            images = AcqImageList("/path/to/data")
+            for acq in images:
+                print(acq.name, acq.file_id)
+
+        Safely load a folder and inspect warnings::
+
+            result = AcqImageList.load_safe(
+                "/path/to/data",
+                kind="folder",
+                folder_depth=4,
+            )
+            images = result.acq_image_list
+            for warning in result.warnings:
+                print(warning.message, warning.path)
+
+    Args:
+        path: File, folder, or CSV path.
+        file_factory: Optional factory for creating ``AcqImage``-like objects.
+        folder_depth: Maximum directory depth used for folder discovery.
+        path_kind: Optional explicit ``PathKind``. When omitted, the kind is
+            inferred from the path.
+    """
 
     def __init__(
         self,
@@ -130,19 +180,25 @@ class AcqImageList:
         folder_depth: int = 4,
         path_kind: PathKind | str | None = None,
     ):
-        """Load one file or discover files under a directory.
+        """Load one file, a folder of files, or a CSV file list.
 
         Args:
-            path: Filesystem path to one file or directory.
+            path: Filesystem path to one file, directory, or CSV file.
             file_factory: Optional factory for creating file objects. Defaults to
-                ``AcqImage``.
+                ``AcqImage`` and is mainly useful for tests.
             folder_depth: When ``path`` is a directory, maximum directory depth to
                 search (>= 1). Depth ``1`` is only the given folder; each increment
                 includes one more level of child directories. Ignored when ``path`` is
                 a file.
-            path_kind: Optional explicit source type (`file`, `folder`, `csv`).
-                When omitted, the constructor infers kind from path suffix and
-                filesystem checks.
+            path_kind: Optional explicit source type (``file``, ``folder``, or
+                ``csv``). When omitted, the constructor infers kind from path
+                suffix and filesystem checks.
+
+        Raises:
+            ValueError: If ``folder_depth`` is less than one or strict CSV
+                parsing fails.
+            Exception: Propagates file-loader exceptions from ``AcqImage`` when
+                any discovered file cannot be loaded.
         """
         self.path = str(path)
         if folder_depth < 1:
@@ -183,21 +239,29 @@ class AcqImageList:
         progress_callback: Callable[[int, int, str], None] | None = None,
         should_cancel: Callable[[], bool] | None = None,
     ) -> LoadResult:
-        """Safely load acquisition files for file/folder/csv without raising.
+        """Load acquisition files while collecting non-fatal warnings.
+
+        This is the preferred loading API for GUI, notebook, and batch workflows
+        that should keep usable files even when one file fails. Missing files,
+        bad CSV rows, and individual loader errors are returned as
+        :class:`LoadWarning` records. Cancellation is cooperative and checked
+        between file loads.
 
         Args:
-            path: Input path supplied by user or caller.
-            kind: Explicit source kind (`file`, `folder`, or `csv`).
-            file_factory: Optional file-construction callback for tests/injection.
+            path: Input path supplied by the user or caller.
+            kind: Explicit source kind (``file``, ``folder``, or ``csv``).
+            file_factory: Optional file-construction callback for tests or
+                dependency injection.
             folder_depth: Maximum folder traversal depth for folder loads.
             progress_callback: Optional callback called as
-                ``progress_callback(completed, total, message)`` after file
-                discovery and after each successfully attempted file load.
+                ``progress_callback(completed, total, message)`` after discovery
+                and after each attempted file load.
             should_cancel: Optional callback checked between file loads. Return
-                True to cancel loading.
+                ``True`` to cancel loading.
 
         Returns:
-            Structured result with loaded list and non-fatal warnings.
+            :class:`LoadResult` containing an ``AcqImageList`` and collected
+            warnings. The list may be empty.
 
         Raises:
             LoadCancelled: If ``should_cancel`` requests cancellation.

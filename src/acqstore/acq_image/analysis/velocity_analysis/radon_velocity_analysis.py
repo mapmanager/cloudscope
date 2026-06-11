@@ -1,4 +1,11 @@
-"""AcqStore wrapper for Radon velocity analysis."""
+"""Radon-transform velocity analysis for kymograph ROIs.
+
+This module provides the ``BaseAnalysis`` wrapper around the Radon velocity core
+algorithm. It is the public analysis class used by CloudScope, batch workflows,
+and scripts. The wrapper handles detection-parameter validation, full-resolution
+ROI data access, progress/cancellation, multiprocessing execution options, and
+conversion of core outputs into ``AnalysisResult`` and ``AnalysisPlotData``.
+"""
 
 from __future__ import annotations
 
@@ -21,7 +28,35 @@ from acqstore.acq_image.analysis.velocity_analysis.radon_core import (
 
 @register_analysis_class
 class RadonVelocityAnalysis(BaseAnalysis):
-    """Radon-transform velocity analysis for one channel/ROI."""
+    """Measure velocity from one channel/ROI using a Radon transform.
+
+    The analysis runs on a full-resolution rectangular ROI crop. For line-scan
+    kymographs, rows correspond to time and columns correspond to distance. The
+    Radon core analyzes sliding windows along the time axis and reports velocity
+    as a function of time.
+
+    Detection parameters are serialized with the analysis and affect scientific
+    results. Execution options set with :meth:`set_execution_options` control
+    multiprocessing for speed and are not serialized.
+
+    Examples:
+        Create and run one analysis through an ``AcqImage`` analysis set::
+
+            key = acq.analysis_set.create(
+                "radon_velocity",
+                channel=0,
+                roi_id=1,
+                detection_params={"window_width": 64},
+            ).key
+            acq.analysis_set.run_analysis(key)
+            plot = acq.analysis_set.get(key).get_plot_data()
+
+    Args:
+        channel: Zero-based channel index for analysis.
+        roi_id: Rectangular ROI identifier for analysis.
+        detection_params: Optional detection parameters. Missing values are
+            filled from ``detection_schema`` defaults.
+    """
 
     def __init__(
         self,
@@ -91,20 +126,22 @@ class RadonVelocityAnalysis(BaseAnalysis):
         context: AnalysisRunContext | None = None,
         dependencies: dict[str, BaseAnalysis] | None = None,
     ) -> AnalysisResult:
-        """Run Radon velocity analysis.
+        """Run Radon velocity analysis on one ROI crop.
 
         Args:
-            data_provider: Analysis data provider for ROI image data and image
-                physical units.
+            data_provider: Provider for full-resolution ROI image data and
+                physical spacing. ``get_roi_image`` must return a 2D ``(Y, X)``
+                array; for kymographs this is ``(time, space)``.
             context: Optional progress/cancellation context.
-            dependencies: Dependency analyses. This analysis does not require
-                dependencies.
+            dependencies: Dependency analyses. Radon velocity currently does not
+                require dependencies.
 
         Returns:
-            Analysis result populated with summary dict and result table.
+            Analysis result populated with a summary dictionary and table. The
+            table includes at least ``time_s`` and ``velocity`` when successful.
 
         Raises:
-            AnalysisCancelled: If the run is cancelled.
+            AnalysisCancelled: If the run is cancelled through ``context``.
         """
         context = context or AnalysisRunContext()
         context.raise_if_cancelled()
@@ -131,11 +168,11 @@ class RadonVelocityAnalysis(BaseAnalysis):
         return self.result
 
     def get_plot_data(self) -> AnalysisPlotData | None:
-        """Return canonical velocity-vs-time plot data.
+        """Return canonical velocity-versus-time plot data.
 
         Returns:
-            Plot data for ``time_s`` versus ``velocity``, or None if this
-            analysis has no table output yet.
+            Plot data using ``time_s`` for the x axis and ``velocity`` for the y
+            axis, or ``None`` when the analysis has no table output yet.
 
         Raises:
             KeyError: If the table is present but missing required columns.

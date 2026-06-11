@@ -1,6 +1,6 @@
 """Pure diameter analysis on 2D kymograph ROI images.
 
-Axis convention (line-scan kymographs; see ``docs/acqstore_kymograph_axes.md``):
+Axis convention (line-scan kymographs; see ``docs-dev/acqstore_kymograph_axes.md``):
 
     - axis 0 (rows, dim0, Y) = time. Step = ``physical_units[0]`` (seconds per line).
     - axis 1 (columns, dim1, X) = space. Step = ``physical_units[1]`` (µm per pixel).
