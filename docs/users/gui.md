@@ -1,4 +1,6 @@
-# Using the CloudScope GUI
+# Using the GUI
+
+CloudScope provides a desktop and browser GUI for loading scientific image files, inspecting image data, selecting ROIs, and running supported analysis workflows. Current quantitative analysis workflows are designed for line scan kymographs.
 
 CloudScope is designed around a simple workflow: load data, choose what to view, define or select ROIs, run analysis, and inspect or export results. The desktop app and browser app use the same interface and the same `acqstore` scientific backend.
 

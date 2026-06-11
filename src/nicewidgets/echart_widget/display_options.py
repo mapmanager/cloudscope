@@ -11,8 +11,9 @@ class EChartDisplayOptions:
 
     Args:
         show_toolbar: Whether ECharts' toolbox (zoom/restore/brush icons) is
-            visible above the chart. Defaults to ``False`` so the chart starts
-            uncluttered; users can toggle it via the right-click context menu.
+            visible above the chart. Defaults to ``True`` so the chart's
+            zoom/restore/brush actions are discoverable; users can hide it via
+            the right-click context menu.
         show_hover_info: Whether the ECharts ``tooltip`` floating layer (hover
             label with x/y values) is shown. Maps to ECharts' ``tooltip.show``
             option. Defaults to ``False`` so the chart starts uncluttered;
@@ -29,7 +30,7 @@ class EChartDisplayOptions:
             Defaults to ``False``.
     """
 
-    show_toolbar: bool = False
+    show_toolbar: bool = True
     show_hover_info: bool = False
     show_axis_labels: bool = True
     show_horizontal_lines: bool = False

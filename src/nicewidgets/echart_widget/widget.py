@@ -107,11 +107,12 @@ class EChartWidget:
         self._context_menu_builder = EChartWidgetContextMenu(get_widget=lambda: self)
         self.container.on("contextmenu", self._on_context_menu_event)
 
-        # Holding Shift switches click+drag from x-axis to y-axis zoom. We
-        # track the Shift key globally and flip the toolbox dataZoom axis on
-        # press / release. (Ctrl is avoided because on macOS Ctrl+click is the
-        # system secondary-click, which would open the context menu instead.)
-        ui.keyboard(on_key=self._on_zoom_modifier_key)
+        # Shift+drag y-axis zoom is parked: the global key listener corrupted
+        # the chart (a confusing second axis appeared on shift+drag). The
+        # listener install is intentionally commented out; the
+        # ``_on_zoom_modifier_key`` / ``_set_zoom_axis`` helpers are kept so we
+        # can revisit this later.
+        # ui.keyboard(on_key=self._on_zoom_modifier_key)
 
         # Start in "click+drag zooms the x-axis" mode so users get a chart
         # action by default. The toolbox itself stays hidden (per display

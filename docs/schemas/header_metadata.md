@@ -1,4 +1,3 @@
-# Image Header Metadata
 
 | name             | type   | default   | display_name     | editable   | required   | group       | description   |
 |:-----------------|:-------|:----------|:-----------------|:-----------|:-----------|:------------|:--------------|

@@ -31,10 +31,10 @@ def _make_widget(
     return w
 
 
-def test_display_options_default_hides_toolbar() -> None:
-    """Default :class:`EChartDisplayOptions` ships with the toolbar hidden."""
+def test_display_options_default_shows_toolbar() -> None:
+    """Default :class:`EChartDisplayOptions` ships with the toolbar visible."""
     options = EChartDisplayOptions()
-    assert options.show_toolbar is False
+    assert options.show_toolbar is True
 
 
 def test_display_options_default_hides_hover_info() -> None:

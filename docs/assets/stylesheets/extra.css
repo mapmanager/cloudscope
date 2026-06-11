@@ -1,5 +1,5 @@
 /* CloudScope documentation helpers. */
-  
+
 .cs-screenshot {
   display: block;
   max-width: 100%;
@@ -19,8 +19,17 @@
   clear: both;
 }
 
-/* Completely hide the footer background bar on all pages */
-.md-footer {
-    display: none !important;
+/* Make nested left navigation slightly easier to scan on wide screens. */
+@media screen and (min-width: 76.25em) {
+  .md-nav--primary .md-nav__item .md-nav__item {
+    margin-left: 0.35rem;
+    padding-left: 0.45rem;
+    border-left: 1px solid var(--md-default-fg-color--lightest);
   }
-  
+}
+
+.cs-footer {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+}

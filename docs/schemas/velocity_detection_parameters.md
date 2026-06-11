@@ -1,4 +1,3 @@
-# Velocity Detection Parameters
 
 | name         | type   |   default | display_name   | choices     | editable   | description                                       |
 |:-------------|:-------|----------:|:---------------|:------------|:-----------|:--------------------------------------------------|

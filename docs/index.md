@@ -1,31 +1,18 @@
 ---
 hide:
   - toc
-  - path
-  - footer
 ---
 
-<!-- # CloudScope -->
+# CloudScope
 
-<style>
-  /* Hides the auto-generated title block */
-  .md-typeset h1 { 
-    display: none !important; 
-  }
-  
-  /* Adds breathing room at the top of the page */
-  .md-content__inner { 
-    padding-top: 2rem !important; 
-  }
+CloudScope is a scientific image loading, visualization, and analysis application.
 
-  /* Hides the entire bottom footer background bar on this page */
-  .md-footer {
-    display: none !important;
-  }
-  
-</style>
+It provides desktop and browser interfaces for working with acquisition-backed image data. Current quantitative analysis workflows are designed for **line scan kymographs** and include:
 
-CloudScope is a desktop and browser application for viewing, annotating, and analyzing acquisition-backed microscopy files.
+- blood flow velocity analysis from line scan kymographs using a Radon-transform-based method
+- vessel diameter analysis from line scan kymographs
+
+The same `acqstore` scientific backend is used by the desktop application, browser application, Python scripts, and Jupyter notebooks.
 
 <div class="grid cards" markdown>
 
@@ -47,18 +34,55 @@ CloudScope is a desktop and browser application for viewing, annotating, and ana
 
 </div>
 
-![CloudScope architecture](assets/cloudscope-architecture.svg)
+## Why CloudScope?
+
+CloudScope separates scientific data handling from user interfaces. The desktop GUI, browser GUI, notebooks, and scripts all use the same backend code for loading files, managing ROIs, running analysis, and saving results.
+
+This architecture helps keep analysis behavior reproducible across interfaces and makes it possible to validate scientific workflows with unit tests and versioned releases.
 
 ## One backend, multiple interfaces
 
-The desktop application, browser application, and Python scripting workflows all use the same `acqstore` scientific backend. This design keeps scientific logic out of the GUI and supports reproducibility: GUI workflows and scripted workflows execute the same analysis code.
+![CloudScope architecture](assets/cloudscope-architecture.svg){ .cs-screenshot .cs-screenshot-center width="760" loading=lazy }
+
+CloudScope is built around `acqstore`, the shared scientific backend. The GUI is a user interface for the same backend APIs that can also be called directly from Python.
 
 ## Supported file formats
 
-CloudScope supports commercial microscopy formats including Olympus / Evident `.oir` and Zeiss `.czi`, as well as open formats including TIFF `.tif` and OME-Zarr.
+CloudScope currently supports commercial microscopy formats and open scientific image formats, including:
+
+- Olympus / Evident `.oir`
+- Zeiss `.czi`
+- TIFF `.tif`
+- OME-Zarr `.ome.zarr`
+
+Support for commercial microscopy formats builds on the scientific Python ecosystem. CloudScope gratefully acknowledges [Christoph Gohlke](https://www.cgohlke.com/){target="_blank" rel="noopener"} for long-standing work on microscopy and scientific file-format tooling.
 
 ## Who is this documentation for?
 
-- **End users** should start with installation, the browser app, quickstart recipes, and GUI reference pages.
-- **Scientific users and data scientists** should start with reproducibility, algorithms, parameters, sample data, notebooks, and the `acqstore` scripting guide.
-- **Developers** should start with architecture, performance, local development, testing, release builds, and API reference pages.
+<div class="grid cards" markdown>
+
+-   :material-account:{ .lg .middle } **End User**
+
+    ---
+
+    Install the desktop app, open the web app, load data, run analysis, inspect images, and export results.
+
+    [:octicons-arrow-right-24: End User Guide](users/)
+
+-   :material-flask:{ .lg .middle } **Data Scientist**
+
+    ---
+
+    Understand `AcqImage`, `AcqImageList`, line scan kymograph analysis, saved files, metadata, and notebook workflows.
+
+    [:octicons-arrow-right-24: Data Scientist Guide](scientists/)
+
+-   :material-code-braces:{ .lg .middle } **Developer**
+
+    ---
+
+    Clone the repository, run tests, build docs, understand the architecture, and follow the release/deployment workflow.
+
+    [:octicons-arrow-right-24: Developer Guide](developers/)
+
+</div>

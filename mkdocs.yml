@@ -1,5 +1,5 @@
 site_name: CloudScope
-site_description: Desktop and browser scientific image analysis for acquisition-backed microscopy files.
+site_description: Desktop and browser scientific image loading, visualization, and analysis for acquisition-backed microscopy files.
 site_url: https://mapmanager.github.io/cloudscope/
 repo_url: https://github.com/mapmanager/cloudscope
 repo_name: mapmanager/cloudscope
@@ -10,12 +10,9 @@ theme:
   logo: assets/cloudscope.png
   favicon: assets/cloudscope.png
   features:
-    # - navigation.sections
     - navigation.indexes
-    # - navigation.expand
     - navigation.top
     - toc.follow
-    # - toc.integrate
     - content.code.copy
     - search.highlight
     - search.suggest
@@ -35,6 +32,9 @@ theme:
 
 extra_css:
   - assets/stylesheets/extra.css
+
+hooks:
+  - docs/hooks.py
 
 plugins:
   - search
@@ -63,6 +63,8 @@ markdown_extensions:
       emoji_generator: !!python/name:material.extensions.emoji.to_svg
   - pymdownx.details
   - pymdownx.superfences
+  - pymdownx.snippets:
+      base_path: !relative $docs_dir
   - pymdownx.highlight
   - pymdownx.inlinehilite
   - toc:
@@ -72,39 +74,23 @@ nav:
   - Home: index.md
   - End User:
       - users/index.md
-      - Install Desktop Apps: users/install.md
-      - Browser App: users/web-app.md
-      - Quickstart: users/quickstart.md
-      - Supported File Formats: users/file-formats.md
-      - Sample Data: users/sample-data.md
-      - Recipes:
-          - Open Data: users/recipes/open-data.md
-          - Run Velocity Analysis: users/recipes/run-velocity-analysis.md
-          - Run Diameter Analysis: users/recipes/run-diameter-analysis.md
-          - Export Results: users/recipes/export-results.md
       - Using the GUI: users/gui.md
+      - Recipes: users/recipes.md
   - Data Scientist:
       - scientists/index.md
+      - Velocity Analysis: scientists/velocity-analysis.md
+      - Diameter Analysis: scientists/diameter-analysis.md
+      - AcqImage Metadata: scientists/acqimage-metadata.md
+      - Notebooks:
+          - scientists/notebooks.md
+          - Load and Plot Image: notebooks/load-and-plot-image.ipynb
+          - Velocity Analysis Notebook: notebooks/velocity-analysis.ipynb
+          - Diameter Analysis Notebook: notebooks/diameter-analysis.ipynb
       - Reproducibility: scientists/reproducibility.md
-      - Sample Data: scientists/sample-data.md
-      - Algorithms and Results: scientists/algorithms.md
-      - Scripting with acqstore: scientists/scripting-acqstore.md
-      - Notebooks: scientists/notebooks.md
-      - Performance: scientists/performance-and-reproducibility.md
-      - Notebook - Load and Plot Image: notebooks/load-and-plot-image.ipynb
-      - Notebook - Velocity Analysis: notebooks/velocity-analysis.ipynb
-      - Notebook - Diameter Analysis: notebooks/diameter-analysis.ipynb
   - Developer:
       - developers/index.md
       - Architecture: developers/architecture.md
-      - Performance: developers/performance.md
-      - Technologies and Strategy: developers/technologies.md
-      - AI-Assisted Development: developers/ai-assisted-development.md
-      - Clone and Run: developers/clone-run.md
-      - uv Workflow: developers/uv.md
-      - Testing: developers/testing.md
-      - Docker and Web Deployment: developers/docker.md
-      - Release Builds: developers/release-builds.md
+      - Release and Deployment: developers/release-and-deployment.md
       - Contributing: developers/contributing.md
   - API:
       - api/index.md

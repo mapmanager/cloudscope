@@ -1,7 +1,27 @@
-# API reference
+# API Reference
 
-The first API reference pass focuses on `acqstore`, especially `AcqImage`, `AcqImageList`, analysis core types, velocity analysis, diameter analysis, and batch analysis.
+The CloudScope API is organized around two primary concepts:
 
-API pages are generated from Google-style docstrings using `mkdocstrings`. Narrative tutorials and long workflows belong in the user, scientist, developer, and notebook sections.
+- `AcqImage`
+- `AcqImageList`
 
-The next documentation pass will improve `acqstore` module and class docstrings so these generated pages become more useful without duplicating large API descriptions in Markdown.
+Most scientific workflows begin by loading data into an `AcqImage` or `AcqImageList` and then applying one or more analysis modules.
+
+Current analysis modules include:
+
+- velocity analysis: blood flow velocity estimation from line scan kymographs using a Radon-transform-based method
+- diameter analysis: vessel diameter estimation from line scan kymographs
+
+The API pages are generated with mkdocstrings from Google-style docstrings in the source code.
+
+## Main entry points
+
+- [AcqImage](acq-image.md)
+- [AcqImageList](acq-image-list.md)
+
+## Analysis
+
+- [Analysis Core](analysis-core.md)
+- [Velocity Analysis](velocity-analysis.md)
+- [Diameter Analysis](diameter-analysis.md)
+- [Batch Analysis](batch-analysis.md)

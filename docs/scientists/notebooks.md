@@ -1,14 +1,17 @@
-# Notebooks
+# Notebook Workflows
 
-Starter notebooks are rendered into this documentation site for exploration. For phase 1, notebooks are documentation examples only and are not executed in CI.
+CloudScope includes notebook examples for users who want to load data, inspect arrays, run analysis, and view results from Python.
 
-Start with:
+The notebooks are rendered in the documentation site and are not currently executed in CI.
 
-- Load and plot image
-- Velocity analysis
-- Diameter analysis
+## Available notebooks
 
-The first notebook intentionally does only three things: load a file, get image data, and plot the image with Matplotlib.
+- [Load and Plot Image](../notebooks/load-and-plot-image.ipynb)
+- [Velocity Analysis](../notebooks/velocity-analysis.ipynb)
+- [Diameter Analysis](../notebooks/diameter-analysis.ipynb)
 
-!!! note "Matplotlib dependency"
-    Matplotlib is included only in the documentation dependency group for notebooks and examples. It is intentionally not part of the CloudScope runtime dependencies because it can slow down NiceGUI startup and runtime behavior.
+## Plotting
+
+CloudScope runtime code does not depend on Matplotlib because Matplotlib can slow down NiceGUI startup and runtime behavior. Matplotlib is included only in the documentation dependency group for examples and notebooks.
+
+Notebook examples may use Matplotlib for simple inline plots and Plotly where interactive visualization is useful.
