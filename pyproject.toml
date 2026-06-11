@@ -1,6 +1,6 @@
 [project]
 name = "cloudscope"
-version = "0.1.1"
+version = "0.1.2"
 description = "Thin-frontend NiceGUI app for viewing, annotating, and analyzing acquisition-backed files."
 readme = "README.md"
 authors = [

@@ -53,3 +53,11 @@ This project uses a simple changelog format inspired by Keep a Changelog. During
 ### Fixed
 
 - Fixed release notes extraction for GitHub Release generation.
+
+## [0.1.2] - 2026-06-11
+
+### Fixed
+
+- Fixed macOS build metadata generation when building from a git tag.
+
+- Fixed the automated macOS release asset build path for tagged releases.
