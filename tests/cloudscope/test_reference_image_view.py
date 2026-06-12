@@ -6,6 +6,7 @@ import numpy as np
 
 from acqstore.acq_image.file_loaders.base_file_loader import ReferenceImage
 from cloudscope.event_bus import EventBus
+from cloudscope.state import PrimarySelection
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.reference_image_view import (
     ReferenceImageView,
@@ -64,6 +65,47 @@ def test_reference_image_view_is_base_view_and_display_only() -> None:
     assert isinstance(view, BaseView)
     assert view.view_id is ViewId.REFERENCE_IMAGE
     assert view.disable_when_busy is False
+
+
+class _FakeAcqImageList:
+    """Fake acquisition image list keyed by file id."""
+
+    def __init__(self, images: dict[str, object]) -> None:
+        self._images = dict(images)
+
+    def get_file_by_id(self, file_id: str | None) -> object | None:
+        """Return the image registered for ``file_id`` if present."""
+        return self._images.get(file_id)
+
+
+class _FakeAppState:
+    """Fake page state exposing a primary selection and image list."""
+
+    def __init__(self, selection: PrimarySelection, acq_image_list: _FakeAcqImageList) -> None:
+        self.selection = selection
+        self.acq_image_list = acq_image_list
+
+
+def test_reference_image_view_resyncs_selection_from_app_state_on_show() -> None:
+    """Showing a hidden view should resync selection from app_state, not stale cache."""
+    image_a = _AcqImage(None)
+    image_b = _AcqImage(_reference_image())
+    app_state = _FakeAppState(
+        selection=PrimarySelection(file_id="b", channel=1, roi_id=2),
+        acq_image_list=_FakeAcqImageList({"a": image_a, "b": image_b}),
+    )
+    view = ReferenceImageView(EventBus(), app_state=app_state, initially_visible=False)
+    refreshed: list[str | None] = []
+    view._refresh_reference_from_current_selection = (
+        lambda *, force: refreshed.append(view.current_selection.file_id)
+    )
+
+    view.on_show()
+
+    assert view.current_selection.file_id == "b"
+    assert view.current_selection.channel == 1
+    assert view.current_acq_image is image_b
+    assert refreshed and refreshed[-1] == "b"
 
 
 def test_reference_image_payload_without_file_returns_placeholder() -> None:

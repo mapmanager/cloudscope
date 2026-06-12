@@ -61,3 +61,15 @@ This project uses a simple changelog format inspired by Keep a Changelog. During
 - Fixed macOS build metadata generation when building from a git tag.
 
 - Fixed the automated macOS release asset build path for tagged releases.
+
+## [0.1.3]
+
+### Added
+ - added nicewidgets/ SmartExpansion. when expansion is close() the child baseview(s) disconnect from mvc thus keeing gui responsive. then smartexpansion is open the enclosing/child base view reconnect to mvc and update their display on current app state.
+ - used smartexpansion in homee page for file list, analysis plot, and reference image
+
+### Changed
+
+### Fixed
+
+### Documentation

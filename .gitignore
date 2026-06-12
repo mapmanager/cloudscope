@@ -1,3 +1,6 @@
+# local sandbox/ do not commit
+sandbox/
+
 # cloudscope one off ignore
 *.zip
 

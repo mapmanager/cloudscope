@@ -8,6 +8,7 @@ from pathlib import Path
 from nicegui import app, ui
 
 from nicewidgets.gui_defaults import setUpGuiDefaults
+from nicewidgets.smart_expansion_widget.smart_expansion import SmartExpansion
 
 from cloudscope.app_config import AppConfig
 from cloudscope.controllers.analysis_controller import AnalysisController
@@ -21,7 +22,7 @@ from cloudscope.event_bus import EventBus
 from cloudscope.task_runner import TaskRunner
 from cloudscope.user_context import UserContext, resolve_user_context_from_env
 from cloudscope.events.files import LoadPathIntent, LoadPathKind
-from cloudscope.events.layout import ResetHomeLayoutIntent, SetHomeViewVisibleIntent
+from cloudscope.events.layout import ResetHomeLayoutIntent
 from cloudscope.views.file_list_tree_view import AcqImageListTreeView
 from cloudscope.views.footer_view import FooterView
 from cloudscope.views.header_view import build_main_header
@@ -33,7 +34,6 @@ from cloudscope.views.primary_image_view import PrimaryImageView
 from cloudscope.views.reference_image_view import ReferenceImageView
 from cloudscope.views.task_progress_dialog_view import TaskProgressDialogView
 from cloudscope.views.view_manager import ViewManager
-from cloudscope.views.view_ids import CONFIGURABLE_HOME_VIEW_IDS, ViewId
 from cloudscope.views.splitter_handle import add_splitter_handle
 from cloudscope.views.splitter_manager import HOME_SPLITTER_PRESETS, SplitterId, SplitterManager
 
@@ -120,23 +120,11 @@ class HomePage:
             """
             return bool(self.app_config.data.dark_mode)
 
-        def _home_view_visible(view_id: ViewId) -> bool:
-            """Return startup visibility for one Home page view.
-
-            Args:
-                view_id: Home page view id.
-
-            Returns:
-                Configured visibility for configurable views; True for all
-                non-configurable views.
-            """
-            return self.app_config.is_home_view_visible(view_id.value)
-
         file_list_panel = AcqImageListTreeView(
             event_bus=self.event_bus,
             app_state=app_state,
             table_font_size_px=int(self.app_config.data.table_font_size_px),
-            initially_visible=_home_view_visible(ViewId.FILE_LIST),
+            initially_visible=False,
         )
         app_state.visible_file_ids_provider = file_list_panel.get_displayed_file_ids
         load_save_view = LoadSaveView(
@@ -161,12 +149,13 @@ class HomePage:
             self.event_bus,
             app_state=app_state,
             title='Analysis plot',
-            initially_visible=_home_view_visible(ViewId.ACQ_ANALYSIS_PLOT),
+            initially_visible=False,
         )
         reference_image = ReferenceImageView(
             self.event_bus,
+            app_state=app_state,
             title='Reference image',
-            initially_visible=_home_view_visible(ViewId.REFERENCE_IMAGE),
+            initially_visible=False,
             dark_mode=dark_mode,
             dark_mode_provider=_dark_mode,
         )
@@ -255,24 +244,7 @@ class HomePage:
             splitter_manager.reset_all()
             ui.notify('View layout reset', type='positive')
 
-        def _set_home_view_visible(event: SetHomeViewVisibleIntent) -> None:
-            """Apply a Home page view visibility request.
-
-            Args:
-                event: Visibility-change request from AppConfigView.
-
-            Returns:
-                None.
-            """
-            if event.view_id not in CONFIGURABLE_HOME_VIEW_IDS:
-                logger.warning('Ignoring visibility request for non-configurable view: %s', event.view_id)
-                return
-            view_id = ViewId(event.view_id)
-            self.app_config.set_home_view_visible(event.view_id, event.visible)
-            view_manager.set_visible(view_id, event.visible)
-
         self.event_bus.subscribe(ResetHomeLayoutIntent, _reset_home_layout)
-        self.event_bus.subscribe(SetHomeViewVisibleIntent, _set_home_view_visible)
 
         ui.page_title('CloudScope')
         build_main_header(
@@ -318,7 +290,16 @@ class HomePage:
                         with ui.column().classes(_content_column_classes()):
                             load_save_view.build()
                             view_manager.register(load_save_view)
-                            file_list_panel.build()
+                            file_list_expansion = SmartExpansion(
+                                'File list',
+                                icon='folder',
+                                initially_open=True,
+                                on_open=file_list_panel.show,
+                                on_close=file_list_panel.hide,
+                            )
+                            with file_list_expansion:
+                                file_list_panel.build()
+                            file_list_expansion.apply_initial_state()
                             view_manager.register(file_list_panel)
 
                     with file_list_splitter.after:
@@ -348,12 +329,30 @@ class HomePage:
 
                                     with analysis_reference_splitter.before:
                                         with ui.column().classes(_fill_column_classes()):
-                                            acq_analysis_plot.build()
+                                            analysis_plot_expansion = SmartExpansion(
+                                                'Analysis plot',
+                                                icon='show_chart',
+                                                initially_open=True,
+                                                on_open=acq_analysis_plot.show,
+                                                on_close=acq_analysis_plot.hide,
+                                            )
+                                            with analysis_plot_expansion:
+                                                acq_analysis_plot.build()
+                                            analysis_plot_expansion.apply_initial_state()
                                             view_manager.register(acq_analysis_plot)
 
                                     with analysis_reference_splitter.after:
                                         with ui.column().classes(_scrollable_fill_column_classes()):
-                                            reference_image.build()
+                                            reference_image_expansion = SmartExpansion(
+                                                'Reference image',
+                                                icon='image',
+                                                initially_open=True,
+                                                on_open=reference_image.show,
+                                                on_close=reference_image.hide,
+                                            )
+                                            with reference_image_expansion:
+                                                reference_image.build()
+                                            reference_image_expansion.apply_initial_state()
                                             view_manager.register(reference_image)
 
                                     add_splitter_handle(analysis_reference_splitter, orientation='horizontal')

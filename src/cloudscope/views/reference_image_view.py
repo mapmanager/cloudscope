@@ -143,6 +143,8 @@ class ReferenceImageView(BaseView):
 
     Args:
         event_bus: Page-scoped event bus.
+        app_state: Optional page/controller state object used to resync the
+            primary selection when the view is shown after being hidden.
         title: Card title.
         initially_visible: Whether this view starts visible.
         dark_mode: Initial Plotly raster-viewer theme state.
@@ -157,12 +159,13 @@ class ReferenceImageView(BaseView):
         self,
         event_bus: EventBus,
         *,
+        app_state: Any | None = None,
         title: str = 'Reference image',
         initially_visible: bool = True,
         dark_mode: bool = False,
         dark_mode_provider: Callable[[], bool] | None = None,
     ) -> None:
-        super().__init__(event_bus=event_bus, app_state=None, initially_visible=initially_visible)
+        super().__init__(event_bus=event_bus, app_state=app_state, initially_visible=initially_visible)
         self._title = title
         self._client: Any = None
         self._viewer = PlotlyRasterViewer(

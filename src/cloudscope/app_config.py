@@ -9,8 +9,6 @@ from pathlib import Path
 from platformdirs import user_config_dir
 
 from cloudscope.utils.logging import get_logger
-from cloudscope.views.view_ids import CONFIGURABLE_HOME_VIEW_IDS, CONFIGURABLE_HOME_VIEWS
-
 logger = get_logger(__name__)
 
 APP_NAME = 'cloudscope'
@@ -39,15 +37,6 @@ _HOME_SPLITTER_KEYS = {
     'primary_image': 'home_primary_image_splitter_pct',
     'analysis_reference': 'home_analysis_reference_splitter_pct',
 }
-
-
-def _default_home_view_visible() -> dict[str, bool]:
-    """Return default visibility for configurable Home page views.
-
-    Returns:
-        Mapping from stable view id string to default visibility.
-    """
-    return {descriptor.view_id.value: True for descriptor in CONFIGURABLE_HOME_VIEWS}
 
 
 def _default_channel_color_lut() -> dict[str, str]:
@@ -85,29 +74,6 @@ def _parse_channel_color_lut(raw: object) -> dict[str, str]:
         else:
             logger.warning('Skipping non-string LUT value for channel %s: %r', key_str, value)
     return result
-
-
-def _parse_home_view_visible(raw: object) -> dict[str, bool]:
-    """Parse persisted Home page view visibility settings.
-
-    Unknown keys are ignored so older/newer config files can be loaded without a
-    schema bump. Missing known keys use factory defaults.
-
-    Args:
-        raw: JSON value from the app config payload.
-
-    Returns:
-        Normalized visibility mapping for known configurable views.
-    """
-    visible = _default_home_view_visible()
-    if not isinstance(raw, dict):
-        return visible
-    for key, value in raw.items():
-        key_str = str(key)
-        if key_str not in CONFIGURABLE_HOME_VIEW_IDS:
-            continue
-        visible[key_str] = bool(value)
-    return visible
 
 
 def _normalize_path(path: str | Path) -> str:
@@ -161,7 +127,6 @@ class AppConfigData:
     home_file_list_splitter_pct: float = DEFAULT_HOME_FILE_LIST_SPLITTER_PCT
     home_primary_image_splitter_pct: float = DEFAULT_HOME_PRIMARY_IMAGE_SPLITTER_PCT
     home_analysis_reference_splitter_pct: float = DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT
-    home_view_visible: dict[str, bool] = field(default_factory=_default_home_view_visible)
     contrast_auto_percentile_low: float = DEFAULT_CONTRAST_AUTO_PERCENTILE_LOW
     contrast_auto_percentile_high: float = DEFAULT_CONTRAST_AUTO_PERCENTILE_HIGH
     default_channel_color_lut: dict[str, str] = field(default_factory=_default_channel_color_lut)
@@ -256,7 +221,6 @@ class AppConfigData:
                 'home_analysis_reference_splitter_pct',
                 DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT,
             ),
-            home_view_visible=_parse_home_view_visible(payload.get('home_view_visible', {})),
             contrast_auto_percentile_low=_float_field(
                 'contrast_auto_percentile_low',
                 DEFAULT_CONTRAST_AUTO_PERCENTILE_LOW,
@@ -458,8 +422,6 @@ class AppConfig:
             90.0,
             DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT,
         )
-        self.data.home_view_visible = _parse_home_view_visible(self.data.home_view_visible)
-
         low, high = self._normalize_contrast_percentiles(
             self.data.contrast_auto_percentile_low,
             self.data.contrast_auto_percentile_high,
@@ -597,48 +559,6 @@ class AppConfig:
         self.data.home_file_list_splitter_pct = DEFAULT_HOME_FILE_LIST_SPLITTER_PCT
         self.data.home_primary_image_splitter_pct = DEFAULT_HOME_PRIMARY_IMAGE_SPLITTER_PCT
         self.data.home_analysis_reference_splitter_pct = DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT
-
-    def is_home_view_visible(self, view_id: str) -> bool:
-        """Return whether a configurable Home page view should be visible.
-
-        Args:
-            view_id: Stable view id string.
-
-        Returns:
-            True when the view should be visible. Unknown ids are treated as
-            visible so non-configurable views are not accidentally hidden.
-        """
-        if view_id not in CONFIGURABLE_HOME_VIEW_IDS:
-            return True
-        return bool(self.data.home_view_visible.get(view_id, True))
-
-    def set_home_view_visible(self, view_id: str, visible: bool) -> None:
-        """Set in-memory visibility for one configurable Home page view.
-
-        This method does not save to disk. AppConfig persistence remains
-        explicit via ``save()``, ``normalize_and_persist()``, or app shutdown.
-
-        Args:
-            view_id: Stable view id string.
-            visible: Desired visibility.
-
-        Returns:
-            None.
-
-        Raises:
-            KeyError: If ``view_id`` is not configurable.
-        """
-        if view_id not in CONFIGURABLE_HOME_VIEW_IDS:
-            raise KeyError(f'Home view is not configurable: {view_id}')
-        self.data.home_view_visible[view_id] = bool(visible)
-
-    def reset_home_view_visibility(self) -> None:
-        """Reset configurable Home page view visibility to factory defaults.
-
-        Returns:
-            None.
-        """
-        self.data.home_view_visible = _default_home_view_visible()
 
     def get_contrast_auto_percentiles(self) -> tuple[float, float]:
         """Return the ``(low, high)`` percentile pair used for Auto contrast.
