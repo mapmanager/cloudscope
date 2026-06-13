@@ -62,14 +62,17 @@ This project uses a simple changelog format inspired by Keep a Changelog. During
 
 - Fixed the automated macOS release asset build path for tagged releases.
 
-## [0.1.3]
+## [0.1.3] - In progress 2026-06-12
 
 ### Added
  - added nicewidgets/ SmartExpansion. when expansion is close() the child baseview(s) disconnect from mvc thus keeing gui responsive. then smartexpansion is open the enclosing/child base view reconnect to mvc and update their display on current app state.
  - used smartexpansion in homee page for file list, analysis plot, and reference image
-
+ - updated home page splitter to use new smart expansion
+ - applied chatgpt updates cloudscope_smart_expansion_splitter_replacements_v1
+ 
 ### Changed
 
 ### Fixed
 
 ### Documentation
+ - expanded velocity, diameter, heart rate ipynb

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from cloudscope.app_config import (
     DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT,
@@ -103,6 +103,9 @@ class ManagedSplitter:
         return applied
 
 
+SplitterSide = Literal['before', 'after']
+
+
 class SplitterManager:
     """Manage Home page splitter values and AppConfig synchronization.
 
@@ -164,6 +167,35 @@ class SplitterManager:
             self._remember_value(splitter_id, applied)
         return applied
 
+    def restore_open_value(self, splitter_id: SplitterId) -> float:
+        """Restore one splitter to its remembered open value.
+
+        Args:
+            splitter_id: Managed splitter id.
+
+        Returns:
+            Applied splitter value.
+        """
+        value = self._app_config.get_home_splitter_value(splitter_id.value)
+        if self._is_collapsed_value(splitter_id, value):
+            value = HOME_SPLITTER_PRESETS[splitter_id].default_value
+        return self.set_value(splitter_id, value, remember=False)
+
+    def collapse_pane(self, splitter_id: SplitterId, side: SplitterSide) -> float:
+        """Collapse one splitter pane without changing remembered layout.
+
+        Args:
+            splitter_id: Managed splitter id.
+            side: Pane to collapse. ``'before'`` applies the splitter minimum;
+                ``'after'`` applies the splitter maximum.
+
+        Returns:
+            Applied splitter value.
+        """
+        preset = HOME_SPLITTER_PRESETS[splitter_id]
+        value = preset.limits[0] if side == 'before' else preset.limits[1]
+        return self.set_value(splitter_id, value, remember=False)
+
     def capture_current_value(self, splitter_id: SplitterId) -> None:
         """Remember the current UI value for one splitter in AppConfig memory.
 
@@ -219,7 +251,28 @@ class SplitterManager:
         Returns:
             None.
         """
-        if splitter_id is SplitterId.LEFT_TOOLBAR:
-            if value <= HOME_LEFT_TOOLBAR_CLOSED_SPLITTER_PCT + HOME_LEFT_TOOLBAR_COLLAPSED_SLACK_PCT:
-                return
+        if self._is_collapsed_value(splitter_id, value):
+            return
         self._app_config.set_home_splitter_value(splitter_id.value, value)
+
+    def _is_collapsed_value(self, splitter_id: SplitterId, value: float) -> bool:
+        """Return whether a value represents a temporary collapsed pane.
+
+        Args:
+            splitter_id: Managed splitter id.
+            value: Splitter value to inspect.
+
+        Returns:
+            True when the value should not replace the remembered open layout.
+        """
+        preset = HOME_SPLITTER_PRESETS[splitter_id]
+        lower, upper = preset.limits
+        if splitter_id is SplitterId.LEFT_TOOLBAR:
+            return value <= HOME_LEFT_TOOLBAR_CLOSED_SPLITTER_PCT + HOME_LEFT_TOOLBAR_COLLAPSED_SLACK_PCT
+        if splitter_id is SplitterId.FILE_LIST:
+            return value <= lower
+        if splitter_id is SplitterId.PRIMARY_IMAGE:
+            return value >= upper
+        if splitter_id is SplitterId.ANALYSIS_REFERENCE:
+            return value <= lower or value >= upper
+        return False

@@ -169,6 +169,16 @@ class HomePage:
             initially_visible=True,
         )
         left_toolbar_ref: dict[str, LeftToolbarView | None] = {'value': None}
+        home_expansion_refs: dict[str, SmartExpansion | None] = {
+            'file_list': None,
+            'analysis_plot': None,
+            'reference_image': None,
+        }
+        panel_open_state = {
+            'file_list': True,
+            'analysis_plot': True,
+            'reference_image': True,
+        }
 
         def _pane_classes(extra: str = '') -> str:
             """Return common splitter pane classes.
@@ -229,6 +239,100 @@ class HomePage:
             """
             splitter_manager.capture_current_value(splitter_id)
 
+        def _sync_analysis_reference_layout() -> None:
+            """Apply splitter layout for analysis/reference expansion state.
+
+            Returns:
+                None.
+            """
+            analysis_open = panel_open_state['analysis_plot']
+            reference_open = panel_open_state['reference_image']
+            if analysis_open or reference_open:
+                splitter_manager.restore_open_value(SplitterId.PRIMARY_IMAGE)
+            else:
+                splitter_manager.collapse_pane(SplitterId.PRIMARY_IMAGE, 'after')
+                return
+
+            if analysis_open and reference_open:
+                splitter_manager.restore_open_value(SplitterId.ANALYSIS_REFERENCE)
+            elif analysis_open:
+                splitter_manager.collapse_pane(SplitterId.ANALYSIS_REFERENCE, 'after')
+            else:
+                splitter_manager.collapse_pane(SplitterId.ANALYSIS_REFERENCE, 'before')
+
+        def _open_file_list_panel() -> None:
+            """Show file list view and restore its splitter pane.
+
+            Returns:
+                None.
+            """
+            panel_open_state['file_list'] = True
+            splitter_manager.restore_open_value(SplitterId.FILE_LIST)
+            file_list_panel.show()
+
+        def _close_file_list_panel() -> None:
+            """Hide file list view and collapse its splitter pane.
+
+            Returns:
+                None.
+            """
+            panel_open_state['file_list'] = False
+            file_list_panel.hide()
+            splitter_manager.collapse_pane(SplitterId.FILE_LIST, 'before')
+
+        def _open_analysis_plot_panel() -> None:
+            """Show analysis plot view and apply shared splitter layout.
+
+            Returns:
+                None.
+            """
+            panel_open_state['analysis_plot'] = True
+            acq_analysis_plot.show()
+            _sync_analysis_reference_layout()
+
+        def _close_analysis_plot_panel() -> None:
+            """Hide analysis plot view and apply shared splitter layout.
+
+            Returns:
+                None.
+            """
+            panel_open_state['analysis_plot'] = False
+            acq_analysis_plot.hide()
+            _sync_analysis_reference_layout()
+
+        def _open_reference_image_panel() -> None:
+            """Show reference image view and apply shared splitter layout.
+
+            Returns:
+                None.
+            """
+            panel_open_state['reference_image'] = True
+            reference_image.show()
+            _sync_analysis_reference_layout()
+
+        def _close_reference_image_panel() -> None:
+            """Hide reference image view and apply shared splitter layout.
+
+            Returns:
+                None.
+            """
+            panel_open_state['reference_image'] = False
+            reference_image.hide()
+            _sync_analysis_reference_layout()
+
+        def _reset_home_expansions() -> None:
+            """Restore Home page SmartExpansion panels to the default open state.
+
+            Returns:
+                None.
+            """
+            for expansion in home_expansion_refs.values():
+                if expansion is not None:
+                    expansion.open()
+            panel_open_state['file_list'] = True
+            panel_open_state['analysis_plot'] = True
+            panel_open_state['reference_image'] = True
+
         def _reset_home_layout(_event: ResetHomeLayoutIntent | None = None) -> None:
             """Reset Home page splitters and close the left toolbar panel.
 
@@ -242,6 +346,10 @@ class HomePage:
             if left_toolbar is not None:
                 left_toolbar.close_panel()
             splitter_manager.reset_all()
+            _reset_home_expansions()
+            splitter_manager.restore_open_value(SplitterId.FILE_LIST)
+            splitter_manager.restore_open_value(SplitterId.PRIMARY_IMAGE)
+            splitter_manager.restore_open_value(SplitterId.ANALYSIS_REFERENCE)
             ui.notify('View layout reset', type='positive')
 
         self.event_bus.subscribe(ResetHomeLayoutIntent, _reset_home_layout)
@@ -288,18 +396,27 @@ class HomePage:
 
                     with file_list_splitter.before:
                         with ui.column().classes(_content_column_classes()):
+                            # load save toolbar buttons
                             load_save_view.build()
                             view_manager.register(load_save_view)
-                            file_list_expansion = SmartExpansion(
-                                'File list',
-                                icon='folder',
-                                initially_open=True,
-                                on_open=file_list_panel.show,
-                                on_close=file_list_panel.hide,
-                            )
-                            with file_list_expansion:
-                                file_list_panel.build()
-                            file_list_expansion.apply_initial_state()
+                            
+                            # file list
+                            # file_list_expansion = SmartExpansion(
+                            #     'File list',
+                            #     icon='folder',
+                            #     initially_open=True,
+                            #     on_open=_open_file_list_panel,
+                            #     on_close=_close_file_list_panel,
+                            # )
+                            # home_expansion_refs['file_list'] = file_list_expansion
+                            # with file_list_expansion:
+                            #     file_list_panel.build()
+                            # file_list_expansion.apply_initial_state()
+
+                            # old style, not using SmartExpansion
+                            file_list_panel.show()
+                            file_list_panel.build()
+
                             view_manager.register(file_list_panel)
 
                     with file_list_splitter.after:
@@ -329,16 +446,22 @@ class HomePage:
 
                                     with analysis_reference_splitter.before:
                                         with ui.column().classes(_fill_column_classes()):
-                                            analysis_plot_expansion = SmartExpansion(
-                                                'Analysis plot',
-                                                icon='show_chart',
-                                                initially_open=True,
-                                                on_open=acq_analysis_plot.show,
-                                                on_close=acq_analysis_plot.hide,
-                                            )
-                                            with analysis_plot_expansion:
-                                                acq_analysis_plot.build()
-                                            analysis_plot_expansion.apply_initial_state()
+                                            # analysis_plot_expansion = SmartExpansion(
+                                            #     'Analysis plot',
+                                            #     icon='show_chart',
+                                            #     initially_open=True,
+                                            #     on_open=_open_analysis_plot_panel,
+                                            #     on_close=_close_analysis_plot_panel,
+                                            # )
+                                            # home_expansion_refs['analysis_plot'] = analysis_plot_expansion
+                                            # with analysis_plot_expansion:
+                                            #     acq_analysis_plot.build()
+                                            # analysis_plot_expansion.apply_initial_state()
+                                            
+                                            # old style, not using SmartExpansion
+                                            acq_analysis_plot.show()
+                                            acq_analysis_plot.build()
+
                                             view_manager.register(acq_analysis_plot)
 
                                     with analysis_reference_splitter.after:
@@ -347,9 +470,10 @@ class HomePage:
                                                 'Reference image',
                                                 icon='image',
                                                 initially_open=True,
-                                                on_open=reference_image.show,
-                                                on_close=reference_image.hide,
+                                                on_open=_open_reference_image_panel,
+                                                on_close=_close_reference_image_panel,
                                             )
+                                            home_expansion_refs['reference_image'] = reference_image_expansion
                                             with reference_image_expansion:
                                                 reference_image.build()
                                             reference_image_expansion.apply_initial_state()
