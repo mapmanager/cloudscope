@@ -169,36 +169,3 @@ class VelocityEventAnalysis(BaseAnalysis):
                 self.set_dirty()
                 return
         raise KeyError(f"Event not found: {event_id}")
-
-
-@register_analysis_class
-class VelocityHeartRateAnalysis(BaseAnalysis):
-    """Example heart-rate analysis depending on velocity output."""
-
-    analysis_name = "velocity_heart_rate"
-    depends_on = ("radon_velocity",)
-
-    def run(
-        self,
-        data_provider: AnalysisDataProvider,
-        *,
-        context: AnalysisRunContext | None = None,
-        dependencies: dict[str, BaseAnalysis] | None = None,
-    ) -> AnalysisResult:
-        """Run example heart-rate analysis.
-
-        Args:
-            data_provider: Analysis data provider.
-            context: Optional progress/cancellation context.
-            dependencies: Dependency analyses. Must include ``"velocity"``.
-
-        Returns:
-            Analysis result.
-        """
-        dependencies = dependencies or {}
-        velocity = dependencies["radon_velocity"]
-        values = velocity.get_column("velocity")
-        self.result.summary = {"heart_rate_bpm": float(len(values) * 60)}
-        self.result.table = None
-        self.set_dirty()
-        return self.result
