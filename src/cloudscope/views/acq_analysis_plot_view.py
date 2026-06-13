@@ -155,7 +155,7 @@ class AcqAnalysisPlotView(BaseView):
             on_x_range_selected=self._on_x_range_selected,
             on_x_range_changed=self._on_chart_x_range_changed,
         )
-        self._chart.container.classes("w-full h-80")
+        self._chart.container.classes("w-full h-full min-h-0 flex-1")
 
         # self._status_label = ui.label("No analysis selected").classes("text-sm opacity-70 shrink-0")
 

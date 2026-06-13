@@ -50,13 +50,14 @@ class RectRoiStyleConfig:
 
     line_width: int = 2
     line_color: str = 'rgba(255, 193, 7, 0.95)'
-    fill_color: str = 'rgba(255, 193, 7, 0.08)'
+    # Fully transparent fills render outline-only ROI rectangles.
+    fill_color: str = 'rgba(0, 0, 0, 0)'
     selected_line_width: int = 3
     selected_line_color: str = 'rgba(244, 67, 54, 1.0)'
-    selected_fill_color: str = 'rgba(244, 67, 54, 0.12)'
+    selected_fill_color: str = 'rgba(0, 0, 0, 0)'
     editing_line_width: int = 3
     editing_line_color: str = 'rgba(0, 188, 212, 1.0)'
-    editing_fill_color: str = 'rgba(0, 188, 212, 0.12)'
+    editing_fill_color: str = 'rgba(0, 0, 0, 0)'
 
 
 class PlotlyRoiOverlayLayer:
@@ -343,5 +344,5 @@ class PlotlyRoiOverlayLayer:
             'selectable': False,
         }
         if roi.label:
-            shape['label'] = {'text': str(roi.label)}
+            shape['label'] = {'text': str(roi.label), 'textposition': 'top left'}
         return shape

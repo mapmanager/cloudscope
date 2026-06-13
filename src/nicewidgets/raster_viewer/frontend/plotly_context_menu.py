@@ -36,6 +36,13 @@ class PlotlyRasterViewerContextMenu:
             self._toggle_label('ROIs', options.show_rois),
             on_click=lambda: viewer.set_roi_overlays_visible(not options.show_rois),
         )
+        roi_labels_item = ui.menu_item(
+            self._toggle_label('ROI Labels', options.show_roi_labels),
+            on_click=lambda: viewer.set_roi_labels_visible(not options.show_roi_labels),
+        )
+        # ROI labels are meaningless while ROIs are hidden; keep the item shown
+        # but disabled so it cannot be toggled until ROIs are visible again.
+        roi_labels_item.set_enabled(options.show_rois)
         ui.menu_item(
             self._toggle_label('Traces', options.show_trace_overlays),
             on_click=lambda: viewer.set_trace_overlays_visible(not options.show_trace_overlays),

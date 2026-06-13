@@ -170,6 +170,29 @@ def test_context_menu_toggle_label_uses_check_prefix() -> None:
     assert PlotlyRasterViewerContextMenu._toggle_label('ROIs', False) == 'ROIs'
 
 
+def test_show_roi_labels_defaults_to_true() -> None:
+    """ROI labels should be visible by default."""
+    assert PlotlyRasterViewerDisplayOptions().show_roi_labels is True
+
+
+def test_roi_label_visibility_toggle_blanks_and_restores_label_text() -> None:
+    """Hiding ROI labels should blank the shape label text without losing ROI state."""
+    viewer = _viewer_with_data()
+    viewer.set_rois([RectRoiOverlay(roi_id=1, x0=0, x1=1, y0=2, y1=3, label='1')])
+
+    roi_shape = viewer.figure['layout']['shapes'][0]
+    assert roi_shape['label'] == {'text': '1', 'textposition': 'top left'}
+
+    viewer.set_roi_labels_visible(False)
+    roi_shape = viewer.figure['layout']['shapes'][0]
+    assert roi_shape['name'] == 'roi:1'
+    assert roi_shape['label']['text'] == ''
+
+    viewer.set_roi_labels_visible(True)
+    roi_shape = viewer.figure['layout']['shapes'][0]
+    assert roi_shape['label']['text'] == '1'
+
+
 def test_hover_info_defaults_to_skip_on_initial_data_set() -> None:
     """Default ``show_hover_info=False`` writes ``hoverinfo='skip'`` on the raster trace."""
     viewer = _viewer_with_data()

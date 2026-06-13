@@ -173,7 +173,6 @@ class ReferenceImageView(BaseView):
                 theme='dark' if dark_mode else 'light',
             )
         )
-        self._status_label: ui.label | None = None
         self._last_file_id: str | None = None
         self._last_channel: int | None = None
         self._dark_mode_provider = dark_mode_provider
@@ -191,8 +190,6 @@ class ReferenceImageView(BaseView):
 
         def _build() -> None:
             with ui.card().classes('w-full') as self.root:
-                ui.label(self._title).classes('text-lg font-medium')
-                self._status_label = ui.label('No reference image')
                 plot = self._viewer.build()
                 plot.classes('w-full h-80')
 
@@ -315,7 +312,7 @@ class ReferenceImageView(BaseView):
             None.
         """
         try:
-            plane, grid, message = await run.io_bound(
+            plane, grid, _message = await run.io_bound(
                 _load_reference_plane_payload,
                 file_id,
                 acq_image,
@@ -325,8 +322,7 @@ class ReferenceImageView(BaseView):
             logger.exception('Reference image load failed file_id=%r channel=%r', file_id, channel)
             err_msg = str(exc)
             self._run_ui(lambda: ui.notify(err_msg, type='negative'))
-            plane, grid, message = _placeholder_plane()
-            message = f'Reference image error: {err_msg}'
+            plane, grid, _message = _placeholder_plane()
 
         try:
             await self._viewer.set_data(
@@ -335,8 +331,6 @@ class ReferenceImageView(BaseView):
                 overview_max_pixels=_REFERENCE_OVERVIEW_MAX_PIXELS,
             )
             await self._apply_reference_contrast(plane)
-            if self._status_label is not None:
-                self._status_label.text = message
         except RuntimeError as exc:
             logger.exception('Reference image set_data failed: %s', exc)
             err_msg = str(exc)

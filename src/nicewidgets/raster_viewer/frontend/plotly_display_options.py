@@ -14,6 +14,7 @@ class PlotlyRasterViewerDisplayOptions:
     Args:
         show_plotly_toolbar: Whether Plotly's modebar is visible.
         show_rois: Whether rectangular ROI overlays are visible.
+        show_roi_labels: Whether rectangular ROI overlay labels are visible.
         show_trace_overlays: Whether managed x/y trace overlays are visible.
         show_axis_labels: Whether axis title text, tick labels, ticks, axis
             lines, and grid lines are visible.
@@ -26,6 +27,7 @@ class PlotlyRasterViewerDisplayOptions:
 
     show_plotly_toolbar: bool = False
     show_rois: bool = True
+    show_roi_labels: bool = True
     show_trace_overlays: bool = True
     show_axis_labels: bool = False
     show_hover_info: bool = False

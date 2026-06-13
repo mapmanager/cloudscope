@@ -16,6 +16,23 @@ def test_roi_shape_name_is_stable() -> None:
     assert PlotlyRoiOverlayLayer.shape_name(7) == 'roi:7'
 
 
+def test_default_style_uses_transparent_fill_for_all_states() -> None:
+    """ROI rectangles should default to outline-only (fully transparent fill)."""
+    style = RectRoiStyleConfig()
+    assert style.fill_color == 'rgba(0, 0, 0, 0)'
+    assert style.selected_fill_color == 'rgba(0, 0, 0, 0)'
+    assert style.editing_fill_color == 'rgba(0, 0, 0, 0)'
+
+
+def test_roi_shape_label_is_positioned_top_left() -> None:
+    """ROI shape labels should render at the top-left corner of the rectangle."""
+    layer = PlotlyRoiOverlayLayer()
+    layer.set_rois([RectRoiOverlay(roi_id=1, x0=0, x1=2, y0=1, y1=3, label='1')])
+
+    shape = layer.to_shapes()[0]
+    assert shape['label'] == {'text': '1', 'textposition': 'top left'}
+
+
 def test_set_rois_replaces_roi_shapes_but_preserves_non_roi_shapes() -> None:
     """ROI replacement should keep unrelated Plotly shapes."""
     layer = PlotlyRoiOverlayLayer()

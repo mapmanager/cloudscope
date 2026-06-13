@@ -464,6 +464,7 @@ return overlayPromise.then(() => {{
             existing_shapes = []
         layout['shapes'] = self._plotly_rois.merge_shapes(existing_shapes)
         self._set_roi_shape_visibility(layout['shapes'])
+        self._set_roi_label_visibility(layout['shapes'])
 
     def _relayout_shapes(self) -> None:
         """Push only ``layout.shapes`` to the browser with ``Plotly.relayout``.
@@ -493,6 +494,19 @@ Plotly.relayout(plotDiv, {{
             None.
         """
         self._display_options.show_rois = bool(visible)
+        self._sync_roi_shapes_to_plotly_dict()
+        self._relayout_shapes()
+
+    def set_roi_labels_visible(self, visible: bool) -> None:
+        """Set ROI overlay label visibility without changing ROI state.
+
+        Args:
+            visible: Whether ROI shape labels should be visible.
+
+        Returns:
+            None.
+        """
+        self._display_options.show_roi_labels = bool(visible)
         self._sync_roi_shapes_to_plotly_dict()
         self._relayout_shapes()
 
@@ -652,6 +666,7 @@ Plotly.restyle(plotDiv, {{
         shapes = layout.get('shapes', [])
         if isinstance(shapes, list):
             self._set_roi_shape_visibility(shapes)
+            self._set_roi_label_visibility(shapes)
         data = self._plotly_dict.get('data', [])
         if isinstance(data, list):
             self._set_trace_overlay_visibility(data)
@@ -759,6 +774,29 @@ Plotly.restyle(plotDiv, {{
         for shape in shapes:
             if PlotlyRoiOverlayLayer.is_roi_shape(shape):
                 shape['visible'] = bool(self._display_options.show_rois)
+
+    def _set_roi_label_visibility(self, shapes: list[object]) -> None:
+        """Blank managed ROI shape labels when label display is disabled.
+
+        The ROI overlay layer always emits the full label text. When
+        ``show_roi_labels`` is disabled, the label text is cleared so Plotly
+        renders the rectangle without its annotation. When enabled, the freshly
+        merged shapes already carry their label text, so this is a no-op.
+
+        Args:
+            shapes: Mutable Plotly layout shape list.
+
+        Returns:
+            None.
+        """
+        if self._display_options.show_roi_labels:
+            return
+        for shape in shapes:
+            if not PlotlyRoiOverlayLayer.is_roi_shape(shape) or not isinstance(shape, dict):
+                continue
+            label = shape.get('label')
+            if isinstance(label, dict):
+                label['text'] = ''
 
     def _set_trace_overlay_visibility(self, traces: list[object]) -> None:
         """Apply global trace-overlay visibility to managed overlay traces.
