@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from acqstore.acq_image.supported_import_extensions import get_allowed_import_extensions
+from acqstore.acq_image.supported_import_extensions import (
+    get_allowed_import_extensions,
+    normalize_import_extension_for_path,
+)
 
 from .base_file_loader import BaseFileLoader
 from .czi_file_loader import CziFileLoader
 from .oir_file_loader import OirFileLoader
+from .ome_zarr_file_loader import OmeZarrFileLoader
 from .tiff_file_loader import TiffFileLoader
 
 
@@ -16,11 +18,11 @@ def create_file_loader(path: str) -> BaseFileLoader:
     """Return a file loader appropriate for ``path``.
 
     Only extensions listed in :func:`get_allowed_import_extensions` are supported.
-    Comparison is case-insensitive (``.TIF`` is treated as ``tif``). The ``.tiff``
-    suffix is not supported.
+    Comparison is case-insensitive. Directory-backed OME-Zarr stores are detected
+    by compound suffixes such as ``.ome.zarr`` and ``.cs.ome.zarr``.
 
     Args:
-        path: Filesystem path to an acquisition file.
+        path: Filesystem path to an acquisition file or directory-backed store.
 
     Returns:
         A concrete loader instance.
@@ -28,7 +30,7 @@ def create_file_loader(path: str) -> BaseFileLoader:
     Raises:
         ValueError: If the path suffix is not a supported acquisition extension.
     """
-    suffix = Path(path).suffix.lower().lstrip('.')
+    suffix = normalize_import_extension_for_path(path)
     allowed = set(get_allowed_import_extensions())
     if suffix not in allowed:
         allowed_text = ', '.join(sorted(allowed))
@@ -41,4 +43,6 @@ def create_file_loader(path: str) -> BaseFileLoader:
         return OirFileLoader(path)
     if suffix == 'czi':
         return CziFileLoader(path)
+    if suffix in {'ome.zarr', 'cs.ome.zarr'}:
+        return OmeZarrFileLoader(path)
     raise ValueError(f'No loader registered for extension {suffix!r}')

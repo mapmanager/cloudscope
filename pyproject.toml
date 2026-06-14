@@ -41,6 +41,10 @@ dependencies = [
     "pooch>=1.9.0", # to download from cloudscope-data
     "pyperclipimg>=0.2.0", # to copy plotly plot
     "tabulate>=0.10.0",
+    "zarr>=3.2.1",
+    "ome-zarr>=0.17.0",
+    "ngff-zarr>=0.35.1",
+    "dask[array]>=2026.6.0",
 ]
 
 [build-system]

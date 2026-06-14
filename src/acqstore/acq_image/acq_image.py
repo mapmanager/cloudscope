@@ -18,7 +18,9 @@ import numpy as np
 
 from acqstore.schema import ACQ_FILE_LIST_SCHEMA, SchemaDefinition, validate_values_for_schema
 from acqstore.utils.logging import get_logger
+from .acq_pixels import AcqPixels
 from .file_loaders.base_file_loader import BaseFileLoader, ImageHeader
+from .ome_zarr_io import read_json_file, write_json_file
 from .metadata import ExperimentMetadata, ImageHeaderMetadata
 from .roi import ImageBounds, LineROI, RectROI, RoiSet
 from .file_loaders.file_loader_factory import create_file_loader
@@ -188,8 +190,9 @@ class AcqImage:
         self._accept = True
 
         self._images = create_file_loader(self.path)
+        self._pixels = self._images.load_pixels()
         self._experimental_metadata = ExperimentMetadata()
-        self._image_header_metadata = ImageHeaderMetadata(self._images.header, self._apply_image_header)
+        self._image_header_metadata = ImageHeaderMetadata(self._pixels.header, self._apply_image_header)
         self._rois = RoiSet(self._infer_image_bounds())
         self._acq_analysis_set = AcqAnalysisSet(
             self.path,
@@ -198,7 +201,10 @@ class AcqImage:
         self._image_contrasts: dict[int, ImageContrast] = {}
         self._image_contrast_dirty = False
 
-        self.load_sidecar_json()
+        if self.path.lower().endswith('.cs.ome.zarr'):
+            self.load_native_zarr_sidecar_json()
+        else:
+            self.load_sidecar_json()
 
     @property
     def file_id(self) -> str:
@@ -239,6 +245,37 @@ class AcqImage:
         self._acq_analysis_set.save_results_df(self.path)
 
         # set dirty flags to false
+        self._mark_clean_after_save()
+
+    def save_native_zarr(self, path: str | Path, *, overwrite: bool = False) -> None:
+        """Persist this acquisition as one acqstore-native OME-Zarr store.
+
+        The image portion is written as an OME-NGFF/OME-Zarr-compatible group.
+        CloudScope/acqstore-specific state is embedded under ``acqstore/`` so
+        standards-aware tools can ignore it while acqstore can round-trip it.
+        Existing :meth:`save` sidecar behavior is intentionally unchanged.
+
+        Args:
+            path: Destination store path, typically ending in ``.cs.ome.zarr``.
+            overwrite: Whether to replace an existing destination store.
+        """
+        dest = Path(path)
+        self._pixels.to_ome_zarr(dest, overwrite=overwrite)
+        write_json_file(dest / 'acqstore' / 'acq_image.json', self._build_sidecar_payload())
+        self._acq_analysis_set.save_results_tables_to_directory(dest / 'acqstore' / 'analysis')
+        write_json_file(
+            dest / 'acqstore' / 'manifest.json',
+            {
+                'format': 'acqstore-native-ome-zarr',
+                'version': 1,
+                'image_group': '.',
+                'sidecar': 'acqstore/acq_image.json',
+            },
+        )
+        self._mark_clean_after_save()
+
+    def _mark_clean_after_save(self) -> None:
+        """Clear dirty flags after a successful save."""
         self._rois.set_clean()
         self._acq_analysis_set.set_clean()
         self._image_contrast_dirty = False
@@ -405,34 +442,72 @@ class AcqImage:
         sidecar_path = Path(self.get_sidecar_json_path())
         if not sidecar_path.is_file():
             return
-
         try:
-            raw = json.loads(sidecar_path.read_text(encoding='utf-8'))
-            if not isinstance(raw, dict):
-                raise ValueError('Sidecar JSON payload must be an object')
-
-            missing = sorted(_ACQIMAGE_SIDECAR_REQUIRED_KEYS - set(raw.keys()))
-            if missing:
-                raise ValueError(f'Sidecar JSON missing required keys: {missing}')
-
-            extra = sorted(
-                set(raw.keys())
-                - _ACQIMAGE_SIDECAR_REQUIRED_KEYS
-                - _ACQIMAGE_SIDECAR_OPTIONAL_KEYS
+            self._load_sidecar_payload(
+                json.loads(sidecar_path.read_text(encoding='utf-8')),
+                source=str(sidecar_path),
             )
-            if extra:
-                logger.warning('Ignoring unknown AcqImage sidecar keys for %s: %s', self.path, extra)
-
-            version = raw['version']
-            if version != _ACQIMAGE_SIDECAR_VERSION:
-                raise ValueError(
-                    f'Unsupported AcqImage sidecar version {version!r}; '
-                    f'expected {_ACQIMAGE_SIDECAR_VERSION!r}'
-                )
-
-            self._apply_loaded_sidecar_payload(raw)
         except Exception as exc:  # pragma: no cover - validated in tests
             logger.warning('Failed to load sidecar JSON for %s: %s', self.path, exc)
+
+    def load_native_zarr_sidecar_json(self) -> None:
+        """Load embedded acqstore state from a native ``.cs.ome.zarr`` store."""
+        sidecar_path = Path(self.path) / 'acqstore' / 'acq_image.json'
+        if not sidecar_path.is_file():
+            return
+        try:
+            self._load_sidecar_payload(read_json_file(sidecar_path), source=str(sidecar_path))
+            self._acq_analysis_set.load_results_tables_from_directory(
+                Path(self.path) / 'acqstore' / 'analysis'
+            )
+        except Exception as exc:  # pragma: no cover - defensive native-load path
+            logger.warning('Failed to load native Zarr sidecar for %s: %s', self.path, exc)
+
+    def _load_sidecar_payload(self, raw: object, *, source: str) -> None:
+        """Validate and apply one sidecar payload from an external or embedded source."""
+        if not isinstance(raw, dict):
+            raise ValueError('Sidecar JSON payload must be an object')
+
+        missing = sorted(_ACQIMAGE_SIDECAR_REQUIRED_KEYS - set(raw.keys()))
+        if missing:
+            raise ValueError(f'Sidecar JSON missing required keys: {missing}')
+
+        extra = sorted(
+            set(raw.keys())
+            - _ACQIMAGE_SIDECAR_REQUIRED_KEYS
+            - _ACQIMAGE_SIDECAR_OPTIONAL_KEYS
+        )
+        if extra:
+            logger.warning('Ignoring unknown AcqImage sidecar keys for %s: %s', source, extra)
+
+        version = raw['version']
+        if version != _ACQIMAGE_SIDECAR_VERSION:
+            raise ValueError(
+                f'Unsupported AcqImage sidecar version {version!r}; '
+                f'expected {_ACQIMAGE_SIDECAR_VERSION!r}'
+            )
+
+        self._apply_loaded_sidecar_payload(raw)
+
+    @property
+    def pixels(self) -> AcqPixels:
+        """Return pixels plus OME/NGFF-style acquisition metadata for this file.
+
+        The normal constructor initializes ``_pixels`` immediately. This lazy
+        fallback keeps lightweight tests and scripts that construct ``AcqImage``
+        instances without invoking ``__init__`` from failing when a real loader
+        is present. Test doubles that only mimic legacy loader attributes should
+        continue using ``images``-level fields such as ``num_channels``.
+        """
+        if not hasattr(self, '_pixels'):
+            load_pixels = getattr(getattr(self, '_images', None), 'load_pixels', None)
+            if not callable(load_pixels):
+                raise AttributeError(
+                    "AcqImage pixels are not initialized and the image loader "
+                    "does not provide load_pixels()."
+                )
+            self._pixels = load_pixels()
+        return self._pixels
 
     @property
     def images(self) -> BaseFileLoader:
@@ -595,7 +670,7 @@ class AcqImage:
             'grandparent': grandparent,
             'condition': self._experimental_metadata.condition,
             'genotype': self._experimental_metadata.genotype,
-            'num_channels': self.images.num_channels,
+            'num_channels': self._images.num_channels,
             'num_rois': self.rois.num_rois,
             'accept': self._accept,
         }
@@ -690,7 +765,7 @@ class AcqImage:
             Zero-based channel index for the first channel, or ``None`` when the
             file exposes no channels.
         """
-        return self._images.default_channel
+        return self._pixels.default_channel
 
     def get_default_roi(self) -> int | None:
         """Return the default ROI identifier for this file.
@@ -755,7 +830,7 @@ class AcqImage:
         Raises:
             ValueError: If the file header does not define a ``Y``/``X`` plane.
         """
-        return self._images.get_image_physical_units()
+        return self._pixels.get_image_physical_units()
 
     def _infer_image_bounds(self) -> ImageBounds:
         """Infer image bounds from loaded header information.
@@ -763,7 +838,7 @@ class AcqImage:
         Returns:
             Image bounds built from known header dimensions.
         """
-        sizes = self._images.header.sizes
+        sizes = self._pixels.header.sizes
         width = int(sizes.get('X', 1))
         height = int(sizes.get('Y', 1))
         num_slices = int(sizes.get('Z', 1))

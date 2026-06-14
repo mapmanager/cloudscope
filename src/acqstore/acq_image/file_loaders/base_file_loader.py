@@ -447,6 +447,23 @@ class BaseFileLoader:
             self._img_data = self._load_full_image_array()
         return self._img_data
 
+    def load_pixels(self):
+        """Return an :class:`AcqPixels` wrapper for this loader.
+
+        The default implementation uses the current eager NumPy loading path.
+        Directory-backed OME-Zarr loaders can override this to keep returned
+        pixels backed by lazy Zarr/Dask-compatible arrays.
+        """
+        from ..acq_pixels import AcqPixels
+
+        return AcqPixels(
+            data=self.load_image_data(),
+            header=self._header,
+            source_path=self.path,
+            acquisition_metadata={},
+            source_metadata={"loader": type(self).__name__},
+        )
+
     def unload_image_data(self) -> None:
         """Drop cached primary pixel data; header unchanged."""
         self._img_data = None

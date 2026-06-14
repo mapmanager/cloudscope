@@ -578,6 +578,71 @@ class AcqAnalysisSet:
 
         self.set_clean()
 
+
+    def results_tables_by_name(self) -> dict[str, pd.DataFrame]:
+        """Return combined result tables keyed by analysis name.
+
+        Returns:
+            Mapping from analysis type name to a DataFrame containing all table
+            rows for that analysis type, with channel/ROI bookkeeping columns.
+
+        Raises:
+            ValueError: If one analysis type produces inconsistent table columns.
+        """
+        tables_by_name: dict[str, list[pd.DataFrame]] = {}
+        for analysis in self._analyses.values():
+            table = analysis.table_with_bookkeeping()
+            if table is None:
+                continue
+            tables_by_name.setdefault(analysis.key.analysis_name, []).append(table)
+
+        combined_by_name: dict[str, pd.DataFrame] = {}
+        for analysis_name, tables in tables_by_name.items():
+            self._validate_same_columns(analysis_name, tables)
+            combined_by_name[analysis_name] = pd.concat(tables, ignore_index=True)
+        return combined_by_name
+
+    def save_results_tables_to_directory(self, directory: str | Path) -> None:
+        """Save combined CSV tables under ``directory`` as ``<analysis_name>.csv``."""
+        out_dir = Path(directory)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        combined_by_name = self.results_tables_by_name()
+        existing_names = {path.stem for path in out_dir.glob("*.csv")}
+        for analysis_name, combined in combined_by_name.items():
+            combined.to_csv(out_dir / f"{analysis_name}.csv", index=False)
+        for analysis_name in existing_names - set(combined_by_name.keys()):
+            (out_dir / f"{analysis_name}.csv").unlink(missing_ok=True)
+
+    def load_results_tables_by_name(self, tables_by_name: dict[str, pd.DataFrame]) -> None:
+        """Hydrate child analysis result tables from combined tables by name."""
+        for analysis in self._analyses.values():
+            table = tables_by_name.get(analysis.key.analysis_name)
+            if table is None:
+                continue
+            if "channel" not in table.columns or "roi_id" not in table.columns:
+                raise ValueError(
+                    f"Analysis table for {analysis.key.analysis_name!r} is missing "
+                    "required channel/roi_id columns"
+                )
+            mask = (
+                (table["channel"] == analysis.key.channel)
+                & (table["roi_id"] == analysis.key.roi_id)
+            )
+            sub = table.loc[mask].copy()
+            if sub.empty:
+                continue
+            analysis.result.table = sub.drop(columns=["channel", "roi_id"])
+        self.set_clean()
+
+    def load_results_tables_from_directory(self, directory: str | Path) -> None:
+        """Load combined CSV tables from ``directory`` into existing analyses."""
+        src_dir = Path(directory)
+        if not src_dir.is_dir():
+            self.set_clean()
+            return
+        tables_by_name = {path.stem: pd.read_csv(path) for path in src_dir.glob("*.csv")}
+        self.load_results_tables_by_name(tables_by_name)
+
     def save_results_df(self, source_path: str | Path) -> None:
         """Save combined CSV tables by analysis type.
 

@@ -27,7 +27,10 @@ from acqstore.schema import (
     validate_values_for_schema,
 )
 
-from .supported_import_extensions import get_allowed_import_extensions
+from .supported_import_extensions import (
+    get_allowed_import_extensions,
+    path_has_allowed_import_extension,
+)
 
 if TYPE_CHECKING:
     from acqstore.acq_image.acq_image import AcqImage
@@ -54,7 +57,7 @@ def _build_file_list(path: str | Path, file_types: Sequence[str], *, folder_dept
     """
     if folder_depth < 1:
         raise ValueError(f'folder_depth must be >= 1, got {folder_depth}')
-    allowed_exts = {f'.{ext.lower().lstrip(".")}' for ext in file_types}
+    allowed_exts = {ext.lower().lstrip(".") for ext in file_types}
     result: list[str] = []
     root = Path(path).resolve()
     queue: deque[tuple[Path, int]] = deque()
@@ -69,12 +72,22 @@ def _build_file_list(path: str | Path, file_types: Sequence[str], *, folder_dept
             continue
         for p in entries:
             if p.is_file():
-                if p.suffix.lower() in allowed_exts:
+                if path_has_allowed_import_extension(p) and _extension_is_allowed(p, allowed_exts):
                     result.append(str(p.resolve()))
             elif p.is_dir():
+                if path_has_allowed_import_extension(p) and _extension_is_allowed(p, allowed_exts):
+                    result.append(str(p.resolve()))
+                    continue
                 if depth < folder_depth:
                     queue.append((p, depth + 1))
     return sorted(result)
+
+
+def _extension_is_allowed(path: str | Path, allowed_exts: set[str]) -> bool:
+    """Return whether ``path`` has an allowed normalized import extension."""
+    from .supported_import_extensions import normalize_import_extension_for_path
+
+    return normalize_import_extension_for_path(path) in allowed_exts
 
 
 class SaveEvent(StrEnum):
@@ -288,8 +301,8 @@ class AcqImageList:
             else:
                 candidate_paths = _build_file_list(path_obj, get_allowed_import_extensions(), folder_depth=folder_depth)
         elif kind == PathKind.FILE:
-            if not path_obj.exists() or not path_obj.is_file():
-                warnings.append(LoadWarning(message='File does not exist or is not a file', path=base_path))
+            if not path_obj.exists() or not (path_obj.is_file() or path_has_allowed_import_extension(path_obj)):
+                warnings.append(LoadWarning(message='File does not exist or is not a supported file/store', path=base_path))
             else:
                 candidate_paths = [str(path_obj.resolve())]
         elif kind == PathKind.CSV:
@@ -359,7 +372,7 @@ class AcqImageList:
                         continue
                     rel_value = str(raw_value).strip()
                     candidate = (csv_parent / rel_value).resolve(strict=False)
-                    if not candidate.exists() or not candidate.is_file():
+                    if not candidate.exists() or not (candidate.is_file() or path_has_allowed_import_extension(candidate)):
                         warnings.append(
                             LoadWarning(
                                 message='CSV rel_path target does not exist',

@@ -1,21 +1,42 @@
 """Canonical supported acquisition import extensions (no leading dot).
 
 These values are used for directory discovery and for :func:`create_file_loader`
-validation. Extensions are compared case-insensitively on disk (``.TIF`` maps to
-``tif``).
+validation. Extensions are compared case-insensitively on disk. Directory-backed
+Zarr stores use compound suffixes such as ``ome.zarr`` and ``cs.ome.zarr``.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
+from pathlib import Path
 
-DEFAULT_IMPORT_EXTENSIONS: tuple[str, ...] = ('tif', 'oir', 'czi')
+DEFAULT_IMPORT_EXTENSIONS: tuple[str, ...] = ('tif', 'oir', 'czi', 'ome.zarr', 'cs.ome.zarr')
 _runtime_import_extensions: set[str] = set(DEFAULT_IMPORT_EXTENSIONS)
+_COMPOUND_ZARR_EXTENSIONS = ('cs.ome.zarr', 'ome.zarr')
 
 
 def _normalize_extension(extension: str) -> str:
     """Normalize one extension to canonical storage form."""
     return extension.strip().lower().lstrip('.')
+
+
+def normalize_import_extension_for_path(path: str | Path) -> str:
+    """Return the supported import extension represented by ``path``.
+
+    ``Path.suffix`` only reports ``.zarr`` for OME-Zarr directory stores, so
+    acqstore uses this helper wherever extension checks need to recognize
+    compound store names.
+    """
+    name = Path(path).name.lower()
+    for compound in _COMPOUND_ZARR_EXTENSIONS:
+        if name.endswith(f'.{compound}'):
+            return compound
+    return Path(name).suffix.lower().lstrip('.')
+
+
+def path_has_allowed_import_extension(path: str | Path) -> bool:
+    """Return whether ``path`` uses one of the currently allowed import extensions."""
+    return normalize_import_extension_for_path(path) in _runtime_import_extensions
 
 
 def get_allowed_import_extensions() -> tuple[str, ...]:
