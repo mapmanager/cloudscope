@@ -73,10 +73,19 @@ class RunnableAnalysis(BaseAnalysis):
         ),
     )
 
+    def __init__(self, *, channel: int, roi_id: int, detection_params=None) -> None:
+        super().__init__(channel=channel, roi_id=roi_id, detection_params=detection_params)
+        self.use_multiprocessing = True
+
+    def set_execution_options(self, *, use_multiprocessing: bool = True) -> None:
+        """Record an execution option for assertions."""
+        self.use_multiprocessing = bool(use_multiprocessing)
+
     def run(self, data_provider, *, context=None, dependencies=None) -> AnalysisResult:
         """Record that the analysis ran and echo its window parameter."""
         self.result.summary["ran"] = True
         self.result.summary["window"] = self.detection_params["window"]
+        self.result.summary["use_multiprocessing"] = self.use_multiprocessing
         return self.result
 
 
@@ -203,6 +212,55 @@ def test_create_and_run_rejects_invalid_type() -> None:
 
     with pytest.raises(TypeError):
         analysis_set.create_and_run(123, channel=0, roi_id=1)  # type: ignore[arg-type]
+
+
+def test_create_and_run_applies_execution_options(runnable_analysis_cls) -> None:
+    """execution_options should be forwarded to set_execution_options."""
+    analysis_set = _set_with_provider()
+
+    analysis = analysis_set.create_and_run(
+        runnable_analysis_cls,
+        channel=0,
+        roi_id=1,
+        execution_options={"use_multiprocessing": False},
+    )
+
+    assert analysis.use_multiprocessing is False
+    assert analysis.result.summary["use_multiprocessing"] is False
+
+
+def test_create_and_run_unknown_execution_option_does_not_mutate(
+    runnable_analysis_cls,
+) -> None:
+    """An unknown execution option should raise before any mutation."""
+    analysis_set = _set_with_provider()
+
+    with pytest.raises(TypeError):
+        analysis_set.create_and_run(
+            runnable_analysis_cls,
+            channel=0,
+            roi_id=1,
+            execution_options={"nope": True},
+        )
+
+    assert analysis_set.as_list() == []
+
+
+def test_create_and_run_execution_options_unsupported_type_raises(
+    runnable_analysis_cls,
+) -> None:
+    """execution_options on an analysis without the setter should raise TypeError."""
+    analysis_set = _set_with_provider()
+
+    with pytest.raises(TypeError):
+        analysis_set.create_and_run(
+            EventAnalysis,
+            channel=0,
+            roi_id=1,
+            execution_options={"use_multiprocessing": False},
+        )
+
+    assert analysis_set.as_list() == []
 
 
 def test_create_and_run_missing_dependency_raises_and_leaves_set_unchanged() -> None:

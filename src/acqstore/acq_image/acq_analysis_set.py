@@ -230,6 +230,7 @@ class AcqAnalysisSet:
         roi_id: int,
         detection_params: dict[str, Any] | None = None,
         replace_existing: bool = False,
+        execution_options: dict[str, Any] | None = None,
         context: AnalysisRunContext | None = None,
     ) -> BaseAnalysis:
         """Create one analysis and run it in a single call.
@@ -253,6 +254,11 @@ class AcqAnalysisSet:
             replace_existing: If True, remove any existing analysis with the
                 same identity before creating the new one. If False, a
                 duplicate identity raises ``ValueError``.
+            execution_options: Optional runtime execution options forwarded to
+                the analysis ``set_execution_options`` method (for example
+                ``{"use_multiprocessing": False}`` for Radon velocity, which is
+                recommended inside Jupyter). These are not detection parameters
+                and are not serialized.
             context: Optional progress/cancellation context.
 
         Returns:
@@ -260,7 +266,8 @@ class AcqAnalysisSet:
 
         Raises:
             TypeError: If ``analysis`` is neither a string nor a
-                ``BaseAnalysis`` subclass.
+                ``BaseAnalysis`` subclass, or if ``execution_options`` is given
+                for an analysis type that does not support execution options.
             RuntimeError: If no data provider was configured.
             KeyError: If the analysis type is not registered.
             ValueError: If a duplicate identity exists and ``replace_existing``
@@ -282,6 +289,14 @@ class AcqAnalysisSet:
 
         cls = get_analysis_class(analysis_name)
         candidate = cls(channel=channel, roi_id=roi_id, detection_params=detection_params)
+
+        if execution_options:
+            setter = getattr(candidate, "set_execution_options", None)
+            if setter is None:
+                raise TypeError(
+                    f"{analysis_name!r} does not support execution options"
+                )
+            setter(**execution_options)
 
         if candidate.key in self._analyses:
             if not replace_existing:

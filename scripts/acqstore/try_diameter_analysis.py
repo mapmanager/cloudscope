@@ -12,7 +12,7 @@ from __future__ import annotations
 from acqstore.acq_image.acq_image import AcqImage
 from acqstore.acq_image.acq_image_list import AcqImageList
 from acqstore.acq_image.analysis.diameter_analysis.diameter_analysis import DiameterAnalysis
-from acqstore.acq_image.analysis.model import AnalysisKey, AnalysisRunContext, BaseAnalysis
+from acqstore.acq_image.analysis.model import AnalysisRunContext, BaseAnalysis
 from acqstore.utils.logging import get_logger, setup_logging
 
 logger = get_logger(__name__)
@@ -29,36 +29,28 @@ def run_diameter_analysis(acq_image: AcqImage) -> DiameterAnalysis:
         Completed diameter analysis.
     """
     channel = 0
-    window_rows_odd = 5
-    diameter_method = "threshold_width"
 
     new_roi = acq_image.rois.create_rect_roi(name="diameter_test", note="diameter test")
     roi_id = new_roi.roi_id
 
-    detection_params = DiameterAnalysis.get_default_detection_params()
-    detection_params["window_rows_odd"] = window_rows_odd
-    detection_params["diameter_method"] = diameter_method
-    detection_params["post_filter_kernel_size"] = 3
-    DiameterAnalysis.validate_detection_params(detection_params)
+    detection_params = {
+        "diameter_method": "threshold_width",
+        "window_rows_odd": 5,
+        "post_filter_kernel_size": 3,
+    }
 
-    key = AnalysisKey(DiameterAnalysis.analysis_name, channel, roi_id)
-    logger.info("key:%s", key)
-
-    acq_image.analysis_set.remove(key)
-    analysis = acq_image.analysis_set.create(
-        DiameterAnalysis.analysis_name,
-        channel=channel,
-        roi_id=roi_id,
-        detection_params=detection_params,
-    )
-    logger.info("created analysis:%s", analysis)
-
-    analysis.set_execution_options(use_threads=True)
     context = AnalysisRunContext(
         progress_callback=lambda fraction, message: print(f"  === progress={fraction}: {message}")
     )
     logger.info("running analysis")
-    acq_image.analysis_set.run_analysis(analysis.key, context=context)
+    analysis = acq_image.analysis_set.create_and_run(
+        DiameterAnalysis,
+        channel=channel,
+        roi_id=roi_id,
+        detection_params=detection_params,
+        replace_existing=True,
+        context=context,
+    )
     return analysis
 
 
