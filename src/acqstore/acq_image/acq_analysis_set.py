@@ -222,6 +222,30 @@ class AcqAnalysisSet:
             detection_params=detection_params,
         )
 
+    @staticmethod
+    def _resolve_analysis_name(analysis: str | type[BaseAnalysis]) -> str:
+        """Resolve an analysis selector to its registered analysis name.
+
+        Args:
+            analysis: Registered analysis type name, or an analysis class whose
+                ``analysis_name`` is registered.
+
+        Returns:
+            The registered analysis name.
+
+        Raises:
+            TypeError: If ``analysis`` is neither a string nor a ``BaseAnalysis``
+                subclass.
+        """
+        if isinstance(analysis, type) and issubclass(analysis, BaseAnalysis):
+            return analysis.analysis_name
+        if isinstance(analysis, str):
+            return analysis
+        raise TypeError(
+            f"analysis must be a str or BaseAnalysis subclass, "
+            f"got: {type(analysis).__name__}"
+        )
+
     def create_and_run(
         self,
         analysis: str | type[BaseAnalysis],
@@ -274,15 +298,7 @@ class AcqAnalysisSet:
                 is False, or if required dependencies are missing.
             AnalysisExclusionError: If an exclusive-group conflict exists.
         """
-        if isinstance(analysis, type) and issubclass(analysis, BaseAnalysis):
-            analysis_name = analysis.analysis_name
-        elif isinstance(analysis, str):
-            analysis_name = analysis
-        else:
-            raise TypeError(
-                f"analysis must be a str or BaseAnalysis subclass, "
-                f"got: {type(analysis).__name__}"
-            )
+        analysis_name = self._resolve_analysis_name(analysis)
 
         if self._data_provider is None:
             raise RuntimeError("Cannot run analysis without a data provider")
@@ -334,6 +350,42 @@ class AcqAnalysisSet:
         if analysis is None:
             raise KeyError(f"Analysis not found: {key}")
         return analysis
+
+    def get_analysis(
+        self,
+        analysis: str | type[BaseAnalysis],
+        *,
+        channel: int,
+        roi_id: int,
+    ) -> BaseAnalysis:
+        """Return an analysis by type, channel, and ROI, or raise.
+
+        This is a scripting convenience over :meth:`get_required` that builds the
+        :class:`AnalysisKey` for you, so callers do not need a previously created
+        analysis instance to look one up (for example after reloading an
+        ``AcqImage`` from disk).
+
+        Args:
+            analysis: Registered analysis type name, or an analysis class whose
+                ``analysis_name`` is registered (for example
+                ``RadonVelocityAnalysis``).
+            channel: Channel index.
+            roi_id: ROI identifier.
+
+        Returns:
+            The matching analysis instance.
+
+        Raises:
+            TypeError: If ``analysis`` is neither a string nor a ``BaseAnalysis``
+                subclass.
+            KeyError: If no analysis exists for the resolved identity.
+        """
+        key = AnalysisKey(
+            analysis_name=self._resolve_analysis_name(analysis),
+            channel=channel,
+            roi_id=roi_id,
+        )
+        return self.get_required(key)
 
     def remove(self, key: AnalysisKey) -> bool:
         """Remove one analysis by key.

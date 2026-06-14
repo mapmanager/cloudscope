@@ -4,9 +4,34 @@ import pandas as pd
 import pytest
 
 from acqstore.acq_image.analysis.diameter_analysis.diameter_analysis import DiameterAnalysis
-from acqstore.acq_image.analysis.examples import ExampleDiameterAnalysis, VelocityEventAnalysis
+from acqstore.acq_image.analysis.data_provider import AnalysisDataProvider
+from acqstore.acq_image.analysis.event_analysis.event_analysis import EventAnalysis
 from acqstore.acq_image.analysis.velocity_analysis.radon_velocity_analysis import RadonVelocityAnalysis
-from acqstore.acq_image.analysis.model import DetectionParamSchema, DetectionValueType
+from acqstore.acq_image.analysis.model import (
+    AnalysisResult,
+    AnalysisRunContext,
+    BaseAnalysis,
+    DetectionParamSchema,
+    DetectionValueType,
+)
+
+
+class _EmptySchemaAnalysis(BaseAnalysis):
+    """Minimal analysis used to exercise empty detection schemas."""
+
+    analysis_name = "empty_schema_test"
+    detection_schema = ()
+
+    def run(
+        self,
+        data_provider: AnalysisDataProvider,
+        *,
+        context: AnalysisRunContext | None = None,
+        dependencies: dict[str, BaseAnalysis] | None = None,
+    ) -> AnalysisResult:
+        """Return the current result unchanged."""
+        _ = data_provider, context, dependencies
+        return self.result
 
 
 def test_detection_schema_correctness_velocity() -> None:
@@ -41,12 +66,6 @@ def test_defaults_diameter() -> None:
     assert analysis.detection_params["post_filter_kernel_size"] == 3
 
 
-def test_defaults_example_diameter() -> None:
-    """ExampleDiameterAnalysis should keep legacy example defaults."""
-    analysis = ExampleDiameterAnalysis(channel=0, roi_id=1)
-    assert analysis.detection_params == {"threshold": 0.5, "min_diameter_px": 2.0}
-
-
 def test_valid_patch_updates_values() -> None:
     """Valid patches should be accepted and merged onto defaults."""
     analysis = RadonVelocityAnalysis(channel=0, roi_id=1, detection_params={"window_width": 16})
@@ -79,11 +98,11 @@ def test_bool_vs_int_is_rejected() -> None:
 
 def test_float_rules_accept_int_and_reject_bool() -> None:
     """Float params accept int/float but reject bool."""
-    ok = ExampleDiameterAnalysis(channel=0, roi_id=1, detection_params={"threshold": 1})
-    assert ok.detection_params["threshold"] == 1
+    ok = EventAnalysis(channel=0, roi_id=1, detection_params={"pre_post_win_sec": 1})
+    assert ok.detection_params["pre_post_win_sec"] == 1
 
     with pytest.raises(TypeError):
-        ExampleDiameterAnalysis(channel=0, roi_id=1, detection_params={"threshold": True})
+        EventAnalysis(channel=0, roi_id=1, detection_params={"pre_post_win_sec": True})
 
 
 def test_get_detection_schema_dataframe_velocity() -> None:
@@ -112,7 +131,7 @@ def test_get_detection_schema_dataframe_velocity() -> None:
 
 def test_get_detection_schema_dataframe_empty_schema() -> None:
     """An analysis with no detection params should return an empty DataFrame."""
-    df = VelocityEventAnalysis.get_detection_schema_dataframe()
+    df = _EmptySchemaAnalysis.get_detection_schema_dataframe()
 
     assert isinstance(df, pd.DataFrame)
     assert df.index.name == "name"

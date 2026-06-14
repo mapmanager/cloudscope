@@ -271,3 +271,39 @@ def test_create_and_run_missing_dependency_raises_and_leaves_set_unchanged() -> 
         analysis_set.create_and_run(EventAnalysis, channel=0, roi_id=1)
 
     assert analysis_set.as_list() == []
+
+
+def test_get_analysis_resolves_by_class(runnable_analysis_cls) -> None:
+    """get_analysis should find an analysis by its class, channel, and ROI."""
+    analysis_set = _set_with_provider()
+    created = analysis_set.create_and_run(runnable_analysis_cls, channel=0, roi_id=1)
+
+    found = analysis_set.get_analysis(runnable_analysis_cls, channel=0, roi_id=1)
+
+    assert found is created
+
+
+def test_get_analysis_resolves_by_name_string(runnable_analysis_cls) -> None:
+    """get_analysis should accept a registered analysis name string."""
+    analysis_set = _set_with_provider()
+    created = analysis_set.create_and_run(runnable_analysis_cls, channel=0, roi_id=1)
+
+    found = analysis_set.get_analysis("create_and_run_dummy", channel=0, roi_id=1)
+
+    assert found is created
+
+
+def test_get_analysis_missing_raises_key_error(runnable_analysis_cls) -> None:
+    """get_analysis should raise KeyError when no matching analysis exists."""
+    analysis_set = _set_with_provider()
+
+    with pytest.raises(KeyError):
+        analysis_set.get_analysis(runnable_analysis_cls, channel=0, roi_id=1)
+
+
+def test_get_analysis_rejects_invalid_type() -> None:
+    """A non-str, non-class analysis argument should raise TypeError."""
+    analysis_set = _set_with_provider()
+
+    with pytest.raises(TypeError):
+        analysis_set.get_analysis(123, channel=0, roi_id=1)  # type: ignore[arg-type]

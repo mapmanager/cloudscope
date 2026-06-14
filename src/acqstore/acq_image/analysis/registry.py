@@ -11,6 +11,7 @@ logger = get_logger(__name__)
 AnalysisType = TypeVar("AnalysisType", bound=BaseAnalysis)
 
 _ANALYSIS_REGISTRY: dict[str, type[BaseAnalysis]] = {}
+_BUILTINS_REGISTERED = False
 
 
 def register_analysis_class(cls: type[AnalysisType]) -> type[AnalysisType]:
@@ -36,6 +37,36 @@ def register_analysis_class(cls: type[AnalysisType]) -> type[AnalysisType]:
     return cls
 
 
+def register_builtin_analyses() -> None:
+    """Register all built-in production analysis classes.
+
+    The registry is intentionally self-populating so callers can load an
+    ``AcqImage`` without importing analysis modules for side effects first.
+    Function-local imports avoid import cycles with modules that use the
+    ``register_analysis_class`` decorator.
+
+    Returns:
+        None.
+    """
+    global _BUILTINS_REGISTERED
+    if _BUILTINS_REGISTERED:
+        return
+
+    from acqstore.acq_image.analysis.diameter_analysis.diameter_analysis import DiameterAnalysis
+    from acqstore.acq_image.analysis.event_analysis.event_analysis import EventAnalysis
+    from acqstore.acq_image.analysis.heart_rate_analysis.heart_rate_analysis import (
+        HeartRateAnalysis,
+    )
+    from acqstore.acq_image.analysis.velocity_analysis.radon_velocity_analysis import (
+        RadonVelocityAnalysis,
+    )
+
+    for cls in (RadonVelocityAnalysis, DiameterAnalysis, HeartRateAnalysis, EventAnalysis):
+        _ANALYSIS_REGISTRY.setdefault(str(cls.analysis_name), cls)
+
+    _BUILTINS_REGISTERED = True
+
+
 def get_analysis_class(analysis_name: str) -> type[BaseAnalysis]:
     """Return registered analysis class by name.
 
@@ -48,6 +79,7 @@ def get_analysis_class(analysis_name: str) -> type[BaseAnalysis]:
     Raises:
         KeyError: If no class is registered for ``analysis_name``.
     """
+    register_builtin_analyses()
     try:
         return _ANALYSIS_REGISTRY[analysis_name]
     except KeyError:
@@ -61,6 +93,7 @@ def get_analysis_registry() -> dict[str, type[BaseAnalysis]]:
     Returns:
         Mapping from analysis name to analysis class.
     """
+    register_builtin_analyses()
     return dict(_ANALYSIS_REGISTRY)
 
 
@@ -72,4 +105,6 @@ def clear_analysis_registry() -> None:
     Returns:
         None.
     """
+    global _BUILTINS_REGISTERED
     _ANALYSIS_REGISTRY.clear()
+    _BUILTINS_REGISTERED = False
