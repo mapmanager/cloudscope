@@ -2,29 +2,31 @@
 
 acqstore
 
-    cd 
-
-    zip -r source.zip . -i '*.py' '*.md'
-
-    zip -r acqstore.zip src/acqstore -i '*.py' '*.md'
-
-
-    zip -r acqstore_tests.zip tests/acqstore -i '*.py' '*.md'
-
-    zip -r kym_analysis_batch.zip /Users/cudmore/Sites/kymflow_outer/kymflow/src/kymflow/core/kym_analysis_batch -i '*.py' '*.md'
-
-    zip -r cloudscope_src_20260507_v3.zip src/cloudscope -i '*.py' '*.md'
-    zip -r cloudscope_tests_20260507_v3.zip tests/cloudscope -i '*.py' '*.md'
-    zip -r acqstore_src_20260507_v3.zip src/acqstore -i '*.py' '*.md'
-    
-    zip -r nicewidgets_src_20260507_v3.zip src/nicewidgets -i '*.py' '*.md'
-
-    zip -r cloudscope_src_20260511_v1.zip src -i '*.py' '*.md'
-    zip -r cloudscope_tests_20260510_v2.zip tests -i '*.py' '*.md'
-
-    zip -r kymflow_packaging.zip /Users/cudmore/Sites/kymflow_outer/kymflow/pyinstaller/macos/build_feb_2026 -i '*.py' '*.md' '*.sh' '*.spec' 
-
-    zip -r cloudscope_docs_20260610_v1.zip docs -i '*.py' '*.md' '*.ipynb' '*.css' '*.png' '*.svg' 
+zip -r cloudscope_20260614_v2.zip \
+    src tests docs-dev scripts pyproject.toml \
+    -x "*/__pycache__/*" \
+       "*.pyc" \
+       "*.pyo" \
+       ".pytest_cache/*" \
+       ".mypy_cache/*" \
+       ".ruff_cache/*" \
+       ".DS_Store" \
+       ".ipynb_checkpoints/*" \
+       "docs/site/*" \
+       "site/*" \
+       "build/*" \
+       "dist/*" \
+       ".venv/*" \
+       ".git/*" \
+       "*.svg" \
+       "*.png" \
+       "*.jpg" \
+       "*.jpeg" \
+       "*.tif" \
+       "*.tiff" \
+       "*.oir" \
+       "*.czi" \
+       "*.zarr/*"
 
 find packaging \
     -type d \( -name build -o -name dist \) -prune -o \

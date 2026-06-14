@@ -2,24 +2,17 @@
 
 from __future__ import annotations
 
-import matplotlib
 import numpy as np
 import plotly.graph_objects as go
 import pytest
 
-matplotlib.use("Agg")
-
-from acqstore.acq_image.analysis.heart_rate_analysis.plotting.mpl_plots import (  # noqa: E402
-    plot_segment_series,
-    plot_summary,
-)
-from acqstore.acq_image.analysis.heart_rate_analysis.plotting.plot_data import (  # noqa: E402
+from acqstore.acq_image.analysis.heart_rate_analysis.plotting.plot_data import (
     compute_lomb_spectrum,
     compute_preprocessing,
     compute_segment_series,
     compute_welch_spectrum,
 )
-from acqstore.acq_image.analysis.heart_rate_analysis.plotting.plotly_plots import (  # noqa: E402
+from acqstore.acq_image.analysis.heart_rate_analysis.plotting.plotly_plots import (
     plot_segment_series_plotly,
     plot_summary_plotly,
 )
@@ -27,6 +20,12 @@ from acqstore.acq_image.analysis.heart_rate_analysis.plotting.plotly_plots impor
 EXPECTED_FREQ_HZ = 6.0
 EXPECTED_BPM = 360.0
 FS_HZ = 100.0
+
+
+def _require_matplotlib() -> None:
+    """Skip the calling test when optional Matplotlib is not installed."""
+    matplotlib = pytest.importorskip("matplotlib")
+    matplotlib.use("Agg", force=True)
 
 
 def _synthetic_velocity(n_samples: int = 1000) -> tuple[np.ndarray, np.ndarray]:
@@ -109,7 +108,12 @@ def test_plotly_segment_series_returns_go_figure() -> None:
 
 def test_mpl_summary_returns_figure_and_axes() -> None:
     """Matplotlib summary helper should return a figure and three axes."""
+    _require_matplotlib()
     from matplotlib import pyplot as plt
+
+    from acqstore.acq_image.analysis.heart_rate_analysis.plotting.mpl_plots import (
+        plot_summary,
+    )
 
     time_s, velocity = _synthetic_velocity()
 
@@ -124,7 +128,12 @@ def test_mpl_summary_returns_figure_and_axes() -> None:
 
 def test_mpl_segment_series_returns_axes() -> None:
     """Matplotlib segment helper should return axes with one plotted line."""
+    _require_matplotlib()
     from matplotlib import pyplot as plt
+
+    from acqstore.acq_image.analysis.heart_rate_analysis.plotting.mpl_plots import (
+        plot_segment_series,
+    )
 
     time_s, velocity = _synthetic_velocity()
 
