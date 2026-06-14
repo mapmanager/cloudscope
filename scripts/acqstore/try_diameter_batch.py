@@ -11,12 +11,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from acqstore.acq_image.acq_image import AcqImage
-from acqstore.acq_image.acq_image_list import AcqImageList
+from acqstore.acq_image import AcqImage
+from acqstore.acq_image import AcqImageList
 from acqstore.acq_image.analysis.batch.acq_analysis_batch import AcqAnalysisBatch
 from acqstore.acq_image.analysis.batch.diameter_batch_strategy import DiameterBatchStrategy
 from acqstore.acq_image.analysis.batch.roi_mode import RoiBatchMode
-from acqstore.acq_image.analysis.diameter_analysis.diameter_analysis import DiameterAnalysis
+from acqstore.acq_image.analysis import DiameterAnalysis
 
 SOURCE_PATH = "/Users/cudmore/Sites/cloudscope/example-data"
 CHANNEL = 0

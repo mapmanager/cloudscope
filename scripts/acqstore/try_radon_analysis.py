@@ -11,11 +11,9 @@ from __future__ import annotations
 
 # from pathlib import Path
 
-from acqstore.acq_image.acq_image import AcqImage
+from acqstore.acq_image import AcqImage
 from acqstore.acq_image.analysis.model import AnalysisKey, AnalysisRunContext, BaseAnalysis
-from acqstore.acq_image.analysis.velocity_analysis.radon_velocity_analysis import (
-    RadonVelocityAnalysis,
-)
+from acqstore.acq_image.analysis import RadonVelocityAnalysis
 
 from acqstore.utils.logging import get_logger, setup_logging
 logger = get_logger(__name__)
@@ -116,7 +114,7 @@ def main() -> None:
     """
     # load a folder of oir and grab first oir path
     path = '/Users/cudmore/Sites/cloudscope/example-data'
-    from acqstore.acq_image.acq_image_list import AcqImageList
+    from acqstore.acq_image import AcqImageList
     acq_image_list = AcqImageList(path)
     path = acq_image_list.file_list[1]
     

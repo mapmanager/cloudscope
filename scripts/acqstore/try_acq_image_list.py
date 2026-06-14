@@ -8,11 +8,11 @@ find a small dataset of in vivo line scans for example flow dataset
 from pprint import pprint
 
 # todo: put acqimage and acimagelist into acqstore __init__.py
-from acqstore.acq_image.acq_image import AcqImage
-from acqstore.acq_image.acq_image_list import AcqImageList
+from acqstore.acq_image import AcqImage
+from acqstore.acq_image import AcqImageList
 
-from acqstore.acq_image.analysis.velocity_analysis.radon_velocity_analysis import RadonVelocityAnalysis
-from acqstore.acq_image.analysis.heart_rate_analysis.heart_rate_analysis import HeartRateAnalysis
+from acqstore.acq_image.analysis import RadonVelocityAnalysis
+from acqstore.acq_image.analysis import HeartRateAnalysis
 from acqstore.acq_image.analysis.model import AnalysisRunContext
 from acqstore.utils.logging import get_logger, setup_logging
 

@@ -1,6 +1,7 @@
 from acqstore.acq_image.acq_image_list import _build_file_list
 
-from acqstore.acq_image.acq_image import AcqImage, get_allowed_import_extensions
+from acqstore.acq_image import AcqImage
+from acqstore.acq_image.acq_image import get_allowed_import_extensions
 
 from acqstore.utils.logging import get_logger, setup_logging
 logger = get_logger(__name__)

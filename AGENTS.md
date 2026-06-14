@@ -38,7 +38,9 @@ CloudScope currently has three source packages in this repository:
 - No hidden defaults.
 - Prefer fail-fast behavior over silent coercion.
 - Backend APIs must use backend-native values and must not leak GUI assumptions.
-- Keep package APIs explicit; avoid hiding imports or behavior in `__init__.py`.
+- Keep package APIs explicit; avoid hiding imports or behavior in `__init__.py`
+  except for intentionally curated public re-export surfaces documented with
+  `__all__`.
 
 ---
 
@@ -52,7 +54,10 @@ CloudScope currently has three source packages in this repository:
 - Avoid backward compatibility unless explicitly required by the ticket.
 - Fail fast on invalid input with clear exceptions.
 - Do not invent APIs, behaviors, file locations, or naming conventions that are not specified by the ticket or existing source of truth.
-- Keep `__init__.py` files minimal. Do not add re-export lists or import side effects unless the ticket explicitly asks for them.
+- Keep `__init__.py` files minimal. Do not add re-export lists or import side
+  effects unless the ticket explicitly asks for them. Curated public re-export
+  surfaces are allowed when they are explicit, documented with `__all__`, and
+  limited to stable public APIs.
 
 ---
 

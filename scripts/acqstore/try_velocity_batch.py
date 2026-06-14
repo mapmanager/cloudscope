@@ -11,16 +11,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from acqstore.acq_image.acq_image import AcqImage
-from acqstore.acq_image.acq_image_list import AcqImageList
+from acqstore.acq_image import AcqImage
+from acqstore.acq_image import AcqImageList
 from acqstore.acq_image.analysis.batch.acq_analysis_batch import AcqAnalysisBatch
 from acqstore.acq_image.analysis.batch.radon_velocity_batch_strategy import (
     RadonVelocityBatchStrategy,
 )
 from acqstore.acq_image.analysis.batch.roi_mode import RoiBatchMode
-from acqstore.acq_image.analysis.velocity_analysis.radon_velocity_analysis import (
-    RadonVelocityAnalysis,
-)
+from acqstore.acq_image.analysis import RadonVelocityAnalysis
 
 SOURCE_PATH = "/Users/cudmore/Sites/cloudscope/example-data"
 CHANNEL = 0

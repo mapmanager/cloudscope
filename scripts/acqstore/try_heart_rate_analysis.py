@@ -16,11 +16,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from acqstore.acq_image.acq_image import AcqImage
-from acqstore.acq_image.acq_image_list import AcqImageList
-from acqstore.acq_image.analysis.heart_rate_analysis.heart_rate_analysis import (
-    HeartRateAnalysis,
-)
+from acqstore.acq_image import AcqImage
+from acqstore.acq_image import AcqImageList
+from acqstore.acq_image.analysis import HeartRateAnalysis
 from acqstore.acq_image.analysis.heart_rate_analysis.plotting.mpl_plots import (
     plot_segment_series,
     plot_summary,
@@ -30,9 +28,7 @@ from acqstore.acq_image.analysis.heart_rate_analysis.plotting.plotly_plots impor
     plot_summary_plotly,
 )
 from acqstore.acq_image.analysis.model import AnalysisKey, AnalysisRunContext
-from acqstore.acq_image.analysis.velocity_analysis.radon_velocity_analysis import (
-    RadonVelocityAnalysis,
-)
+from acqstore.acq_image.analysis import RadonVelocityAnalysis
 from acqstore.utils.logging import get_logger, setup_logging
 
 logger = get_logger(__name__)

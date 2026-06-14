@@ -9,9 +9,9 @@ Run:
 
 from __future__ import annotations
 
-from acqstore.acq_image.acq_image import AcqImage
-from acqstore.acq_image.acq_image_list import AcqImageList
-from acqstore.acq_image.analysis.diameter_analysis.diameter_analysis import DiameterAnalysis
+from acqstore.acq_image import AcqImage
+from acqstore.acq_image import AcqImageList
+from acqstore.acq_image.analysis import DiameterAnalysis
 from acqstore.acq_image.analysis.model import AnalysisRunContext, BaseAnalysis
 from acqstore.utils.logging import get_logger, setup_logging
 

@@ -11,8 +11,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from acqstore.acq_image.acq_image import AcqImage
-from acqstore.acq_image.analysis.event_analysis.event_analysis import EventAnalysis, EventType
+from acqstore.acq_image import AcqImage
+from acqstore.acq_image.analysis import EventAnalysis
+from acqstore.acq_image.analysis.event_analysis.event_analysis import EventType
 from acqstore.acq_image.analysis.model import AnalysisKey
 from acqstore.utils.logging import get_logger, setup_logging
 

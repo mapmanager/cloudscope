@@ -17,8 +17,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from acqstore.acq_image.acq_image import AcqImage
-from acqstore.acq_image.acq_image_list import AcqImageList
+from acqstore.acq_image import AcqImage
+from acqstore.acq_image import AcqImageList
 from acqstore.acq_image.roi import LineEndpoints, RectRoiBounds
 
 
