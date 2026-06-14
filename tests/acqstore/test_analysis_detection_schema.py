@@ -1,9 +1,10 @@
 """Tests for detection parameter schema behavior."""
 
+import pandas as pd
 import pytest
 
 from acqstore.acq_image.analysis.diameter_analysis.diameter_analysis import DiameterAnalysis
-from acqstore.acq_image.analysis.examples import ExampleDiameterAnalysis
+from acqstore.acq_image.analysis.examples import ExampleDiameterAnalysis, VelocityEventAnalysis
 from acqstore.acq_image.analysis.velocity_analysis.radon_velocity_analysis import RadonVelocityAnalysis
 from acqstore.acq_image.analysis.model import DetectionParamSchema, DetectionValueType
 
@@ -83,4 +84,38 @@ def test_float_rules_accept_int_and_reject_bool() -> None:
 
     with pytest.raises(TypeError):
         ExampleDiameterAnalysis(channel=0, roi_id=1, detection_params={"threshold": True})
+
+
+def test_get_detection_schema_dataframe_velocity() -> None:
+    """get_detection_schema_dataframe should describe the velocity schema."""
+    df = RadonVelocityAnalysis.get_detection_schema_dataframe()
+
+    assert isinstance(df, pd.DataFrame)
+    assert df.index.name == "name"
+    assert list(df.index) == ["window_width"]
+    for column in (
+        "display_name",
+        "type",
+        "default",
+        "choices",
+        "unit",
+        "editable",
+        "visible",
+        "methods",
+        "description",
+    ):
+        assert column in df.columns
+    assert df.loc["window_width", "type"] == "int"
+    assert df.loc["window_width", "default"] == 64
+    assert df.loc["window_width", "choices"] == (16, 64, 128)
+
+
+def test_get_detection_schema_dataframe_empty_schema() -> None:
+    """An analysis with no detection params should return an empty DataFrame."""
+    df = VelocityEventAnalysis.get_detection_schema_dataframe()
+
+    assert isinstance(df, pd.DataFrame)
+    assert df.index.name == "name"
+    assert len(df) == 0
+    assert "description" in df.columns
 

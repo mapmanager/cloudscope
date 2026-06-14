@@ -222,6 +222,76 @@ class AcqAnalysisSet:
             detection_params=detection_params,
         )
 
+    def create_and_run(
+        self,
+        analysis: str | type[BaseAnalysis],
+        *,
+        channel: int,
+        roi_id: int,
+        detection_params: dict[str, Any] | None = None,
+        replace_existing: bool = False,
+        context: AnalysisRunContext | None = None,
+    ) -> BaseAnalysis:
+        """Create one analysis and run it in a single call.
+
+        This is a scripting convenience over :meth:`create` and
+        :meth:`run_analysis`. All inputs are validated before the analysis set
+        is mutated, so a failure (for example invalid detection params, an
+        unregistered analysis type, or a missing data provider) leaves the set
+        unchanged.
+
+        Args:
+            analysis: Registered analysis type name, or an analysis class whose
+                ``analysis_name`` is registered. Passing a class is a
+                scripting convenience; the registered class for that name is
+                always used to build the instance.
+            channel: Channel index.
+            roi_id: ROI identifier.
+            detection_params: Optional detection parameter values. Missing
+                values are filled from the analysis ``detection_schema``
+                defaults.
+            replace_existing: If True, remove any existing analysis with the
+                same identity before creating the new one. If False, a
+                duplicate identity raises ``ValueError``.
+            context: Optional progress/cancellation context.
+
+        Returns:
+            The created analysis, with its result populated by the run.
+
+        Raises:
+            TypeError: If ``analysis`` is neither a string nor a
+                ``BaseAnalysis`` subclass.
+            RuntimeError: If no data provider was configured.
+            KeyError: If the analysis type is not registered.
+            ValueError: If a duplicate identity exists and ``replace_existing``
+                is False, or if required dependencies are missing.
+            AnalysisExclusionError: If an exclusive-group conflict exists.
+        """
+        if isinstance(analysis, type) and issubclass(analysis, BaseAnalysis):
+            analysis_name = analysis.analysis_name
+        elif isinstance(analysis, str):
+            analysis_name = analysis
+        else:
+            raise TypeError(
+                f"analysis must be a str or BaseAnalysis subclass, "
+                f"got: {type(analysis).__name__}"
+            )
+
+        if self._data_provider is None:
+            raise RuntimeError("Cannot run analysis without a data provider")
+
+        cls = get_analysis_class(analysis_name)
+        candidate = cls(channel=channel, roi_id=roi_id, detection_params=detection_params)
+
+        if candidate.key in self._analyses:
+            if not replace_existing:
+                raise ValueError(f"Analysis already exists: {candidate.key}")
+            self.remove(candidate.key)
+
+        self.add(candidate)
+        self.run_analysis(candidate.key, context=context)
+        return candidate
+
     def get(self, key: AnalysisKey) -> BaseAnalysis | None:
         """Return analysis by key.
 

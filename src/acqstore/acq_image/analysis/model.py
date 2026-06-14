@@ -345,6 +345,55 @@ class BaseAnalysis(ABC):
         return tuple(schema)
 
     @classmethod
+    def get_detection_schema_dataframe(cls) -> pd.DataFrame:
+        """Return this analysis type's detection-parameter schema as a DataFrame.
+
+        This is a scripting and documentation convenience that describes the
+        full detection-parameter schema. It is available on every analysis type
+        (for example ``RadonVelocityAnalysis``, ``DiameterAnalysis``,
+        ``EventAnalysis``, ``HeartRateAnalysis``).
+
+        Returns:
+            DataFrame indexed by parameter ``name`` with one row per detection
+            parameter. Columns are ``display_name``, ``type``, ``default``,
+            ``choices``, ``unit``, ``editable``, ``visible``, ``methods``, and
+            ``description``. The DataFrame is empty (columns only) when the
+            analysis declares no detection parameters.
+
+        Raises:
+            TypeError: If the class ``detection_schema`` contains non-schema
+                entries.
+        """
+        columns = [
+            "name",
+            "display_name",
+            "type",
+            "default",
+            "choices",
+            "unit",
+            "editable",
+            "visible",
+            "methods",
+            "description",
+        ]
+        rows = [
+            {
+                "name": entry.name,
+                "display_name": entry.display_name,
+                "type": entry.value_type.value,
+                "default": entry.default,
+                "choices": entry.choices,
+                "unit": entry.unit,
+                "editable": entry.editable,
+                "visible": entry.visible,
+                "methods": entry.methods,
+                "description": entry.description,
+            }
+            for entry in cls.get_detection_schema()
+        ]
+        return pd.DataFrame(rows, columns=columns).set_index("name")
+
+    @classmethod
     def get_default_detection_params(cls) -> dict[str, Any]:
         """Return default detection parameters from ``detection_schema``.
 

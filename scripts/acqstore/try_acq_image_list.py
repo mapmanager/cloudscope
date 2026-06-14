@@ -13,7 +13,7 @@ from acqstore.acq_image.acq_image_list import AcqImageList
 
 from acqstore.acq_image.analysis.velocity_analysis.radon_velocity_analysis import RadonVelocityAnalysis
 from acqstore.acq_image.analysis.heart_rate_analysis.heart_rate_analysis import HeartRateAnalysis
-from acqstore.acq_image.analysis.model import AnalysisKey, AnalysisRunContext
+from acqstore.acq_image.analysis.model import AnalysisRunContext
 from acqstore.utils.logging import get_logger, setup_logging
 
 logger = get_logger(__name__)
@@ -32,24 +32,17 @@ def run_radon_analysis(acq_image: AcqImage, channel: int, roi_id: int, window_wi
         Completed Radon velocity analysis.
     """
 
-    # set detection params
-    detection_params = RadonVelocityAnalysis.get_default_detection_params()
-    detection_params["window_width"] = window_width
-    
-    analysis = acq_image.analysis_set.create(
-        RadonVelocityAnalysis.analysis_name,
-        channel=channel,
-        roi_id=roi_id,
-        detection_params=detection_params,
-    )
-
     # context = AnalysisRunContext(
     #     progress_callback=lambda fraction, message: print(f"  === progress={fraction}: {message}")
     # )
-    context = None
-    
-    logger.info(f'running analysis')
-    acq_image.analysis_set.run_analysis(analysis.key, context=context)
+
+    logger.info('running analysis')
+    analysis = acq_image.analysis_set.create_and_run(
+        RadonVelocityAnalysis,
+        channel=channel,
+        roi_id=roi_id,
+        detection_params={"window_width": window_width},
+    )
 
     return analysis
 

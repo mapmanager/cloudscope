@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
+import pytest
+
 from acqstore.acq_image.acq_analysis_set import AcqAnalysisSet
 from acqstore.acq_image.analysis.event_analysis.event_analysis import EventAnalysis
-from acqstore.acq_image.analysis.model import AnalysisPlotData, AnalysisResult, BaseAnalysis
+from acqstore.acq_image.analysis.model import (
+    AnalysisPlotData,
+    AnalysisResult,
+    BaseAnalysis,
+    DetectionParamSchema,
+    DetectionValueType,
+)
+from acqstore.acq_image.analysis.registry import (
+    _ANALYSIS_REGISTRY,
+    register_analysis_class,
+)
 
 
 class DummyRadonAnalysis(BaseAnalysis):
@@ -46,3 +58,158 @@ def test_event_analysis_creation_succeeds_with_matching_radon_velocity() -> None
     analysis = analysis_set.create(EventAnalysis.analysis_name, channel=0, roi_id=1)
 
     assert isinstance(analysis, EventAnalysis)
+
+
+class RunnableAnalysis(BaseAnalysis):
+    """Minimal registered analysis with a detection param for create_and_run tests."""
+
+    analysis_name = "create_and_run_dummy"
+    detection_schema = (
+        DetectionParamSchema(
+            name="window",
+            display_name="Window",
+            value_type=DetectionValueType.INT,
+            default=32,
+        ),
+    )
+
+    def run(self, data_provider, *, context=None, dependencies=None) -> AnalysisResult:
+        """Record that the analysis ran and echo its window parameter."""
+        self.result.summary["ran"] = True
+        self.result.summary["window"] = self.detection_params["window"]
+        return self.result
+
+
+@pytest.fixture
+def runnable_analysis_cls():
+    """Register ``RunnableAnalysis`` for the duration of one test."""
+    register_analysis_class(RunnableAnalysis)
+    try:
+        yield RunnableAnalysis
+    finally:
+        _ANALYSIS_REGISTRY.pop(RunnableAnalysis.analysis_name, None)
+
+
+def _set_with_provider() -> AcqAnalysisSet:
+    """Return an analysis set with a non-None placeholder data provider."""
+    return AcqAnalysisSet("example.tif", data_provider=object())
+
+
+def test_create_and_run_creates_and_runs(runnable_analysis_cls) -> None:
+    """create_and_run should create the analysis, run it, and store it."""
+    analysis_set = _set_with_provider()
+
+    analysis = analysis_set.create_and_run(runnable_analysis_cls, channel=0, roi_id=1)
+
+    assert isinstance(analysis, runnable_analysis_cls)
+    assert analysis.result.summary["ran"] is True
+    assert analysis_set.get(analysis.key) is analysis
+
+
+def test_create_and_run_accepts_name_string(runnable_analysis_cls) -> None:
+    """create_and_run should accept a registered analysis name string."""
+    analysis_set = _set_with_provider()
+
+    analysis = analysis_set.create_and_run("create_and_run_dummy", channel=0, roi_id=1)
+
+    assert analysis.key.analysis_name == "create_and_run_dummy"
+
+
+def test_create_and_run_merges_partial_detection_params(runnable_analysis_cls) -> None:
+    """Partial detection params should merge over schema defaults."""
+    analysis_set = _set_with_provider()
+
+    analysis = analysis_set.create_and_run(
+        runnable_analysis_cls,
+        channel=0,
+        roi_id=1,
+        detection_params={"window": 64},
+    )
+
+    assert analysis.detection_params["window"] == 64
+    assert analysis.result.summary["window"] == 64
+
+
+def test_create_and_run_duplicate_raises(runnable_analysis_cls) -> None:
+    """A duplicate identity should raise when replace_existing is False."""
+    analysis_set = _set_with_provider()
+    analysis_set.create_and_run(runnable_analysis_cls, channel=0, roi_id=1)
+
+    with pytest.raises(ValueError):
+        analysis_set.create_and_run(runnable_analysis_cls, channel=0, roi_id=1)
+
+
+def test_create_and_run_replace_existing(runnable_analysis_cls) -> None:
+    """replace_existing should replace and rerun a matching analysis."""
+    analysis_set = _set_with_provider()
+    first = analysis_set.create_and_run(
+        runnable_analysis_cls, channel=0, roi_id=1, detection_params={"window": 16}
+    )
+
+    second = analysis_set.create_and_run(
+        runnable_analysis_cls,
+        channel=0,
+        roi_id=1,
+        detection_params={"window": 64},
+        replace_existing=True,
+    )
+
+    assert second is not first
+    assert analysis_set.get(second.key) is second
+    assert second.detection_params["window"] == 64
+    assert len(analysis_set.as_list()) == 1
+
+
+def test_create_and_run_without_data_provider_raises_and_leaves_set_unchanged(
+    runnable_analysis_cls,
+) -> None:
+    """Missing data provider should raise before any mutation."""
+    analysis_set = AcqAnalysisSet("example.tif")
+
+    with pytest.raises(RuntimeError):
+        analysis_set.create_and_run(runnable_analysis_cls, channel=0, roi_id=1)
+
+    assert analysis_set.as_list() == []
+
+
+def test_create_and_run_invalid_detection_params_does_not_mutate(
+    runnable_analysis_cls,
+) -> None:
+    """Invalid detection params should raise before any mutation."""
+    analysis_set = _set_with_provider()
+
+    with pytest.raises(KeyError):
+        analysis_set.create_and_run(
+            runnable_analysis_cls,
+            channel=0,
+            roi_id=1,
+            detection_params={"unknown": 1},
+        )
+
+    assert analysis_set.as_list() == []
+
+
+def test_create_and_run_unregistered_name_raises() -> None:
+    """An unregistered analysis name should raise KeyError."""
+    analysis_set = _set_with_provider()
+
+    with pytest.raises(KeyError):
+        analysis_set.create_and_run("not_registered", channel=0, roi_id=1)
+
+
+def test_create_and_run_rejects_invalid_type() -> None:
+    """A non-str, non-class analysis argument should raise TypeError."""
+    analysis_set = _set_with_provider()
+
+    with pytest.raises(TypeError):
+        analysis_set.create_and_run(123, channel=0, roi_id=1)  # type: ignore[arg-type]
+
+
+def test_create_and_run_missing_dependency_raises_and_leaves_set_unchanged() -> None:
+    """A missing dependency should raise before mutation (event needs radon)."""
+    analysis_set = _set_with_provider()
+
+    with pytest.raises(ValueError):
+        analysis_set.create_and_run(EventAnalysis, channel=0, roi_id=1)
+
+    assert analysis_set.as_list() == []
