@@ -7,7 +7,11 @@ import pytest
 
 from nicewidgets.nicepool.config import NicePoolConfig, resolve_pre_filter_columns
 from nicewidgets.nicepool.dataframe_adapter import dataframe_to_rows, filter_dataframe, unique_filter_values
+from nicewidgets.nicepool.dataframe_processor import DataFrameProcessor
+from nicewidgets.nicepool.figure_generator import FigureGenerator
 from nicewidgets.nicepool.nice_pool import NicePool
+from nicewidgets.nicepool.plot_state import PlotState, PlotType
+from nicewidgets.nicepool.pre_filter_conventions import PRE_FILTER_NONE
 
 
 def test_resolve_pre_filter_columns_auto_detects_common_columns() -> None:
@@ -77,3 +81,37 @@ def test_nicepool_init_auto_detects_filters() -> None:
     widget = NicePool(df, config=NicePoolConfig(unique_row_id_col="pool_row_id"))
 
     assert widget.pre_filter_columns == ("accept", "channel", "roi_id")
+
+
+
+def test_nicepool_config_disables_table_and_persistence_by_default() -> None:
+    """Full NicePool defaults should favor lightweight CloudScope embedding."""
+    config = NicePoolConfig()
+
+    assert config.show_table_widget is False
+    assert config.enable_config_persistence is False
+
+
+def test_figure_generator_builds_scatter_figure() -> None:
+    """Figure generation should be testable without building NiceGUI UI."""
+    df = pd.DataFrame(
+        [
+            {"pool_row_id": "a", "channel": 0, "x": 1.0, "y": 2.0},
+            {"pool_row_id": "b", "channel": 1, "x": 2.0, "y": 4.0},
+        ]
+    )
+    processor = DataFrameProcessor(df, pre_filter_columns=["channel"], unique_row_id_col="pool_row_id")
+    generator = FigureGenerator(processor, unique_row_id_col="pool_row_id")
+    state = PlotState(
+        pre_filter={"channel": PRE_FILTER_NONE},
+        xcol="x",
+        ycol="y",
+        plot_type=PlotType.SCATTER,
+        group_col="channel",
+    )
+
+    figure, summary = generator.make_figure(processor.filter_by_pre_filters(state.pre_filter), state)
+
+    assert summary.row_count == 2
+    assert figure["data"]
+    assert figure["layout"]["title"]["text"].startswith("scatter")

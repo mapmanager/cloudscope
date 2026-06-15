@@ -60,6 +60,8 @@ class VelocityPoolView(BaseView):
             config=NicePoolConfig(
                 unique_row_id_col="pool_row_id",
                 table_font_size_px=self._table_font_size_px,
+                show_table_widget=False,
+                enable_config_persistence=False,
             ),
             on_row_selected=self._on_row_selected,
         )
