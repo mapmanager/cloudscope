@@ -121,6 +121,7 @@ class RoiController:
                 operation=RoiChangeKind.ADD,
                 selection=new_selection,
                 removed_analysis_count=0,
+                affected_roi_id=roi.roi_id,
             )
         )
 
@@ -326,6 +327,7 @@ class RoiController:
                 operation=RoiChangeKind.DELETE,
                 selection=new_selection,
                 removed_analysis_count=removed_analysis_count,
+                affected_roi_id=roi_id,
             )
         )
 
@@ -359,6 +361,7 @@ class RoiController:
                 operation=RoiChangeKind.EDIT,
                 selection=new_selection,
                 removed_analysis_count=removed_analysis_count,
+                affected_roi_id=roi_id,
             )
         )
         self._event_bus.publish(

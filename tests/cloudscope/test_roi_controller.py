@@ -185,6 +185,7 @@ def test_roi_controller_add_creates_roi_selects_it_and_publishes_changed() -> No
     assert home.selected_roi_ids == [3]
     assert events[-1].operation is RoiChangeKind.ADD
     assert events[-1].selection.roi_id == 3
+    assert events[-1].affected_roi_id == 3
 
 
 def test_roi_controller_delete_without_analysis_deletes_immediately() -> None:
@@ -204,6 +205,7 @@ def test_roi_controller_delete_without_analysis_deletes_immediately() -> None:
     assert home.selected_roi_ids == [1]
     assert events[-1].operation is RoiChangeKind.DELETE
     assert events[-1].removed_analysis_count == 0
+    assert events[-1].affected_roi_id == 2
 
 
 def test_roi_controller_delete_with_analysis_waits_for_confirmation() -> None:
@@ -288,6 +290,7 @@ def test_roi_controller_submit_edit_commits_pending_bounds() -> None:
         operation=RoiChangeKind.EDIT,
         selection=selection,
         removed_analysis_count=0,
+        affected_roi_id=1,
     )
     assert mode_events[-1] == RoiEditModeChanged(
         is_editing=False,
@@ -323,6 +326,7 @@ def test_roi_controller_submit_edit_with_analysis_waits_for_confirmation() -> No
     assert image.rois.get(1).bounds == bounds
     assert image.analysis_set.deleted_roi_ids == [1]
     assert changed_events[-1].removed_analysis_count == 1
+    assert changed_events[-1].affected_roi_id == 1
 
 
 def test_roi_controller_full_extent_edit_intents_publish_previews() -> None:

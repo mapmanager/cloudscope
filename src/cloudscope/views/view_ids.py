@@ -16,6 +16,7 @@ class ViewId(StrEnum):
     DIAMETER_ANALYSIS = "diameter_analysis"
     EVENT_ANALYSIS = "event_analysis"
     ACQ_ANALYSIS_PLOT = "acq_analysis_plot"
+    VELOCITY_POOL = "velocity_pool"
 
     # main page
     LOAD_SAVE = "load_save"

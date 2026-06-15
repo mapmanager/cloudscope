@@ -124,6 +124,26 @@ class AppBusyChanged(StateEvent):
 
 
 @dataclass(frozen=True)
+class AnalysisChanged(StateEvent):
+    """Emitted when an analysis model changes outside a run task.
+
+    Direct mutations such as event CRUD update an existing analysis object
+    without going through ``RunAnalysisIntent``. Controllers publish this event
+    after those mutations so downstream model caches can refresh the affected
+    row.
+
+    Args:
+        analysis_kind: Analysis kind that changed.
+        selection: Selection snapshot identifying the affected analysis.
+        message: Optional human-readable message.
+    """
+
+    analysis_kind: AnalysisKind
+    selection: PrimarySelection
+    message: str = ''
+
+
+@dataclass(frozen=True)
 class AnalysisCompleted(StateEvent):
     """Emitted when an analysis task reaches a terminal state.
 

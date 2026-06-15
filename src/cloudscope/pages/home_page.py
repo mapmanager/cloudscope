@@ -17,6 +17,7 @@ from cloudscope.controllers.event_analysis_controller import EventAnalysisContro
 from cloudscope.controllers.home_page_controller import HomePageController
 from cloudscope.controllers.load_save_controller import LoadSaveController
 from cloudscope.controllers.roi_controller import RoiController
+from cloudscope.controllers.velocity_pool_controller import VelocityPoolController
 from cloudscope.controllers.x_range_controller import XRangeController
 from cloudscope.event_bus import EventBus
 from cloudscope.task_runner import TaskRunner
@@ -33,6 +34,7 @@ from cloudscope.views.load_save_view import LoadSaveView
 from cloudscope.views.primary_image_view import PrimaryImageView
 from cloudscope.views.reference_image_view import ReferenceImageView
 from cloudscope.views.task_progress_dialog_view import TaskProgressDialogView
+from cloudscope.views.velocity_pool_view import VelocityPoolView
 from cloudscope.views.view_manager import ViewManager
 from cloudscope.views.splitter_handle import add_splitter_handle
 from cloudscope.views.splitter_manager import HOME_SPLITTER_PRESETS, SplitterId, SplitterManager
@@ -109,6 +111,10 @@ class HomePage:
             event_bus=self.event_bus,
             home_controller=self.controller,
         )
+        velocity_pool_controller = VelocityPoolController(
+            event_bus=self.event_bus,
+            home_controller=self.controller,
+        )
         app_state = self.controller.state
         dark_mode = bool(self.app_config.data.dark_mode)
 
@@ -159,6 +165,12 @@ class HomePage:
             dark_mode=dark_mode,
             dark_mode_provider=_dark_mode,
         )
+        velocity_pool_view = VelocityPoolView(
+            event_bus=self.event_bus,
+            app_state=app_state,
+            table_font_size_px=int(self.app_config.data.table_font_size_px),
+            initially_visible=False,
+        )
         footer = FooterView(
             event_bus=self.event_bus,
             app_state=app_state,
@@ -173,11 +185,13 @@ class HomePage:
             'file_list': None,
             'analysis_plot': None,
             'reference_image': None,
+            'velocity_pool': None,
         }
         panel_open_state = {
             'file_list': True,
             'analysis_plot': True,
             'reference_image': True,
+            'velocity_pool': True,
         }
 
         def _pane_classes(extra: str = '') -> str:
@@ -320,6 +334,24 @@ class HomePage:
             reference_image.hide()
             _sync_analysis_reference_layout()
 
+        def _open_velocity_pool_panel() -> None:
+            """Show velocity pool view.
+
+            Returns:
+                None.
+            """
+            panel_open_state['velocity_pool'] = True
+            velocity_pool_view.show()
+
+        def _close_velocity_pool_panel() -> None:
+            """Hide velocity pool view.
+
+            Returns:
+                None.
+            """
+            panel_open_state['velocity_pool'] = False
+            velocity_pool_view.hide()
+
         def _reset_home_expansions() -> None:
             """Restore Home page SmartExpansion panels to the default open state.
 
@@ -332,6 +364,7 @@ class HomePage:
             panel_open_state['file_list'] = True
             panel_open_state['analysis_plot'] = True
             panel_open_state['reference_image'] = True
+            panel_open_state['velocity_pool'] = True
 
         def _reset_home_layout(_event: ResetHomeLayoutIntent | None = None) -> None:
             """Reset Home page splitters and close the left toolbar panel.
@@ -479,6 +512,19 @@ class HomePage:
                                             reference_image_expansion.apply_initial_state()
                                             view_manager.register(reference_image)
 
+                                            velocity_pool_expansion = SmartExpansion(
+                                                'Velocity pool',
+                                                icon='table_chart',
+                                                initially_open=True,
+                                                on_open=_open_velocity_pool_panel,
+                                                on_close=_close_velocity_pool_panel,
+                                            )
+                                            home_expansion_refs['velocity_pool'] = velocity_pool_expansion
+                                            with velocity_pool_expansion:
+                                                velocity_pool_view.build()
+                                            velocity_pool_expansion.apply_initial_state()
+                                            view_manager.register(velocity_pool_view)
+
                                     add_splitter_handle(analysis_reference_splitter, orientation='horizontal')
                                     analysis_reference_splitter.on(
                                         'update:model-value',
@@ -514,6 +560,7 @@ class HomePage:
         event_analysis_controller.bind()
         contrast_controller.bind()
         x_range_controller.bind()
+        velocity_pool_controller.bind()
         self.controller.load_demo_files([])
 
         last_path = self.app_config.get_last_path().strip()

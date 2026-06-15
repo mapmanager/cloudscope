@@ -116,11 +116,15 @@ class RoiChanged(StateEvent):
             ROI id, or None when no ROI remains.
         removed_analysis_count: Number of dependent analyses removed because of
             the ROI mutation.
+        affected_roi_id: ROI id directly affected by the mutation. For delete,
+            this is the removed ROI id even though ``selection.roi_id`` may
+            point to the next selected ROI after deletion.
     """
 
     operation: RoiChangeKind
     selection: PrimarySelection
     removed_analysis_count: int = 0
+    affected_roi_id: int | None = None
 
 
 @dataclass(frozen=True)

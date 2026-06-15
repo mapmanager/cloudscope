@@ -23,6 +23,8 @@ from cloudscope.events.acq_image_events import (
     SetAcqImageEventsVisibleIntent,
 )
 from cloudscope.events.analysis import (
+    AnalysisChanged,
+    AnalysisKind,
     AppBusyChanged,
     BeginPlotXRangeSelection,
     CancelPlotXRangeSelection,
@@ -163,6 +165,7 @@ class EventAnalysisController:
         self._clear_edit_mode(message="Event updated")
         self.event_bus.publish(CancelPlotXRangeSelection())
         self._publish_events_changed(event.selection)
+        self._publish_analysis_changed(event.selection)
         self.event_bus.publish(AcqImageEventSelectionChanged(selected_event_id=self.selected_event_id))
 
     def _on_delete_selected(self, event: DeleteSelectedAcqImageEventIntent) -> None:
@@ -189,6 +192,7 @@ class EventAnalysisController:
             return
         self.selected_event_id = None
         self._publish_events_changed(selection)
+        self._publish_analysis_changed(selection)
         self.event_bus.publish(AcqImageEventSelectionChanged(selected_event_id=None))
 
     def _on_select_event(self, event: SelectAcqImageEventIntent) -> None:
@@ -361,6 +365,27 @@ class EventAnalysisController:
         analysis = acq_image.analysis_set.get(AnalysisKey(EventAnalysis.analysis_name, channel, roi_id))
         return analysis if isinstance(analysis, EventAnalysis) else None
 
+    def _publish_analysis_changed(self, selection: PrimarySelection) -> None:
+        """Publish that the event analysis model changed for a selection.
+
+        Args:
+            selection: Selection snapshot identifying the changed event analysis.
+
+        Returns:
+            None.
+        """
+        try:
+            self._required_selection_values(selection)
+        except ValueError:
+            return
+        self.event_bus.publish(
+            AnalysisChanged(
+                analysis_kind=AnalysisKind.EVENT,
+                selection=self._copy_selection(selection),
+                message="Event analysis changed",
+            )
+        )
+
     def _publish_events_changed(self, selection: PrimarySelection) -> None:
         """Publish current event rows for selection.
 
@@ -458,19 +483,19 @@ def _event_row(event: object) -> dict[str, object]:
     Returns:
         Row dictionary.
     """
-    event_type = getattr(event, "event_type")
+    event_type = event.event_type
     if hasattr(event_type, "value"):
         event_type = event_type.value
-    event_stats = getattr(event, "event_stats").to_json_dict()
-    pre_stats = getattr(event, "pre_win_stats").to_json_dict()
-    post_stats = getattr(event, "post_win_stats").to_json_dict()
+    event_stats = event.event_stats.to_json_dict()
+    pre_stats = event.pre_win_stats.to_json_dict()
+    post_stats = event.post_win_stats.to_json_dict()
     return {
-        "id": str(getattr(event, "id")),
-        "event_id": int(getattr(event, "id")),
+        "id": str(event.id),
+        "event_id": int(event.id),
         "event_type": str(event_type),
-        "x0": float(getattr(event, "x0")),
-        "x1": float(getattr(event, "x1")),
-        "duration": float(getattr(event, "duration")),
+        "x0": float(event.x0),
+        "x1": float(event.x1),
+        "duration": float(event.duration),
         "event_mean": event_stats["mean"],
         "event_min": event_stats["min"],
         "event_max": event_stats["max"],

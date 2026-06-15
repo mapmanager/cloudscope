@@ -50,8 +50,8 @@ def build_plotly_figure(
 ) -> dict:
     """Build a Plotly figure dict from a backend render response."""
 
-    logger.info('RenderResponse:')
-    print(response)
+    # logger.info('RenderResponse:')
+    # print(response)
     # logger.info(f'heatmap_colorscale:{heatmap_colorscale}')
 
     transform = PlotlyCoordTransform(
