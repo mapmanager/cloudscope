@@ -240,6 +240,7 @@ class AcqImageList:
             file_factory = AcqImage
         self._files = [file_factory(file_path) for file_path in self.file_list]
         self._files_by_id = {acq_file.file_id: acq_file for acq_file in self._files}
+        self._attach_analysis_pools()
 
     @classmethod
     def load_safe(
@@ -292,6 +293,7 @@ class AcqImageList:
                 obj.file_list = []
                 obj._files = []
                 obj._files_by_id = {}
+                obj._attach_analysis_pools()
                 return LoadResult(acq_image_list=obj, warnings=tuple(warnings))
 
         candidate_paths: list[str] = []
@@ -337,6 +339,7 @@ class AcqImageList:
         obj.file_list = [file.file_id for file in files]
         obj._files = files
         obj._files_by_id = {acq_file.file_id: acq_file for acq_file in files}
+        obj._attach_analysis_pools()
         return LoadResult(acq_image_list=obj, warnings=tuple(warnings))
 
     @staticmethod
@@ -402,6 +405,12 @@ class AcqImageList:
             first = warnings[0]
             raise ValueError(first.message)
         return paths
+
+    def _attach_analysis_pools(self) -> None:
+        """Create collection-level analysis pools owned by this list."""
+        from acqstore.analysis_pool.velocity_analysis_pool import VelocityAnalysisPool
+
+        self.velocity_analysis_pool = VelocityAnalysisPool(self)
 
     def __len__(self) -> int:
         """Return number of files in the collection."""

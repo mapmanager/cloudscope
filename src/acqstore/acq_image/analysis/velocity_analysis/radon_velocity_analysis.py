@@ -105,6 +105,12 @@ class RadonVelocityAnalysis(BaseAnalysis):
         self._processes = None if processes is None else int(processes)
 
     analysis_name = "radon_velocity"
+    summary_columns = (
+        "num_windows",
+        "velocity_mean",
+        "velocity_median",
+        "velocity_cv",
+    )
     exclusive_group = "primary_kymograph"
     detection_schema = (
         DetectionParamSchema(

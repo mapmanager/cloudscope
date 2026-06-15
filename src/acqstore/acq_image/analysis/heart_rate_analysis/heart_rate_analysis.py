@@ -21,6 +21,7 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+import pandas as pd
 
 from acqstore.acq_image.analysis.data_provider import AnalysisDataProvider
 from acqstore.acq_image.analysis.model import (
@@ -72,6 +73,40 @@ class HeartRateAnalysis(BaseAnalysis):
     """
 
     analysis_name = "heart_rate"
+    summary_columns = (
+        "version",
+        "n_total",
+        "n_valid",
+        "valid_frac",
+        "t_min",
+        "t_max",
+        "status",
+        "status_note",
+        "lomb_bpm",
+        "lomb_f_hz",
+        "lomb_snr",
+        "lomb_edge_flag",
+        "lomb_edge_hz_distance",
+        "lomb_band_concentration",
+        "lomb_status",
+        "lomb_status_note",
+        "welch_bpm",
+        "welch_f_hz",
+        "welch_snr",
+        "welch_edge_flag",
+        "welch_edge_hz_distance",
+        "welch_band_concentration",
+        "welch_status",
+        "welch_status_note",
+        "agreement_delta_bpm",
+        "agreement_abs_delta_bpm",
+        "agreement_delta_hz",
+        "agreement_agree_ok",
+        "segments_n_windows",
+        "segments_n_valid_windows",
+        "segments_median_bpm",
+        "segments_iqr_bpm",
+    )
     exclusive_group = None
     depends_on = (RADON_VELOCITY_ANALYSIS_NAME,)
     detection_schema = (
@@ -257,6 +292,59 @@ class HeartRateAnalysis(BaseAnalysis):
         self.set_detection_params(dict(record.get("detection_params", {})))
         self.result.summary = dict(record.get("summary", {}))
         self.set_clean()
+
+    def get_summary_values(self) -> dict[str, object]:
+        """Return flat heart-rate summary values for analysis pools.
+
+        Returns:
+            Mapping with exactly the keys declared in
+            :attr:`summary_columns`. Nested method, agreement, and segment
+            summary blocks are projected into scalar columns.
+        """
+        summary = self.result.summary
+        lomb = summary.get("lomb") if isinstance(summary.get("lomb"), dict) else {}
+        welch = summary.get("welch") if isinstance(summary.get("welch"), dict) else {}
+        agreement = summary.get("agreement") if isinstance(summary.get("agreement"), dict) else {}
+        segments = (
+            summary.get("segments_summary")
+            if isinstance(summary.get("segments_summary"), dict)
+            else {}
+        )
+        values: dict[str, object] = {
+            "version": summary.get("version", pd.NA),
+            "n_total": summary.get("n_total", pd.NA),
+            "n_valid": summary.get("n_valid", pd.NA),
+            "valid_frac": summary.get("valid_frac", pd.NA),
+            "t_min": summary.get("t_min", pd.NA),
+            "t_max": summary.get("t_max", pd.NA),
+            "status": summary.get("status", pd.NA),
+            "status_note": summary.get("status_note", pd.NA),
+            "lomb_bpm": lomb.get("bpm", pd.NA),
+            "lomb_f_hz": lomb.get("f_hz", pd.NA),
+            "lomb_snr": lomb.get("snr", pd.NA),
+            "lomb_edge_flag": lomb.get("edge_flag", pd.NA),
+            "lomb_edge_hz_distance": lomb.get("edge_hz_distance", pd.NA),
+            "lomb_band_concentration": lomb.get("band_concentration", pd.NA),
+            "lomb_status": lomb.get("status", pd.NA),
+            "lomb_status_note": lomb.get("status_note", pd.NA),
+            "welch_bpm": welch.get("bpm", pd.NA),
+            "welch_f_hz": welch.get("f_hz", pd.NA),
+            "welch_snr": welch.get("snr", pd.NA),
+            "welch_edge_flag": welch.get("edge_flag", pd.NA),
+            "welch_edge_hz_distance": welch.get("edge_hz_distance", pd.NA),
+            "welch_band_concentration": welch.get("band_concentration", pd.NA),
+            "welch_status": welch.get("status", pd.NA),
+            "welch_status_note": welch.get("status_note", pd.NA),
+            "agreement_delta_bpm": agreement.get("delta_bpm", pd.NA),
+            "agreement_abs_delta_bpm": agreement.get("abs_delta_bpm", pd.NA),
+            "agreement_delta_hz": agreement.get("delta_hz", pd.NA),
+            "agreement_agree_ok": agreement.get("agree_ok", pd.NA),
+            "segments_n_windows": segments.get("n_windows", pd.NA),
+            "segments_n_valid_windows": segments.get("n_valid_windows", pd.NA),
+            "segments_median_bpm": segments.get("median_bpm", pd.NA),
+            "segments_iqr_bpm": segments.get("iqr_bpm", pd.NA),
+        }
+        return {key: values.get(key, pd.NA) for key in self.get_summary_columns()}
 
     def _build_summary(self, time_s: np.ndarray, velocity: np.ndarray) -> dict[str, Any]:
         """Build the JSON-serializable heart-rate summary dictionary.

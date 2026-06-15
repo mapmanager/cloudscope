@@ -278,6 +278,7 @@ class BaseAnalysis(ABC):
     analysis_name: ClassVar[str]
     depends_on: ClassVar[tuple[str, ...]] = ()
     detection_schema: ClassVar[tuple[Any, ...]] = ()
+    summary_columns: ClassVar[tuple[str, ...]] = ()
     exclusive_group: ClassVar[str | None] = None
 
     def __init__(
@@ -392,6 +393,38 @@ class BaseAnalysis(ABC):
             for entry in cls.get_detection_schema()
         ]
         return pd.DataFrame(rows, columns=columns).set_index("name")
+
+    @classmethod
+    def get_summary_columns(cls) -> tuple[str, ...]:
+        """Return flat summary keys intended for analysis-pool tables.
+
+        Derived analyses declare this class-level schema so collection-level
+        pools can create stable DataFrame columns even when a given
+        ``(channel, roi_id)`` has no completed analysis. Column names returned
+        here are analysis-local names; pool classes own any prefixing needed to
+        make combined tables unique.
+
+        Returns:
+            Tuple of stable analysis-local summary column names.
+        """
+        return tuple(str(column) for column in cls.summary_columns)
+
+    def get_summary_values(self) -> dict[str, object]:
+        """Return flat summary values for analysis-pool tables.
+
+        The default implementation selects values from
+        :attr:`AnalysisResult.summary` using :meth:`get_summary_columns` and
+        fills missing keys with :data:`pandas.NA`. Analyses with nested summary
+        dictionaries should override this method and still return exactly the
+        keys declared by :meth:`get_summary_columns`.
+
+        Returns:
+            Mapping from analysis-local summary column name to scalar value.
+        """
+        return {
+            key: self.result.summary.get(key, pd.NA)
+            for key in self.get_summary_columns()
+        }
 
     @classmethod
     def get_default_detection_params(cls) -> dict[str, Any]:

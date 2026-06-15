@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+import pandas as pd
+
 from acqstore.acq_image.analysis.data_provider import AnalysisDataProvider
 from acqstore.acq_image.analysis.model import (
     AnalysisPlotData,
@@ -83,7 +85,7 @@ class EventStats:
         }
 
     @classmethod
-    def from_json_dict(cls, record: dict[str, Any]) -> "EventStats":
+    def from_json_dict(cls, record: dict[str, Any]) -> EventStats:
         """Create stats from a JSON mapping.
 
         Args:
@@ -159,7 +161,7 @@ class AcqImageEvent:
         """Return the interval duration in x-axis units."""
         return abs(float(self.x1) - float(self.x0))
 
-    def with_stats(self, plot_data: AnalysisPlotData, pre_post_win_sec: float) -> "AcqImageEvent":
+    def with_stats(self, plot_data: AnalysisPlotData, pre_post_win_sec: float) -> AcqImageEvent:
         """Return this event with stats recalculated from parent plot data.
 
         Args:
@@ -210,7 +212,7 @@ class AcqImageEvent:
         }
 
     @classmethod
-    def from_json_dict(cls, record: dict[str, Any]) -> "AcqImageEvent":
+    def from_json_dict(cls, record: dict[str, Any]) -> AcqImageEvent:
         """Create an event from a JSON-like mapping.
 
         Args:
@@ -422,7 +424,7 @@ class AcqImageEventStore:
         }
 
     @classmethod
-    def from_summary_dict(cls, summary: dict[str, Any]) -> "AcqImageEventStore":
+    def from_summary_dict(cls, summary: dict[str, Any]) -> AcqImageEventStore:
         """Create a store from analysis summary JSON.
 
         Args:
@@ -447,6 +449,16 @@ class EventAnalysis(BaseAnalysis):
     """Event interval analysis dependent on Radon velocity plot data."""
 
     analysis_name = "event"
+    summary_columns = (
+        "version",
+        "parent_analysis_name",
+        "num_events",
+        "user_events",
+        "rise_events",
+        "fall_events",
+        "transient_events",
+        "mean_duration",
+    )
     exclusive_group = None
     depends_on = (RADON_VELOCITY_ANALYSIS_NAME,)
     detection_schema = (
@@ -628,6 +640,44 @@ class EventAnalysis(BaseAnalysis):
             List of events sorted by id.
         """
         return self.events.get_events()
+
+    def get_summary_values(self) -> dict[str, object]:
+        """Return flat event summary values for analysis pools.
+
+        Returns:
+            Mapping with exactly the keys declared in
+            :attr:`summary_columns`. The nested event records are summarized as
+            scalar counts and mean event duration.
+        """
+        summary = self.result.summary
+        records = summary.get("events")
+        events = records if isinstance(records, list) else []
+        type_counts = {event_type.value: 0 for event_type in EventType}
+        durations: list[float] = []
+        for record in events:
+            if not isinstance(record, dict):
+                continue
+            event_type = str(record.get("event_type", ""))
+            if event_type in type_counts:
+                type_counts[event_type] += 1
+            duration = record.get("duration")
+            if duration is not None:
+                try:
+                    durations.append(float(duration))
+                except (TypeError, ValueError):
+                    continue
+
+        values: dict[str, object] = {
+            "version": summary.get("version", pd.NA),
+            "parent_analysis_name": summary.get("parent_analysis_name", pd.NA),
+            "num_events": len(events),
+            "user_events": type_counts[EventType.USER.value],
+            "rise_events": type_counts[EventType.RISE.value],
+            "fall_events": type_counts[EventType.FALL.value],
+            "transient_events": type_counts[EventType.TRANSIENT.value],
+            "mean_duration": (sum(durations) / len(durations)) if durations else pd.NA,
+        }
+        return {key: values.get(key, pd.NA) for key in self.get_summary_columns()}
 
     def load_json_dict(self, record: dict[str, Any]) -> None:
         """Load event analysis state from a JSON analysis record.
