@@ -1,9 +1,8 @@
-"""Configuration helpers for the reusable NicePool widget.
+"""Public configuration helpers for :mod:`nicewidgets.nicepool`.
 
-``nicewidgets.nicepool`` is a general-purpose DataFrame widget layer. It does
-not know about CloudScope, AcqImageList, or analysis models. The config object
-keeps the widget contract explicit while allowing CloudScope and scripts to
-share the same DataFrame-driven UI component.
+The faithful NicePool implementation is a DataFrame-driven plotting widget. This
+module provides the CloudScope-facing configuration name while preserving the
+underlying plot-pool configuration fields from the reference implementation.
 """
 
 from __future__ import annotations
@@ -11,46 +10,57 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from collections.abc import Callable
 
+import pandas as pd
+
+from nicewidgets.nicepool.plot_pool_controller import PlotPoolConfig
+from nicewidgets.nicepool.plot_state import PlotState
 
 DEFAULT_AUTO_PRE_FILTER_COLUMNS: tuple[str, ...] = ("accept", "channel", "roi_id")
 
 
-@dataclass(frozen=True, slots=True)
-class NicePoolConfig:
-    """Configuration for a DataFrame-backed NicePool widget.
+@dataclass
+class NicePoolConfig(PlotPoolConfig):
+    """Configuration for the public ``NicePool`` widget.
 
     Args:
+        pre_filter_columns: Explicit categorical columns to expose as
+            pre-filter controls. Missing columns are ignored by the widget.
         unique_row_id_col: Column containing stable row identifiers.
-        pre_filter_columns: Explicit categorical columns to expose as pre-filter
-            controls. Missing columns are ignored.
-        auto_pre_filter_columns: Candidate columns that are auto-detected when
-            ``pre_filter_columns`` is None.
-        table_font_size_px: Optional AG Grid table font size.
-        show_table_widget: Whether to render the DataFrame table below the plot.
+        db_type: Logical dataframe type used to scope optional saved plot
+            configuration.
+        app_name: Optional application name for optional configuration
+            persistence.
+        config_path: Optional explicit configuration path used when persistence
+            is enabled.
+        plot_state: Optional initial plot state.
+        on_table_row_selected: Optional row-selection callback used by the
+            underlying table view.
+        on_refresh_requested: Optional callback used by the refresh button.
+        show_save_button: Whether to render the save-config button.
         show_selection_feedback: Whether to render the selection feedback row.
-        show_save_button: Whether to show the plot-config save button.
-        enable_config_persistence: Whether plot config load/save is enabled.
-        config_path: Optional config path used when persistence is enabled.
-        app_name: Optional app name used by future config persistence.
-        db_type: Optional database/widget type used by future config persistence.
-        plot_height_px: Plotly panel height in pixels.
-        left_panel_width: Initial splitter value for the control panel.
+        show_table_widget: Whether to render the optional DataFrame table.
+        auto_pre_filter_columns: Candidate columns used when
+            ``pre_filter_columns`` is ``None``.
+        table_font_size_px: Reserved for future table style integration.
+        enable_config_persistence: Whether to load/save plot configuration.
     """
 
-    unique_row_id_col: str = "pool_row_id"
     pre_filter_columns: Sequence[str] | None = None
+    unique_row_id_col: str = "pool_row_id"
+    db_type: str = "default"
+    app_name: str | None = None
+    config_path: Path | None = None
+    plot_state: PlotState | None = None
+    on_table_row_selected: Callable[[str, dict[str, object]], None] | None = None
+    on_refresh_requested: Callable[[], pd.DataFrame] | None = None
+    show_save_button: bool = False
+    show_selection_feedback: bool = False
+    show_table_widget: bool = False
     auto_pre_filter_columns: Sequence[str] = field(default_factory=lambda: DEFAULT_AUTO_PRE_FILTER_COLUMNS)
     table_font_size_px: int | None = None
-    show_table_widget: bool = False
-    show_selection_feedback: bool = False
-    show_save_button: bool = False
     enable_config_persistence: bool = False
-    config_path: Path | None = None
-    app_name: str | None = None
-    db_type: str = "default"
-    plot_height_px: int = 520
-    left_panel_width: int = 32
 
 
 def resolve_pre_filter_columns(
@@ -63,8 +73,8 @@ def resolve_pre_filter_columns(
 
     Args:
         available_columns: DataFrame column names.
-        explicit_columns: Caller-provided columns. When omitted, auto-detected
-            conventional columns are used.
+        explicit_columns: Caller-provided columns. When omitted, conventional
+            columns are auto-detected.
         auto_columns: Candidate columns for auto-detection.
 
     Returns:

@@ -13,12 +13,15 @@ from typing import Any
 import pandas as pd
 from nicegui import ui
 
+from acqstore.analysis_pool.velocity_analysis_pool import VelocityAnalysisPool
 from cloudscope.event_bus import EventBus
 from cloudscope.events.selection import SelectFileIntent
 from cloudscope.events.velocity_pool import VelocityPoolChanged
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
 from nicewidgets.nicepool import NicePool, NicePoolConfig
+from nicewidgets.nicepool.plot_state import PlotState, PlotType
+from nicewidgets.nicepool.pre_filter_conventions import PRE_FILTER_NONE
 
 
 class VelocityPoolView(BaseView):
@@ -60,6 +63,18 @@ class VelocityPoolView(BaseView):
             config=NicePoolConfig(
                 unique_row_id_col="pool_row_id",
                 table_font_size_px=self._table_font_size_px,
+                plot_state=PlotState(
+                    pre_filter={
+                        "accept": PRE_FILTER_NONE,
+                        "channel": PRE_FILTER_NONE,
+                        "roi_id": PRE_FILTER_NONE,
+                    },
+                    xcol="parent",
+                    ycol="velocity_velocity_mean",
+                    plot_type=PlotType.SWARM,
+                    group_col="parent",
+                    color_grouping="parent",
+                ),
                 show_table_widget=False,
                 enable_config_persistence=False,
             ),
@@ -126,8 +141,19 @@ class VelocityPoolView(BaseView):
     def _pool_dataframe_from_state(self) -> pd.DataFrame:
         acq_image_list = getattr(self.app_state, "acq_image_list", None)
         if acq_image_list is None:
-            return pd.DataFrame(columns=["pool_row_id", "pool_row", "path", "channel", "roi_id"])
+            return _empty_velocity_pool_dataframe()
         pool = getattr(acq_image_list, "velocity_analysis_pool", None)
         if pool is None:
-            return pd.DataFrame(columns=["pool_row_id", "pool_row", "path", "channel", "roi_id"])
+            return _empty_velocity_pool_dataframe()
         return pool.get_dataframe()
+
+
+def _velocity_pool_columns() -> list[str]:
+    columns = list(VelocityAnalysisPool.base_columns)
+    for prefix, analysis_cls in VelocityAnalysisPool.analysis_specs:
+        columns.extend(f"{prefix}_{column}" for column in analysis_cls.get_summary_columns())
+    return columns
+
+
+def _empty_velocity_pool_dataframe() -> pd.DataFrame:
+    return pd.DataFrame(columns=_velocity_pool_columns())

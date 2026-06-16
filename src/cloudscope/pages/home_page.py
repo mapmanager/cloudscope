@@ -239,7 +239,7 @@ class HomePage:
             Returns:
                 Class string for scrollable fill-layout columns.
             """
-            base = 'w-full h-full min-h-0 gap-3 p-3 overflow-auto flex flex-col'
+            base = 'w-full h-full min-h-0 gap-3 p-3 overflow-auto flex flex-col flex-nowrap'
             return f'{base} {extra}'.strip()
 
         def _capture(splitter_id: SplitterId) -> None:

@@ -112,6 +112,6 @@ def test_figure_generator_builds_scatter_figure() -> None:
 
     figure, summary = generator.make_figure(processor.filter_by_pre_filters(state.pre_filter), state)
 
-    assert summary.row_count == 2
+    assert len(summary.columnar) == 2
     assert figure["data"]
-    assert figure["layout"]["title"]["text"].startswith("scatter")
+    assert str(summary.params["plot_type"]) == "scatter"
