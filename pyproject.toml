@@ -63,6 +63,7 @@ docs = [
 ]
 
 dev = [
+    "pyinstaller>=6.21.0",
     "pytest>=8.4.2",
     "pytest-cov>=7.0.0",
     "ruff>=0.15.11",
