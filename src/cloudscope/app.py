@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
+import multiprocessing
+
 from nicegui import app, ui
 
 from acqstore.utils.logging import setup_logging as setup_acqstore_logging
@@ -216,5 +218,7 @@ def main() -> None:
     ui.run(**config.ui_run_kwargs())
 
 
-if __name__ in {'__main__', '__mp_main__'}:
+# if __name__ in {'__main__', '__mp_main__'}:
+if __name__ == '__main__':
+    multiprocessing.freeze_support()
     main()
