@@ -119,6 +119,7 @@ class AppConfigData:
     recent_folders: list[str] = field(default_factory=list)
     last_path: str = ''
     window_rect: list[int] = field(default_factory=lambda: list(DEFAULT_WINDOW_RECT))
+    pool_window_rect: list[int] | None = None
     text_size: str = DEFAULT_TEXT_SIZE
     folder_depth: int = DEFAULT_FOLDER_DEPTH
     table_font_size_px: int = DEFAULT_TABLE_FONT_SIZE_PX
@@ -168,6 +169,19 @@ class AppConfigData:
             except Exception:
                 window_rect = list(DEFAULT_WINDOW_RECT)
 
+        pool_window_rect = None
+        pool_rect_raw = payload.get('pool_window_rect')
+        if isinstance(pool_rect_raw, list) and len(pool_rect_raw) == 4:
+            try:
+                pool_window_rect = [
+                    int(pool_rect_raw[0]),
+                    int(pool_rect_raw[1]),
+                    int(pool_rect_raw[2]),
+                    int(pool_rect_raw[3]),
+                ]
+            except Exception:
+                pool_window_rect = None
+
         text_size_raw = payload.get('text_size', DEFAULT_TEXT_SIZE)
         text_size = (
             str(text_size_raw).strip()
@@ -207,6 +221,7 @@ class AppConfigData:
             recent_folders=recent_folders,
             last_path=last_path,
             window_rect=window_rect,
+            pool_window_rect=pool_window_rect,
             text_size=text_size,
             folder_depth=folder_depth,
             table_font_size_px=table_font_size_px,
@@ -390,6 +405,22 @@ class AppConfig:
             except Exception:
                 self.data.window_rect = list(DEFAULT_WINDOW_RECT)
 
+        pool_rect = self.data.pool_window_rect
+        if pool_rect is None:
+            pass
+        elif not isinstance(pool_rect, list) or len(pool_rect) != 4:
+            self.data.pool_window_rect = None
+        else:
+            try:
+                self.data.pool_window_rect = [
+                    int(pool_rect[0]),
+                    int(pool_rect[1]),
+                    int(pool_rect[2]),
+                    int(pool_rect[3]),
+                ]
+            except Exception:
+                self.data.pool_window_rect = None
+
         if self.data.folder_depth < 1:
             self.data.folder_depth = DEFAULT_FOLDER_DEPTH
 
@@ -513,6 +544,26 @@ class AppConfig:
             return (int(rect[0]), int(rect[1]), int(rect[2]), int(rect[3]))
         except Exception:
             return DEFAULT_WINDOW_RECT
+
+    def set_pool_window_rect(self, x: int, y: int, w: int, h: int) -> None:
+        """Set velocity-pool window rect as ``[x, y, w, h]``."""
+        self.data.pool_window_rect = [int(x), int(y), int(w), int(h)]
+
+    def get_pool_window_rect(self) -> tuple[int, int, int, int] | None:
+        """Get velocity-pool window rect as ``(x, y, w, h)``.
+
+        Returns:
+            Stored pool window rect, or ``None`` when unset.
+        """
+        rect = self.data.pool_window_rect
+        if rect is None:
+            return None
+        if not isinstance(rect, list) or len(rect) != 4:
+            return None
+        try:
+            return (int(rect[0]), int(rect[1]), int(rect[2]), int(rect[3]))
+        except Exception:
+            return None
 
 
     def get_home_splitter_value(self, splitter_id: str) -> float:

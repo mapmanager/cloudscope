@@ -24,6 +24,7 @@ def test_load_missing_returns_defaults(tmp_path) -> None:
     assert cfg.get_recent_files() == []
     assert cfg.get_recent_folders() == []
     assert cfg.get_window_rect() == (100, 100, 1200, 1000)
+    assert cfg.get_pool_window_rect() is None
     assert cfg.get_attribute('folder_depth') == DEFAULT_FOLDER_DEPTH
     assert cfg.get_attribute('table_font_size_px') == DEFAULT_TABLE_FONT_SIZE_PX
     assert cfg.get_attribute('dark_mode') is False
@@ -50,6 +51,37 @@ def test_roundtrip_save_and_load(tmp_path) -> None:
     assert loaded.get_last_path().endswith('a.tif')
     assert loaded.get_window_rect() == (10, 20, 900, 700)
     assert loaded.get_attribute('folder_depth') == 2
+
+
+def test_pool_window_rect_roundtrip_save_and_load(tmp_path) -> None:
+    cfg_path = tmp_path / 'app_config.json'
+    cfg = AppConfig.load(config_path=cfg_path, create_if_missing=False)
+    assert cfg.get_pool_window_rect() is None
+
+    cfg.set_pool_window_rect(300, 400, 1000, 800)
+    cfg.save()
+
+    loaded = AppConfig.load(config_path=cfg_path)
+    assert loaded.get_pool_window_rect() == (300, 400, 1000, 800)
+
+
+def test_pool_window_rect_missing_key_loads_as_none(tmp_path) -> None:
+    cfg_path = tmp_path / 'app_config.json'
+    cfg_path.write_text(
+        json.dumps(
+            {
+                'schema_version': SCHEMA_VERSION,
+                'recent_files': [],
+                'recent_folders': [],
+                'last_path': '',
+                'window_rect': [100, 100, 1200, 1000],
+            }
+        ),
+        encoding='utf-8',
+    )
+
+    cfg = AppConfig.load(config_path=cfg_path)
+    assert cfg.get_pool_window_rect() is None
 
 
 def test_schema_mismatch_resets_to_defaults(tmp_path) -> None:

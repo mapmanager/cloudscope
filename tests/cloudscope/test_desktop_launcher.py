@@ -104,7 +104,8 @@ def test_should_use_option_c_desktop_false_when_not_native(monkeypatch) -> None:
     assert should_use_option_c_desktop(config) is False
 
 
-def test_pool_launcher_open_pool_creates_window_with_offset() -> None:
+def test_pool_launcher_open_pool_creates_window_with_offset(tmp_path) -> None:
+    from cloudscope.app_config import AppConfig
     from cloudscope.desktop_launcher import POOL_WINDOW_HEIGHT, POOL_WINDOW_WIDTH, PoolLauncher
 
     class _FakeEventSlot:
@@ -118,7 +119,10 @@ def test_pool_launcher_open_pool_creates_window_with_offset() -> None:
     class _FakeEvents:
         def __init__(self) -> None:
             self.closed = _FakeEventSlot()
+            self.moved = _FakeEventSlot()
+            self.resized = _FakeEventSlot()
 
+    app_config = AppConfig.ephemeral(config_path=tmp_path / 'config.json')
     main_window = MagicMock()
     main_window.x = 200
     main_window.y = 300
@@ -126,7 +130,12 @@ def test_pool_launcher_open_pool_creates_window_with_offset() -> None:
     pool_window.events = _FakeEvents()
 
     with patch('webview.create_window', return_value=pool_window) as create_window:
-        launcher = PoolLauncher(url_host='127.0.0.1', port=12345, main_window=main_window)
+        launcher = PoolLauncher(
+            url_host='127.0.0.1',
+            port=12345,
+            app_config=app_config,
+            main_window=main_window,
+        )
         launcher.open_pool()
 
     create_window.assert_called_once_with(
@@ -140,11 +149,50 @@ def test_pool_launcher_open_pool_creates_window_with_offset() -> None:
     assert launcher.pool_window is pool_window
 
 
-def test_pool_launcher_open_pool_focuses_existing_window() -> None:
+def test_pool_launcher_open_pool_uses_saved_rect(tmp_path) -> None:
+    from cloudscope.app_config import AppConfig
     from cloudscope.desktop_launcher import PoolLauncher
 
+    class _FakeEventSlot:
+        def __init__(self) -> None:
+            self.handlers: list[object] = []
+
+        def __iadd__(self, handler: object) -> _FakeEventSlot:
+            self.handlers.append(handler)
+            return self
+
+    class _FakeEvents:
+        def __init__(self) -> None:
+            self.closed = _FakeEventSlot()
+            self.moved = _FakeEventSlot()
+            self.resized = _FakeEventSlot()
+
+    app_config = AppConfig.ephemeral(config_path=tmp_path / 'config.json')
+    app_config.set_pool_window_rect(500, 600, 1100, 900)
     pool_window = MagicMock()
-    launcher = PoolLauncher(url_host='127.0.0.1', port=12345)
+    pool_window.events = _FakeEvents()
+
+    with patch('webview.create_window', return_value=pool_window) as create_window:
+        launcher = PoolLauncher(url_host='127.0.0.1', port=12345, app_config=app_config)
+        launcher.open_pool()
+
+    create_window.assert_called_once_with(
+        'CloudScope Velocity Pool',
+        url='http://127.0.0.1:12345/pool',
+        x=500,
+        y=600,
+        width=1100,
+        height=900,
+    )
+
+
+def test_pool_launcher_open_pool_focuses_existing_window() -> None:
+    from cloudscope.app_config import AppConfig
+    from cloudscope.desktop_launcher import PoolLauncher
+
+    app_config = AppConfig.ephemeral()
+    pool_window = MagicMock()
+    launcher = PoolLauncher(url_host='127.0.0.1', port=12345, app_config=app_config)
     launcher.pool_window = pool_window
 
     with patch('webview.create_window') as create_window:
@@ -154,10 +202,12 @@ def test_pool_launcher_open_pool_focuses_existing_window() -> None:
     create_window.assert_not_called()
 
 
-def test_pool_launcher_default_position_without_main_window() -> None:
+def test_pool_launcher_default_position_without_main_window(tmp_path) -> None:
+    from cloudscope.app_config import AppConfig
     from cloudscope.desktop_launcher import PoolLauncher
 
-    launcher = PoolLauncher(url_host='127.0.0.1', port=12345)
+    app_config = AppConfig.ephemeral(config_path=tmp_path / 'config.json')
+    launcher = PoolLauncher(url_host='127.0.0.1', port=12345, app_config=app_config)
     assert launcher._default_pool_position() == (140, 140)
 
 

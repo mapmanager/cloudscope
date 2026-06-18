@@ -143,6 +143,18 @@ scripts/           # development and API exercise scripts
 
 ---
 
+## Packaged app entry point (PyInstaller / nicegui-pack)
+
+When editing `src/cloudscope/app.py`, macOS packaging scripts, or desktop
+launcher code that affects packaged startup:
+
+- Follow `docs-dev/pyinstaller_nicegui_multiprocessing.md`.
+- Use `multiprocessing.freeze_support()` under `if __name__ == "__main__":`.
+- Do **not** launch the application from `__mp_main__`.
+- Frozen builds must run with NiceGUI `reload=False`.
+
+---
+
 ## Required Completion Output
 
 After completing any ticket, provide a concise response that points to the report file and includes:

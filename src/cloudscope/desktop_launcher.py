@@ -12,6 +12,7 @@ from nicegui import app, ui
 
 from cloudscope.pages.home_page import home_page  # noqa: F401
 from cloudscope.pages.pool_page import pool_page  # noqa: F401
+from cloudscope.app_config import AppConfig
 from cloudscope.runtime import (
     clear_process_app_config,
     set_process_app_config,
@@ -106,6 +107,7 @@ class PoolLauncher:
         *,
         url_host: str,
         port: int,
+        app_config: AppConfig,
         main_window: Any | None = None,
     ) -> None:
         """Initialize launcher state.
@@ -113,10 +115,12 @@ class PoolLauncher:
         Args:
             url_host: Host used in pywebview window URLs.
             port: NiceGUI server port.
+            app_config: Shared application configuration for the desktop process.
             main_window: Main pywebview window used for default pool placement.
         """
         self._url_host = url_host
         self._port = port
+        self._app_config = app_config
         self._main_window = main_window
         self.pool_window: Any | None = None
 
@@ -137,16 +141,28 @@ class PoolLauncher:
                 self.pool_window = None
 
         pool_url = f'http://{self._url_host}:{self._port}/pool'
-        x, y = self._default_pool_position()
+        saved_rect = self._app_config.get_pool_window_rect()
+        if saved_rect is not None:
+            x, y, w, h = saved_rect
+        else:
+            x, y = self._default_pool_position()
+            w, h = POOL_WINDOW_WIDTH, POOL_WINDOW_HEIGHT
         logger.info('Opening pool pywebview window: %s at (%s, %s)', pool_url, x, y)
         self.pool_window = webview.create_window(
             'CloudScope Velocity Pool',
             url=pool_url,
             x=x,
             y=y,
-            width=POOL_WINDOW_WIDTH,
-            height=POOL_WINDOW_HEIGHT,
+            width=w,
+            height=h,
         )
+
+        pool_geometry_tracker = WindowGeometryTracker(
+            self.pool_window,
+            self._app_config.get_pool_window_rect,
+            self._app_config.set_pool_window_rect,
+        )
+        pool_geometry_tracker.attach()
 
         def _on_pool_closed() -> None:
             logger.info('Pool window closed')
@@ -292,7 +308,7 @@ def run_option_c_desktop(config: CloudScopeRunConfig) -> None:
     server_thread.start()
     _wait_for_server(host, port)
 
-    _pool_launcher = PoolLauncher(url_host=url_host, port=port)
+    _pool_launcher = PoolLauncher(url_host=url_host, port=port, app_config=app_config)
 
     main_url = f'http://{url_host}:{port}/'
     logger.info('Opening main pywebview window: %s', main_url)
@@ -307,7 +323,12 @@ def run_option_c_desktop(config: CloudScopeRunConfig) -> None:
     )
     _pool_launcher._main_window = main_window
 
-    geometry_tracker = WindowGeometryTracker(app_config, main_window)
+    geometry_tracker = WindowGeometryTracker(
+        main_window,
+        app_config.get_window_rect,
+        app_config.set_window_rect,
+        save=app_config.save,
+    )
     geometry_tracker.attach()
 
     def _on_main_closed() -> None:

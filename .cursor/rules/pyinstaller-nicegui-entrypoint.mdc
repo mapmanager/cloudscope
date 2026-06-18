@@ -1,0 +1,38 @@
+---
+description: PyInstaller and nicegui-pack entry-point guards for CloudScope
+globs: src/cloudscope/app.py,src/cloudscope/desktop_launcher.py,packaging/**/*
+alwaysApply: false
+---
+
+# PyInstaller + NiceGUI entry point
+
+Full reference: `docs-dev/pyinstaller_nicegui_multiprocessing.md`
+
+## Required pattern
+
+```python
+if __name__ == "__main__":
+    multiprocessing.freeze_support()
+    main()
+```
+
+## Prohibited
+
+```python
+if __name__ in {"__main__", "__mp_main__"}:
+    main()
+```
+
+Launching the GUI from `__mp_main__` causes frozen PyInstaller apps to relaunch
+endlessly (multiple windows / Dock icons).
+
+## Packaged builds
+
+- NiceGUI `reload` must be `False` when `sys.frozen` is set.
+- CloudScope packaging sets `CLOUDSCOPE_RELOAD=0` in `packaging/macos/_config.sh`.
+- Option C (`desktop_launcher.py`) must keep `reload=False` for `ui.run()`.
+
+## If relaunch persists
+
+Move `multiprocessing.freeze_support()` before NiceGUI imports only as an
+escalation step. See section 4 in the docs-dev reference.
