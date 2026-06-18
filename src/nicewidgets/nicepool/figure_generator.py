@@ -30,6 +30,10 @@ logger = get_logger(__name__)
 # Selected (linked) points color — change here to switch:
 SELECTED_POINTS_COLOR = "rgba(0, 200, 255, 0.9)"   # cyan
 # SELECTED_POINTS_COLOR = "rgba(255, 220, 0, 0.9)"  # yellow (alternative)
+SELECTED_POINTS_SIZE_MULTIPLIER = 2.0
+SELECTED_POINTS_LINE_COLOR = "white"
+SELECTED_POINTS_LINE_WIDTH = 1
+SELECTION_OVERLAY_TRACE_NAME = "_selection_overlay"
 
 # Plotly marker symbols for scatter plots
 # These are used when color_grouping is set to differentiate groups by symbol
@@ -41,6 +45,69 @@ PLOTLY_SYMBOLS = [
     "bowtie", "circle-cross", "circle-x", "square-cross", "square-x",
     "diamond-cross", "diamond-x", "cross", "x", "triangle-ne",
 ]
+
+
+def _selected_marker_style(point_size: int) -> dict[str, object]:
+    """Return Plotly marker kwargs for the selection overlay trace.
+
+    Args:
+        point_size: Base scatter/swarm marker size from plot state.
+
+    Returns:
+        Marker dictionary for overlay points.
+    """
+    return dict(
+        size=int(point_size) * SELECTED_POINTS_SIZE_MULTIPLIER,
+        color=SELECTED_POINTS_COLOR,
+        symbol="circle",
+        line=dict(width=SELECTED_POINTS_LINE_WIDTH, color=SELECTED_POINTS_LINE_COLOR),
+    )
+
+
+def _add_selection_overlay_trace(
+    fig: go.Figure,
+    *,
+    x: np.ndarray | pd.Series | list[object],
+    y: np.ndarray | pd.Series | list[object],
+    row_ids: np.ndarray | pd.Series | list[object],
+    selected_row_ids: set[str] | None,
+    point_size: int,
+) -> None:
+    """Draw selected points again on top with a high-contrast uniform marker.
+
+    Plotly ``selectedpoints`` styling is unreliable when data traces use per-point
+    symbol arrays (split scatter). A dedicated overlay trace avoids that limitation.
+
+    Args:
+        fig: Target figure.
+        x: Plotted x coordinates (same space as data traces).
+        y: Plotted y coordinates.
+        row_ids: Row identifier per point, aligned with ``x`` and ``y``.
+        selected_row_ids: Canonical row ids to highlight, or ``None``.
+        point_size: Base marker size from plot state.
+
+    Returns:
+        None.
+    """
+    if not selected_row_ids:
+        return
+    row_ids_arr = np.asarray(row_ids, dtype=str)
+    mask = np.array([row_id in selected_row_ids for row_id in row_ids_arr], dtype=bool)
+    if not mask.any():
+        return
+    x_selected = np.asarray(x)[mask]
+    y_selected = np.asarray(y)[mask]
+    fig.add_trace(
+        go.Scatter(
+            x=x_selected,
+            y=y_selected,
+            mode="markers",
+            name=SELECTION_OVERLAY_TRACE_NAME,
+            showlegend=False,
+            hoverinfo="skip",
+            marker=_selected_marker_style(point_size),
+        )
+    )
 
 
 class FigureGenerator:
@@ -409,7 +476,7 @@ class FigureGenerator:
         Args:
             df_f: Filtered dataframe.
             state: PlotState to use for configuration.
-            selected_row_ids: If set, indices of these row_ids are passed as selectedpoints.
+            selected_row_ids: If set, these row_ids are shown as a selection overlay.
         """
         x = self.data_processor.get_x_values(
             df_f, state.xcol, state.use_absolute_value,
@@ -432,15 +499,6 @@ class FigureGenerator:
             file_stem = np.array([""] * len(df_f))
         customdata = np.column_stack([row_ids, file_stem])
 
-        selectedpoints = None
-        selected = None
-        if selected_row_ids:
-            selectedpoints = [i for i, r in enumerate(row_ids) if r in selected_row_ids]
-            if selectedpoints:
-                selected = dict(
-                    marker=dict(size=state.point_size * 1.3, color=SELECTED_POINTS_COLOR),
-                )
-
         fig = go.Figure()
         fig.add_trace(go.Scatter(
             x=x,
@@ -449,14 +507,20 @@ class FigureGenerator:
             name=format_pre_filter_display(state.pre_filter),
             customdata=customdata,
             marker=dict(size=state.point_size),
-            selectedpoints=selectedpoints,
-            selected=selected,
             hovertemplate=(
                 "file=%{customdata[1]}<br>"
                 # f"{state.xcol}=%{{x}}<br>"
                 # f"{state.ycol}=%{{y}}<br>"
             ),
         ))
+        _add_selection_overlay_trace(
+            fig,
+            x=x,
+            y=y,
+            row_ids=row_ids,
+            selected_row_ids=selected_row_ids,
+            point_size=state.point_size,
+        )
         fig.update_layout(
             margin=dict(l=40, r=20, t=40, b=40),
             xaxis_title=state.xcol,
@@ -484,7 +548,7 @@ class FigureGenerator:
         Args:
             df_f: Filtered dataframe.
             state: PlotState to use for configuration.
-            selected_row_ids: If set, indices of these row_ids are passed as selectedpoints.
+            selected_row_ids: If set, these row_ids are shown as a selection overlay.
         """
         # If no group_col, use basic scatter
         if not state.group_col:
@@ -598,14 +662,6 @@ class FigureGenerator:
                     else:
                         customdata = np.column_stack([sub["row_id"], sub["file_stem"]])
                     
-                    sp, sel = None, None
-                    if selected_row_ids:
-                        sp = [i for i, r in enumerate(sub["row_id"]) if r in selected_row_ids]
-                        if sp:
-                            sel = dict(
-                                marker=dict(size=state.point_size * 1.3, color=SELECTED_POINTS_COLOR),
-                            )
-                    
                     # Build hover template (file first, then group_col, then symbol if present)
                     if "symbol" in sub.columns:
                         hover_parts = [
@@ -627,8 +683,6 @@ class FigureGenerator:
                         name=str(color_val),
                         customdata=customdata,
                         marker=sub_marker,
-                        selectedpoints=sp,
-                        selected=sel,
                         hovertemplate=hovertemplate,
                     ))
             else:
@@ -646,14 +700,6 @@ class FigureGenerator:
                     ])
                 else:
                     customdata = np.column_stack([tmp["row_id"], tmp["file_stem"]])
-                
-                sp, sel = None, None
-                if selected_row_ids:
-                    sp = [i for i, r in enumerate(tmp["row_id"]) if r in selected_row_ids]
-                    if sp:
-                        sel = dict(
-                            marker=dict(size=state.point_size * 1.3, color=SELECTED_POINTS_COLOR),
-                        )
                 
                 # Build hover template (file first, then symbol if present, then x, y)
                 if "symbol" in tmp.columns:
@@ -678,8 +724,6 @@ class FigureGenerator:
                     name="Data",
                     customdata=customdata,
                     marker=marker_dict,
-                    selectedpoints=sp,
-                    selected=sel,
                     hovertemplate=hovertemplate,
                 ))
 
@@ -692,6 +736,15 @@ class FigureGenerator:
                 use_remove_values=state.use_remove_values, remove_values_threshold=state.remove_values_threshold
             )
             self._add_mean_std_traces(fig, group_stats, x_ranges, state, include_x_axis=True)
+
+        _add_selection_overlay_trace(
+            fig,
+            x=tmp["x"],
+            y=tmp["y"],
+            row_ids=tmp["row_id"],
+            selected_row_ids=selected_row_ids,
+            point_size=state.point_size,
+        )
 
         # Preserve y-axis range when show_raw is off
         # Set legend title based on grouping
@@ -743,7 +796,7 @@ class FigureGenerator:
         Args:
             df_f: Filtered dataframe.
             state: PlotState to use for configuration.
-            selected_row_ids: If set, indices of these row_ids are passed as selectedpoints per trace.
+            selected_row_ids: If set, these row_ids are shown as a selection overlay.
         """
         # Use group_col for x-axis (categorical grouping)
         x_cat = df_f[state.group_col].astype(str)
@@ -849,13 +902,6 @@ class FigureGenerator:
                 
                 # Only add raw data trace if show_raw is True
                 if state.show_raw:
-                    sp, sel = None, None
-                    if selected_row_ids:
-                        sp = [i for i, r in enumerate(row_id_values) if r in selected_row_ids]
-                        if sp:
-                            sel = dict(
-                                marker=dict(size=state.point_size * 1.3, color=SELECTED_POINTS_COLOR),
-                            )
                     fig.add_trace(go.Scatter(
                         x=x_jittered,
                         y=y_values,
@@ -867,8 +913,6 @@ class FigureGenerator:
                             file_stem_values,
                         ]),
                         marker=dict(size=state.point_size),
-                        selectedpoints=sp,
-                        selected=sel,
                         hovertemplate=(
                             f"file=%{{customdata[2]}}<br>"
                             f"{state.group_col}=%{{customdata[0]}}<br>"
@@ -955,13 +999,6 @@ class FigureGenerator:
             
             # Only add raw data trace if show_raw is True
             if state.show_raw:
-                sp, sel = None, None
-                if selected_row_ids:
-                    sp = [i for i, r in enumerate(row_id_values) if r in selected_row_ids]
-                    if sp:
-                        sel = dict(
-                            marker=dict(size=state.point_size * 1.3, color=SELECTED_POINTS_COLOR),
-                        )
                 fig.add_trace(go.Scatter(
                     x=x_jittered,
                     y=y_values,
@@ -973,14 +1010,23 @@ class FigureGenerator:
                         file_stem_values,
                     ]),
                     marker=dict(size=state.point_size),
-                    selectedpoints=sp,
-                    selected=sel,
                     hovertemplate=(
                         f"file=%{{customdata[2]}}<br>"
                         f"{state.group_col}=%{{customdata[0]}}<br>"
                         # f"{state.ycol}=%{{y}}<br>"
                     ),
                 ))
+
+        tmp["x_jitter"] = self._compute_swarm_x_jitter(tmp, state)
+        if state.show_raw:
+            _add_selection_overlay_trace(
+                fig,
+                x=tmp["x_jitter"],
+                y=tmp["y"],
+                row_ids=tmp["row_id"],
+                selected_row_ids=selected_row_ids,
+                point_size=state.point_size,
+            )
 
         # Set up x-axis with categorical labels at integer positions
         layout_updates = {
@@ -1006,7 +1052,6 @@ class FigureGenerator:
             layout_updates["yaxis"] = dict(autorange=True)
         
         fig.update_layout(**layout_updates)
-        tmp["x_jitter"] = self._compute_swarm_x_jitter(tmp, state)
         summary = build_swarm_summary(state, tmp, state.group_col, state.color_grouping)
         return fig.to_dict(), summary
 

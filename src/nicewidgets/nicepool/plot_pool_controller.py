@@ -328,6 +328,14 @@ class PlotPoolController:
             col: [PRE_FILTER_NONE] + [str(v) for v in self.data_processor.get_pre_filter_values(col)]
             for col in self.pre_filter_columns
         }
+        if self._splitter_save_timer is not None:
+            try:
+                self._splitter_save_timer.cancel()
+            except Exception:
+                pass
+            self._splitter_save_timer = None
+        if self._control_panel is not None:
+            self._control_panel.dispose()
         self._control_panel_container.clear()
         self._control_panel = PoolControlPanel(
             new_df,
@@ -1108,6 +1116,8 @@ class PlotPoolController:
             row_dict = row.to_dict()
             if self._on_table_row_selected:
                 self._on_table_row_selected(row_id, row_dict)
+            self._selection_handler.handle_clear()
+            self.select_points_by_row_id(row_id)
             return
 
         # grouped aggregation plot: click -> group summary

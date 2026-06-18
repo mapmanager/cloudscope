@@ -216,15 +216,15 @@ class PlotSelectionHandler:
 
     def select_by_row_id(self, row_id: str, plot_states: list[PlotState]) -> None:
         """Programmatically set selection to the point(s) with the given row_id."""
-        scatter_index = None
+        plot_index = None
         for i, state in enumerate(plot_states):
-            if state.plot_type == PlotType.SCATTER:
-                scatter_index = i
+            if is_selection_compatible(state.plot_type):
+                plot_index = i
                 break
-        if scatter_index is None:
-            logger.warning("No scatter plot found for programmatic selection")
+        if plot_index is None:
+            logger.warning("No selection-compatible plot found for programmatic selection")
             return
-        state = plot_states[scatter_index]
+        state = plot_states[plot_index]
         df_f = self._get_filtered_df(state)
 
         # logger.error(f'ppp SEARCHING FOR row_id:')

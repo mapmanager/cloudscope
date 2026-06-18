@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
-from cloudscope.pages.home_page import _infer_load_kind
+from cloudscope.events.files import LoadPathKind
+from cloudscope.runtime import infer_load_kind
 
 
 def test_infer_load_kind_csv_suffix() -> None:
-    assert _infer_load_kind('/tmp/list.csv') == 'csv'
+    assert infer_load_kind('/tmp/list.csv') is LoadPathKind.CSV
 
 
 def test_infer_load_kind_folder(tmp_path) -> None:
     folder = tmp_path / 'folder'
     folder.mkdir()
-    assert _infer_load_kind(str(folder)) == 'folder'
+    assert infer_load_kind(str(folder)) is LoadPathKind.FOLDER
 
 def test_infer_load_kind_defaults_to_file(tmp_path) -> None:
     missing = tmp_path / 'a.tif'
-    assert _infer_load_kind(str(missing)) == 'file'
+    assert infer_load_kind(str(missing)) is LoadPathKind.FILE

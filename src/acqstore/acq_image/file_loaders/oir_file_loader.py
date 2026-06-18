@@ -174,6 +174,6 @@ class OirFileLoader(BaseFileLoader):
             return _image_header_from_scene(logical, oir_file, num_scenes=1)
 
     def _load_full_image_array(self) -> np.ndarray:
-        logger.info('')
+        # logger.info('')
         with self._open_oir() as oir:
             return np.asarray(oir.asarray())

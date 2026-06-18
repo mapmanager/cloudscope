@@ -90,6 +90,16 @@ class PoolControlPanel:
         self._show_raw_checkbox: ui.checkbox | None = None
         self._point_size_input: ui.number | None = None
         self._show_legend_checkbox: ui.checkbox | None = None
+        self._pending_timers: list[Any] = []
+
+    def dispose(self) -> None:
+        """Cancel deferred UI timers before this panel's container is destroyed."""
+        for timer in self._pending_timers:
+            try:
+                timer.cancel()
+            except Exception:
+                pass
+        self._pending_timers.clear()
 
     def build(
         self,
@@ -355,9 +365,13 @@ class PoolControlPanel:
             def set_initial() -> None:
                 try:
                     aggrid.run_row_method(initial_value, "setSelected", True, True)
+                except RuntimeError:
+                    pass
                 except Exception:
                     pass
-            ui.timer(0.1, set_initial, once=True)
+
+            timer = ui.timer(0.1, set_initial, once=True)
+            self._pending_timers.append(timer)
         return aggrid
 
     def bind_state(self, state: PlotState) -> None:

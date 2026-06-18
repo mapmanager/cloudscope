@@ -427,9 +427,9 @@ class PrimaryImageView(BaseView):
             return
 
         try:
-            logger.info('calling self._viewer.set_data:')
-            logger.info('  plane:%s min:%s max:%s', plane.shape, plane.min(), plane.max())
-            logger.info('  grid:%s', grid)
+            # logger.info('calling self._viewer.set_data:')
+            # logger.info('  plane:%s min:%s max:%s', plane.shape, plane.min(), plane.max())
+            # logger.info('  grid:%s', grid)
             self._current_grid = grid
             await self._viewer.set_data(plane, grid=grid)
             self._refresh_roi_overlays(acq_image=acq_image, grid=grid)
@@ -607,7 +607,7 @@ class PrimaryImageView(BaseView):
         Returns:
             None.
         """
-        logger.info('')
+        logger.info('is this getting called twice?')
         
         if acq_image is None or grid is None:
             self._viewer.set_rois([])

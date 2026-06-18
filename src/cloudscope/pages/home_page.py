@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 
 from nicegui import app, ui
 
@@ -20,9 +19,9 @@ from cloudscope.controllers.roi_controller import RoiController
 from cloudscope.controllers.velocity_pool_controller import VelocityPoolController
 from cloudscope.controllers.x_range_controller import XRangeController
 from cloudscope.event_bus import EventBus
+from cloudscope.runtime import get_current_runtime
 from cloudscope.task_runner import TaskRunner
-from cloudscope.user_context import UserContext, resolve_user_context_from_env
-from cloudscope.events.files import LoadPathIntent, LoadPathKind
+from cloudscope.user_context import UserContext
 from cloudscope.events.layout import ResetHomeLayoutIntent
 from cloudscope.views.file_list_tree_view import AcqImageListTreeView
 from cloudscope.views.footer_view import FooterView
@@ -43,13 +42,7 @@ from cloudscope.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-
-def _infer_load_kind(path: str) -> LoadPathKind:
-    """Infer load kind from path string."""
-    if path.lower().endswith('.csv'):
-        return LoadPathKind.CSV
-    return LoadPathKind.FOLDER if Path(path).expanduser().is_dir() else LoadPathKind.FILE
-
+SHOW_EMBEDDED_VELOCITY_POOL = False
 
 
 @dataclass(slots=True)
@@ -59,9 +52,14 @@ class HomePage:
     Args:
         controller: Home page controller.
         load_save_controller: Load/save controller.
-        event_bus: Page-scoped event bus.
+        event_bus: Shared runtime event bus.
         app_config: Shared app configuration.
         user_context: User/workspace context for config and storage paths.
+        analysis_controller: Shared analysis controller.
+        roi_controller: Shared ROI controller.
+        event_analysis_controller: Shared event-analysis controller.
+        velocity_pool_controller: Shared velocity-pool controller.
+        task_runner: Shared background task runner.
     """
 
     controller: HomePageController
@@ -69,6 +67,11 @@ class HomePage:
     event_bus: EventBus
     app_config: AppConfig
     user_context: UserContext
+    analysis_controller: AnalysisController
+    roi_controller: RoiController
+    event_analysis_controller: EventAnalysisController
+    velocity_pool_controller: VelocityPoolController
+    task_runner: TaskRunner
 
     def build(self) -> None:
         """Build the page UI and load initial AcqStore state.
@@ -76,7 +79,7 @@ class HomePage:
         Returns:
             None.
         """
-        logger.info('!!! debug timeout reset')
+        logger.info('!!! BUILDING HOME PAGE !!!')
 
         text_size = self.app_config.get_attribute('text_size')
         setUpGuiDefaults(text_size)
@@ -88,30 +91,11 @@ class HomePage:
 
         view_manager = ViewManager()
         splitter_manager = SplitterManager(self.app_config)
-        task_runner = TaskRunner(self.event_bus)
-        self.load_save_controller.task_runner = task_runner
-        analysis_controller = AnalysisController(
-            event_bus=self.event_bus,
-            home_controller=self.controller,
-            task_runner=task_runner,
-        )
-        roi_controller = RoiController(
-            event_bus=self.event_bus,
-            home_page_controller=self.controller,
-        )
-        event_analysis_controller = EventAnalysisController(
-            event_bus=self.event_bus,
-            home_controller=self.controller,
-        )
         contrast_controller = ContrastController(
             event_bus=self.event_bus,
             home_controller=self.controller,
         )
         x_range_controller = XRangeController(
-            event_bus=self.event_bus,
-            home_controller=self.controller,
-        )
-        velocity_pool_controller = VelocityPoolController(
             event_bus=self.event_bus,
             home_controller=self.controller,
         )
@@ -165,12 +149,14 @@ class HomePage:
             dark_mode=dark_mode,
             dark_mode_provider=_dark_mode,
         )
-        velocity_pool_view = VelocityPoolView(
-            event_bus=self.event_bus,
-            app_state=app_state,
-            table_font_size_px=int(self.app_config.data.table_font_size_px),
-            initially_visible=False,
-        )
+        velocity_pool_view: VelocityPoolView | None = None
+        if SHOW_EMBEDDED_VELOCITY_POOL:
+            velocity_pool_view = VelocityPoolView(
+                event_bus=self.event_bus,
+                app_state=app_state,
+                table_font_size_px=int(self.app_config.data.table_font_size_px),
+                initially_visible=False,
+            )
         footer = FooterView(
             event_bus=self.event_bus,
             app_state=app_state,
@@ -340,6 +326,8 @@ class HomePage:
             Returns:
                 None.
             """
+            if velocity_pool_view is None:
+                return
             panel_open_state['velocity_pool'] = True
             velocity_pool_view.show()
 
@@ -349,6 +337,8 @@ class HomePage:
             Returns:
                 None.
             """
+            if velocity_pool_view is None:
+                return
             panel_open_state['velocity_pool'] = False
             velocity_pool_view.hide()
 
@@ -392,6 +382,7 @@ class HomePage:
             title='CloudScope',
             app_config=self.app_config,
             event_bus=self.event_bus,
+            show_open_pool=True,
         )
         footer.build()
         view_manager.register(footer)
@@ -512,18 +503,19 @@ class HomePage:
                                             reference_image_expansion.apply_initial_state()
                                             view_manager.register(reference_image)
 
-                                            velocity_pool_expansion = SmartExpansion(
-                                                'Velocity pool',
-                                                icon='table_chart',
-                                                initially_open=True,
-                                                on_open=_open_velocity_pool_panel,
-                                                on_close=_close_velocity_pool_panel,
-                                            )
-                                            home_expansion_refs['velocity_pool'] = velocity_pool_expansion
-                                            with velocity_pool_expansion:
-                                                velocity_pool_view.build()
-                                            velocity_pool_expansion.apply_initial_state()
-                                            view_manager.register(velocity_pool_view)
+                                            if SHOW_EMBEDDED_VELOCITY_POOL and velocity_pool_view is not None:
+                                                velocity_pool_expansion = SmartExpansion(
+                                                    'Velocity pool',
+                                                    icon='table_chart',
+                                                    initially_open=False,
+                                                    on_open=_open_velocity_pool_panel,
+                                                    on_close=_close_velocity_pool_panel,
+                                                )
+                                                home_expansion_refs['velocity_pool'] = velocity_pool_expansion
+                                                with velocity_pool_expansion:
+                                                    velocity_pool_view.build()
+                                                velocity_pool_expansion.apply_initial_state()
+                                                view_manager.register(velocity_pool_view)
 
                                     add_splitter_handle(analysis_reference_splitter, orientation='horizontal')
                                     analysis_reference_splitter.on(
@@ -553,20 +545,14 @@ class HomePage:
                 throttle=0.2,
             )
 
-        self.controller.bind()
-        self.load_save_controller.bind()
-        analysis_controller.bind()
-        roi_controller.bind()
-        event_analysis_controller.bind()
         contrast_controller.bind()
         x_range_controller.bind()
-        velocity_pool_controller.bind()
-        self.controller.load_demo_files([])
 
-        last_path = self.app_config.get_last_path().strip()
-        if last_path:
-            kind = _infer_load_kind(last_path)
-            self.event_bus.publish(LoadPathIntent(path=last_path, kind=kind))
+        def _on_client_disconnect() -> None:
+            for view_id in view_manager.view_ids():
+                view_manager.get(view_id).on_hide()
+
+        ui.context.client.on_disconnect(_on_client_disconnect)
 
     # abb 20260323 pywebview native save png (clipboard)
     def _native_resize(self, e):# we also can do this:
@@ -629,24 +615,6 @@ class HomePage:
         app.on_shutdown(_persist_on_shutdown)
 
 
-def _get_or_create_demo_session_id() -> str | None:
-    """Return a browser-stable demo session id when NiceGUI storage is available."""
-    try:
-        browser_storage = app.storage.browser
-    except Exception:
-        logger.debug('NiceGUI browser storage unavailable for demo session id', exc_info=True)
-        return None
-    key = 'cloudscope_demo_session_id'
-    value = browser_storage.get(key)
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-    from uuid import uuid4
-
-    value = uuid4().hex
-    browser_storage[key] = value
-    return value
-
-
 @ui.page("/")
 def home_page() -> None:
     """Create all per-page objects for the CloudScope home page.
@@ -654,24 +622,19 @@ def home_page() -> None:
     Returns:
         None.
     """
-    logger.info('!!! debug timeout reset')
-    
-    event_bus = EventBus()
-    user_context = resolve_user_context_from_env(demo_session_id=_get_or_create_demo_session_id())
-    app_config = user_context.load_app_config(create_if_missing=False)
-    controller = HomePageController(event_bus=event_bus)
-    load_save_controller = LoadSaveController(
-        event_bus=event_bus,
-        home_controller=controller,
-        app_config=app_config,
-        user_context=user_context,
-    )
+    runtime = get_current_runtime()
+    runtime.initialize_once()
     page = HomePage(
-        controller=controller,
-        load_save_controller=load_save_controller,
-        event_bus=event_bus,
-        app_config=app_config,
-        user_context=user_context,
+        controller=runtime.home_page_controller,
+        load_save_controller=runtime.load_save_controller,
+        event_bus=runtime.event_bus,
+        app_config=runtime.app_config,
+        user_context=runtime.user_context,
+        analysis_controller=runtime.analysis_controller,
+        roi_controller=runtime.roi_controller,
+        event_analysis_controller=runtime.event_analysis_controller,
+        velocity_pool_controller=runtime.velocity_pool_controller,
+        task_runner=runtime.task_runner,
     )
     page.build()
 

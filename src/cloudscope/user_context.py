@@ -13,6 +13,8 @@ from uuid import uuid4
 
 from platformdirs import user_cache_dir, user_data_dir
 
+from nicegui import app
+
 from cloudscope.app_config import AppConfig
 from cloudscope.quota import StorageQuota, mb_to_bytes
 from cloudscope.utils.logging import get_logger
@@ -103,6 +105,27 @@ class UserContext:
 
 _TRUE_VALUES = {'1', 'true', 'yes', 'y', 'on'}
 _FALSE_VALUES = {'0', 'false', 'no', 'n', 'off'}
+
+
+def get_or_create_demo_session_id() -> str | None:
+    """Return a browser-stable demo session id when NiceGUI storage is available.
+
+    Returns:
+        Existing or newly created demo session id, or ``None`` when browser
+        storage is unavailable.
+    """
+    try:
+        browser_storage = app.storage.browser
+    except Exception:
+        logger.debug('NiceGUI browser storage unavailable for demo session id', exc_info=True)
+        return None
+    key = 'cloudscope_demo_session_id'
+    value = browser_storage.get(key)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    value = uuid4().hex
+    browser_storage[key] = value
+    return value
 
 
 def resolve_user_context_from_env(

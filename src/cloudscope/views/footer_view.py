@@ -50,6 +50,8 @@ class FooterView(BaseView):
         event_bus: Page-scoped event bus.
         app_state: Optional home-page state used when shown.
         initially_visible: Whether this view starts visible.
+        show_status: When True, show the right-aligned status/task line (home page).
+            When False, show only file, channel, and ROI (pool page).
     """
 
     view_id = ViewId.FOOTER
@@ -61,8 +63,10 @@ class FooterView(BaseView):
         app_state: Any | None = None,
         *,
         initially_visible: bool = True,
+        show_status: bool = True,
     ) -> None:
         super().__init__(event_bus=event_bus, app_state=app_state, initially_visible=initially_visible)
+        self._show_status = bool(show_status)
         self._client = None
         self._file_id: str | None = None
         self._channel: int | None = None
@@ -89,7 +93,8 @@ class FooterView(BaseView):
                 self._file_label = ui.label().classes('truncate max-w-[320px]')
                 self._channel_label = ui.label().classes('truncate')
                 self._roi_label = ui.label().classes('truncate')
-                self._status_label = ui.label('Status: —').classes('truncate grow text-right')
+                if self._show_status:
+                    self._status_label = ui.label('Status: —').classes('truncate grow text-right')
         self.after_build()
         return self.root
 
@@ -99,6 +104,8 @@ class FooterView(BaseView):
         Returns:
             None.
         """
+        if not self._show_status:
+            return
         self.add_subscription(self.event_bus.subscribe(AppStatusChanged, self._on_app_status_changed))
         self.add_subscription(self.event_bus.subscribe(TaskProgressChanged, self._on_task_progress_changed))
 

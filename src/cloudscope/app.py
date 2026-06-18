@@ -10,6 +10,7 @@ from nicegui import app, ui
 
 from acqstore.utils.logging import setup_logging as setup_acqstore_logging
 from cloudscope.pages.home_page import home_page  # noqa: F401  # registers page route
+from cloudscope.pages.pool_page import pool_page  # noqa: F401  # registers page route
 from cloudscope.user_context import resolve_user_context
 from cloudscope.devtools.mvc_telemetry import is_mvc_telemetry_enabled
 from cloudscope.utils.logging import get_logger, setup_logging
@@ -205,6 +206,12 @@ def main() -> None:
     """Run the CloudScope NiceGUI application."""
     config = get_run_config_from_env()
     logger.info(f'CloudScope run config: {config}')
+    from cloudscope.desktop_launcher import option_c_enabled, run_option_c_desktop
+
+    if option_c_enabled():
+        logger.info('Starting CloudScope in Option C multi-window desktop mode')
+        run_option_c_desktop(config)
+        return
     configure_native_window(config)
     ui.run(**config.ui_run_kwargs())
 

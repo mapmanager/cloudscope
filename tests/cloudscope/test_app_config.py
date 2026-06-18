@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from cloudscope.app_config import (
     AppConfig,
@@ -110,6 +111,7 @@ def test_recents_kept_when_missing_on_disk_but_last_path_cleared(tmp_path, caplo
         encoding='utf-8',
     )
 
+    caplog.set_level(logging.WARNING)
     cfg = AppConfig.load(config_path=cfg_path)
     assert cfg.get_recent_files() == [
         str(existing_file.resolve(strict=False)),

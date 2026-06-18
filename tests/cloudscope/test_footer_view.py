@@ -70,6 +70,18 @@ def test_footer_view_reacts_to_file_then_channel_and_roi() -> None:
     assert view._roi_label.text == "ROI: 5"
 
 
+def test_footer_view_selection_only_skips_status_subscriptions() -> None:
+    bus = EventBus()
+    view = FooterView(bus, show_status=False)
+    view.on_show()
+    event_types = {sub.event_type for sub in view._subscriptions}
+    from cloudscope.events.analysis import TaskProgressChanged
+    from cloudscope.events.status import AppStatusChanged
+
+    assert AppStatusChanged not in event_types
+    assert TaskProgressChanged not in event_types
+
+
 def test_footer_view_clear_file_resets_display_to_placeholders() -> None:
     bus = EventBus()
     view = FooterView(bus)

@@ -116,7 +116,7 @@ class LoadSaveView(BaseView):
         Returns:
             Root element for this view.
         """
-        logger.info('!!! debug timeout reset')
+        # logger.info('!!! debug timeout reset')
         
         self._client = ui.context.client
         if parent is None:
@@ -244,7 +244,7 @@ class LoadSaveView(BaseView):
     def _fill_recent_menu(self, menu: ui.menu) -> None:
         recent_folders = self.app_config.get_recent_folders()
         recent_files = self.app_config.get_recent_files()
-        logger.info('recent_folders=%s recent_files=%s', recent_folders, recent_files)
+        # logger.info('recent_folders=%s recent_files=%s', recent_folders, recent_files)
         with menu:
             for item in recent_folders:
                 mark = '✓ ' if self._recent_item_matches_app_path(item) else ''

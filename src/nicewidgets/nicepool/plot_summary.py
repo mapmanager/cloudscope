@@ -361,7 +361,9 @@ def build_swarm_summary(
     columnar = tmp[[c for c in base_cols if c in tmp.columns]].copy()
     columnar = columnar.rename(columns={"x": group_col})
     if use_color:
-        columnar.insert(1, color_grouping or "color", tmp["color"].values)
+        color_name = color_grouping or "color"
+        if color_name not in columnar.columns:
+            columnar.insert(1, color_name, tmp["color"].values)
     columnar[group_col] = columnar[group_col].astype(str)
     return PlotSummary(params=params, summary_table=summary_table, columnar=columnar)
 
@@ -404,7 +406,9 @@ def build_scatter_summary(
     columnar = tmp[["x", "y", "row_id", "file_stem"]].copy()
     columnar = columnar.rename(columns={"x": xcol, "y": ycol})
     if use_group:
-        columnar.insert(columnar.shape[1], group_col or "group", tmp["color"].values)
+        group_name = group_col or "group"
+        if group_name not in columnar.columns:
+            columnar.insert(columnar.shape[1], group_name, tmp["color"].values)
     if "symbol" in tmp.columns and color_grouping:
         columnar[color_grouping] = tmp["symbol"].values
     return PlotSummary(params=params, summary_table=summary_table, columnar=columnar)

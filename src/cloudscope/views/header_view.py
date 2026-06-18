@@ -41,6 +41,8 @@ def build_main_header(
     title: str = "CloudScope",
     app_config: AppConfig | None = None,
     event_bus: EventBus | None = None,
+    show_open_pool: bool = False,
+    show_open_main: bool = False,
 ) -> None:
     """Create the shared page header (layout element, top-level only).
 
@@ -51,6 +53,8 @@ def build_main_header(
         title: Left-aligned application title text.
         app_config: When set, adds a light/dark toggle (persisted) before the GitHub link.
         event_bus: Optional page-scoped event bus used to publish theme state changes.
+        show_open_pool: When True, add a web button that opens ``/pool`` in a named tab.
+        show_open_main: When True, add a button that navigates to ``/``.
     """
     with ui.header().classes(
         "items-center justify-between bg-gray-900 text-gray-100"
@@ -58,6 +62,13 @@ def build_main_header(
         with ui.row().classes("items-center gap-2 min-w-0"):
             ui.label(title).classes("text-lg font-bold truncate")
         with ui.row().classes("items-center gap-2"):
+            if show_open_main:
+                ui.button("Open Main", on_click=lambda: ui.navigate.to("/")).props("flat dense")
+            if show_open_pool:
+                ui.button(
+                    "Open Pool",
+                    on_click=lambda: ui.run_javascript("window.open('/pool', 'cloudscope_pool')"),
+                ).props("flat dense")
             if app_config is not None:
                 dark_mode_el = ui.dark_mode(value=bool(app_config.data.dark_mode))
                 theme_btn = ui.button(
