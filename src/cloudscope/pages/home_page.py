@@ -86,8 +86,10 @@ class HomePage:
 
         self._install_shutdown_handlers()
 
-        app.native.on('resized', self._native_resize)
-        app.native.on('moved', self._native_moved)
+        native = getattr(app, 'native', None)
+        if native is not None and getattr(native, 'main_window', None) is not None:
+            app.native.on('resized', self._native_resize)
+            app.native.on('moved', self._native_moved)
 
         view_manager = ViewManager()
         splitter_manager = SplitterManager(self.app_config)

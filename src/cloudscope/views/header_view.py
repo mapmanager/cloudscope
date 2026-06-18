@@ -19,6 +19,9 @@ from nicegui import ui
 from cloudscope.app_config import AppConfig
 from cloudscope.event_bus import EventBus
 from cloudscope.events.theme import ThemeChanged
+from cloudscope.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 CLOUDSCOPE_GITHUB_URL = "https://github.com/mapmanager/cloudscope"
 
@@ -34,6 +37,31 @@ def _open_external(url: str) -> None:
         webbrowser.open(url)
         return
     ui.run_javascript(f'window.open("{url}", "_blank")')
+
+
+def _open_pool() -> None:
+    """Open the velocity pool in a desktop window or browser tab.
+
+    Returns:
+        None.
+    """
+    from cloudscope.desktop_launcher import get_pool_launcher
+
+    launcher = get_pool_launcher()
+    if launcher is not None:
+        launcher.open_pool()
+        return
+
+    native = getattr(app, 'native', None)
+    if native is not None and getattr(native, 'main_window', None) is not None:
+        ui.notify(
+            'Open Pool requires multi-window desktop mode. '
+            'Unset CLOUDSCOPE_SINGLE_WINDOW or use web mode.',
+            type='warning',
+        )
+        return
+
+    ui.run_javascript("window.open('/pool', 'cloudscope_pool')")
 
 
 def build_main_header(
@@ -65,10 +93,7 @@ def build_main_header(
             if show_open_main:
                 ui.button("Open Main", on_click=lambda: ui.navigate.to("/")).props("flat dense")
             if show_open_pool:
-                ui.button(
-                    "Open Pool",
-                    on_click=lambda: ui.run_javascript("window.open('/pool', 'cloudscope_pool')"),
-                ).props("flat dense")
+                ui.button("Open Pool", on_click=_open_pool).props("flat dense")
             if app_config is not None:
                 dark_mode_el = ui.dark_mode(value=bool(app_config.data.dark_mode))
                 theme_btn = ui.button(

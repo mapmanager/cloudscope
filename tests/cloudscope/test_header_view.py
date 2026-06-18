@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import inspect
+from unittest.mock import MagicMock, patch
 
-from cloudscope.views.header_view import CLOUDSCOPE_GITHUB_URL, build_main_header
+import pytest
+
+from cloudscope.views.header_view import CLOUDSCOPE_GITHUB_URL, _open_pool, build_main_header
 
 
 def test_build_main_header_signature_accepts_title() -> None:
@@ -23,3 +26,32 @@ def test_build_main_header_is_documented_callable() -> None:
 
 def test_header_view_exposes_cloudscope_github_url() -> None:
     assert CLOUDSCOPE_GITHUB_URL == "https://github.com/mapmanager/cloudscope"
+
+
+def test_open_pool_uses_desktop_launcher_when_available() -> None:
+    launcher = MagicMock()
+    with patch('cloudscope.desktop_launcher.get_pool_launcher', return_value=launcher):
+        _open_pool()
+    launcher.open_pool.assert_called_once()
+
+
+def test_open_pool_uses_window_open_in_web_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr('cloudscope.desktop_launcher.get_pool_launcher', lambda: None, raising=False)
+    with patch('cloudscope.views.header_view.app') as mock_app:
+        mock_app.native = None
+        with patch('cloudscope.views.header_view.ui.run_javascript') as run_js:
+            _open_pool()
+    run_js.assert_called_once_with("window.open('/pool', 'cloudscope_pool')")
+
+
+def test_open_pool_warns_in_legacy_single_window_native(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr('cloudscope.desktop_launcher.get_pool_launcher', lambda: None, raising=False)
+    native = MagicMock()
+    native.main_window = object()
+    with patch('cloudscope.views.header_view.app') as mock_app:
+        mock_app.native = native
+        with patch('cloudscope.views.header_view.ui.notify') as notify:
+            with patch('cloudscope.views.header_view.ui.run_javascript') as run_js:
+                _open_pool()
+    notify.assert_called_once()
+    run_js.assert_not_called()

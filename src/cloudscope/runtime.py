@@ -171,6 +171,52 @@ class CloudScopeRuntimeRegistry:
 
 
 _registry: CloudScopeRuntimeRegistry | None = None
+_process_app_config: AppConfig | None = None
+_process_user_context: UserContext | None = None
+
+
+def set_process_app_config(
+    app_config: AppConfig,
+    *,
+    user_context: UserContext | None = None,
+) -> None:
+    """Register the single desktop ``AppConfig`` for Option C launcher mode.
+
+    Option C loads configuration in the launcher thread before the NiceGUI
+    server starts. Page handlers must reuse that same in-memory instance so
+    geometry and preference saves are not split across duplicate objects.
+
+    Args:
+        app_config: Shared application configuration for this process.
+        user_context: Optional resolved user context for the same process.
+
+    Returns:
+        None.
+    """
+    global _process_app_config, _process_user_context
+    _process_app_config = app_config
+    if user_context is not None:
+        _process_user_context = user_context
+
+
+def clear_process_app_config() -> None:
+    """Clear process-wide desktop config registration.
+
+    Returns:
+        None.
+    """
+    global _process_app_config, _process_user_context
+    _process_app_config = None
+    _process_user_context = None
+
+
+def get_process_app_config() -> AppConfig | None:
+    """Return the registered desktop ``AppConfig`` when present.
+
+    Returns:
+        Process-wide app config, or ``None`` outside Option C desktop mode.
+    """
+    return _process_app_config
 
 
 def get_registry() -> CloudScopeRuntimeRegistry:
@@ -197,6 +243,7 @@ def reset_runtime_registry_for_tests() -> None:
     if _registry is not None:
         _registry.clear()
     _registry = None
+    clear_process_app_config()
 
 
 def runtime_key_from_user_context(user_context: UserContext) -> str:
@@ -217,6 +264,12 @@ def resolve_runtime_context() -> tuple[UserContext, AppConfig]:
     Returns:
         Tuple of ``(UserContext, AppConfig)`` for the active session.
     """
+    if _process_app_config is not None:
+        if _process_user_context is not None:
+            return _process_user_context, _process_app_config
+        demo_session_id = get_or_create_demo_session_id()
+        user_context = resolve_user_context_from_env(demo_session_id=demo_session_id)
+        return user_context, _process_app_config
     demo_session_id = get_or_create_demo_session_id()
     user_context = resolve_user_context_from_env(demo_session_id=demo_session_id)
     app_config = user_context.load_app_config(create_if_missing=False)

@@ -206,9 +206,9 @@ def main() -> None:
     """Run the CloudScope NiceGUI application."""
     config = get_run_config_from_env()
     logger.info(f'CloudScope run config: {config}')
-    from cloudscope.desktop_launcher import option_c_enabled, run_option_c_desktop
+    from cloudscope.desktop_launcher import run_option_c_desktop, should_use_option_c_desktop
 
-    if option_c_enabled():
+    if should_use_option_c_desktop(config):
         logger.info('Starting CloudScope in Option C multi-window desktop mode')
         run_option_c_desktop(config)
         return

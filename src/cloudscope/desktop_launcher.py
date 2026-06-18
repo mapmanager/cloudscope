@@ -12,9 +12,13 @@ from nicegui import app, ui
 
 from cloudscope.pages.home_page import home_page  # noqa: F401
 from cloudscope.pages.pool_page import pool_page  # noqa: F401
-from cloudscope.runtime import get_current_runtime
+from cloudscope.runtime import (
+    clear_process_app_config,
+    set_process_app_config,
+)
 from cloudscope.user_context import resolve_user_context
 from cloudscope.utils.logging import get_logger
+from cloudscope.window_geometry import WindowGeometryTracker
 
 if TYPE_CHECKING:
     from cloudscope.app import CloudScopeRunConfig
@@ -22,20 +26,98 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 _TRUE_VALUES = {'1', 'true', 'yes', 'y', 'on'}
+_FALSE_VALUES = {'0', 'false', 'no', 'n', 'off'}
+
+POOL_WINDOW_WIDTH = 1000
+POOL_WINDOW_HEIGHT = 800
+POOL_WINDOW_OFFSET_X = 40
+POOL_WINDOW_OFFSET_Y = 40
+
+
+def _parse_bool_env(name: str, *, default: bool) -> bool:
+    """Parse a boolean environment variable.
+
+    Args:
+        name: Environment variable name.
+        default: Value when unset.
+
+    Returns:
+        Parsed boolean.
+    """
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    value = raw.strip().lower()
+    if value in _TRUE_VALUES:
+        return True
+    if value in _FALSE_VALUES:
+        return False
+    raise ValueError(f'Invalid boolean for {name}: {raw!r}')
+
+
+def single_window_requested() -> bool:
+    """Return whether legacy single-window native mode was requested.
+
+    Returns:
+        True when ``CLOUDSCOPE_SINGLE_WINDOW`` is set.
+    """
+    return _parse_bool_env('CLOUDSCOPE_SINGLE_WINDOW', default=False)
+
+
+def should_use_option_c_desktop(config: CloudScopeRunConfig) -> bool:  # noqa: F821
+    """Return whether CloudScope should launch Option C desktop mode.
+
+    Args:
+        config: CloudScope run configuration.
+
+    Returns:
+        True for local desktop when multi-window Option C is the default path.
+    """
+    if single_window_requested():
+        return False
+    if not config.native or config.remote:
+        return False
+    return True
+
+
+def option_c_enabled() -> bool:
+    """Return whether Option C is enabled via explicit env opt-in.
+
+    Deprecated alias kept for tests and backward compatibility. Default local
+    desktop now uses Option C via :func:`should_use_option_c_desktop`.
+
+    Returns:
+        True when explicit multi-window env flags are set.
+    """
+    if single_window_requested():
+        return False
+    multi = os.getenv('CLOUDSCOPE_MULTI_WINDOW', '').strip().lower()
+    if multi in _TRUE_VALUES:
+        return True
+    launcher = os.getenv('CLOUDSCOPE_DESKTOP_LAUNCHER', '').strip().lower()
+    return launcher in {'option_c', 'option-c', 'c'}
 
 
 class PoolLauncher:
     """Manage the optional desktop pool pywebview window."""
 
-    def __init__(self, *, url_host: str, port: int) -> None:
+    def __init__(
+        self,
+        *,
+        url_host: str,
+        port: int,
+        main_window: Any | None = None,
+    ) -> None:
         """Initialize launcher state.
 
         Args:
             url_host: Host used in pywebview window URLs.
             port: NiceGUI server port.
+            main_window: Main pywebview window used for default pool placement.
         """
         self._url_host = url_host
         self._port = port
+        self._main_window = main_window
         self.pool_window: Any | None = None
 
     def open_pool(self) -> None:
@@ -55,8 +137,16 @@ class PoolLauncher:
                 self.pool_window = None
 
         pool_url = f'http://{self._url_host}:{self._port}/pool'
-        logger.info('Opening pool pywebview window: %s', pool_url)
-        self.pool_window = webview.create_window('CloudScope Velocity Pool', url=pool_url)
+        x, y = self._default_pool_position()
+        logger.info('Opening pool pywebview window: %s at (%s, %s)', pool_url, x, y)
+        self.pool_window = webview.create_window(
+            'CloudScope Velocity Pool',
+            url=pool_url,
+            x=x,
+            y=y,
+            width=POOL_WINDOW_WIDTH,
+            height=POOL_WINDOW_HEIGHT,
+        )
 
         def _on_pool_closed() -> None:
             logger.info('Pool window closed')
@@ -64,21 +154,24 @@ class PoolLauncher:
 
         self.pool_window.events.closed += _on_pool_closed
 
+    def _default_pool_position(self) -> tuple[int, int]:
+        """Return default pool window top-left position.
+
+        Returns:
+            ``(x, y)`` offset from the main window when available.
+        """
+        if self._main_window is not None:
+            try:
+                return (
+                    int(self._main_window.x) + POOL_WINDOW_OFFSET_X,
+                    int(self._main_window.y) + POOL_WINDOW_OFFSET_Y,
+                )
+            except Exception:
+                logger.debug('Could not read main window position for pool offset', exc_info=True)
+        return (100 + POOL_WINDOW_OFFSET_X, 100 + POOL_WINDOW_OFFSET_Y)
+
 
 _pool_launcher: PoolLauncher | None = None
-
-
-def option_c_enabled() -> bool:
-    """Return whether Option C multi-window desktop mode is enabled.
-
-    Returns:
-        True when ``CLOUDSCOPE_MULTI_WINDOW`` or ``CLOUDSCOPE_DESKTOP_LAUNCHER=option_c``.
-    """
-    multi = os.getenv('CLOUDSCOPE_MULTI_WINDOW', '').strip().lower()
-    if multi in _TRUE_VALUES:
-        return True
-    launcher = os.getenv('CLOUDSCOPE_DESKTOP_LAUNCHER', '').strip().lower()
-    return launcher in {'option_c', 'option-c', 'c'}
 
 
 def get_pool_launcher() -> PoolLauncher | None:
@@ -184,10 +277,11 @@ def run_option_c_desktop(config: CloudScopeRunConfig) -> None:
     host = config.host or '127.0.0.1'
     port = _pick_port(config)
     url_host = _url_host(config)
-    _pool_launcher = PoolLauncher(url_host=url_host, port=port)
 
     user_context = resolve_user_context(remote=config.remote, native=False)
     app_config = user_context.load_app_config()
+    set_process_app_config(app_config, user_context=user_context)
+
     x, y, w, h = app_config.get_window_rect()
 
     server_thread = threading.Thread(
@@ -198,6 +292,8 @@ def run_option_c_desktop(config: CloudScopeRunConfig) -> None:
     server_thread.start()
     _wait_for_server(host, port)
 
+    _pool_launcher = PoolLauncher(url_host=url_host, port=port)
+
     main_url = f'http://{url_host}:{port}/'
     logger.info('Opening main pywebview window: %s', main_url)
     main_window = webview.create_window(
@@ -207,14 +303,12 @@ def run_option_c_desktop(config: CloudScopeRunConfig) -> None:
         y=y,
         width=w,
         height=h,
+        confirm_close=True,
     )
+    _pool_launcher._main_window = main_window
 
-    def _persist_window_rect() -> None:
-        try:
-            runtime = get_current_runtime()
-            runtime.app_config.save()
-        except Exception:
-            logger.debug('Skipping runtime save on Option C shutdown', exc_info=True)
+    geometry_tracker = WindowGeometryTracker(app_config, main_window)
+    geometry_tracker.attach()
 
     def _on_main_closed() -> None:
         logger.info('Main window closed; shutting down Option C desktop')
@@ -225,7 +319,7 @@ def run_option_c_desktop(config: CloudScopeRunConfig) -> None:
             except Exception:
                 logger.debug('Pool window destroy failed', exc_info=True)
             launcher.pool_window = None
-        _persist_window_rect()
+        geometry_tracker.persist()
         try:
             app.shutdown()
         except Exception:
@@ -236,6 +330,8 @@ def run_option_c_desktop(config: CloudScopeRunConfig) -> None:
     try:
         webview.start()
     finally:
+        clear_process_app_config()
+        _pool_launcher = None
         try:
             app.shutdown()
         except Exception:

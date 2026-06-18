@@ -2,7 +2,7 @@
 
 acqstore
 
-zip -r cloudscope_20260616_v1.zip \
+zip -r cloudscope_20260617_v1.zip \
     src tests docs-dev scripts pyproject.toml \
     -x "*/__pycache__/*" \
        "*.pyc" \
@@ -110,7 +110,17 @@ find .github/workflows -type f \( \
 uv run python src/cloudscope/app.py
 ```
 
-`CLOUDSCOPE_NATIVE` defaults to `true` when `CLOUDSCOPE_REMOTE` is unset, so this opens the pywebview native window.
+`CLOUDSCOPE_NATIVE` defaults to `true` when `CLOUDSCOPE_REMOTE` is unset. Local native launch uses **Option C** multi-window desktop mode: one process, one NiceGUI server, separate pywebview windows for Home (`/`) and Velocity Pool (`/pool`). Use **Open Pool** in the header to open or focus the pool window.
+
+### Legacy single-window native
+
+```bash
+CLOUDSCOPE_SINGLE_WINDOW=1 uv run python src/cloudscope/app.py
+```
+
+Restores NiceGUI `ui.run(native=True)` with a single pywebview window. Open Pool shows a warning in this mode; use web mode or default Option C instead.
+
+Main-window geometry is persisted to `AppConfig` on move, resize, and close. Pool window uses a fixed 1000×800 size offset from the main window; pool geometry is not persisted.
 
 ## Browser mode (native disabled)
 
@@ -148,6 +158,10 @@ CLOUDSCOPE_NATIVE=false CLOUDSCOPE_RELOAD=true uv run python src/cloudscope/app.
 | --- | --- | --- |
 | `CLOUDSCOPE_REMOTE` | Treat the app as running on a remote/server host. Implies `native=false` and binds to `0.0.0.0:8080` unless overridden. | `false` |
 | `CLOUDSCOPE_NATIVE` | Force native (pywebview) on/off. | `true` when `CLOUDSCOPE_REMOTE` is unset, otherwise `false` |
+| `CLOUDSCOPE_SINGLE_WINDOW` | Use legacy single-window `ui.run(native=True)` instead of default Option C multi-window desktop. | `false` |
+| `CLOUDSCOPE_MULTI_WINDOW` | Deprecated explicit opt-in for Option C; default local native already uses Option C. | unset |
+| `CLOUDSCOPE_DESKTOP_LAUNCHER` | Deprecated explicit launcher alias (`option_c`). | unset |
+| `CLOUDSCOPE_URL_HOST` | Host name used in Option C pywebview URLs. | `127.0.0.1` |
 | `CLOUDSCOPE_RELOAD` | Toggle NiceGUI reload mode. | `false` |
 | `CLOUDSCOPE_HOST` | Explicit NiceGUI host. | NiceGUI default (or `0.0.0.0` when remote) |
 | `CLOUDSCOPE_PORT` | Explicit NiceGUI port. | NiceGUI default (or `8080` when remote) |

@@ -111,7 +111,7 @@ def test_recents_kept_when_missing_on_disk_but_last_path_cleared(tmp_path, caplo
         encoding='utf-8',
     )
 
-    caplog.set_level(logging.WARNING)
+    caplog.set_level(logging.WARNING, logger='cloudscope.app_config')
     cfg = AppConfig.load(config_path=cfg_path)
     assert cfg.get_recent_files() == [
         str(existing_file.resolve(strict=False)),
