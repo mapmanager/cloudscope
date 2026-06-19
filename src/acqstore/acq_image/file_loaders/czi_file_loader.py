@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 from collections.abc import Iterator
+from dataclasses import replace
 from typing import Any
 from typing import BinaryIO
 
@@ -74,7 +75,34 @@ class CziFileLoader(BaseFileLoader):
         with self._open_czi() as czi_file:
             num_scenes = len(czi_file.scenes)
             scene = czi_file.scenes[0]
-            return _image_header_from_scene(logical, scene, num_scenes=num_scenes)
+            header = _image_header_from_scene(logical, scene, num_scenes=num_scenes)
+
+        dims = header.dims
+        # CZI line-scan kymographs can report ('C', 'T', 'X') with no 'Y' axis.
+        # CloudScope expects 2D image planes as (Y, X) after optional C/T/Z selection.
+        # For this CZI subset the slow scan axis is labeled 'T'; treat it as 'Y'.
+        # Skip when 'Y' is already present, e.g. ('C', 'T', 'Y', 'X') frame stacks.
+        if 'Y' not in dims and 'T' in dims and 'X' in dims:
+            logger.warning(
+                "CZI header dims %r at %r: remapping 'T' axis to 'Y' for CloudScope (Y, X) convention",
+                dims,
+                logical,
+            )
+            new_dims = tuple('Y' if dim == 'T' else dim for dim in dims)
+            new_sizes = dict(header.sizes)
+            new_sizes['Y'] = int(new_sizes.pop('T'))
+            new_labels = list(header.physical_units_labels)
+            t_idx = dims.index('T')
+            if t_idx < len(new_labels) and new_labels[t_idx] == 'T':
+                new_labels[t_idx] = 'Y'
+            header = replace(
+                header,
+                dims=new_dims,
+                sizes=new_sizes,
+                physical_units_labels=tuple(new_labels),
+            )
+
+        return header
 
     def _load_full_image_array(self) -> np.ndarray:
         logger.info('')
