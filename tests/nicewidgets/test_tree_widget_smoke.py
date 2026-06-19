@@ -191,7 +191,7 @@ def test_copy_table_data_uses_pyperclip_in_native_window(monkeypatch: Any) -> No
     import asyncio
 
     copied: list[str] = []
-    monkeypatch.setattr(tree_widget, 'app', SimpleNamespace(native=SimpleNamespace(main_window=object())))
+    monkeypatch.setattr(tree_widget, 'is_pywebview_desktop', lambda: True)
     monkeypatch.setattr(tree_widget, 'pyperclip', SimpleNamespace(copy=copied.append))
     monkeypatch.setattr(tree_widget.ui, 'notify', lambda *_a, **_k: None)
 

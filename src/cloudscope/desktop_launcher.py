@@ -124,6 +124,15 @@ class PoolLauncher:
         self._main_window = main_window
         self.pool_window: Any | None = None
 
+    @property
+    def main_window(self) -> Any | None:
+        """Return the main CloudScope pywebview window when Option C is active.
+
+        Returns:
+            Main pywebview window, or ``None`` before the desktop shell starts.
+        """
+        return self._main_window
+
     def open_pool(self) -> None:
         """Open or focus the pool pywebview window.
 

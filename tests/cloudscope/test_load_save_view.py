@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -147,15 +148,30 @@ def test_resolve_initial_directory_falls_back_to_home(tmp_path) -> None:
 
 
 def test_is_native_mode_returns_bool() -> None:
-    """``_is_native_mode`` should return a boolean reflecting ``app.native`` presence."""
+    """``_is_native_mode`` should return a boolean."""
     assert isinstance(LoadSaveView._is_native_mode(), bool)
+
+
+def test_is_native_mode_false_when_no_desktop_shell(monkeypatch) -> None:
+    """Without Option C or NiceGUI native proxy, desktop pickers are disabled."""
+    from nicegui import app as nicegui_app
+
+    monkeypatch.setattr('cloudscope.desktop_launcher.get_pool_launcher', lambda: None)
+    monkeypatch.setattr(nicegui_app, 'native', SimpleNamespace(main_window=None), raising=False)
+    assert LoadSaveView._is_native_mode() is False
+
+
+def test_is_native_mode_true_for_option_c(monkeypatch) -> None:
+    monkeypatch.setattr('cloudscope.desktop_launcher.get_pool_launcher', lambda: object())
+    assert LoadSaveView._is_native_mode() is True
 
 
 def test_is_native_mode_false_when_app_lacks_native(monkeypatch) -> None:
     """When ``app.native`` is None, ``_is_native_mode`` should be False."""
     from nicegui import app as nicegui_app
 
-    monkeypatch.setattr(nicegui_app, "native", None, raising=False)
+    monkeypatch.setattr('cloudscope.desktop_launcher.get_pool_launcher', lambda: None)
+    monkeypatch.setattr(nicegui_app, 'native', None, raising=False)
     assert LoadSaveView._is_native_mode() is False
 
 
@@ -163,7 +179,8 @@ def test_build_upload_control_skipped_in_native_mode(monkeypatch, tmp_path) -> N
     """Native runs should not build the browser upload control."""
     from nicegui import app as nicegui_app
 
-    monkeypatch.setattr(nicegui_app, "native", object(), raising=False)
+    monkeypatch.setattr('cloudscope.desktop_launcher.get_pool_launcher', lambda: None)
+    monkeypatch.setattr(nicegui_app, 'native', SimpleNamespace(main_window=object()), raising=False)
     view = _new_view(tmp_path)
 
     view._build_upload_control()

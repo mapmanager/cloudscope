@@ -18,6 +18,22 @@ from nicewidgets.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
+def is_pywebview_desktop() -> bool:
+    """Return whether the app is running inside a desktop pywebview shell.
+
+    Returns:
+        True for NiceGUI native mode and Option C multi-window desktop mode.
+    """
+    native_cfg = getattr(app, 'native', None)
+    if getattr(native_cfg, 'main_window', None) is not None:
+        return True
+    try:
+        import webview
+    except ImportError:
+        return False
+    return len(webview.windows) > 0
+
+
 def copy_to_clipboard(text: str) -> None:
     """Copy text to the active system or browser clipboard.
 
@@ -32,10 +48,7 @@ def copy_to_clipboard(text: str) -> None:
         RuntimeError: If the app is running in native mode and ``pyperclip`` is
             not installed.
     """
-    native_cfg = getattr(app, "native", None)
-    is_native_window = getattr(native_cfg, "main_window", None) is not None
-
-    if is_native_window:
+    if is_pywebview_desktop():
         if pyperclip is None:
             raise RuntimeError("pyperclip is required for native clipboard support")
         pyperclip.copy(text)

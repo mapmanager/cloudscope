@@ -16,7 +16,7 @@ from nicewidgets.echart_widget.context_menu import EChartWidgetContextMenu
 from nicewidgets.echart_widget.display_options import EChartDisplayOptions
 from nicewidgets.echart_widget.event_overlay import EChartEventOverlayApi
 from nicewidgets.echart_widget.models import EChartAxisRange, EChartLineData
-from nicewidgets.utils.clipboard import copy_png_bytes_to_native_clipboard
+from nicewidgets.utils.clipboard import copy_png_bytes_to_native_clipboard, is_pywebview_desktop
 from nicewidgets.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -271,9 +271,7 @@ class EChartWidget:
             return
 
         try:
-            native_cfg = getattr(app, "native", None)
-            is_native_window = getattr(native_cfg, "main_window", None) is not None
-            if is_native_window:
+            if is_pywebview_desktop():
                 png_bytes = await get_echart_png_bytes(self.container)
                 copy_png_bytes_to_native_clipboard(png_bytes)
             else:

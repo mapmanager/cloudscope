@@ -29,6 +29,7 @@ from nicewidgets.raster_viewer.frontend.plotly_clipboard import (
     copy_png_bytes_to_native_clipboard,
     get_plotly_png_bytes,
 )
+from nicewidgets.utils.clipboard import is_pywebview_desktop
 from nicewidgets.raster_viewer.frontend.plotly_context_menu import (
     PlotlyRasterViewerContextMenu,
 )
@@ -633,11 +634,7 @@ Plotly.restyle(plotDiv, {{
             return
 
         try:
-            from nicegui import app
-
-            native_cfg = getattr(app, 'native', None)
-            is_native_window = getattr(native_cfg, 'main_window', None) is not None
-            if is_native_window:
+            if is_pywebview_desktop():
                 png_bytes = await get_plotly_png_bytes(self._plot)
                 copy_png_bytes_to_native_clipboard(png_bytes)
             else:

@@ -20,6 +20,7 @@ from nicewidgets.tree_widget.js_hooks import (
     js_on_cell_key_down_select_prev_next,
     js_on_row_clicked,
 )
+from nicewidgets.utils.clipboard import is_pywebview_desktop
 from nicewidgets.utils.logging import get_logger
 
 try:
@@ -592,10 +593,7 @@ class TreeWidget:
           the displayed-rows fetch and the clipboard write into a single
           ``ui.run_javascript`` round-trip.
         """
-        native_cfg = getattr(app, 'native', None)
-        is_native_window = getattr(native_cfg, 'main_window', None) is not None
-
-        if is_native_window:
+        if is_pywebview_desktop():
             text = self._rows_to_tsv(self._rows)
             if pyperclip is None:
                 logger.warning('pyperclip is required for native clipboard support')

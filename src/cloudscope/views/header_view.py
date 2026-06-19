@@ -31,9 +31,11 @@ def _open_external(url: str) -> None:
 
     KymFlow uses the same behavior so link actions work in both native and web.
     """
+    from cloudscope.desktop_launcher import get_pool_launcher
+
     native = getattr(app, "native", None)
     in_native = getattr(native, "main_window", None) is not None
-    if in_native:
+    if get_pool_launcher() is not None or in_native:
         webbrowser.open(url)
         return
     ui.run_javascript(f'window.open("{url}", "_blank")')

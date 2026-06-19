@@ -543,8 +543,13 @@ class LoadSaveView(BaseView):
 
     @staticmethod
     def _is_native_mode() -> bool:
-        """Return whether NiceGUI native runtime is available."""
-        return getattr(app, 'native', None) is not None
+        """Return whether desktop pywebview file pickers should be used."""
+        from cloudscope.desktop_launcher import get_pool_launcher
+
+        if get_pool_launcher() is not None:
+            return True
+        native = getattr(app, 'native', None)
+        return getattr(native, 'main_window', None) is not None
 
     def _resolve_initial_directory(self) -> Path:
         """Resolve best-effort initial directory for native dialogs."""
