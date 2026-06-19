@@ -53,6 +53,7 @@ class NicePool(PlotPoolController):
             show_selection_feedback=cfg.show_selection_feedback,
             show_table_widget=cfg.show_table_widget,
             enable_config_persistence=cfg.enable_config_persistence,
+            dark_mode=cfg.dark_mode,
         )
         super().__init__(df, config=controller_config)
         self.nicepool_config = cfg
@@ -84,3 +85,14 @@ class NicePool(PlotPoolController):
             df: New source DataFrame.
         """
         self.update_df(df)
+
+    def set_dark_mode(self, enabled: bool) -> None:
+        """Set the Plotly layout theme from a dark-mode flag.
+
+        Args:
+            enabled: Whether dark mode is enabled.
+
+        Returns:
+            None.
+        """
+        super().set_dark_mode(enabled)

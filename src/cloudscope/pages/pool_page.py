@@ -7,7 +7,7 @@ from nicegui import ui
 from nicewidgets.gui_defaults import setUpGuiDefaults
 from cloudscope.runtime import get_current_runtime
 from cloudscope.views.footer_view import FooterView
-from cloudscope.views.header_view import build_main_header
+from cloudscope.views.header_view import build_main_header, enable_page_dark_mode
 from cloudscope.views.velocity_pool_view import VelocityPoolView
 
 
@@ -23,11 +23,11 @@ def pool_page() -> None:
 
     setUpGuiDefaults(runtime.app_config.get_attribute("text_size"))
     ui.page_title("CloudScope Velocity Pool")
+    theme_subscription = enable_page_dark_mode(runtime.app_config, runtime.event_bus)
     build_main_header(
         title="CloudScope Velocity Pool",
-        app_config=runtime.app_config,
-        event_bus=runtime.event_bus,
-        show_open_main=True,
+        show_open_main=False,
+        show_github=False,
     )
 
     footer = FooterView(
@@ -43,11 +43,14 @@ def pool_page() -> None:
         app_state=runtime.app_state,
         table_font_size_px=int(runtime.app_config.data.table_font_size_px),
         initially_visible=True,
+        dark_mode=bool(runtime.app_config.data.dark_mode),
+        dark_mode_provider=lambda: bool(runtime.app_config.data.dark_mode),
     )
     with ui.column().classes("w-full h-[calc(100vh-4rem-2rem)] min-h-0 p-2"):
         pool_view.build()
 
     def _on_disconnect() -> None:
+        theme_subscription.unsubscribe()
         pool_view.on_hide()
         footer.on_hide()
 

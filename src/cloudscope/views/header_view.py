@@ -17,7 +17,7 @@ from nicegui import app
 from nicegui import ui
 
 from cloudscope.app_config import AppConfig
-from cloudscope.event_bus import EventBus
+from cloudscope.event_bus import EventBus, EventSubscription
 from cloudscope.events.theme import ThemeChanged
 from cloudscope.utils.logging import get_logger
 
@@ -64,6 +64,31 @@ def _open_pool() -> None:
     ui.run_javascript("window.open('/pool', 'cloudscope_pool')")
 
 
+def enable_page_dark_mode(
+    app_config: AppConfig,
+    event_bus: EventBus,
+) -> EventSubscription:
+    """Enable NiceGUI Quasar dark mode for the current page.
+
+    Creates ``ui.dark_mode`` from persisted config and subscribes to
+    ``ThemeChanged`` so pages without a header theme toggle (for example the
+    pool window) stay in sync with the main window.
+
+    Args:
+        app_config: Application configuration supplying the initial dark-mode state.
+        event_bus: Shared event bus used to receive ``ThemeChanged`` events.
+
+    Returns:
+        Subscription handle; call ``unsubscribe()`` when the page client disconnects.
+    """
+    dark_mode_el = ui.dark_mode(value=bool(app_config.data.dark_mode))
+
+    def _on_theme_changed(event: ThemeChanged) -> None:
+        dark_mode_el.value = bool(event.dark_mode)
+
+    return event_bus.subscribe(ThemeChanged, _on_theme_changed)
+
+
 def build_main_header(
     *,
     title: str = "CloudScope",
@@ -71,6 +96,7 @@ def build_main_header(
     event_bus: EventBus | None = None,
     show_open_pool: bool = False,
     show_open_main: bool = False,
+    show_github: bool = True,
 ) -> None:
     """Create the shared page header (layout element, top-level only).
 
@@ -83,6 +109,7 @@ def build_main_header(
         event_bus: Optional page-scoped event bus used to publish theme state changes.
         show_open_pool: When True, add a web button that opens ``/pool`` in a named tab.
         show_open_main: When True, add a button that navigates to ``/``.
+        show_github: When True, render the GitHub repository link.
     """
     with ui.header().classes(
         "items-center justify-between bg-gray-900 text-gray-100"
@@ -106,11 +133,12 @@ def build_main_header(
                     ),
                 ).props("flat dense round")
                 theme_btn.tooltip("Toggle light / dark theme")
-            github_icon = ui.image("https://cdn.simpleicons.org/github/ffffff").classes(
-                "w-5 h-5 cursor-pointer"
-            )
-            github_icon.on("click", lambda _: _open_external(CLOUDSCOPE_GITHUB_URL))
-            github_icon.tooltip("Open CloudScope GitHub repository")
+            if show_github:
+                github_icon = ui.image("https://cdn.simpleicons.org/github/ffffff").classes(
+                    "w-5 h-5 cursor-pointer"
+                )
+                github_icon.on("click", lambda _: _open_external(CLOUDSCOPE_GITHUB_URL))
+                github_icon.tooltip("Open CloudScope GitHub repository")
 
 
 def _toggle_dark_mode(

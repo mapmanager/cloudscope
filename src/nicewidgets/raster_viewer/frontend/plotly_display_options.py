@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from nicewidgets.raster_viewer.frontend.plotly_theme import PlotlyRasterViewerThemeName
+from nicewidgets.plotly_theme import PlotlyThemeName
 
 
 @dataclass(slots=True)
@@ -32,4 +32,4 @@ class PlotlyRasterViewerDisplayOptions:
     show_axis_labels: bool = False
     show_hover_info: bool = False
     square_plot: bool = False
-    theme: PlotlyRasterViewerThemeName = 'light'
+    theme: PlotlyThemeName = 'light'

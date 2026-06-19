@@ -12,6 +12,7 @@ from acqstore.analysis_pool.base_analysis_pool import AnalysisPool
 from acqstore.analysis_pool.velocity_analysis_pool import VelocityAnalysisPool
 from cloudscope.event_bus import EventBus
 from cloudscope.events.selection import SelectFileIntent
+from cloudscope.events.theme import ThemeChanged
 from cloudscope.events.velocity_pool import VelocityPoolChanged
 from cloudscope.utils.logging import get_logger
 from cloudscope.views.base_view import BaseView
@@ -31,6 +32,9 @@ class VelocityPoolView(BaseView):
         app_state: Home-page state containing the current ``AcqImageList``.
         table_font_size_px: Table font size in pixels.
         initially_visible: Whether the view starts visible.
+        dark_mode: Initial Plotly layout theme for pool plots.
+        dark_mode_provider: Optional callable returning the current application
+            dark-mode state when the view is shown after missing events.
     """
 
     view_id = ViewId.VELOCITY_POOL
@@ -43,9 +47,13 @@ class VelocityPoolView(BaseView):
         app_state: Any | None = None,
         table_font_size_px: int = 12,
         initially_visible: bool = True,
+        dark_mode: bool = False,
+        dark_mode_provider: Callable[[], bool] | None = None,
     ) -> None:
         super().__init__(event_bus=event_bus, app_state=app_state, initially_visible=initially_visible)
         self._table_font_size_px = int(table_font_size_px)
+        self._dark_mode = bool(dark_mode)
+        self._dark_mode_provider = dark_mode_provider
         self._pool_widget: NicePool | None = None
         self._client: Any | None = None
         self._disposed = False
@@ -81,6 +89,7 @@ class VelocityPoolView(BaseView):
                 ),
                 show_table_widget=False,
                 enable_config_persistence=False,
+                dark_mode=self._dark_mode,
             ),
             on_row_selected=self._on_row_selected,
         )
@@ -96,6 +105,7 @@ class VelocityPoolView(BaseView):
             None.
         """
         self.add_subscription(self.event_bus.subscribe(VelocityPoolChanged, self._on_velocity_pool_changed))
+        self.add_subscription(self.event_bus.subscribe(ThemeChanged, self._on_theme_changed))
 
     def on_hide(self) -> None:
         """Unsubscribe and mark this view inactive for cross-client callbacks.
@@ -145,6 +155,41 @@ class VelocityPoolView(BaseView):
             return
         self._run_ui(self._refresh_from_state_impl)
 
+    def _on_theme_changed(self, event: ThemeChanged) -> None:
+        """Apply an application theme change to the pool plots.
+
+        Args:
+            event: Theme state event published by the page header.
+
+        Returns:
+            None.
+        """
+        self._run_ui(lambda: self._apply_dark_mode(event.dark_mode))
+
+    def _sync_theme_from_provider(self) -> None:
+        """Apply the current application theme when a provider is available.
+
+        Returns:
+            None.
+        """
+        if self._dark_mode_provider is None:
+            return
+        self._apply_dark_mode(bool(self._dark_mode_provider()))
+
+    def _apply_dark_mode(self, enabled: bool) -> None:
+        """Push dark-mode state into the embedded NicePool widget.
+
+        Args:
+            enabled: Whether dark mode is enabled.
+
+        Returns:
+            None.
+        """
+        if self._disposed or self._pool_widget is None:
+            return
+        self._dark_mode = bool(enabled)
+        self._pool_widget.set_dark_mode(self._dark_mode)
+
     def _run_ui(self, fn: Callable[[], None]) -> None:
         """Run UI updates; remarshal via ``Client.safe_invoke`` when needed.
 
@@ -175,6 +220,7 @@ class VelocityPoolView(BaseView):
         """
         if self._disposed or self._pool_widget is None:
             return
+        self._sync_theme_from_provider()
         self._pool_widget.set_dataframe(self._pool_dataframe_from_state())
         self._sync_plot_selection_from_primary()
 

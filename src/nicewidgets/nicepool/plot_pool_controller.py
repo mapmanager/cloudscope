@@ -77,6 +77,7 @@ class PlotPoolConfig:
             controls+plots below). When False (default), the table and that splitter are not shown;
             only the controls and plots area is displayed.
         enable_config_persistence: Whether to load and save plot configuration.
+        dark_mode: Initial Plotly layout theme for generated figures.
     """
     pre_filter_columns: list[str] | None = None
     unique_row_id_col: str = "path"
@@ -90,6 +91,7 @@ class PlotPoolConfig:
     show_selection_feedback: bool = False
     show_table_widget: bool = False
     enable_config_persistence: bool = True
+    dark_mode: bool = False
 
 
 class PlotPoolController:
@@ -135,6 +137,7 @@ class PlotPoolController:
         self._show_selection_feedback = cfg.show_selection_feedback
         self._show_table_widget = cfg.show_table_widget
         self._enable_config_persistence = cfg.enable_config_persistence
+        self._dark_mode = bool(cfg.dark_mode)
 
         # Guard: Check for missing pre_filter columns and filter them out
         missing_columns = [col for col in self.pre_filter_columns if col not in df.columns]
@@ -157,6 +160,7 @@ class PlotPoolController:
             self.data_processor,
             unique_row_id_col=self.unique_row_id_col,
         )
+        self.figure_generator.set_dark_mode(self._dark_mode)
 
         # Reasonable defaults. Prefer numeric columns for y, but allow
         # schema-only or non-numeric DataFrames so NicePool can initialize
@@ -273,6 +277,33 @@ class PlotPoolController:
         """
         self._selection_handler.select_by_row_id(row_id, self.plot_states)
 
+    def set_theme(self, theme: str) -> None:
+        """Set the Plotly layout color theme for all pool plots.
+
+        Args:
+            theme: Theme name, either ``'light'`` or ``'dark'``.
+
+        Returns:
+            None.
+        """
+        from nicewidgets.plotly_theme import normalize_plotly_theme
+
+        normalized = normalize_plotly_theme(theme)
+        self._dark_mode = normalized == 'dark'
+        self.figure_generator.set_theme(normalized)
+        self._refresh_all_plot_figures()
+
+    def set_dark_mode(self, enabled: bool) -> None:
+        """Set the Plotly layout theme from a dark-mode flag.
+
+        Args:
+            enabled: Whether dark mode is enabled.
+
+        Returns:
+            None.
+        """
+        self.set_theme('dark' if enabled else 'light')
+
     def update_df(self, new_df: pd.DataFrame) -> None:
         """Replace the dataframe and refresh table, plots, and controls.
 
@@ -302,6 +333,7 @@ class PlotPoolController:
             self.data_processor,
             unique_row_id_col=self.unique_row_id_col,
         )
+        self.figure_generator.set_dark_mode(self._dark_mode)
         self._plot_summaries = [None] * 4
         self._selection_handler = PlotSelectionHandler(
             data_processor=self.data_processor,
@@ -1058,6 +1090,22 @@ class PlotPoolController:
             if not is_selection_compatible(self.plot_states[i].plot_type):
                 continue
             fig_dict = self._make_figure_dict(self.plot_states[i], selected_row_ids=selected, plot_index=i)
+            self._plots[i].update_figure(fig_dict)
+            self._plots[i].update()
+
+    def _refresh_all_plot_figures(self) -> None:
+        """Regenerate and push figure dicts for all visible plots."""
+        if not self._plots:
+            return
+        rows, cols = map(int, self.layout.split('x'))
+        num_plots = rows * cols
+        selected = self._selection_handler.get_selected_row_ids()
+        for i in range(min(num_plots, len(self._plots), len(self.plot_states))):
+            fig_dict = self._make_figure_dict(
+                self.plot_states[i],
+                selected_row_ids=selected or None,
+                plot_index=i,
+            )
             self._plots[i].update_figure(fig_dict)
             self._plots[i].update()
 

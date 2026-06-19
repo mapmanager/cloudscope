@@ -7,7 +7,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from cloudscope.views.header_view import CLOUDSCOPE_GITHUB_URL, _open_pool, build_main_header
+from cloudscope.app_config import AppConfig
+from cloudscope.event_bus import EventBus
+from cloudscope.events.theme import ThemeChanged
+from cloudscope.views.header_view import CLOUDSCOPE_GITHUB_URL, _open_pool, build_main_header, enable_page_dark_mode
 
 
 def test_build_main_header_signature_accepts_title() -> None:
@@ -55,3 +58,19 @@ def test_open_pool_warns_in_legacy_single_window_native(monkeypatch: pytest.Monk
                 _open_pool()
     notify.assert_called_once()
     run_js.assert_not_called()
+
+
+def test_enable_page_dark_mode_syncs_theme_changed() -> None:
+    """Pool-style pages should follow ThemeChanged via NiceGUI dark mode."""
+    app_config = AppConfig.ephemeral()
+    app_config.data.dark_mode = False
+    bus = EventBus()
+    dark_mode_el = MagicMock()
+
+    with patch('cloudscope.views.header_view.ui.dark_mode', return_value=dark_mode_el) as dark_mode_factory:
+        subscription = enable_page_dark_mode(app_config, bus)
+
+    dark_mode_factory.assert_called_once_with(value=False)
+    bus.publish(ThemeChanged(dark_mode=True))
+    assert dark_mode_el.value is True
+    subscription.unsubscribe()

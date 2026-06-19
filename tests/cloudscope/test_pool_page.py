@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from cloudscope.app_config import AppConfig
+from cloudscope.event_bus import EventBus
 from cloudscope.runtime import _build_runtime, reset_runtime_registry_for_tests
 from cloudscope.user_context import UserContext, UserContextKind
 
@@ -54,6 +55,18 @@ def test_pool_page_uses_shared_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr('cloudscope.pages.pool_page.build_main_header', lambda **_kwargs: None)
     monkeypatch.setattr('cloudscope.pages.pool_page.ui.page_title', lambda *_args, **_kwargs: None)
 
+    theme_subscription = MagicMock()
+    enable_calls: list[tuple[AppConfig, EventBus]] = []
+
+    def _fake_enable_page_dark_mode(app_config, event_bus):
+        enable_calls.append((app_config, event_bus))
+        return theme_subscription
+
+    monkeypatch.setattr(
+        'cloudscope.pages.pool_page.enable_page_dark_mode',
+        _fake_enable_page_dark_mode,
+    )
+
     built: list[object] = []
     footer_built: list[object] = []
 
@@ -93,3 +106,8 @@ def test_pool_page_uses_shared_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     assert footer_built[0].kwargs['show_status'] is False
     assert built[0].kwargs['event_bus'] is shared_runtime.event_bus
     assert built[0].kwargs['app_state'] is shared_runtime.app_state
+    assert built[0].kwargs['dark_mode'] is bool(shared_runtime.app_config.data.dark_mode)
+    assert enable_calls == [(shared_runtime.app_config, shared_runtime.event_bus)]
+    assert calls
+    calls[0]()
+    theme_subscription.unsubscribe.assert_called_once()

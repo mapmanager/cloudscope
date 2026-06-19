@@ -11,6 +11,7 @@ import pytest
 from acqstore.analysis_pool.velocity_analysis_pool import VelocityAnalysisPool
 from cloudscope.event_bus import EventBus
 from cloudscope.events.selection import SelectFileIntent
+from cloudscope.events.theme import ThemeChanged
 from cloudscope.events.velocity_pool import VelocityPoolChanged, VelocityPoolChangeKind
 from cloudscope.views import velocity_pool_view as velocity_pool_view_module
 from cloudscope.views.velocity_pool_view import VelocityPoolView
@@ -44,6 +45,7 @@ class FakeNicePool:
         self.config = config
         self.on_row_selected = on_row_selected
         self.set_dataframe_calls: list[pd.DataFrame] = []
+        self.dark_mode_values: list[bool] = []
         FakeNicePool.instances.append(self)
 
     def build(self, parent: Any | None = None) -> FakeRoot:
@@ -55,6 +57,10 @@ class FakeNicePool:
         """Record refresh data."""
         self.df = df
         self.set_dataframe_calls.append(df)
+
+    def set_dark_mode(self, enabled: bool) -> None:
+        """Record dark-mode updates."""
+        self.dark_mode_values.append(enabled)
 
 
 def test_velocity_pool_view_row_selection_publishes_select_file_intent() -> None:
@@ -179,3 +185,51 @@ def test_primary_selection_syncs_plot_highlight(monkeypatch: pytest.MonkeyPatch)
     pool.select_points_by_row_id.assert_called_once_with(
         "/data/sample.oir|channel=1|roi_id=3"
     )
+
+
+def test_velocity_pool_view_initializes_dark_mode_from_constructor(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Velocity pool should pass initial dark mode into NicePool config."""
+    FakeNicePool.instances.clear()
+    monkeypatch.setattr(velocity_pool_view_module, "NicePool", FakeNicePool)
+    view = VelocityPoolView(event_bus=EventBus(), app_state=None, dark_mode=True, initially_visible=False)
+
+    view.build()
+
+    assert FakeNicePool.instances[0].config.dark_mode is True
+
+
+def test_velocity_pool_view_consumes_theme_changed_event(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ThemeChanged should route to NicePool.set_dark_mode."""
+    FakeNicePool.instances.clear()
+    monkeypatch.setattr(velocity_pool_view_module, "NicePool", FakeNicePool)
+    bus = EventBus()
+    view = VelocityPoolView(event_bus=bus, app_state=None, initially_visible=False)
+    view.build()
+    view._disposed = False
+    pool = FakeNicePool.instances[0]
+
+    view.subscribe_events()
+    bus.publish(ThemeChanged(dark_mode=True))
+
+    assert pool.dark_mode_values == [True]
+
+
+def test_velocity_pool_view_refresh_syncs_theme_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Hidden views should resync theme from provider on refresh."""
+    FakeNicePool.instances.clear()
+    monkeypatch.setattr(velocity_pool_view_module, "NicePool", FakeNicePool)
+    view = VelocityPoolView(
+        event_bus=EventBus(),
+        app_state=None,
+        dark_mode=False,
+        dark_mode_provider=lambda: True,
+        initially_visible=True,
+    )
+    view.build()
+    view._disposed = False
+    view._skip_refresh_from_state_once = False
+    pool = FakeNicePool.instances[0]
+
+    view.refresh_from_state()
+
+    assert pool.dark_mode_values == [True]

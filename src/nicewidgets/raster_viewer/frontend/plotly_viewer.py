@@ -35,10 +35,10 @@ from nicewidgets.raster_viewer.frontend.plotly_context_menu import (
 from nicewidgets.raster_viewer.frontend.plotly_display_options import (
     PlotlyRasterViewerDisplayOptions,
 )
-from nicewidgets.raster_viewer.frontend.plotly_theme import (
-    PlotlyRasterViewerThemeName,
-    normalize_plotly_raster_viewer_theme,
-    theme_for_name,
+from nicewidgets.plotly_theme import (
+    PlotlyThemeName,
+    apply_plotly_theme_to_layout,
+    normalize_plotly_theme,
 )
 from nicewidgets.raster_viewer.frontend.roi_overlay import (
     PlotlyRoiOverlayLayer,
@@ -554,7 +554,7 @@ Plotly.relayout(plotDiv, {{
         self._sync_square_plot_to_plotly_dict()
         self._relayout_square_plot()
 
-    def set_theme(self, theme: PlotlyRasterViewerThemeName) -> None:
+    def set_theme(self, theme: PlotlyThemeName) -> None:
         """Set the Plotly raster viewer color theme.
 
         Args:
@@ -563,7 +563,7 @@ Plotly.relayout(plotDiv, {{
         Returns:
             None.
         """
-        self._display_options.theme = normalize_plotly_raster_viewer_theme(theme)
+        self._display_options.theme = normalize_plotly_theme(theme)
         self._sync_theme_to_plotly_dict()
         self._relayout_theme()
 
@@ -722,21 +722,10 @@ Plotly.restyle(plotDiv, {{
     def _sync_theme_to_plotly_dict(self) -> None:
         """Synchronize the selected light/dark theme into the local figure dict."""
         layout = self._plotly_dict.setdefault('layout', {})
-        theme = theme_for_name(self._display_options.theme)
-        layout['paper_bgcolor'] = theme.paper_bgcolor
-        layout['plot_bgcolor'] = theme.plot_bgcolor
-        layout['font'] = {'color': theme.font_color}
-
-        for axis_name in ('xaxis', 'yaxis'):
-            axis = layout.setdefault(axis_name, {})
-            if not isinstance(axis, dict):
-                axis = {}
-                layout[axis_name] = axis
-            axis['color'] = theme.axis_color
-            axis['linecolor'] = theme.axis_color
-            axis['tickcolor'] = theme.axis_color
-            axis['gridcolor'] = theme.grid_color
-            axis['zerolinecolor'] = theme.zero_line_color
+        if not isinstance(layout, dict):
+            layout = {}
+            self._plotly_dict['layout'] = layout
+        apply_plotly_theme_to_layout(layout, self._display_options.theme)
 
     def _sync_square_plot_to_plotly_dict(self) -> None:
         """Synchronize square-plot layout constraints into the local figure dict."""

@@ -24,6 +24,7 @@ from nicewidgets.nicepool.plot_summary import (
     build_swarm_summary,
 )
 from nicewidgets.nicepool.pre_filter_conventions import format_pre_filter_display
+from nicewidgets.plotly_theme import PlotlyThemeName, apply_plotly_theme_to_layout, normalize_plotly_theme
 
 logger = get_logger(__name__)
 
@@ -135,6 +136,29 @@ class FigureGenerator:
         """
         self.data_processor = data_processor
         self.unique_row_id_col = unique_row_id_col
+        self._theme: PlotlyThemeName = 'light'
+
+    def set_theme(self, theme: PlotlyThemeName) -> None:
+        """Set the Plotly layout color theme for generated figures.
+
+        Args:
+            theme: Theme name, either ``'light'`` or ``'dark'``.
+
+        Returns:
+            None.
+        """
+        self._theme = normalize_plotly_theme(theme)
+
+    def set_dark_mode(self, enabled: bool) -> None:
+        """Set the Plotly layout theme from a dark-mode flag.
+
+        Args:
+            enabled: Whether dark mode is enabled.
+
+        Returns:
+            None.
+        """
+        self.set_theme('dark' if enabled else 'light')
 
     def make_figure(
         self,
@@ -196,6 +220,10 @@ class FigureGenerator:
             fig_dict, summary = self._figure_cumulative_histogram(df_f, state)
         else:
             fig_dict, summary = self._figure_split_scatter(df_f, state, selected_row_ids=selected_row_ids)
+
+        layout = fig_dict.setdefault('layout', {})
+        if isinstance(layout, dict):
+            apply_plotly_theme_to_layout(layout, self._theme)
 
         # logger.debug(f"Figure generated: {len(fig_dict.get('data', []))} traces")
         return fig_dict, summary

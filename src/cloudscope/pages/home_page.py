@@ -158,6 +158,8 @@ class HomePage:
                 app_state=app_state,
                 table_font_size_px=int(self.app_config.data.table_font_size_px),
                 initially_visible=False,
+                dark_mode=dark_mode,
+                dark_mode_provider=_dark_mode,
             )
         footer = FooterView(
             event_bus=self.event_bus,
