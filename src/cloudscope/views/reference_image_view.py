@@ -90,7 +90,13 @@ def _load_reference_plane_payload(
 
     reference_plane = reference_image.get_plane(channel)
     grid = raster_grid_spec_from_reference_plane(reference_plane)
-    return np.asarray(reference_plane.array), grid, 'Reference image'
+    array = np.asarray(reference_plane.array)
+    # Temporary diagnostic logging — probe AcqStore reference planes (e.g. multichannel CZI).
+    # logger.info(f'reference plane fetch file_id:{file_id} channel:{channel}')
+    # logger.info(f'reference plane fetch ref_dims:{reference_image.dims} num_channels:{reference_image.num_channels}')
+    # logger.info(f'reference plane fetch shape:{array.shape} dtype:{array.dtype}')
+    # logger.info(f'reference plane fetch min:{array.min()} max:{array.max()}')
+    return array, grid, 'Reference image'
 
 
 def reference_contrast_window(plane: np.ndarray) -> tuple[float, float] | None:
