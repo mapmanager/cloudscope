@@ -25,22 +25,11 @@ from nicewidgets.raster_viewer.frontend.plotly_viewer import PlotlyRasterViewer
 
 logger = get_logger(__name__)
 
-_PLACEHOLDER_GRID = RasterGridSpec(dx=1.0, dy=1.0, x_unit='Pixels', y_unit='Pixels')
-
 # Overview pixel budget for the reference image. Typical reference images
 # (e.g. 512x512, 2048x2048) fit within this budget and render the full extent
 # at full pyramid resolution, so the static overview PNG matches the crisp
 # zoomed-in heatmap instead of a coarse box-averaged thumbnail.
 _REFERENCE_OVERVIEW_MAX_PIXELS = 4_000_000
-
-
-def _placeholder_plane() -> tuple[np.ndarray, RasterGridSpec, str]:
-    """Return a tiny placeholder image for empty reference-image states.
-
-    Returns:
-        Placeholder image, grid specification, and display message.
-    """
-    return np.zeros((2, 2), dtype=np.float32), _PLACEHOLDER_GRID, 'No reference image'
 
 
 def raster_grid_spec_from_reference_plane(plane: ReferenceImagePlane) -> RasterGridSpec:
@@ -64,8 +53,8 @@ def _load_reference_plane_payload(
     file_id: str | None,
     acq_image: AcqImage | None,
     channel: int | None,
-) -> tuple[np.ndarray, RasterGridSpec, str]:
-    """Load ``(array, grid, message)`` for a reference image selection.
+) -> tuple[np.ndarray | None, RasterGridSpec | None, str, bool]:
+    """Load reference-image payload for a selection.
 
     This function is safe to run off the UI thread with ``run.io_bound``.
     Channel and coordinate interpretation are delegated to AcqStore's
@@ -77,26 +66,20 @@ def _load_reference_plane_payload(
         channel: Selected channel, if any.
 
     Returns:
-        Two-dimensional reference image, grid specification, and status message.
+        Tuple of ``(array, grid, message, is_real_reference)``. ``array`` and
+        ``grid`` are ``None`` when no reference plane is available.
     """
     if file_id is None or acq_image is None:
-        plane, grid, _ = _placeholder_plane()
-        return plane, grid, 'No file selected'
+        return None, None, 'No file selected', False
 
     reference_image = acq_image.images.reference_image
     if reference_image is None:
-        plane, grid, _ = _placeholder_plane()
-        return plane, grid, 'No reference image for selected file'
+        return None, None, 'No reference image for selected file', False
 
     reference_plane = reference_image.get_plane(channel)
     grid = raster_grid_spec_from_reference_plane(reference_plane)
     array = np.asarray(reference_plane.array)
-    # Temporary diagnostic logging — probe AcqStore reference planes (e.g. multichannel CZI).
-    # logger.info(f'reference plane fetch file_id:{file_id} channel:{channel}')
-    # logger.info(f'reference plane fetch ref_dims:{reference_image.dims} num_channels:{reference_image.num_channels}')
-    # logger.info(f'reference plane fetch shape:{array.shape} dtype:{array.dtype}')
-    # logger.info(f'reference plane fetch min:{array.min()} max:{array.max()}')
-    return array, grid, 'Reference image'
+    return array, grid, 'Reference image', True
 
 
 def reference_contrast_window(plane: np.ndarray) -> tuple[float, float] | None:
@@ -113,8 +96,8 @@ def reference_contrast_window(plane: np.ndarray) -> tuple[float, float] | None:
 
     Returns:
         ``(zmin, zmax)`` floats, or ``None`` when the plane is empty or the
-        window is degenerate (``zmax <= zmin``, e.g. the placeholder plane). A
-        ``None`` result leaves the viewer's per-clip auto-stretch in place.
+        window is degenerate (``zmax <= zmin``). A ``None`` result leaves the
+        viewer's per-clip auto-stretch in place.
     """
     if plane.size == 0:
         return None
@@ -318,7 +301,7 @@ class ReferenceImageView(BaseView):
             None.
         """
         try:
-            plane, grid, _message = await run.io_bound(
+            plane, grid, _message, is_real_reference = await run.io_bound(
                 _load_reference_plane_payload,
                 file_id,
                 acq_image,
@@ -328,7 +311,20 @@ class ReferenceImageView(BaseView):
             logger.exception('Reference image load failed file_id=%r channel=%r', file_id, channel)
             err_msg = str(exc)
             self._run_ui(lambda: ui.notify(err_msg, type='negative'))
-            plane, grid, _message = _placeholder_plane()
+            try:
+                await self._viewer.clear_data()
+            except RuntimeError as inner:
+                logger.warning('Reference image clear_data failed: %s', inner)
+            return
+
+        if not is_real_reference or plane is None or grid is None:
+            try:
+                await self._viewer.clear_data()
+            except RuntimeError as exc:
+                logger.exception('Reference image clear_data failed: %s', exc)
+                err_msg = str(exc)
+                self._run_ui(lambda: ui.notify(err_msg, type='negative'))
+            return
 
         try:
             await self._viewer.set_data(
@@ -345,10 +341,9 @@ class ReferenceImageView(BaseView):
     async def _apply_reference_contrast(self, plane: np.ndarray) -> None:
         """Bake a stable percentile contrast window into the reference PNG.
 
-        No-op for empty or degenerate planes (e.g. the placeholder), which
-        keeps the viewer's default per-clip auto-stretch. This is not wired to
-        the contrast toolbar; the window is derived directly from the loaded
-        plane.
+        No-op for empty or degenerate planes, which keeps the viewer's default
+        per-clip auto-stretch. This is not wired to the contrast toolbar; the
+        window is derived directly from the loaded plane.
 
         Args:
             plane: 2D reference image array just passed to the viewer.

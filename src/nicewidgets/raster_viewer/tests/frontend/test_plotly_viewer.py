@@ -30,6 +30,62 @@ def test_set_data_initializes_backend_state() -> None:
     assert response.mode == 'image_png'
 
 
+def test_clear_data_resets_viewer_to_empty_figure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """clear_data should drop backend state and restore an empty figure."""
+    captured: dict[str, object] = {}
+
+    class DummyElement:
+        id = 1
+        figure: dict[str, object] | None = None
+
+        def on(self, *_args, **_kwargs) -> 'DummyElement':
+            return self
+
+        def update(self) -> None:
+            return None
+
+    class DummyContextMenu:
+        def clear(self) -> 'DummyContextMenu':
+            return self
+
+        def __enter__(self) -> 'DummyContextMenu':
+            return self
+
+        def __exit__(self, *_args) -> None:
+            return None
+
+        def open(self) -> None:
+            return None
+
+    class DummyUI:
+        @staticmethod
+        def plotly(figure):
+            captured['figure'] = figure
+            return DummyElement()
+
+        @staticmethod
+        def context_menu() -> DummyContextMenu:
+            return DummyContextMenu()
+
+    import types
+
+    monkeypatch.setattr(
+        plotly_viewer_module,
+        'ui',
+        types.SimpleNamespace(plotly=DummyUI.plotly, context_menu=DummyUI.context_menu),
+    )
+
+    viewer = PlotlyRasterViewer()
+    data = np.arange(16, dtype=np.float32).reshape(4, 4)
+    asyncio.run(viewer.set_data(data, grid=_GRID))
+    assert viewer.has_data is True
+
+    asyncio.run(viewer.clear_data())
+
+    assert viewer.has_data is False
+    assert viewer.figure['data'] == []
+
+
 def test_build_before_set_data_returns_empty_figure(monkeypatch: pytest.MonkeyPatch) -> None:
     """Building before data is set should create an empty plot."""
     captured: dict[str, object] = {}

@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+from unittest.mock import AsyncMock, MagicMock
+
 import numpy as np
+import pytest
 
 from acqstore.acq_image.file_loaders.base_file_loader import ReferenceImage
 from cloudscope.event_bus import EventBus
@@ -108,34 +112,87 @@ def test_reference_image_view_resyncs_selection_from_app_state_on_show() -> None
     assert refreshed and refreshed[-1] == "b"
 
 
-def test_reference_image_payload_without_file_returns_placeholder() -> None:
-    """Missing file selection returns a placeholder payload."""
-    array, grid, message = _load_reference_plane_payload(None, None, None)
+def test_reference_image_payload_without_file_returns_empty() -> None:
+    """Missing file selection returns no reference plane."""
+    array, grid, message, is_real = _load_reference_plane_payload(None, None, None)
 
-    assert array.shape == (2, 2)
-    assert grid.dx == 1.0
+    assert array is None
+    assert grid is None
+    assert is_real is False
     assert "No file" in message
 
 
-def test_reference_image_payload_without_reference_returns_placeholder() -> None:
-    """AcqImages without reference images return a placeholder payload."""
-    array, grid, message = _load_reference_plane_payload("file", _AcqImage(None), 0)
+def test_reference_image_payload_without_reference_returns_empty() -> None:
+    """AcqImages without reference images return no reference plane."""
+    array, grid, message, is_real = _load_reference_plane_payload("file", _AcqImage(None), 0)
 
-    assert array.shape == (2, 2)
-    assert grid.dx == 1.0
+    assert array is None
+    assert grid is None
+    assert is_real is False
     assert "No reference" in message
 
 
 def test_reference_image_payload_uses_acqstore_plane_api() -> None:
     """ReferenceImageView payload loading delegates display logic to AcqStore."""
-    array, grid, message = _load_reference_plane_payload("file", _AcqImage(_reference_image()), 0)
+    array, grid, message, is_real = _load_reference_plane_payload(
+        "file", _AcqImage(_reference_image()), 0
+    )
 
+    assert is_real is True
+    assert array is not None
+    assert grid is not None
     np.testing.assert_array_equal(array, np.arange(6, dtype=np.uint16).reshape(2, 3))
     assert grid.dx == 0.5
     assert grid.dy == 0.25
     assert grid.x_unit == "um"
     assert grid.y_unit == "um"
     assert message == "Reference image"
+
+
+def test_refresh_reference_async_clears_viewer_when_no_reference(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Switching to a file without a reference image clears the raster viewer."""
+    async def _direct_io_bound(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    import cloudscope.views.reference_image_view as reference_image_view_module
+
+    monkeypatch.setattr(reference_image_view_module.run, 'io_bound', _direct_io_bound)
+
+    view = ReferenceImageView(EventBus())
+    view._viewer = MagicMock()
+    view._viewer.clear_data = AsyncMock()
+    view._viewer.set_data = AsyncMock()
+
+    asyncio.run(view._refresh_reference_async("file", _AcqImage(None), 0))
+
+    view._viewer.clear_data.assert_awaited_once()
+    view._viewer.set_data.assert_not_awaited()
+
+
+def test_refresh_reference_async_set_data_when_reference_exists(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A file with a reference image loads data into the raster viewer."""
+    async def _direct_io_bound(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    import cloudscope.views.reference_image_view as reference_image_view_module
+
+    monkeypatch.setattr(reference_image_view_module.run, 'io_bound', _direct_io_bound)
+
+    view = ReferenceImageView(EventBus())
+    view._viewer = MagicMock()
+    view._viewer.clear_data = AsyncMock()
+    view._viewer.set_data = AsyncMock()
+    view._apply_reference_contrast = AsyncMock()
+
+    asyncio.run(view._refresh_reference_async("file", _AcqImage(_reference_image()), 0))
+
+    view._viewer.clear_data.assert_not_awaited()
+    view._viewer.set_data.assert_awaited_once()
+    view._apply_reference_contrast.assert_awaited_once()
 
 
 def test_reference_contrast_window_uses_percentiles() -> None:

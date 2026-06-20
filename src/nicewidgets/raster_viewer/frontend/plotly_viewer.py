@@ -269,6 +269,28 @@ if (!plotDiv || !plotDiv.data) return;
             self._plot.update()
         return response
 
+    async def clear_data(self) -> None:
+        """Remove the current dataset and show an empty Plotly figure.
+
+        Returns:
+            None.
+        """
+        self._service = None
+        self._transform = None
+        self._overview_max_pixels = None
+        self._last_applied_x_range = None
+        self._heatmap_colorscale = DEFAULT_HEATMAP_COLORSCALE
+        self._contrast_zmin = None
+        self._contrast_zmax = None
+        self._axis_title_texts = {'xaxis': '', 'yaxis': ''}
+        self._plotly_trace_overlays.clear_overlays()
+        self._plotly_rois.set_rois([])
+        self._uirevision = self._new_uirevision()
+        self._plotly_dict = self._build_initial_figure()
+        if self._plot is not None:
+            self._plot.figure = self._plotly_dict
+            self._plot.update()
+
     async def apply_response(self, response: RenderResponse) -> None:
         """Apply a backend response to the browser-side Plotly plot."""
         if self._plot is None:

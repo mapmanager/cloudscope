@@ -180,7 +180,7 @@ class HomePage:
         panel_open_state = {
             'file_list': True,
             'analysis_plot': True,
-            'reference_image': True,
+            'reference_image': False,
             'velocity_pool': True,
         }
 
@@ -347,17 +347,23 @@ class HomePage:
             velocity_pool_view.hide()
 
         def _reset_home_expansions() -> None:
-            """Restore Home page SmartExpansion panels to the default open state.
+            """Restore Home page SmartExpansion panels to their default open state.
+
+            Reference image stays collapsed; other panels are opened.
 
             Returns:
                 None.
             """
-            for expansion in home_expansion_refs.values():
-                if expansion is not None:
+            for key, expansion in home_expansion_refs.items():
+                if expansion is None:
+                    continue
+                if key == 'reference_image':
+                    expansion.close()
+                else:
                     expansion.open()
             panel_open_state['file_list'] = True
             panel_open_state['analysis_plot'] = True
-            panel_open_state['reference_image'] = True
+            panel_open_state['reference_image'] = False
             panel_open_state['velocity_pool'] = True
 
         def _reset_home_layout(_event: ResetHomeLayoutIntent | None = None) -> None:
@@ -497,7 +503,7 @@ class HomePage:
                                             reference_image_expansion = SmartExpansion(
                                                 'Reference image',
                                                 icon='image',
-                                                initially_open=True,
+                                                initially_open=False,
                                                 on_open=_open_reference_image_panel,
                                                 on_close=_close_reference_image_panel,
                                             )
