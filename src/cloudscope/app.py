@@ -18,8 +18,8 @@ from cloudscope.devtools.mvc_telemetry import is_mvc_telemetry_enabled
 from cloudscope.utils.logging import get_logger, setup_logging
 from nicewidgets.utils.logging import setup_logging as setup_nicewidgets_logging
 
-setup_logging()
-setup_nicewidgets_logging()
+setup_logging(level='DEBUG')
+setup_nicewidgets_logging(level='DEBUG')
 setup_acqstore_logging()
 
 logger = get_logger(__name__)

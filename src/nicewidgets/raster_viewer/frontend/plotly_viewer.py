@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import time
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -78,6 +79,7 @@ OnRoiBoundsPreview = Callable[[int, float, float, float, float], None]
 
 _X_RANGE_ECHO_EPS = 1e-9
 _RELAYOUT_RENDER_DEBOUNCE_SECONDS = 0.12
+_RELAYOUT_SELF_UPDATE_SUPPRESSION_SECONDS = 0.35
 
 
 def _range_pair_equal(
@@ -162,10 +164,16 @@ class PlotlyRasterViewer:
         # bounds may be quantized/padded for pyramid rendering and should not
         # replace the displayed viewport.
         self._last_display_axis_ranges: tuple[tuple[float, float], tuple[float, float]] | None = None
-        # Last display ranges pushed by this viewer. Plotly emits relayout
-        # events after full figure updates; matching events are self-echoes,
-        # not new user input, and should not schedule another raster refresh.
+        # Last display ranges pushed by this viewer. This remains useful
+        # diagnostics/state, but relayout echo suppression must not rely on
+        # exact range equality because Plotly may normalize ranges after a
+        # figure update.
         self._last_applied_display_axis_ranges: tuple[tuple[float, float], tuple[float, float]] | None = None
+        # Relayout events emitted shortly after a relayout-driven full figure
+        # update are echoes of our own raster refresh, not new user gestures.
+        # Use a monotonic deadline instead of a boolean guard because browser
+        # Plotly events arrive asynchronously after ``_plot.update()`` returns.
+        self._suppress_relayout_until = 0.0
 
     def _js_plotly_graph_div(self) -> str:
         """Resolve the Plotly graph div from NiceGUI; bail out if missing (cf. ``el.data`` guard)."""
@@ -354,6 +362,7 @@ if (!plotDiv || !plotDiv.data) return;
         self._sync_trace_overlays_to_plotly_dict()
         self._apply_display_options_to_plotly_dict()
 
+        is_relayout_driven_apply = display_axis_ranges is not None
         if display_axis_ranges is None:
             if self._transform is not None:
                 x_range = self._transform.row_col_to_plot_x_range(response.bounds)
@@ -368,6 +377,8 @@ if (!plotDiv || !plotDiv.data) return;
             self._last_applied_display_axis_ranges = display_axis_ranges
             self._last_applied_x_range = display_axis_ranges[0]
 
+        if is_relayout_driven_apply:
+            self._begin_self_relayout_suppression()
         self._plot.figure = self._plotly_dict
         self._plot.update()
 
@@ -1298,12 +1309,21 @@ Plotly.restyle(plotDiv, {{
             return
 
         args = dict(getattr(event, 'args', {}) or {})
-        logger.info(f'args is:{args}')
+        logger.debug('Plotly relayout args: %s', args)
 
         # Plotly shape-drag relayout payloads are also delivered here. These
         # are ROI editing events, not viewport updates, and must remain
         # immediate so the edited ROI state and preview callback stay current.
         if self._handle_roi_shape_relayout(args):
+            return
+
+        # Full figure pushes performed by ``apply_response`` can emit one or
+        # more Plotly relayout callbacks after ``_plot.update()`` returns.
+        # Those callbacks are echoes of our own raster refresh and must not be
+        # interpreted as fresh user wheel/drag gestures, even if Plotly reports
+        # ranges that are only similar to what we requested.
+        if self._is_suppressing_self_relayout():
+            logger.debug('Ignoring relayout during self-update suppression window: %s', args)
             return
 
         # Ignore relayout payloads that do not carry axis ranges. Context-menu
@@ -1320,12 +1340,6 @@ Plotly.restyle(plotDiv, {{
         # quantized and are not the visual source of truth.
         display_axis_ranges = self._display_axis_ranges_from_relayout(args)
         if display_axis_ranges is None:
-            return
-
-        # Full figure replacement emits a follow-up Plotly relayout. If that
-        # payload matches the viewport this viewer just applied, it is an echo
-        # of our own update rather than a new user gesture.
-        if self._is_display_axis_range_echo(display_axis_ranges):
             return
 
         relayout = self._relayout_from_display_axis_ranges(display_axis_ranges)
@@ -1607,6 +1621,30 @@ Plotly.restyle(plotDiv, {{
             last[1],
             display_axis_ranges[1],
         )
+
+    def _begin_self_relayout_suppression(self) -> None:
+        """Ignore relayout echoes emitted by our next full figure update.
+
+        NiceGUI sends ``_plot.update()`` to the browser and returns before
+        Plotly has necessarily emitted every follow-up relayout event. A simple
+        boolean guard around ``_plot.update()`` would therefore be cleared too
+        early. A short monotonic deadline is intentionally conservative and
+        self-healing if Plotly emits zero, one, or several relayout callbacks.
+        """
+        self._suppress_relayout_until = max(
+            self._suppress_relayout_until,
+            time.monotonic() + _RELAYOUT_SELF_UPDATE_SUPPRESSION_SECONDS,
+        )
+
+    def _is_suppressing_self_relayout(self) -> bool:
+        """Return whether relayout callbacks are currently self-update echoes."""
+        if self._suppress_relayout_until <= 0.0:
+            return False
+        now = time.monotonic()
+        if now < self._suppress_relayout_until:
+            return True
+        self._suppress_relayout_until = 0.0
+        return False
 
     def _emit_x_range_from_relayout(self, merged: dict[str, object]) -> None:
         """Invoke ``on_x_range_changed`` from a merged relayout payload.

@@ -845,23 +845,21 @@ def test_display_axis_ranges_from_relayout_uses_cache_for_missing_axis() -> None
     assert ranges == ((11.0, 12.0), (30.0, 40.0))
 
 
-def test_on_plotly_relayout_suppresses_self_generated_display_echo() -> None:
-    """Relayout echo from a full figure update should not schedule a new render."""
+def test_on_plotly_relayout_suppresses_self_update_window_echo() -> None:
+    """Relayout echoes during our update window should not schedule renders."""
 
     async def run() -> None:
         viewer = PlotlyRasterViewer()
         await viewer.set_data(np.zeros((4, 4), dtype=np.float32), grid=_grid())
         viewer._plot = types.SimpleNamespace(id='p')
-        display_axis_ranges = ((1.0, 2.0), (3.0, 4.0))
-        viewer._last_display_axis_ranges = display_axis_ranges
-        viewer._last_applied_display_axis_ranges = display_axis_ranges
+        viewer._begin_self_relayout_suppression()
 
         await viewer._on_plotly_relayout(
             types.SimpleNamespace(
                 args={
-                    'xaxis.range': [1.0, 2.0],
+                    'xaxis.range': [1.01, 2.02],
                     'xaxis.autorange': False,
-                    'yaxis.range': [3.0, 4.0],
+                    'yaxis.range': [3.03, 4.04],
                     'yaxis.autorange': False,
                 }
             )
@@ -909,6 +907,7 @@ def test_apply_response_preserves_display_axis_ranges() -> None:
         assert viewer.figure['layout']['yaxis']['range'] == [5.0, 9.0]
         assert viewer._last_display_axis_ranges == ((3.0, 7.0), (5.0, 9.0))
         assert viewer._last_applied_display_axis_ranges == ((3.0, 7.0), (5.0, 9.0))
+        assert viewer._is_suppressing_self_relayout() is True
 
     asyncio.run(run())
 
