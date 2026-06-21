@@ -1,17 +1,28 @@
-from contextlib import contextmanager
+"""CZI file loader for CloudScope acquisition images.
+
+This module contains the CloudScope/acqstore CZI adapter. Pixel data are loaded
+from scene ``0`` lazily through :mod:`czifile`. Reference images are read from
+CZI attachments using the same attachment rules explored in the standalone CZI
+reference-image investigation scripts.
+"""
+
+from __future__ import annotations
+
 from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import replace
-from typing import Any
-from typing import BinaryIO
+from typing import Any, BinaryIO
+import xml.etree.ElementTree as ET
 
-import numpy as np
 import czifile
+import numpy as np
 
-from .base_file_loader import BaseFileLoader, ImageHeader
+from .base_file_loader import BaseFileLoader, ImageHeader, ReferenceImage
 from .oir_file_loader import _image_header_from_scene
 from acqstore.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
 
 class CziFileLoader(BaseFileLoader):
     """Lazy-loading CZI reader for scene ``0`` only."""
@@ -21,7 +32,11 @@ class CziFileLoader(BaseFileLoader):
 
     @contextmanager
     def _open_czi(self) -> Iterator[Any]:
-        """Yield an ``czifile.CziFile`` opened from :attr:`path` or :attr:`_stream`."""
+        """Yield a ``czifile.CziFile`` opened from :attr:`path` or :attr:`_stream`.
+
+        Yields:
+            Open ``czifile.CziFile`` instance.
+        """
         if self._stream is not None:
             self._stream.seek(0)
             with czifile.CziFile(self._stream) as czi:
@@ -32,13 +47,57 @@ class CziFileLoader(BaseFileLoader):
 
     @classmethod
     def read_header_from_stream(cls, stream: BinaryIO, filename: str) -> ImageHeader:
-        """Read CZI header from a stream without retaining the loader."""
+        """Read CZI header from a stream without retaining the loader.
+
+        Args:
+            stream: Binary stream positioned at a CZI file.
+            filename: Logical filename to store on the returned header.
+
+        Returns:
+            Header for the CZI file.
+        """
         return cls.from_stream(stream, filename).header
 
+    @property
+    def reference_image(self) -> ReferenceImage | None:
+        """Return a CZI reference/overview image snapshot when one exists.
+
+        CZI line-scan files can store the Zeiss frame/reference image as a
+        decoded attachment named ``Image`` with content type ``ZISRAW`` and
+        channel-first shape ``(C, Y, X)``. This property converts that attachment
+        into acqstore's shared :class:`ReferenceImage` object so CloudScope views
+        can display it without CZI-specific logic.
+
+        Returns:
+            Immutable :class:`ReferenceImage`, or ``None`` when the CZI has no
+            matching reference attachment.
+        """
+        if self._referenceImage is not None:
+            return self._referenceImage
+
+        with self._open_czi() as czi_file:
+            self._referenceImage = _reference_snapshot_from_czi(czi_file)
+
+        return self._referenceImage
+
     def read_header(self) -> ImageHeader:
+        """Read CZI image header metadata.
+
+        Returns:
+            Header for scene ``0``.
+        """
         return self._read_czi_header()
 
     def _physical_units_for_header(self, scene: Any) -> tuple[tuple[Any, ...], tuple[str, ...]]:
+        """Return per-axis physical calibration from a czifile scene.
+
+        Args:
+            scene: czifile scene-like object.
+
+        Returns:
+            Tuple of ``(physical_units, physical_units_labels)`` aligned to the
+            scene coordinates.
+        """
         czi_scene = scene
         xarr = czi_scene.asxarray()
         n = len(xarr.coords)
@@ -70,6 +129,9 @@ class CziFileLoader(BaseFileLoader):
 
         Common dimension patterns include ``('C','T','X')`` (line-scan),
         ``('C','T','Y','X')`` (frames), and ``('C','Y','X')`` (2D).
+
+        Returns:
+            Header for scene ``0`` with CloudScope-compatible line-scan dims.
         """
         logical = self.path
         with self._open_czi() as czi_file:
@@ -105,6 +167,199 @@ class CziFileLoader(BaseFileLoader):
         return header
 
     def _load_full_image_array(self) -> np.ndarray:
+        """Load full pixel data from CZI scene ``0``.
+
+        Returns:
+            NumPy array containing scene ``0`` pixels.
+        """
         logger.info('')
         with self._open_czi() as czi_file:
             return np.asarray(czi_file.scenes[0].asarray())
+
+
+def _reference_snapshot_from_czi(czi_file: Any) -> ReferenceImage | None:
+    """Build a :class:`ReferenceImage` from a CZI reference attachment.
+
+    Args:
+        czi_file: Open ``czifile.CziFile``-like object.
+
+    Returns:
+        Immutable reference-image snapshot, or ``None`` if no reference image
+        attachment matches the current CZI heuristic.
+    """
+    reference_array = _find_czi_reference_array(czi_file)
+    if reference_array is None:
+        return None
+
+    scaling = _reference_pixel_size_um_from_czi(czi_file)
+    if scaling is None:
+        coord_scales: tuple[tuple[str, float], ...] = ()
+    else:
+        x_um_per_pixel, y_um_per_pixel = scaling
+        coord_scales = (
+            ('X', x_um_per_pixel),
+            ('Y', y_um_per_pixel),
+        )
+
+    return ReferenceImage(
+        array=reference_array,
+        dims=('C', 'Y', 'X'),
+        num_channels=int(reference_array.shape[0]),
+        line_roi=None,
+        coord_units=(('X', 'um'), ('Y', 'um')),
+        coord_scales=coord_scales,
+        coords=(),
+    )
+
+
+def _find_czi_reference_array(czi_file: Any) -> np.ndarray | None:
+    """Return the first CZI attachment matching the reference-image heuristic.
+
+    Args:
+        czi_file: Open ``czifile.CziFile``-like object.
+
+    Returns:
+        Read-only ``(C, Y, X)`` reference image array, or ``None``.
+    """
+    for attachment in czi_file.attachments():
+        entry = attachment.attachment_entry
+        if not _is_czi_reference_attachment(entry):
+            continue
+        try:
+            data = attachment.data()
+        except Exception as exc:  # pragma: no cover - defensive around czifile decoding.
+            logger.warning('Could not decode CZI attachment %r: %s', getattr(entry, 'filename', ''), exc)
+            continue
+        if not isinstance(data, np.ndarray):
+            continue
+        array = np.asarray(data)
+        if not _is_channel_first_reference_array(array):
+            continue
+        array.setflags(write=False)
+        return array
+    return None
+
+
+def _is_czi_reference_attachment(entry: Any) -> bool:
+    """Return whether a CZI attachment entry has reference-image metadata.
+
+    Args:
+        entry: ``CziAttachmentEntry``-like object from ``attachment.attachment_entry``.
+
+    Returns:
+        ``True`` when the entry name and content type match the current
+        reference-image rule.
+    """
+    return getattr(entry, 'name', None) == 'Image' and _content_type_name(
+        getattr(entry, 'content_file_type', None)
+    ) == 'ZISRAW'
+
+
+def _is_channel_first_reference_array(array: np.ndarray) -> bool:
+    """Return whether an array looks like a CZI channel-first reference image.
+
+    Args:
+        array: Decoded attachment array.
+
+    Returns:
+        ``True`` for arrays shaped like ``(C, Y, X)``.
+    """
+    return (
+        array.ndim == 3
+        and array.shape[0] >= 1
+        and array.shape[0] <= 16
+        and array.shape[1] > 32
+        and array.shape[2] > 32
+    )
+
+
+def _reference_pixel_size_um_from_czi(czi_file: Any) -> tuple[float, float] | None:
+    """Return CZI reference pixel size from XML ``ScalingX`` and ``ScalingY``.
+
+    Args:
+        czi_file: Open ``czifile.CziFile``-like object.
+
+    Returns:
+        ``(x_um_per_pixel, y_um_per_pixel)``, or ``None`` if either scaling tag
+        is missing or invalid.
+    """
+    root = _xml_root_from_czi(czi_file)
+    if root is None:
+        return None
+    scaling_x_m = _first_float_text_by_tag(root, 'ScalingX')
+    scaling_y_m = _first_float_text_by_tag(root, 'ScalingY')
+    if scaling_x_m is None or scaling_y_m is None:
+        return None
+    return (scaling_x_m * 1e6, scaling_y_m * 1e6)
+
+
+def _xml_root_from_czi(czi_file: Any) -> ET.Element | None:
+    """Return parsed CZI XML metadata root using real ``czifile`` APIs.
+
+    Args:
+        czi_file: Open ``czifile.CziFile``-like object.
+
+    Returns:
+        XML root element, or ``None`` when metadata cannot be parsed.
+    """
+    root = getattr(czi_file, 'xml_element', None)
+    if root is not None:
+        return root
+    try:
+        metadata = czi_file.metadata()
+    except Exception:  # pragma: no cover - defensive around czifile metadata.
+        return None
+    if not metadata:
+        return None
+    try:
+        return ET.fromstring(metadata)
+    except ET.ParseError:
+        return None
+
+
+def _first_float_text_by_tag(root: ET.Element, tag_name: str) -> float | None:
+    """Return the first parseable float text for an XML tag.
+
+    Args:
+        root: XML metadata root.
+        tag_name: Namespace-stripped tag name to find.
+
+    Returns:
+        Parsed float, or ``None``.
+    """
+    for element in root.iter():
+        if _strip_namespace(str(element.tag)) != tag_name:
+            continue
+        text = (element.text or '').strip()
+        if not text:
+            continue
+        try:
+            return float(text)
+        except ValueError:
+            return None
+    return None
+
+
+def _strip_namespace(tag: str) -> str:
+    """Return an XML tag name without an ElementTree namespace prefix.
+
+    Args:
+        tag: XML element tag, possibly namespace-qualified.
+
+    Returns:
+        Namespace-stripped tag name.
+    """
+    return tag.rsplit('}', 1)[-1] if '}' in tag else tag
+
+
+def _content_type_name(content_type: Any) -> str:
+    """Return a stable CZI attachment content-type name.
+
+    Args:
+        content_type: CZI content type enum or string.
+
+    Returns:
+        Enum value when present, otherwise ``str(content_type)``.
+    """
+    value = getattr(content_type, 'value', content_type)
+    return str(value)

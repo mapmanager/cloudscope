@@ -87,3 +87,116 @@ def test_read_czi_header_leaves_existing_y_dims_unchanged(
     assert header.dims == dims
     assert header.sizes == raw.sizes
     assert 'remapping \'T\' axis to \'Y\'' not in caplog.text
+
+
+class _FakeContentType:
+    """Minimal enum-like content type for CZI attachment tests."""
+
+    def __init__(self, value: str) -> None:
+        self.value = value
+
+
+class _FakeAttachmentEntry:
+    """Minimal CZI attachment entry with the fields used by CziFileLoader."""
+
+    def __init__(self, name: str, content_file_type: str, filename: str = '') -> None:
+        self.name = name
+        self.content_file_type = _FakeContentType(content_file_type)
+        self.filename = filename
+
+
+class _FakeAttachment:
+    """Minimal CZI attachment object exposing attachment_entry and data()."""
+
+    def __init__(self, entry: _FakeAttachmentEntry, data: object) -> None:
+        self.attachment_entry = entry
+        self._data = data
+
+    def data(self) -> object:
+        """Return decoded fake attachment data."""
+        return self._data
+
+
+class _FakeCziWithReference:
+    """Minimal CZI object exposing attachments(), xml_element, and metadata()."""
+
+    def __init__(self, attachments: list[_FakeAttachment], xml: str | None = None) -> None:
+        self._attachments = attachments
+        self.xml_element = None
+        self._xml = xml or '<ImageDocument />'
+
+    def attachments(self) -> list[_FakeAttachment]:
+        """Return fake CZI attachments."""
+        return self._attachments
+
+    def metadata(self) -> str:
+        """Return fake CZI XML metadata."""
+        return self._xml
+
+
+@contextmanager
+def _fake_open_czi_reference(_self: CziFileLoader):
+    """Yield a fake CZI containing one reference attachment and XML scaling."""
+    reference = np.arange(2 * 64 * 96, dtype=np.uint8).reshape(2, 64, 96)
+    attachments = [
+        _FakeAttachment(
+            _FakeAttachmentEntry('Thumbnail', 'JPG', 'thumbnail.jpg'),
+            np.zeros((16, 16, 3), dtype=np.uint8),
+        ),
+        _FakeAttachment(
+            _FakeAttachmentEntry('Image', 'ZISRAW', 'Image@123.zisraw'),
+            reference,
+        ),
+    ]
+    xml = '<ImageDocument><ScalingX>1.5e-8</ScalingX><ScalingY>2.5e-8</ScalingY></ImageDocument>'
+    yield _FakeCziWithReference(attachments, xml=xml)
+
+
+@contextmanager
+def _fake_open_czi_without_reference(_self: CziFileLoader):
+    """Yield a fake CZI without a channel-first Image/ZISRAW attachment."""
+    attachments = [
+        _FakeAttachment(
+            _FakeAttachmentEntry('Image', 'ZISRAW', 'Image@thin.zisraw'),
+            np.zeros((2, 1024), dtype=np.float32),
+        )
+    ]
+    yield _FakeCziWithReference(attachments)
+
+
+def test_czi_reference_image_from_zisraw_attachment() -> None:
+    """CZI Image/ZISRAW ``(C, Y, X)`` attachment becomes ReferenceImage."""
+    raw = _czi_header(dims=('C', 'Y', 'X'), shape=(2, 10, 10))
+    loader = CziFileLoader('/tmp/reference.czi', header=raw)
+
+    with patch.object(CziFileLoader, '_open_czi', _fake_open_czi_reference):
+        reference = loader.reference_image
+
+    assert reference is not None
+    assert reference.array.shape == (2, 64, 96)
+    assert reference.array.flags.writeable is False
+    assert reference.dims == ('C', 'Y', 'X')
+    assert reference.num_channels == 2
+    assert reference.line_roi is None
+    assert reference.coord_units == (('X', 'um'), ('Y', 'um'))
+    scales = dict(reference.coord_scales)
+    assert scales['X'] == pytest.approx(0.015)
+    assert scales['Y'] == pytest.approx(0.025)
+
+    plane = reference.get_plane(channel=1)
+    assert plane.array.shape == (64, 96)
+    assert plane.dx == pytest.approx(0.025)
+    assert plane.dy == pytest.approx(0.015)
+    assert plane.x_unit == 'um'
+    assert plane.y_unit == 'um'
+
+
+def test_czi_reference_image_ignores_non_reference_attachments() -> None:
+    """Thin float ZISRAW arrays are not treated as reference images."""
+    raw = _czi_header(dims=('C', 'Y', 'X'), shape=(2, 10, 10))
+    loader = CziFileLoader('/tmp/no-reference.czi', header=raw)
+
+    with patch.object(CziFileLoader, '_open_czi', _fake_open_czi_without_reference):
+        reference = loader.reference_image
+
+    assert reference is None
