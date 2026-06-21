@@ -144,6 +144,11 @@ class PlotlyRasterViewer:
         self._context_menu_builder: PlotlyRasterViewerContextMenu | None = None
         self._pending_relayout_render: dict[str, object] | None = None
         self._relayout_render_task: asyncio.Task[None] | None = None
+        # Last successful browser plot size measurement. Relayout raster
+        # refreshes may run from a debounced task without NiceGUI's implicit
+        # callback context; this cache lets those refreshes continue when a
+        # fresh browser measurement is temporarily unavailable.
+        self._last_viewport_size_px: tuple[int, int] | None = None
 
     def _js_plotly_graph_div(self) -> str:
         """Resolve the Plotly graph div from NiceGUI; bail out if missing (cf. ``el.data`` guard)."""
@@ -1226,6 +1231,9 @@ Plotly.restyle(plotDiv, {{
         if self._handle_roi_shape_relayout(args):
             return
 
+        logger.info(f'args is:{args}') 
+
+
         # Ignore relayout payloads that do not carry axis ranges. Context-menu
         # display changes, shape redraws, and other layout-only events should
         # not ask the backend raster service for a new viewport image.
@@ -1474,7 +1482,15 @@ Plotly.restyle(plotDiv, {{
         *,
         relayout: dict[str, object],
     ) -> PlotlyViewportPayload | None:
-        """Build relayout payload with current browser viewport size."""
+        """Build relayout payload with current browser viewport size.
+
+        The relayout callback can schedule this method from a debounced
+        background task. In that task NiceGUI does not provide the implicit
+        client/slot context required by ``ui.run_javascript``. Always execute
+        JavaScript through the explicit Plotly element client and fall back to
+        the last successful plot-size measurement when a fresh measurement is
+        temporarily unavailable.
+        """
         if self._plot is None:
             return None
 
@@ -1488,19 +1504,28 @@ return {{
   height_px: Math.max(1, Math.round(rect.height)),
 }};
 """
+        result: object | None = None
         try:
-            result = await ui.run_javascript(js, timeout=2.0)
-        except TimeoutError:
-            return None
+            result = await self._plot.client.run_javascript(js, timeout=2.0)
+        except (TimeoutError, RuntimeError):
+            # A timeout or disconnected/invalid client should not crash a
+            # debounced relayout task. Use the cached size below if possible.
+            result = None
 
-        if not isinstance(result, dict):
-            return None
+        if isinstance(result, dict):
+            width_px = int(result.get('width_px', 0) or 0)
+            height_px = int(result.get('height_px', 0) or 0)
+            if width_px > 0 and height_px > 0:
+                self._last_viewport_size_px = (width_px, height_px)
+                return PlotlyViewportPayload(
+                    relayout=relayout,
+                    width_px=width_px,
+                    height_px=height_px,
+                )
 
-        width_px = int(result.get('width_px', 0) or 0)
-        height_px = int(result.get('height_px', 0) or 0)
-        if width_px <= 0 or height_px <= 0:
+        if self._last_viewport_size_px is None:
             return None
-
+        width_px, height_px = self._last_viewport_size_px
         return PlotlyViewportPayload(
             relayout=relayout,
             width_px=width_px,

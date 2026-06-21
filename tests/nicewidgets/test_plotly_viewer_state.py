@@ -822,3 +822,67 @@ def test_on_plotly_relayout_non_axis_relayout_does_not_schedule_render() -> None
         assert viewer._relayout_render_task is None
 
     asyncio.run(run())
+
+def test_build_viewport_payload_uses_explicit_plot_client_and_caches_size() -> None:
+    """Viewport measurement should not depend on NiceGUI implicit UI context."""
+
+    class FakeClient:
+        async def run_javascript(self, js: str, timeout: float) -> dict[str, int]:
+            assert 'getBoundingClientRect' in js
+            assert timeout == 2.0
+            return {'width_px': 321, 'height_px': 123}
+
+    async def run() -> None:
+        viewer = PlotlyRasterViewer()
+        viewer._plot = types.SimpleNamespace(id='p', client=FakeClient())
+
+        payload = await viewer._build_viewport_payload(relayout={'xaxis.range': [1.0, 2.0]})
+
+        assert payload is not None
+        assert payload.width_px == 321
+        assert payload.height_px == 123
+        assert payload.relayout == {'xaxis.range': [1.0, 2.0]}
+        assert viewer._last_viewport_size_px == (321, 123)
+
+    asyncio.run(run())
+
+
+def test_build_viewport_payload_falls_back_to_cached_size_after_js_failure() -> None:
+    """Debounced relayout should tolerate transient JS/client failures after one measurement."""
+
+    class FakeClient:
+        async def run_javascript(self, js: str, timeout: float) -> None:
+            raise RuntimeError('client context unavailable')
+
+    async def run() -> None:
+        viewer = PlotlyRasterViewer()
+        viewer._plot = types.SimpleNamespace(id='p', client=FakeClient())
+        viewer._last_viewport_size_px = (200, 80)
+
+        payload = await viewer._build_viewport_payload(relayout={'yaxis.range': [3.0, 4.0]})
+
+        assert payload is not None
+        assert payload.width_px == 200
+        assert payload.height_px == 80
+        assert payload.relayout == {'yaxis.range': [3.0, 4.0]}
+
+    asyncio.run(run())
+
+
+def test_build_viewport_payload_returns_none_when_js_fails_without_cached_size() -> None:
+    """A first relayout with no browser size should be skipped instead of crashing."""
+
+    class FakeClient:
+        async def run_javascript(self, js: str, timeout: float) -> None:
+            raise RuntimeError('client context unavailable')
+
+    async def run() -> None:
+        viewer = PlotlyRasterViewer()
+        viewer._plot = types.SimpleNamespace(id='p', client=FakeClient())
+
+        payload = await viewer._build_viewport_payload(relayout={'xaxis.range': [0.0, 1.0]})
+
+        assert payload is None
+
+    asyncio.run(run())
+
