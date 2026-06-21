@@ -35,6 +35,7 @@ from nicewidgets.raster_viewer.frontend.plotly_protocol import (
     build_plotly_figure,
     parse_relayout_payload,
 )
+from nicewidgets.raster_viewer.frontend import plotly_viewer as plotly_viewer_module
 from nicewidgets.raster_viewer.frontend.plotly_viewer import PlotlyRasterViewer
 from nicewidgets.raster_viewer.frontend.roi_overlay import RectRoiOverlay
 from nicewidgets.raster_viewer.frontend.trace_overlay import PlotlyTraceOverlay
@@ -690,3 +691,134 @@ def test_on_plotly_relayout_ignores_unrelated_args() -> None:
     viewer._plot = types.SimpleNamespace(id='p')
 
     asyncio.run(viewer._on_plotly_relayout(types.SimpleNamespace(args={'dragmode': 'pan'})))
+
+
+
+def test_on_plotly_relayout_emits_x_range_immediately_and_schedules_render() -> None:
+    """Axis relayout should emit x-range now but debounce backend rendering."""
+    events: list[tuple[float | None, float | None]] = []
+
+    async def run() -> None:
+        viewer = PlotlyRasterViewer(on_x_range_changed=lambda x0, x1: events.append((x0, x1)))
+        await viewer.set_data(np.zeros((4, 4), dtype=np.float32), grid=_grid())
+        viewer._plot = types.SimpleNamespace(id='p')
+        rendered: list[PlotlyViewportPayload] = []
+
+        async def fake_build_viewport_payload(*, relayout: dict[str, object]) -> PlotlyViewportPayload:
+            return PlotlyViewportPayload(relayout=relayout, width_px=100, height_px=50)
+
+        async def fake_rerender(payload: PlotlyViewportPayload) -> None:
+            rendered.append(payload)
+
+        viewer._build_viewport_payload = fake_build_viewport_payload  # type: ignore[method-assign]
+        viewer.rerender_from_plotly = fake_rerender  # type: ignore[method-assign]
+
+        await viewer._on_plotly_relayout(
+            types.SimpleNamespace(
+                args={
+                    'xaxis.range[0]': 2.0,
+                    'xaxis.range[1]': 6.0,
+                    'yaxis.range[0]': 0.0,
+                    'yaxis.range[1]': 8.0,
+                }
+            )
+        )
+
+        assert events == [(2.0, 6.0)]
+        assert rendered == []
+        assert viewer._relayout_render_task is not None
+        viewer._cancel_pending_relayout_render()
+
+    asyncio.run(run())
+
+
+def test_debounced_relayout_render_uses_latest_pending_relayout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A burst of relayouts should render only the newest pending viewport."""
+    monkeypatch.setattr(plotly_viewer_module, '_RELAYOUT_RENDER_DEBOUNCE_SECONDS', 0.0)
+    rendered: list[dict[str, object]] = []
+
+    async def run() -> None:
+        viewer = PlotlyRasterViewer()
+        await viewer.set_data(np.zeros((4, 4), dtype=np.float32), grid=_grid())
+        viewer._plot = types.SimpleNamespace(id='p')
+
+        async def fake_build_viewport_payload(*, relayout: dict[str, object]) -> PlotlyViewportPayload:
+            return PlotlyViewportPayload(relayout=relayout, width_px=100, height_px=50)
+
+        async def fake_rerender(payload: PlotlyViewportPayload) -> None:
+            rendered.append(payload.relayout)
+
+        viewer._build_viewport_payload = fake_build_viewport_payload  # type: ignore[method-assign]
+        viewer.rerender_from_plotly = fake_rerender  # type: ignore[method-assign]
+
+        viewer._schedule_debounced_relayout_render({'xaxis.range': [0.0, 1.0]})
+        viewer._schedule_debounced_relayout_render({'xaxis.range': [2.0, 3.0]})
+        assert viewer._relayout_render_task is not None
+        await viewer._relayout_render_task
+
+    asyncio.run(run())
+
+    assert rendered == [{'xaxis.range': [2.0, 3.0]}]
+
+
+def test_debounced_relayout_render_processes_new_pending_after_inflight_render(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A relayout arriving during render should trigger one follow-up render."""
+    monkeypatch.setattr(plotly_viewer_module, '_RELAYOUT_RENDER_DEBOUNCE_SECONDS', 0.0)
+    rendered: list[dict[str, object]] = []
+
+    async def run() -> None:
+        viewer = PlotlyRasterViewer()
+        await viewer.set_data(np.zeros((4, 4), dtype=np.float32), grid=_grid())
+        viewer._plot = types.SimpleNamespace(id='p')
+
+        async def fake_build_viewport_payload(*, relayout: dict[str, object]) -> PlotlyViewportPayload:
+            return PlotlyViewportPayload(relayout=relayout, width_px=100, height_px=50)
+
+        async def fake_rerender(payload: PlotlyViewportPayload) -> None:
+            rendered.append(payload.relayout)
+            if len(rendered) == 1:
+                viewer._schedule_debounced_relayout_render({'xaxis.range': [5.0, 6.0]})
+
+        viewer._build_viewport_payload = fake_build_viewport_payload  # type: ignore[method-assign]
+        viewer.rerender_from_plotly = fake_rerender  # type: ignore[method-assign]
+
+        viewer._schedule_debounced_relayout_render({'xaxis.range': [0.0, 1.0]})
+        assert viewer._relayout_render_task is not None
+        await viewer._relayout_render_task
+
+    asyncio.run(run())
+
+    assert rendered == [{'xaxis.range': [0.0, 1.0]}, {'xaxis.range': [5.0, 6.0]}]
+
+
+def test_on_plotly_relayout_roi_shape_relayout_does_not_schedule_render() -> None:
+    """ROI edit relayouts should stay immediate and bypass debounced raster rendering."""
+    async def run() -> None:
+        viewer = PlotlyRasterViewer()
+        await viewer.set_data(np.zeros((4, 4), dtype=np.float32), grid=_grid())
+        viewer._plot = types.SimpleNamespace(id='p')
+        viewer._handle_roi_shape_relayout = lambda _args: True  # type: ignore[method-assign]
+
+        await viewer._on_plotly_relayout(types.SimpleNamespace(args={'shapes[0].x0': 1.0}))
+
+        assert viewer._pending_relayout_render is None
+        assert viewer._relayout_render_task is None
+
+    asyncio.run(run())
+
+
+def test_on_plotly_relayout_non_axis_relayout_does_not_schedule_render() -> None:
+    """Non-axis relayout payloads should not schedule backend raster rendering."""
+    async def run() -> None:
+        viewer = PlotlyRasterViewer()
+        await viewer.set_data(np.zeros((4, 4), dtype=np.float32), grid=_grid())
+        viewer._plot = types.SimpleNamespace(id='p')
+
+        await viewer._on_plotly_relayout(types.SimpleNamespace(args={'dragmode': 'pan'}))
+
+        assert viewer._pending_relayout_render is None
+        assert viewer._relayout_render_task is None
+
+    asyncio.run(run())

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 from collections.abc import Callable, Sequence
@@ -76,6 +77,7 @@ OnPlotlyXRangeChanged = Callable[[float | None, float | None], None]
 OnRoiBoundsPreview = Callable[[int, float, float, float, float], None]
 
 _X_RANGE_ECHO_EPS = 1e-9
+_RELAYOUT_RENDER_DEBOUNCE_SECONDS = 0.12
 
 
 def _x_range_equal(
@@ -140,6 +142,8 @@ class PlotlyRasterViewer:
         self._square_plot_scaleratio = 1.0
         self._ctx_menu: ui.context_menu | None = None
         self._context_menu_builder: PlotlyRasterViewerContextMenu | None = None
+        self._pending_relayout_render: dict[str, object] | None = None
+        self._relayout_render_task: asyncio.Task[None] | None = None
 
     def _js_plotly_graph_div(self) -> str:
         """Resolve the Plotly graph div from NiceGUI; bail out if missing (cf. ``el.data`` guard)."""
@@ -222,6 +226,7 @@ if (!plotDiv || !plotDiv.data) return;
         Returns:
             Initial full-image PNG response for the new dataset.
         """
+        self._cancel_pending_relayout_render()
         source = BackendImage(data, grid=grid)
         self._display_options.square_plot = source.height == source.width
         self._square_plot_scaleratio = self._square_plot_scaleratio_for_source(source)
@@ -275,6 +280,7 @@ if (!plotDiv || !plotDiv.data) return;
         Returns:
             None.
         """
+        self._cancel_pending_relayout_render()
         self._service = None
         self._transform = None
         self._overview_max_pixels = None
@@ -1178,6 +1184,7 @@ Plotly.restyle(plotDiv, {{
 
         logger.info('')
 
+        self._cancel_pending_relayout_render()
         self._uirevision = self._new_uirevision()
         response = self._service.full_image_png(
             display_style=self._display_style(),
@@ -1199,33 +1206,106 @@ Plotly.restyle(plotDiv, {{
         return
 
     async def _on_plotly_relayout(self, event) -> None:
-        """Handle Plotly relayout: pan, wheel, or axis zoom (partial keys merged)."""
+        """Handle Plotly relayout events from pan, wheel zoom, axis zoom, and ROI edits.
+
+        Plotly has already updated the browser-side view when this callback
+        runs. The raster viewer uses the callback to decide which Python-side
+        state must follow the browser event. ROI shape edits stay immediate.
+        Axis-range changes emit their x-range callback immediately, but the
+        expensive backend raster render is debounced so rapid mouse-wheel
+        events do not queue many full ``ui.plotly`` figure replacements.
+        """
         if self._service is None or self._plot is None or self._transform is None:
             return
 
         args = dict(getattr(event, 'args', {}) or {})
 
-        logger.info('args is:')
-        # pprint(args, indent=4, sort_dicts=False)
-        # # number of shapes:
-        # num_shapes = len(args.get('shapes', []))
-        # logger.info(f'num_shapes: {num_shapes}')
-        # pprint args, skipping 'shapes' key
-        
-
+        # Plotly shape-drag relayout payloads are also delivered here. These
+        # are ROI editing events, not viewport updates, and must remain
+        # immediate so the edited ROI state and preview callback stay current.
         if self._handle_roi_shape_relayout(args):
             return
 
+        # Ignore relayout payloads that do not carry axis ranges. Context-menu
+        # display changes, shape redraws, and other layout-only events should
+        # not ask the backend raster service for a new viewport image.
         if not any(k.startswith('xaxis.range') or k.startswith('yaxis.range') for k in args):
             return
 
+        # Plotly may send partial range keys for wheel/pan interactions. Merge
+        # them before any consumer sees the range or the raster service parses
+        # it against the current bounds.
         merged = merge_partial_relayout(args, self._transform, self._current_bounds)
-        self._emit_x_range_from_relayout(merged)
-        viewport = await self._build_viewport_payload(relayout=merged)
-        if viewport is None:
-            return
 
-        await self.rerender_from_plotly(viewport)
+        # Keep this synchronous and immediate: external CloudScope state uses
+        # x-range callbacks to track the visible row/time range. Only the
+        # expensive raster rerender below is debounced.
+        self._emit_x_range_from_relayout(merged)
+
+        # Plotly has already zoomed/panned the current browser plot. This
+        # scheduled refresh only swaps in raster data appropriate for the final
+        # viewport after a burst of wheel events settles.
+        self._schedule_debounced_relayout_render(merged)
+
+    def _schedule_debounced_relayout_render(self, relayout: dict[str, object]) -> None:
+        """Schedule one coalesced backend raster refresh for axis relayouts.
+
+        Args:
+            relayout: Merged Plotly relayout payload for the latest viewport.
+
+        Returns:
+            None.
+        """
+        self._pending_relayout_render = dict(relayout)
+        task = self._relayout_render_task
+        if task is not None and not task.done():
+            return
+        self._relayout_render_task = asyncio.create_task(self._debounced_relayout_render_loop())
+
+    async def _debounced_relayout_render_loop(self) -> None:
+        """Coalesce rapid axis relayouts and render only the newest viewport.
+
+        Mouse-wheel zoom can emit many Plotly relayout events while the browser
+        view is already changing smoothly. Rendering every intermediate
+        viewport through Python causes repeated full Plotly figure updates and
+        visible flicker. This loop waits briefly for a burst to settle, renders
+        the newest pending relayout, and repeats only if another relayout
+        arrived while the previous render was in flight.
+        """
+        try:
+            while True:
+                await asyncio.sleep(_RELAYOUT_RENDER_DEBOUNCE_SECONDS)
+
+                relayout = self._pending_relayout_render
+                self._pending_relayout_render = None
+                if relayout is None:
+                    return
+
+                viewport = await self._build_viewport_payload(relayout=relayout)
+                if viewport is not None:
+                    await self.rerender_from_plotly(viewport)
+
+                if self._pending_relayout_render is None:
+                    return
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception('Failed during debounced Plotly relayout render.')
+        finally:
+            if asyncio.current_task() is self._relayout_render_task:
+                self._relayout_render_task = None
+
+    def _cancel_pending_relayout_render(self) -> None:
+        """Cancel any scheduled relayout render before replacing/resetting data.
+
+        Returns:
+            None.
+        """
+        self._pending_relayout_render = None
+        task = self._relayout_render_task
+        if task is not None and not task.done():
+            task.cancel()
+        self._relayout_render_task = None
 
     def _handle_roi_shape_relayout(self, args: dict[str, object]) -> bool:
         """Handle Plotly shape drag relayout while ROI editing is active.
