@@ -845,21 +845,23 @@ def test_display_axis_ranges_from_relayout_uses_cache_for_missing_axis() -> None
     assert ranges == ((11.0, 12.0), (30.0, 40.0))
 
 
-def test_on_plotly_relayout_suppresses_self_update_window_echo() -> None:
-    """Relayout echoes during our update window should not schedule renders."""
+def test_on_plotly_relayout_suppresses_self_generated_display_echo() -> None:
+    """Relayout echo from a full figure update should not schedule a new render."""
 
     async def run() -> None:
         viewer = PlotlyRasterViewer()
         await viewer.set_data(np.zeros((4, 4), dtype=np.float32), grid=_grid())
         viewer._plot = types.SimpleNamespace(id='p')
-        viewer._begin_self_relayout_suppression()
+        display_axis_ranges = ((1.0, 2.0), (3.0, 4.0))
+        viewer._last_display_axis_ranges = display_axis_ranges
+        viewer._last_applied_display_axis_ranges = display_axis_ranges
 
         await viewer._on_plotly_relayout(
             types.SimpleNamespace(
                 args={
-                    'xaxis.range': [1.01, 2.02],
+                    'xaxis.range': [1.0, 2.0],
                     'xaxis.autorange': False,
-                    'yaxis.range': [3.03, 4.04],
+                    'yaxis.range': [3.0, 4.0],
                     'yaxis.autorange': False,
                 }
             )
@@ -907,7 +909,6 @@ def test_apply_response_preserves_display_axis_ranges() -> None:
         assert viewer.figure['layout']['yaxis']['range'] == [5.0, 9.0]
         assert viewer._last_display_axis_ranges == ((3.0, 7.0), (5.0, 9.0))
         assert viewer._last_applied_display_axis_ranges == ((3.0, 7.0), (5.0, 9.0))
-        assert viewer._is_suppressing_self_relayout() is True
 
     asyncio.run(run())
 
@@ -974,3 +975,123 @@ def test_build_viewport_payload_returns_none_when_js_fails_without_cached_size()
 
     asyncio.run(run())
 
+
+
+def test_apply_response_restyles_same_image_trace_without_layout_update() -> None:
+    """Relayout refresh with same image trace should restyle trace 0 only."""
+    from nicewidgets.raster_viewer.backend.image_model import RenderResponse
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.js_calls: list[str] = []
+
+        async def run_javascript(self, js: str, timeout: float) -> None:
+            self.js_calls.append(js)
+            assert timeout == 10.0
+
+    class FakePlot:
+        def __init__(self) -> None:
+            self.id = 'plot-id'
+            self.figure = {}
+            self.updated = False
+            self.client = FakeClient()
+
+        def update(self) -> None:
+            self.updated = True
+
+    async def run() -> None:
+        viewer = PlotlyRasterViewer()
+        fake_plot = FakePlot()
+        viewer._plot = fake_plot
+        viewer._plotly_dict = {
+            'data': [{'type': 'image', 'source': 'old', 'x0': 0.0, 'y0': 0.0, 'dx': 1.0, 'dy': 1.0}],
+            'layout': {'xaxis': {'range': [10.0, 20.0]}, 'yaxis': {'range': [30.0, 40.0]}},
+        }
+        response = RenderResponse(
+            mode='image_png',
+            level=1,
+            bounds=RowColBounds(row_min=1, row_max=3, col_min=2, col_max=4),
+            shape=(10, 10),
+            grid=_grid(),
+            x0=4.0,
+            y0=8.0,
+            dx=2.0,
+            dy=4.0,
+            png_data_uri='data:image/png;base64,NEW',
+        )
+
+        await viewer.apply_response(response, display_axis_ranges=((10.0, 20.0), (30.0, 40.0)))
+
+        assert fake_plot.updated is False
+        assert len(fake_plot.client.js_calls) == 1
+        js = fake_plot.client.js_calls[0]
+        assert 'Plotly.restyle' in js
+        assert 'Plotly.relayout' not in js
+        assert 'xaxis' not in js
+        assert 'yaxis' not in js
+        assert viewer.figure['layout']['xaxis']['range'] == [10.0, 20.0]
+        assert viewer.figure['layout']['yaxis']['range'] == [30.0, 40.0]
+        assert viewer.figure['data'][0]['source'] == 'data:image/png;base64,NEW'
+
+    asyncio.run(run())
+
+
+def test_apply_response_restyles_same_heatmap_trace_without_layout_update() -> None:
+    """Relayout refresh with same heatmap trace should restyle trace 0 only."""
+    from nicewidgets.raster_viewer.backend.image_model import RenderResponse
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.js_calls: list[str] = []
+
+        async def run_javascript(self, js: str, timeout: float) -> None:
+            self.js_calls.append(js)
+            assert timeout == 10.0
+
+    class FakePlot:
+        def __init__(self) -> None:
+            self.id = 'plot-id'
+            self.figure = {}
+            self.updated = False
+            self.client = FakeClient()
+
+        def update(self) -> None:
+            self.updated = True
+
+    async def run() -> None:
+        viewer = PlotlyRasterViewer()
+        fake_plot = FakePlot()
+        viewer._plot = fake_plot
+        viewer._plotly_dict = {
+            'data': [{'type': 'heatmap', 'z': [[0.0]], 'x0': 0.0, 'y0': 0.0, 'dx': 1.0, 'dy': 1.0}],
+            'layout': {'xaxis': {'range': [1.0, 2.0]}, 'yaxis': {'range': [3.0, 4.0]}},
+        }
+        response = RenderResponse(
+            mode='heatmap_z',
+            level=0,
+            bounds=RowColBounds(row_min=0, row_max=2, col_min=0, col_max=2),
+            shape=(2, 2),
+            grid=_grid(),
+            x0=0.0,
+            y0=0.0,
+            dx=2.0,
+            dy=4.0,
+            z=np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32),
+            zmin=1.0,
+            zmax=4.0,
+        )
+
+        await viewer.apply_response(response, display_axis_ranges=((1.0, 2.0), (3.0, 4.0)))
+
+        assert fake_plot.updated is False
+        assert len(fake_plot.client.js_calls) == 1
+        js = fake_plot.client.js_calls[0]
+        assert 'Plotly.restyle' in js
+        assert 'Plotly.relayout' not in js
+        assert 'xaxis' not in js
+        assert 'yaxis' not in js
+        assert viewer.figure['layout']['xaxis']['range'] == [1.0, 2.0]
+        assert viewer.figure['layout']['yaxis']['range'] == [3.0, 4.0]
+        assert viewer.figure['data'][0]['z'] == [[1.0, 2.0], [3.0, 4.0]]
+
+    asyncio.run(run())

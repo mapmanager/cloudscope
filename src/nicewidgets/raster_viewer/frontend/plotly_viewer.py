@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import math
-import time
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -79,7 +78,6 @@ OnRoiBoundsPreview = Callable[[int, float, float, float, float], None]
 
 _X_RANGE_ECHO_EPS = 1e-9
 _RELAYOUT_RENDER_DEBOUNCE_SECONDS = 0.12
-_RELAYOUT_SELF_UPDATE_SUPPRESSION_SECONDS = 0.35
 
 
 def _range_pair_equal(
@@ -164,16 +162,10 @@ class PlotlyRasterViewer:
         # bounds may be quantized/padded for pyramid rendering and should not
         # replace the displayed viewport.
         self._last_display_axis_ranges: tuple[tuple[float, float], tuple[float, float]] | None = None
-        # Last display ranges pushed by this viewer. This remains useful
-        # diagnostics/state, but relayout echo suppression must not rely on
-        # exact range equality because Plotly may normalize ranges after a
-        # figure update.
+        # Last display ranges pushed by this viewer. Plotly emits relayout
+        # events after full figure updates; matching events are self-echoes,
+        # not new user input, and should not schedule another raster refresh.
         self._last_applied_display_axis_ranges: tuple[tuple[float, float], tuple[float, float]] | None = None
-        # Relayout events emitted shortly after a relayout-driven full figure
-        # update are echoes of our own raster refresh, not new user gestures.
-        # Use a monotonic deadline instead of a boolean guard because browser
-        # Plotly events arrive asynchronously after ``_plot.update()`` returns.
-        self._suppress_relayout_until = 0.0
 
     def _js_plotly_graph_div(self) -> str:
         """Resolve the Plotly graph div from NiceGUI; bail out if missing (cf. ``el.data`` guard)."""
@@ -352,17 +344,35 @@ if (!plotDiv || !plotDiv.data) return;
         if self._plot is None:
             raise RuntimeError('Viewer must be built before applying responses.')
 
-        self._current_bounds = response.bounds
-        self._plotly_dict = build_plotly_figure(
+        previous_trace_type = self._raster_trace_type()
+        next_plotly_dict = build_plotly_figure(
             response=response,
             uirevision=self._uirevision,
             heatmap_colorscale=self._heatmap_colorscale,
         )
+
+        # Relayout-driven raster refreshes happen after Plotly has already
+        # applied the user's pan/zoom in the browser. When the raster trace type
+        # does not change, update trace 0 only with ``Plotly.restyle`` so the
+        # client-owned x/y axis ranges are left untouched. Full figure rebuilds
+        # remain the path for initial load, reset, ROI/layout changes, and
+        # PNG<->heatmap trace-type switches.
+        if display_axis_ranges is not None and self._can_restyle_raster_trace(response, previous_trace_type):
+            self._current_bounds = response.bounds
+            self._replace_local_raster_trace(next_plotly_dict)
+            self._sync_hover_info_to_plotly_dict()
+            self._last_display_axis_ranges = display_axis_ranges
+            self._last_applied_display_axis_ranges = display_axis_ranges
+            self._last_applied_x_range = display_axis_ranges[0]
+            await self._restyle_raster_trace0_from_plotly_dict()
+            return
+
+        self._current_bounds = response.bounds
+        self._plotly_dict = next_plotly_dict
         self._sync_roi_shapes_to_plotly_dict()
         self._sync_trace_overlays_to_plotly_dict()
         self._apply_display_options_to_plotly_dict()
 
-        is_relayout_driven_apply = display_axis_ranges is not None
         if display_axis_ranges is None:
             if self._transform is not None:
                 x_range = self._transform.row_col_to_plot_x_range(response.bounds)
@@ -377,10 +387,69 @@ if (!plotDiv || !plotDiv.data) return;
             self._last_applied_display_axis_ranges = display_axis_ranges
             self._last_applied_x_range = display_axis_ranges[0]
 
-        if is_relayout_driven_apply:
-            self._begin_self_relayout_suppression()
         self._plot.figure = self._plotly_dict
         self._plot.update()
+
+    def _raster_trace_type(self) -> str | None:
+        """Return the current raster trace type for trace 0, if present."""
+        data = self._plotly_dict.get('data', [])
+        if not isinstance(data, list) or not data:
+            return None
+        trace0 = data[0]
+        if not isinstance(trace0, dict):
+            return None
+        trace_type = trace0.get('type')
+        return str(trace_type) if trace_type is not None else None
+
+    def _can_restyle_raster_trace(self, response: RenderResponse, previous_trace_type: str | None) -> bool:
+        """Return whether a relayout refresh can update trace 0 without layout changes."""
+        if self._plot is None:
+            return False
+        expected_type = 'image' if response.mode == 'image_png' else 'heatmap' if response.mode == 'heatmap_z' else None
+        return expected_type is not None and previous_trace_type == expected_type
+
+    def _replace_local_raster_trace(self, next_plotly_dict: dict[str, object]) -> None:
+        """Replace only local trace 0 with the newly rendered raster trace."""
+        next_data = next_plotly_dict.get('data', [])
+        if not isinstance(next_data, list) or not next_data or not isinstance(next_data[0], dict):
+            raise RuntimeError('Rendered Plotly figure did not contain a raster trace.')
+
+        data = self._plotly_dict.setdefault('data', [])
+        if not isinstance(data, list):
+            data = []
+            self._plotly_dict['data'] = data
+        if data:
+            data[0] = dict(next_data[0])
+        else:
+            data.append(dict(next_data[0]))
+        self._set_trace_overlay_visibility(data)
+
+    async def _restyle_raster_trace0_from_plotly_dict(self) -> None:
+        """Push only trace-0 raster data/style with ``Plotly.restyle``.
+
+        This is used after a user relayout. Plotly already owns the visible
+        viewport at that point, so this method intentionally sends no layout
+        keys and does not call ``self._plot.update()``.
+        """
+        if self._plot is None:
+            return
+        data = self._plotly_dict.get('data', [])
+        if not isinstance(data, list) or not data or not isinstance(data[0], dict):
+            return
+        trace0 = data[0]
+        restyle = {key: [value] for key, value in trace0.items() if key != 'type'}
+        js = f"""
+{self._js_plotly_graph_div()}
+Plotly.restyle(plotDiv, {json.dumps(restyle)}, [0]);
+"""
+        try:
+            await self._plot.client.run_javascript(js, timeout=10.0)
+        except TimeoutError:
+            logger.warning('Timed out while restyling Plotly raster trace.')
+        except RuntimeError:
+            logger.warning('Could not restyle Plotly raster trace; browser client unavailable.')
+        except Exception:
+            logger.exception('Failed to restyle Plotly raster trace.')
 
     def set_rois(self, rois: Sequence[RectRoiOverlay]) -> None:
         """Replace all rectangular ROI overlays without pushing raster data.
@@ -1309,21 +1378,16 @@ Plotly.restyle(plotDiv, {{
             return
 
         args = dict(getattr(event, 'args', {}) or {})
-        logger.debug('Plotly relayout args: %s', args)
+
+        logger.info(f'=== === === args is:')
+        from pprint import pprint
+        pprint(args)
+
 
         # Plotly shape-drag relayout payloads are also delivered here. These
         # are ROI editing events, not viewport updates, and must remain
         # immediate so the edited ROI state and preview callback stay current.
         if self._handle_roi_shape_relayout(args):
-            return
-
-        # Full figure pushes performed by ``apply_response`` can emit one or
-        # more Plotly relayout callbacks after ``_plot.update()`` returns.
-        # Those callbacks are echoes of our own raster refresh and must not be
-        # interpreted as fresh user wheel/drag gestures, even if Plotly reports
-        # ranges that are only similar to what we requested.
-        if self._is_suppressing_self_relayout():
-            logger.debug('Ignoring relayout during self-update suppression window: %s', args)
             return
 
         # Ignore relayout payloads that do not carry axis ranges. Context-menu
@@ -1340,6 +1404,12 @@ Plotly.restyle(plotDiv, {{
         # quantized and are not the visual source of truth.
         display_axis_ranges = self._display_axis_ranges_from_relayout(args)
         if display_axis_ranges is None:
+            return
+
+        # Full figure replacement emits a follow-up Plotly relayout. If that
+        # payload matches the viewport this viewer just applied, it is an echo
+        # of our own update rather than a new user gesture.
+        if self._is_display_axis_range_echo(display_axis_ranges):
             return
 
         relayout = self._relayout_from_display_axis_ranges(display_axis_ranges)
@@ -1621,30 +1691,6 @@ Plotly.restyle(plotDiv, {{
             last[1],
             display_axis_ranges[1],
         )
-
-    def _begin_self_relayout_suppression(self) -> None:
-        """Ignore relayout echoes emitted by our next full figure update.
-
-        NiceGUI sends ``_plot.update()`` to the browser and returns before
-        Plotly has necessarily emitted every follow-up relayout event. A simple
-        boolean guard around ``_plot.update()`` would therefore be cleared too
-        early. A short monotonic deadline is intentionally conservative and
-        self-healing if Plotly emits zero, one, or several relayout callbacks.
-        """
-        self._suppress_relayout_until = max(
-            self._suppress_relayout_until,
-            time.monotonic() + _RELAYOUT_SELF_UPDATE_SUPPRESSION_SECONDS,
-        )
-
-    def _is_suppressing_self_relayout(self) -> bool:
-        """Return whether relayout callbacks are currently self-update echoes."""
-        if self._suppress_relayout_until <= 0.0:
-            return False
-        now = time.monotonic()
-        if now < self._suppress_relayout_until:
-            return True
-        self._suppress_relayout_until = 0.0
-        return False
 
     def _emit_x_range_from_relayout(self, merged: dict[str, object]) -> None:
         """Invoke ``on_x_range_changed`` from a merged relayout payload.
