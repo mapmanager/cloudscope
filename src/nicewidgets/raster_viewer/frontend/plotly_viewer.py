@@ -80,11 +80,11 @@ _X_RANGE_ECHO_EPS = 1e-9
 _RELAYOUT_RENDER_DEBOUNCE_SECONDS = 0.12
 
 
-def _x_range_equal(
+def _range_pair_equal(
     a: tuple[float | None, float | None],
     b: tuple[float | None, float | None],
 ) -> bool:
-    """Compare two ``(x_min, x_max)`` pairs with float tolerance and ``None`` support."""
+    """Compare two numeric range pairs with float tolerance and ``None`` support."""
     for av, bv in zip(a, b, strict=True):
         if av is None or bv is None:
             if av is not bv:
@@ -95,6 +95,14 @@ def _x_range_equal(
         if abs(av - bv) > _X_RANGE_ECHO_EPS:
             return False
     return True
+
+
+def _x_range_equal(
+    a: tuple[float | None, float | None],
+    b: tuple[float | None, float | None],
+) -> bool:
+    """Compare two ``(x_min, x_max)`` pairs with float tolerance and ``None`` support."""
+    return _range_pair_equal(a, b)
 
 
 class PlotlyRasterViewer:
@@ -149,6 +157,15 @@ class PlotlyRasterViewer:
         # callback context; this cache lets those refreshes continue when a
         # fresh browser measurement is temporarily unavailable.
         self._last_viewport_size_px: tuple[int, int] | None = None
+        # Last axis ranges the browser should display, in Plotly coordinates.
+        # User relayouts are source-of-truth for these ranges; backend render
+        # bounds may be quantized/padded for pyramid rendering and should not
+        # replace the displayed viewport.
+        self._last_display_axis_ranges: tuple[tuple[float, float], tuple[float, float]] | None = None
+        # Last display ranges pushed by this viewer. Plotly emits relayout
+        # events after full figure updates; matching events are self-echoes,
+        # not new user input, and should not schedule another raster refresh.
+        self._last_applied_display_axis_ranges: tuple[tuple[float, float], tuple[float, float]] | None = None
 
     def _js_plotly_graph_div(self) -> str:
         """Resolve the Plotly graph div from NiceGUI; bail out if missing (cf. ``el.data`` guard)."""
@@ -264,7 +281,11 @@ if (!plotDiv || !plotDiv.data) return;
         # (carrying the auto-ranged data extent) is suppressed by value, not by
         # a one-shot guard. ``_is_x_range_echo`` compares with float tolerance.
         x_lo_data, x_hi_data = self._transform.row_col_to_plot_x_range(self._current_bounds)
+        y_lo_data, y_hi_data = self._transform.row_col_to_plot_y_range(self._current_bounds)
+        display_axis_ranges = ((x_lo_data, x_hi_data), (y_lo_data, y_hi_data))
         self._last_applied_x_range = (x_lo_data, x_hi_data)
+        self._last_display_axis_ranges = display_axis_ranges
+        self._last_applied_display_axis_ranges = display_axis_ranges
         self._plotly_dict = build_plotly_figure(
             response=response,
             uirevision=self._uirevision,
@@ -290,6 +311,9 @@ if (!plotDiv || !plotDiv.data) return;
         self._transform = None
         self._overview_max_pixels = None
         self._last_applied_x_range = None
+        self._last_display_axis_ranges = None
+        self._last_applied_display_axis_ranges = None
+        self._last_viewport_size_px = None
         self._heatmap_colorscale = DEFAULT_HEATMAP_COLORSCALE
         self._contrast_zmin = None
         self._contrast_zmax = None
@@ -302,8 +326,21 @@ if (!plotDiv || !plotDiv.data) return;
             self._plot.figure = self._plotly_dict
             self._plot.update()
 
-    async def apply_response(self, response: RenderResponse) -> None:
-        """Apply a backend response to the browser-side Plotly plot."""
+    async def apply_response(
+        self,
+        response: RenderResponse,
+        *,
+        display_axis_ranges: tuple[tuple[float, float], tuple[float, float]] | None = None,
+    ) -> None:
+        """Apply a backend response to the browser-side Plotly plot.
+
+        Args:
+            response: Rendered raster data for the requested backend bounds.
+            display_axis_ranges: Optional ``((x0, x1), (y0, y1))`` viewport
+                chosen by Plotly before a relayout-driven raster refresh. When
+                provided, preserve these axis ranges while swapping the raster
+                trace/pyramid data from ``response``.
+        """
         if self._plot is None:
             raise RuntimeError('Viewer must be built before applying responses.')
 
@@ -316,6 +353,20 @@ if (!plotDiv || !plotDiv.data) return;
         self._sync_roi_shapes_to_plotly_dict()
         self._sync_trace_overlays_to_plotly_dict()
         self._apply_display_options_to_plotly_dict()
+
+        if display_axis_ranges is None:
+            if self._transform is not None:
+                x_range = self._transform.row_col_to_plot_x_range(response.bounds)
+                y_range = self._transform.row_col_to_plot_y_range(response.bounds)
+                display_axis_ranges = (x_range, y_range)
+        else:
+            (x_lo, x_hi), (y_lo, y_hi) = display_axis_ranges
+            self._layout_pin_xy_ranges(x_lo=x_lo, x_hi=x_hi, y_lo=y_lo, y_hi=y_hi)
+
+        if display_axis_ranges is not None:
+            self._last_display_axis_ranges = display_axis_ranges
+            self._last_applied_display_axis_ranges = display_axis_ranges
+            self._last_applied_x_range = display_axis_ranges[0]
 
         self._plot.figure = self._plotly_dict
         self._plot.update()
@@ -967,13 +1018,26 @@ Plotly.react(plotDiv, plotDiv.data, plotDiv.layout, {json.dumps(config)});
         )
         return parse_relayout_payload(merged_payload, self._transform, self._current_bounds)
 
-    async def rerender_from_plotly(self, payload: PlotlyViewportPayload) -> RenderResponse:
-        """Render and apply an updated view from a relayout payload."""
+    async def rerender_from_plotly(
+        self,
+        payload: PlotlyViewportPayload,
+        *,
+        display_axis_ranges: tuple[tuple[float, float], tuple[float, float]] | None = None,
+    ) -> RenderResponse:
+        """Render and apply an updated view from a relayout payload.
+
+        Args:
+            payload: Browser viewport payload used to request raster data.
+            display_axis_ranges: Optional Plotly viewport to preserve while
+                applying the new raster data. Relayout-driven renders pass this
+                so a PNG/heatmap or pyramid-level swap does not reset the
+                user-visible zoom that Plotly already applied.
+        """
         if self._service is None:
             raise RuntimeError('No data set. Call set_data() before requesting renders.')
         request = self.request_from_plotly(payload)
         response = self._service.render(request, display_style=self._display_style())
-        await self.apply_response(response)
+        await self.apply_response(response, display_axis_ranges=display_axis_ranges)
         return response
 
     async def set_axis_ranges(
@@ -1000,6 +1064,9 @@ Plotly.react(plotDiv, plotDiv.data, plotDiv.layout, {json.dumps(config)});
         y_lo = float(min(y_min, y_max))
         y_hi = float(max(y_min, y_max))
         self._layout_pin_xy_ranges(x_lo=x_lo, x_hi=x_hi, y_lo=y_lo, y_hi=y_hi)
+        display_axis_ranges = ((x_lo, x_hi), (y_lo, y_hi))
+        self._last_display_axis_ranges = display_axis_ranges
+        self._last_applied_display_axis_ranges = display_axis_ranges
 
         js = f"""
 {self._js_plotly_graph_div()}
@@ -1037,7 +1104,10 @@ Plotly.relayout(plotDiv, {{
         )
 
         self._layout_pin_xy_ranges(x_lo=x_lo, x_hi=x_hi, y_lo=fy_lo, y_hi=fy_hi)
+        display_axis_ranges = ((x_lo, x_hi), (fy_lo, fy_hi))
         self._last_applied_x_range = (x_lo, x_hi)
+        self._last_display_axis_ranges = display_axis_ranges
+        self._last_applied_display_axis_ranges = display_axis_ranges
 
         js = f"""
 {self._js_plotly_graph_div()}
@@ -1202,7 +1272,11 @@ Plotly.restyle(plotDiv, {{
         # we emit below.
         if self._transform is not None:
             x_lo_data, x_hi_data = self._transform.row_col_to_plot_x_range(self._current_bounds)
+            y_lo_data, y_hi_data = self._transform.row_col_to_plot_y_range(self._current_bounds)
+            display_axis_ranges = ((x_lo_data, x_hi_data), (y_lo_data, y_hi_data))
             self._last_applied_x_range = (x_lo_data, x_hi_data)
+            self._last_display_axis_ranges = display_axis_ranges
+            self._last_applied_display_axis_ranges = display_axis_ranges
         if self._on_x_range_changed is not None:
             self._on_x_range_changed(None, None)
 
@@ -1224,6 +1298,7 @@ Plotly.restyle(plotDiv, {{
             return
 
         args = dict(getattr(event, 'args', {}) or {})
+        logger.info(f'args is:{args}')
 
         # Plotly shape-drag relayout payloads are also delivered here. These
         # are ROI editing events, not viewport updates, and must remain
@@ -1231,29 +1306,39 @@ Plotly.restyle(plotDiv, {{
         if self._handle_roi_shape_relayout(args):
             return
 
-        logger.info(f'args is:{args}') 
-
-
         # Ignore relayout payloads that do not carry axis ranges. Context-menu
-        # display changes, shape redraws, and other layout-only events should
-        # not ask the backend raster service for a new viewport image.
+        # display changes, shape redraws, autosize, and double-click reset
+        # payloads should not ask the backend raster service for a new viewport
+        # image unless a dedicated reset path handles them.
         if not any(k.startswith('xaxis.range') or k.startswith('yaxis.range') for k in args):
             return
 
-        # Plotly may send partial range keys for wheel/pan interactions. Merge
-        # them before any consumer sees the range or the raster service parses
-        # it against the current bounds.
-        merged = merge_partial_relayout(args, self._transform, self._current_bounds)
+        # Plotly has already zoomed/panned the browser-side view by the time
+        # this callback runs. Snapshot that user-chosen viewport now. Missing
+        # axes are filled from the last known displayed viewport, not from
+        # backend render bounds, because pyramid renders may be padded or
+        # quantized and are not the visual source of truth.
+        display_axis_ranges = self._display_axis_ranges_from_relayout(args)
+        if display_axis_ranges is None:
+            return
+
+        # Full figure replacement emits a follow-up Plotly relayout. If that
+        # payload matches the viewport this viewer just applied, it is an echo
+        # of our own update rather than a new user gesture.
+        if self._is_display_axis_range_echo(display_axis_ranges):
+            return
+
+        relayout = self._relayout_from_display_axis_ranges(display_axis_ranges)
 
         # Keep this synchronous and immediate: external CloudScope state uses
         # x-range callbacks to track the visible row/time range. Only the
         # expensive raster rerender below is debounced.
-        self._emit_x_range_from_relayout(merged)
+        self._emit_x_range_from_relayout(relayout)
 
         # Plotly has already zoomed/panned the current browser plot. This
-        # scheduled refresh only swaps in raster data appropriate for the final
-        # viewport after a burst of wheel events settles.
-        self._schedule_debounced_relayout_render(merged)
+        # scheduled refresh only swaps in raster data/pyramid level appropriate
+        # for the final viewport and then reapplies this same display viewport.
+        self._schedule_debounced_relayout_render(relayout)
 
     def _schedule_debounced_relayout_render(self, relayout: dict[str, object]) -> None:
         """Schedule one coalesced backend raster refresh for axis relayouts.
@@ -1291,7 +1376,11 @@ Plotly.restyle(plotDiv, {{
 
                 viewport = await self._build_viewport_payload(relayout=relayout)
                 if viewport is not None:
-                    await self.rerender_from_plotly(viewport)
+                    display_axis_ranges = self._display_axis_ranges_from_relayout(relayout)
+                    await self.rerender_from_plotly(
+                        viewport,
+                        display_axis_ranges=display_axis_ranges,
+                    )
 
                 if self._pending_relayout_render is None:
                     return
@@ -1427,6 +1516,97 @@ Plotly.restyle(plotDiv, {{
             if roi.roi_id == roi_id:
                 return roi
         return None
+
+    def _axis_range_from_relayout(
+        self,
+        relayout: dict[str, object],
+        *,
+        axis: str,
+    ) -> tuple[float, float] | None:
+        """Return one Plotly axis range from list or bracket relayout keys.
+
+        Args:
+            relayout: Raw or canonical Plotly relayout payload.
+            axis: Axis key prefix, for example ``'xaxis'`` or ``'yaxis'``.
+
+        Returns:
+            ``(lo, hi)`` when the relayout payload contains both values,
+            otherwise ``None``.
+        """
+        raw = relayout.get(f'{axis}.range')
+        if isinstance(raw, (list, tuple)) and len(raw) == 2:
+            try:
+                return float(raw[0]), float(raw[1])
+            except (TypeError, ValueError):
+                return None
+
+        lo = relayout.get(f'{axis}.range[0]')
+        hi = relayout.get(f'{axis}.range[1]')
+        if lo is None or hi is None:
+            return None
+        try:
+            return float(lo), float(hi)
+        except (TypeError, ValueError):
+            return None
+
+    def _display_axis_ranges_from_relayout(
+        self,
+        relayout: dict[str, object],
+    ) -> tuple[tuple[float, float], tuple[float, float]] | None:
+        """Snapshot the Plotly display viewport represented by a relayout.
+
+        Plotly often reports only the axis that changed during an axis-drag
+        gesture. For display preservation, fill any missing axis from the last
+        displayed viewport. Only fall back to current backend bounds when no
+        display cache exists yet.
+        """
+        if self._transform is None:
+            return None
+
+        x_range = self._axis_range_from_relayout(relayout, axis='xaxis')
+        y_range = self._axis_range_from_relayout(relayout, axis='yaxis')
+        if x_range is None and y_range is None:
+            return None
+
+        cached = self._last_display_axis_ranges
+        if x_range is None:
+            if cached is not None:
+                x_range = cached[0]
+            else:
+                x_range = self._transform.row_col_to_plot_x_range(self._current_bounds)
+        if y_range is None:
+            if cached is not None:
+                y_range = cached[1]
+            else:
+                y_range = self._transform.row_col_to_plot_y_range(self._current_bounds)
+
+        return x_range, y_range
+
+    def _relayout_from_display_axis_ranges(
+        self,
+        display_axis_ranges: tuple[tuple[float, float], tuple[float, float]],
+    ) -> dict[str, object]:
+        """Return canonical bracket-key relayout payload for preserved ranges."""
+        (x_lo, x_hi), (y_lo, y_hi) = display_axis_ranges
+        return {
+            'xaxis.range[0]': x_lo,
+            'xaxis.range[1]': x_hi,
+            'yaxis.range[0]': y_lo,
+            'yaxis.range[1]': y_hi,
+        }
+
+    def _is_display_axis_range_echo(
+        self,
+        display_axis_ranges: tuple[tuple[float, float], tuple[float, float]],
+    ) -> bool:
+        """Return whether display ranges echo the last full figure apply."""
+        last = self._last_applied_display_axis_ranges
+        if last is None:
+            return False
+        return _range_pair_equal(last[0], display_axis_ranges[0]) and _range_pair_equal(
+            last[1],
+            display_axis_ranges[1],
+        )
 
     def _emit_x_range_from_relayout(self, merged: dict[str, object]) -> None:
         """Invoke ``on_x_range_changed`` from a merged relayout payload.
