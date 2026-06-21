@@ -92,12 +92,14 @@ def build_plotly_figure(
         },
     }
 
+    trace_x0, trace_y0 = _pixel_center_origin(response)
+
     if response.mode == 'image_png':
         data = [{
             'type': 'image',
             'source': response.png_data_uri,
-            'x0': response.x0,
-            'y0': response.y0,
+            'x0': trace_x0,
+            'y0': trace_y0,
             'dx': response.dx,
             'dy': response.dy,
         }]
@@ -110,8 +112,8 @@ def build_plotly_figure(
         data = [{
             'type': 'heatmap',
             'z': response.z.tolist(),
-            'x0': response.x0,
-            'y0': response.y0,
+            'x0': trace_x0,
+            'y0': trace_y0,
             'dx': response.dx,
             'dy': response.dy,
             'zmin': response.zmin,
@@ -127,6 +129,18 @@ def build_plotly_figure(
     # logger.debug(f'RenderResponse:{response.mode}')
 
     return {'data': data, 'layout': layout, 'config': dict(RASTER_VIEWER_PLOTLY_CONFIG)}
+
+
+def _pixel_center_origin(response: RenderResponse) -> tuple[float, float]:
+    """Return Plotly raster trace origin as the first pixel center.
+
+    RasterViewService returns ``x0`` and ``y0`` as edge-aligned plot
+    coordinates so axis ranges and ROI rectangle shapes can use data extents
+    directly. Plotly raster traces place samples at ``x0``/``y0`` with
+    ``dx``/``dy`` spacing, so the trace origin must be shifted to the center of
+    the first pixel to align rendered pixels with edge-based shapes.
+    """
+    return response.x0 + response.dx / 2.0, response.y0 + response.dy / 2.0
 
 
 def _read_axis_range_pair(

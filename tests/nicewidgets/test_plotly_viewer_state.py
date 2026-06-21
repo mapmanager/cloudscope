@@ -18,6 +18,7 @@ import pytest
 if 'nicegui' not in sys.modules:
     fake_nicegui = types.ModuleType('nicegui')
     fake_nicegui.ui = types.SimpleNamespace()
+    fake_nicegui.app = types.SimpleNamespace(native=types.SimpleNamespace(main_window=None))
     sys.modules['nicegui'] = fake_nicegui
 
 from nicewidgets.raster_viewer.backend.image_model import (
@@ -236,8 +237,14 @@ def test_build_plotly_figure_image_mode() -> None:
 
     fig = build_plotly_figure(response, uirevision='ui-1')
 
-    assert fig['data'][0]['type'] == 'image'
-    assert fig['data'][0]['source'] == 'data:image/png;base64,AAA'
+    trace = fig['data'][0]
+    assert trace['type'] == 'image'
+    assert trace['source'] == 'data:image/png;base64,AAA'
+    assert trace['x0'] == pytest.approx(1.0)
+    assert trace['y0'] == pytest.approx(2.0)
+    assert trace['dx'] == pytest.approx(2.0)
+    assert trace['dy'] == pytest.approx(4.0)
+    assert fig['layout']['xaxis']['range'] == [0.0, 8.0]
     assert fig['layout']['yaxis']['range'] == [0.0, 16.0]
     assert fig['layout']['uirevision'] == 'ui-1'
 
@@ -264,9 +271,58 @@ def test_build_plotly_figure_heatmap_mode() -> None:
 
     fig = build_plotly_figure(response, heatmap_colorscale='Viridis')
 
-    assert fig['data'][0]['type'] == 'heatmap'
-    assert fig['data'][0]['colorscale'] == 'Viridis'
-    assert fig['data'][0]['z'] == [[1.0, 2.0], [3.0, 4.0]]
+    trace = fig['data'][0]
+    assert trace['type'] == 'heatmap'
+    assert trace['colorscale'] == 'Viridis'
+    assert trace['z'] == [[1.0, 2.0], [3.0, 4.0]]
+    assert trace['x0'] == pytest.approx(1.0)
+    assert trace['y0'] == pytest.approx(2.0)
+    assert trace['dx'] == pytest.approx(2.0)
+    assert trace['dy'] == pytest.approx(4.0)
+    assert fig['layout']['xaxis']['range'] == [0.0, 4.0]
+    assert fig['layout']['yaxis']['range'] == [0.0, 8.0]
+
+
+def test_build_plotly_figure_raster_origin_handles_non_unit_scale_and_offset() -> None:
+    """Raster traces should use pixel centers while axes remain edge-based."""
+    from nicewidgets.raster_viewer.backend.image_model import RenderResponse
+
+    grid = RasterGridSpec(dx=0.01, dy=0.25, x_unit='s', y_unit='um')
+    bounds = RowColBounds(row_min=10, row_max=14, col_min=3, col_max=7)
+    base_kwargs = dict(
+        level=0,
+        bounds=bounds,
+        shape=(20, 10),
+        grid=grid,
+        x0=0.10,
+        y0=0.75,
+        dx=0.01,
+        dy=0.25,
+    )
+
+    image_response = RenderResponse(
+        mode='image_png',
+        png_data_uri='data:image/png;base64,AAA',
+        **base_kwargs,
+    )
+    heatmap_response = RenderResponse(
+        mode='heatmap_z',
+        z=np.ones((4, 4), dtype=np.float32),
+        **base_kwargs,
+    )
+
+    image_trace = build_plotly_figure(image_response)['data'][0]
+    heatmap_trace = build_plotly_figure(heatmap_response)['data'][0]
+
+    for trace in (image_trace, heatmap_trace):
+        assert trace['x0'] == pytest.approx(0.105)
+        assert trace['y0'] == pytest.approx(0.875)
+        assert trace['dx'] == pytest.approx(0.01)
+        assert trace['dy'] == pytest.approx(0.25)
+
+    fig = build_plotly_figure(image_response)
+    assert fig['layout']['xaxis']['range'] == pytest.approx([0.10, 0.14])
+    assert fig['layout']['yaxis']['range'] == pytest.approx([0.75, 1.75])
 
 
 def test_build_plotly_figure_heatmap_requires_z() -> None:
