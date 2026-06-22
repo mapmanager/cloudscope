@@ -2,7 +2,7 @@
 
 acqstore
 
-zip -r cloudscope_20260621_v4.zip \
+zip -r cloudscope_20260622_v1.zip \
     src tests docs-dev scripts pyproject.toml \
     -x "*/__pycache__/*" \
        "*.pyc" \
