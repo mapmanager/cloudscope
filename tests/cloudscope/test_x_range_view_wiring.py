@@ -55,7 +55,7 @@ def test_primary_image_view_publishes_intent_on_viewer_x_range() -> None:
 
 
 def test_primary_image_view_consumer_applies_to_viewer_when_has_data() -> None:
-    """A finite ``PrimaryXRangeChanged`` schedules ``set_x_axis_range``."""
+    """A chart-originated ``PrimaryXRangeChanged`` schedules ``set_x_axis_range``."""
     import asyncio
 
     bus = EventBus()
@@ -71,6 +71,27 @@ def test_primary_image_view_consumer_applies_to_viewer_when_has_data() -> None:
     asyncio.run(_run())
     assert fake.set_x_calls == [(2.0, 8.0)]
     assert fake.reset_calls == 0
+
+
+def test_primary_image_view_skips_self_echo_after_viewer_originated_range() -> None:
+    """Viewer-originated x-range should not round-trip ``set_x_axis_range``."""
+    import asyncio
+
+    bus = EventBus()
+    view = PrimaryImageView(bus)
+    fake = _FakePlotlyViewer()
+    view._viewer = fake  # type: ignore[assignment]
+
+    view._on_viewer_x_range_changed(2.0, 8.0)
+    view._on_primary_x_range_changed(PrimaryXRangeChanged(x_min=2.0, x_max=8.0))
+
+    async def _drain() -> None:
+        for _ in range(5):
+            await asyncio.sleep(0)
+
+    asyncio.run(_drain())
+    assert fake.set_x_calls == []
+    assert view._primary_x_range == (2.0, 8.0)
 
 
 def test_primary_image_view_consumer_auto_range_is_a_noop_for_viewer() -> None:

@@ -182,6 +182,9 @@ class PrimaryImageView(BaseView):
         # ``PrimaryXRangeChanged``. Re-applied to the viewer after every
         # raster reload so user/state range survives ``set_data`` rotations.
         self._primary_x_range: tuple[float | None, float | None] = (None, None)
+        # Set when this view publishes x-range from its own Plotly viewer so
+        # the consumer path does not round-trip ``set_x_axis_range`` back.
+        self._viewer_originated_x_range = False
 
     def build(self, parent: ui.element | None = None) -> ui.element:
         """Create the card, title, and Plotly raster element.
@@ -247,6 +250,7 @@ class PrimaryImageView(BaseView):
         Returns:
             None.
         """
+        self._viewer_originated_x_range = True
         self.event_bus.publish(SetPrimaryXRangeIntent(x_min=x_min, x_max=x_max))
 
     def _on_viewer_roi_bounds_preview(
@@ -297,6 +301,9 @@ class PrimaryImageView(BaseView):
             None.
         """
         self._primary_x_range = (event.x_min, event.x_max)
+        if self._viewer_originated_x_range:
+            self._viewer_originated_x_range = False
+            return
         self._apply_primary_x_range_to_viewer()
 
     def _apply_primary_x_range_to_viewer(self) -> None:

@@ -670,14 +670,6 @@ def test_on_plotly_doubleclick_no_op_without_service() -> None:
     asyncio.run(viewer._on_plotly_doubleclick(types.SimpleNamespace(args={})))
 
 
-def test_on_plotly_autosize_returns_none() -> None:
-    """Autosize handler is a no-op returning None."""
-    viewer = PlotlyRasterViewer()
-
-    result = asyncio.run(viewer._on_plotly_autosize(types.SimpleNamespace(args={})))
-    assert result is None
-
-
 def test_on_plotly_relayout_no_op_without_service() -> None:
     """Relayout should early-return when no data is loaded."""
     viewer = PlotlyRasterViewer()
@@ -694,27 +686,42 @@ def test_on_plotly_relayout_ignores_unrelated_args() -> None:
 
 
 
-def test_on_plotly_relayout_emits_x_range_immediately_and_schedules_render() -> None:
-    """Axis relayout should emit x-range now but debounce backend rendering."""
+def test_on_plotly_relayout_debounces_x_range_emit_and_raster_refresh() -> None:
+    """Bracket-key relayout should debounce x-range emit and raster refresh."""
     events: list[tuple[float | None, float | None]] = []
 
     async def run() -> None:
         viewer = PlotlyRasterViewer(on_x_range_changed=lambda x0, x1: events.append((x0, x1)))
         await viewer.set_data(np.zeros((4, 4), dtype=np.float32), grid=_grid())
         viewer._plot = types.SimpleNamespace(id='p')
-        rendered: list[PlotlyViewportPayload] = []
+        refreshed: list[tuple[tuple[float, float], tuple[float, float]]] = []
 
-        async def fake_build_viewport_payload(*, relayout: dict[str, object]) -> PlotlyViewportPayload:
-            return PlotlyViewportPayload(relayout=relayout, width_px=100, height_px=50)
+        async def fake_read_live_viewport_from_browser() -> tuple[
+            PlotlyViewportPayload,
+            tuple[tuple[float, float], tuple[float, float]],
+        ] | None:
+            return (
+                PlotlyViewportPayload(
+                    relayout={
+                        'xaxis.range[0]': 2.0,
+                        'xaxis.range[1]': 6.0,
+                        'yaxis.range[0]': 0.0,
+                        'yaxis.range[1]': 8.0,
+                    },
+                    width_px=100,
+                    height_px=50,
+                ),
+                ((2.0, 6.0), (0.0, 8.0)),
+            )
 
-        async def fake_rerender(
-            payload: PlotlyViewportPayload,
-            **_kwargs: object,
+        async def fake_refresh(
+            _payload: PlotlyViewportPayload,
+            display_axis_ranges: tuple[tuple[float, float], tuple[float, float]],
         ) -> None:
-            rendered.append(payload)
+            refreshed.append(display_axis_ranges)
 
-        viewer._build_viewport_payload = fake_build_viewport_payload  # type: ignore[method-assign]
-        viewer.rerender_from_plotly = fake_rerender  # type: ignore[method-assign]
+        viewer._read_live_viewport_from_browser = fake_read_live_viewport_from_browser  # type: ignore[method-assign]
+        viewer._refresh_raster_for_viewport = fake_refresh  # type: ignore[method-assign]
 
         await viewer._on_plotly_relayout(
             types.SimpleNamespace(
@@ -727,83 +734,105 @@ def test_on_plotly_relayout_emits_x_range_immediately_and_schedules_render() -> 
             )
         )
 
+        assert events == []
+        assert refreshed == []
+        assert viewer._viewport_settle_task is not None
+        await viewer._viewport_settle_task
+
         assert events == [(2.0, 6.0)]
-        assert rendered == []
-        assert viewer._relayout_render_task is not None
-        viewer._cancel_pending_relayout_render()
+        assert refreshed == [((2.0, 6.0), (0.0, 8.0))]
 
     asyncio.run(run())
 
 
-def test_debounced_relayout_render_uses_latest_pending_relayout(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A burst of relayouts should render only the newest pending viewport."""
-    monkeypatch.setattr(plotly_viewer_module, '_RELAYOUT_RENDER_DEBOUNCE_SECONDS', 0.0)
-    rendered: list[dict[str, object]] = []
+def test_debounced_viewport_settle_coalesces_burst(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A burst of relayouts should settle once with the live browser viewport."""
+    monkeypatch.setattr(plotly_viewer_module, '_VIEWPORT_SETTLE_DEBOUNCE_SECONDS', 0.0)
+    read_count = 0
 
     async def run() -> None:
+        nonlocal read_count
         viewer = PlotlyRasterViewer()
         await viewer.set_data(np.zeros((4, 4), dtype=np.float32), grid=_grid())
         viewer._plot = types.SimpleNamespace(id='p')
 
-        async def fake_build_viewport_payload(*, relayout: dict[str, object]) -> PlotlyViewportPayload:
-            return PlotlyViewportPayload(relayout=relayout, width_px=100, height_px=50)
+        async def fake_read_live_viewport_from_browser() -> tuple[
+            PlotlyViewportPayload,
+            tuple[tuple[float, float], tuple[float, float]],
+        ] | None:
+            nonlocal read_count
+            read_count += 1
+            return (
+                PlotlyViewportPayload(
+                    relayout={'xaxis.range[0]': 2.0, 'xaxis.range[1]': 3.0},
+                    width_px=100,
+                    height_px=50,
+                ),
+                ((2.0, 3.0), (0.0, 1.0)),
+            )
 
-        async def fake_rerender(
-            payload: PlotlyViewportPayload,
-            **_kwargs: object,
-        ) -> None:
-            rendered.append(payload.relayout)
+        viewer._read_live_viewport_from_browser = fake_read_live_viewport_from_browser  # type: ignore[method-assign]
+        viewer._refresh_raster_for_viewport = lambda *_args, **_kwargs: asyncio.sleep(0)  # type: ignore[method-assign]
 
-        viewer._build_viewport_payload = fake_build_viewport_payload  # type: ignore[method-assign]
-        viewer.rerender_from_plotly = fake_rerender  # type: ignore[method-assign]
-
-        viewer._schedule_debounced_relayout_render({'xaxis.range': [0.0, 1.0]})
-        viewer._schedule_debounced_relayout_render({'xaxis.range': [2.0, 3.0]})
-        assert viewer._relayout_render_task is not None
-        await viewer._relayout_render_task
+        viewer._schedule_viewport_settle()
+        viewer._schedule_viewport_settle()
+        assert viewer._viewport_settle_task is not None
+        await viewer._viewport_settle_task
 
     asyncio.run(run())
 
-    assert rendered == [{'xaxis.range': [2.0, 3.0]}]
+    assert read_count == 1
 
 
-def test_debounced_relayout_render_processes_new_pending_after_inflight_render(
+def test_debounced_viewport_settle_runs_followup_when_requested_during_refresh(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A relayout arriving during render should trigger one follow-up render."""
-    monkeypatch.setattr(plotly_viewer_module, '_RELAYOUT_RENDER_DEBOUNCE_SECONDS', 0.0)
-    rendered: list[dict[str, object]] = []
+    """A relayout during settle should trigger one follow-up settle pass."""
+    monkeypatch.setattr(plotly_viewer_module, '_VIEWPORT_SETTLE_DEBOUNCE_SECONDS', 0.0)
+    read_count = 0
 
     async def run() -> None:
+        nonlocal read_count
         viewer = PlotlyRasterViewer()
         await viewer.set_data(np.zeros((4, 4), dtype=np.float32), grid=_grid())
         viewer._plot = types.SimpleNamespace(id='p')
 
-        async def fake_build_viewport_payload(*, relayout: dict[str, object]) -> PlotlyViewportPayload:
-            return PlotlyViewportPayload(relayout=relayout, width_px=100, height_px=50)
+        async def fake_read_live_viewport_from_browser() -> tuple[
+            PlotlyViewportPayload,
+            tuple[tuple[float, float], tuple[float, float]],
+        ] | None:
+            nonlocal read_count
+            read_count += 1
+            return (
+                PlotlyViewportPayload(
+                    relayout={'xaxis.range[0]': float(read_count), 'xaxis.range[1]': 1.0},
+                    width_px=100,
+                    height_px=50,
+                ),
+                ((float(read_count), 1.0), (0.0, 1.0)),
+            )
 
-        async def fake_rerender(
-            payload: PlotlyViewportPayload,
-            **_kwargs: object,
+        async def fake_refresh(
+            _payload: PlotlyViewportPayload,
+            _display: tuple[tuple[float, float], tuple[float, float]],
         ) -> None:
-            rendered.append(payload.relayout)
-            if len(rendered) == 1:
-                viewer._schedule_debounced_relayout_render({'xaxis.range': [5.0, 6.0]})
+            if read_count == 1:
+                viewer._schedule_viewport_settle()
 
-        viewer._build_viewport_payload = fake_build_viewport_payload  # type: ignore[method-assign]
-        viewer.rerender_from_plotly = fake_rerender  # type: ignore[method-assign]
+        viewer._read_live_viewport_from_browser = fake_read_live_viewport_from_browser  # type: ignore[method-assign]
+        viewer._refresh_raster_for_viewport = fake_refresh  # type: ignore[method-assign]
 
-        viewer._schedule_debounced_relayout_render({'xaxis.range': [0.0, 1.0]})
-        assert viewer._relayout_render_task is not None
-        await viewer._relayout_render_task
+        viewer._schedule_viewport_settle()
+        assert viewer._viewport_settle_task is not None
+        await viewer._viewport_settle_task
 
     asyncio.run(run())
 
-    assert rendered == [{'xaxis.range': [0.0, 1.0]}, {'xaxis.range': [5.0, 6.0]}]
+    assert read_count == 2
 
 
-def test_on_plotly_relayout_roi_shape_relayout_does_not_schedule_render() -> None:
-    """ROI edit relayouts should stay immediate and bypass debounced raster rendering."""
+def test_on_plotly_relayout_roi_shape_relayout_does_not_schedule_settle() -> None:
+    """ROI edit relayouts should stay immediate and bypass viewport settle."""
     async def run() -> None:
         viewer = PlotlyRasterViewer()
         await viewer.set_data(np.zeros((4, 4), dtype=np.float32), grid=_grid())
@@ -812,15 +841,14 @@ def test_on_plotly_relayout_roi_shape_relayout_does_not_schedule_render() -> Non
 
         await viewer._on_plotly_relayout(types.SimpleNamespace(args={'shapes[0].x0': 1.0}))
 
-        assert viewer._pending_relayout_render is None
-        assert viewer._relayout_render_task is None
-        assert viewer._ignore_next_programmatic_relayout is False
+        assert viewer._viewport_settle_requested is False
+        assert viewer._viewport_settle_task is None
 
     asyncio.run(run())
 
 
-def test_on_plotly_relayout_non_axis_relayout_does_not_schedule_render() -> None:
-    """Non-axis relayout payloads should not schedule backend raster rendering."""
+def test_on_plotly_relayout_non_axis_relayout_does_not_schedule_settle() -> None:
+    """Non-axis relayout payloads should not schedule viewport settle."""
     async def run() -> None:
         viewer = PlotlyRasterViewer()
         await viewer.set_data(np.zeros((4, 4), dtype=np.float32), grid=_grid())
@@ -828,8 +856,8 @@ def test_on_plotly_relayout_non_axis_relayout_does_not_schedule_render() -> None
 
         await viewer._on_plotly_relayout(types.SimpleNamespace(args={'dragmode': 'pan'}))
 
-        assert viewer._pending_relayout_render is None
-        assert viewer._relayout_render_task is None
+        assert viewer._viewport_settle_requested is False
+        assert viewer._viewport_settle_task is None
 
     asyncio.run(run())
 
@@ -846,17 +874,13 @@ def test_display_axis_ranges_from_relayout_uses_cache_for_missing_axis() -> None
     assert ranges == ((11.0, 12.0), (30.0, 40.0))
 
 
-def test_on_plotly_relayout_suppresses_self_generated_display_echo() -> None:
-    """Relayout echo from a full figure update should not schedule a new render."""
+def test_on_plotly_relayout_ignores_normalized_only_payload() -> None:
+    """Normalized-only relayout payloads should not schedule viewport settle."""
 
     async def run() -> None:
         viewer = PlotlyRasterViewer()
         await viewer.set_data(np.zeros((4, 4), dtype=np.float32), grid=_grid())
         viewer._plot = types.SimpleNamespace(id='p')
-        display_axis_ranges = ((1.0, 2.0), (3.0, 4.0))
-        viewer._last_display_axis_ranges = display_axis_ranges
-        viewer._last_applied_display_axis_ranges = display_axis_ranges
-        viewer._ignore_next_programmatic_relayout = True
 
         await viewer._on_plotly_relayout(
             types.SimpleNamespace(
@@ -869,20 +893,29 @@ def test_on_plotly_relayout_suppresses_self_generated_display_echo() -> None:
             )
         )
 
-        assert viewer._pending_relayout_render is None
-        assert viewer._relayout_render_task is None
+        assert viewer._viewport_settle_requested is False
+        assert viewer._viewport_settle_task is None
 
     asyncio.run(run())
 
 
-def test_apply_response_preserves_display_axis_ranges() -> None:
-    """Relayout-driven raster swaps should keep the Plotly-chosen viewport."""
+def test_apply_response_preserves_display_axis_ranges_via_restyle() -> None:
+    """Viewport-driven raster swaps should restyle without NiceGUI figure push."""
     from nicewidgets.raster_viewer.backend.image_model import RenderResponse
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.js_calls: list[str] = []
+
+        async def run_javascript(self, js: str, timeout: float) -> None:
+            self.js_calls.append(js)
 
     class FakePlot:
         def __init__(self) -> None:
+            self.id = 'plot-id'
             self.figure = {}
             self.updated = False
+            self.client = FakeClient()
 
         def update(self) -> None:
             self.updated = True
@@ -891,6 +924,10 @@ def test_apply_response_preserves_display_axis_ranges() -> None:
         viewer = PlotlyRasterViewer()
         fake_plot = FakePlot()
         viewer._plot = fake_plot
+        viewer._plotly_dict = {
+            'data': [{'type': 'image', 'source': 'old', 'x0': 0.0, 'y0': 0.0, 'dx': 1.0, 'dy': 1.0}],
+            'layout': {'xaxis': {'range': [0.0, 1.0]}, 'yaxis': {'range': [0.0, 1.0]}},
+        }
         response = RenderResponse(
             mode='image_png',
             level=0,
@@ -906,62 +943,48 @@ def test_apply_response_preserves_display_axis_ranges() -> None:
 
         await viewer.apply_response(response, display_axis_ranges=((3.0, 7.0), (5.0, 9.0)))
 
-        assert fake_plot.updated is True
+        assert fake_plot.updated is False
+        assert len(fake_plot.client.js_calls) == 1
+        assert 'Plotly.restyle' in fake_plot.client.js_calls[0]
         assert viewer.figure['layout']['xaxis']['range'] == [3.0, 7.0]
         assert viewer.figure['layout']['yaxis']['range'] == [5.0, 9.0]
         assert viewer._last_display_axis_ranges == ((3.0, 7.0), (5.0, 9.0))
-        assert viewer._last_applied_display_axis_ranges == ((3.0, 7.0), (5.0, 9.0))
 
     asyncio.run(run())
 
-def test_build_viewport_payload_uses_explicit_plot_client_and_caches_size() -> None:
-    """Viewport measurement should not depend on NiceGUI implicit UI context."""
+
+def test_read_live_viewport_from_browser_uses_plot_client_and_caches_size() -> None:
+    """Live viewport read should use the explicit Plotly element client."""
 
     class FakeClient:
-        async def run_javascript(self, js: str, timeout: float) -> dict[str, int]:
-            assert 'getBoundingClientRect' in js
+        async def run_javascript(self, js: str, timeout: float) -> dict[str, object]:
+            assert 'layout.xaxis' in js
             assert timeout == 2.0
-            return {'width_px': 321, 'height_px': 123}
+            return {
+                'x_range': [1.0, 2.0],
+                'y_range': [3.0, 4.0],
+                'width_px': 321,
+                'height_px': 123,
+            }
 
     async def run() -> None:
         viewer = PlotlyRasterViewer()
         viewer._plot = types.SimpleNamespace(id='p', client=FakeClient())
 
-        payload = await viewer._build_viewport_payload(relayout={'xaxis.range': [1.0, 2.0]})
+        settled = await viewer._read_live_viewport_from_browser()
 
-        assert payload is not None
+        assert settled is not None
+        payload, display = settled
         assert payload.width_px == 321
         assert payload.height_px == 123
-        assert payload.relayout == {'xaxis.range': [1.0, 2.0]}
+        assert display == ((1.0, 2.0), (3.0, 4.0))
         assert viewer._last_viewport_size_px == (321, 123)
 
     asyncio.run(run())
 
 
-def test_build_viewport_payload_falls_back_to_cached_size_after_js_failure() -> None:
-    """Debounced relayout should tolerate transient JS/client failures after one measurement."""
-
-    class FakeClient:
-        async def run_javascript(self, js: str, timeout: float) -> None:
-            raise RuntimeError('client context unavailable')
-
-    async def run() -> None:
-        viewer = PlotlyRasterViewer()
-        viewer._plot = types.SimpleNamespace(id='p', client=FakeClient())
-        viewer._last_viewport_size_px = (200, 80)
-
-        payload = await viewer._build_viewport_payload(relayout={'yaxis.range': [3.0, 4.0]})
-
-        assert payload is not None
-        assert payload.width_px == 200
-        assert payload.height_px == 80
-        assert payload.relayout == {'yaxis.range': [3.0, 4.0]}
-
-    asyncio.run(run())
-
-
-def test_build_viewport_payload_returns_none_when_js_fails_without_cached_size() -> None:
-    """A first relayout with no browser size should be skipped instead of crashing."""
+def test_read_live_viewport_from_browser_returns_none_when_js_fails() -> None:
+    """Viewport settle should skip when the browser state is unavailable."""
 
     class FakeClient:
         async def run_javascript(self, js: str, timeout: float) -> None:
@@ -971,12 +994,118 @@ def test_build_viewport_payload_returns_none_when_js_fails_without_cached_size()
         viewer = PlotlyRasterViewer()
         viewer._plot = types.SimpleNamespace(id='p', client=FakeClient())
 
-        payload = await viewer._build_viewport_payload(relayout={'xaxis.range': [0.0, 1.0]})
+        settled = await viewer._read_live_viewport_from_browser()
 
-        assert payload is None
+        assert settled is None
 
     asyncio.run(run())
 
+
+def test_set_x_axis_range_noop_when_display_x_unchanged() -> None:
+    """``set_x_axis_range`` should skip JS when the display x-range already matches."""
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.js_calls = 0
+
+        def run_javascript(self, js: str, timeout: float) -> None:
+            self.js_calls += 1
+
+    class FakePlot:
+        id = 'plot-id'
+        client = FakeClient()
+
+    async def run() -> None:
+        viewer = PlotlyRasterViewer()
+        viewer._plot = FakePlot()
+        viewer._transform = PlotlyCoordTransform(nrows=4, ncols=4, grid=_grid())
+        viewer._last_display_axis_ranges = ((1.0, 3.0), (0.0, 8.0))
+        await viewer.set_x_axis_range(x_min=1.0, x_max=3.0)
+        assert viewer._plot.client.js_calls == 0
+
+    asyncio.run(run())
+
+
+def test_set_x_axis_range_relayouts_x_axis_only() -> None:
+    """``set_x_axis_range`` must not send ``yaxis.range`` relayout keys."""
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.last_js = ''
+
+        def run_javascript(self, js: str, timeout: float) -> None:
+            self.last_js = js
+
+    class FakePlot:
+        id = 'plot-id'
+        client = FakeClient()
+
+    async def run() -> None:
+        viewer = PlotlyRasterViewer()
+        viewer._plot = FakePlot()
+        viewer._transform = PlotlyCoordTransform(nrows=4, ncols=4, grid=_grid())
+        viewer._last_display_axis_ranges = ((0.0, 4.0), (1.0, 2.0))
+        await viewer.set_x_axis_range(x_min=1.0, x_max=3.0)
+        assert 'xaxis.range' in viewer._plot.client.last_js
+        assert 'yaxis.range' not in viewer._plot.client.last_js
+
+    asyncio.run(run())
+
+
+def test_apply_response_reacts_on_trace_type_change_without_nicegui_update() -> None:
+    """PNG/heatmap switches should use Plotly.react and preserve browser layout."""
+    from nicewidgets.raster_viewer.backend.image_model import RenderResponse
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.js_calls: list[str] = []
+
+        async def run_javascript(self, js: str, timeout: float) -> None:
+            self.js_calls.append(js)
+
+    class FakePlot:
+        def __init__(self) -> None:
+            self.id = 'plot-id'
+            self.figure = {}
+            self.updated = False
+            self.client = FakeClient()
+
+        def update(self) -> None:
+            self.updated = True
+
+    async def run() -> None:
+        viewer = PlotlyRasterViewer()
+        fake_plot = FakePlot()
+        viewer._plot = fake_plot
+        viewer._plotly_dict = {
+            'data': [{'type': 'image', 'source': 'old', 'x0': 0.0, 'y0': 0.0, 'dx': 1.0, 'dy': 1.0}],
+            'layout': {'xaxis': {'range': [0.0, 1.0]}, 'yaxis': {'range': [0.0, 1.0]}},
+            'config': {},
+        }
+        z = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
+        response = RenderResponse(
+            mode='heatmap_z',
+            level=0,
+            bounds=RowColBounds(row_min=0, row_max=2, col_min=0, col_max=2),
+            shape=(2, 2),
+            grid=_grid(),
+            x0=0.0,
+            y0=0.0,
+            dx=2.0,
+            dy=4.0,
+            z=z,
+            zmin=1.0,
+            zmax=4.0,
+        )
+
+        await viewer.apply_response(response, display_axis_ranges=((0.5, 1.5), (2.0, 6.0)))
+
+        assert fake_plot.updated is False
+        assert len(fake_plot.client.js_calls) == 1
+        assert 'Plotly.react' in fake_plot.client.js_calls[0]
+        assert 'plotDiv.layout' in fake_plot.client.js_calls[0]
+
+    asyncio.run(run())
 
 
 def test_apply_response_restyles_same_image_trace_without_layout_update() -> None:
