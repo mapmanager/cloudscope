@@ -1487,11 +1487,16 @@ Plotly.restyle(plotDiv, {{
         logger.info(f'=== === === RELAYOUT ACCEPTED display_axis_ranges:{display_axis_ranges}')
         relayout = self._relayout_from_display_axis_ranges(display_axis_ranges)
 
+        # return
+
         # Keep this synchronous and immediate: external CloudScope state uses
         # x-range callbacks to track the visible row/time range. Only the
         # expensive raster rerender below is debounced.
         self._emit_x_range_from_relayout(relayout)
 
+        # return
+
+        
         # Plotly has already zoomed/panned the current browser plot. This
         # scheduled refresh only swaps in raster data/pyramid level appropriate
         # for the final viewport and then reapplies this same display viewport.
