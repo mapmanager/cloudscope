@@ -6,6 +6,12 @@ import numpy as np
 
 from nicewidgets.raster_viewer.backend.image_model import BackendImage, PyramidLevelInfo, RowColBounds
 
+# Do not build pyramid levels whose shorter side would drop below this size.
+# Symmetric 2x downsampling uses one global ``ds`` per level; for skinny arrays
+# (e.g. kymographs with few spatial columns) overly coarse levels collapse the
+# short axis to one bin and cannot tile the full spatial extent.
+MIN_PYRAMID_AXIS: int = 6
+
 
 class ImagePyramid:
     """Precompute and store downsampled pyramid levels.
@@ -37,6 +43,8 @@ class ImagePyramid:
             if height < 2 or width < 2:
                 break
             next_level = self._downsample2(current)
+            if min(next_level.shape) < MIN_PYRAMID_AXIS:
+                break
             self._levels.append(next_level)
             self._downsamples.append(self._downsamples[-1] * 2)
             current = next_level

@@ -228,6 +228,9 @@ class RasterViewService:
 
         The selected level is the coarsest level whose downsample factor does
         not exceed the current source-pixels-per-screen-pixel requirement.
+        When that level cannot tile the visible bounds on both axes (common for
+        skinny kymographs when time density drives a very large downsample),
+        walk to finer levels until the clip fully covers the request.
 
         Args:
             request: View request.
@@ -247,7 +250,33 @@ class RasterViewService:
                 best = info.level
             else:
                 break
-        return best
+
+        bounds = request.bounds.clipped_to_shape(self._source.shape)
+        level = best
+        while level > 0 and not self._level_covers_bounds(level, bounds):
+            level -= 1
+        return level
+
+    def _level_covers_bounds(self, level: int, bounds: RowColBounds) -> bool:
+        """Return whether pyramid level ``level`` can tile ``bounds`` without truncation.
+
+        Uses the same index math as :meth:`ImagePyramid.clip_from_level` to
+        verify that the level array is large enough along both axes.
+
+        Args:
+            level: Pyramid level index.
+            bounds: Visible bounds in full-resolution row/column coordinates.
+
+        Returns:
+            ``True`` when ``clip_from_level`` would not truncate at the array edge.
+        """
+        ds = float(self._pyramid.get_downsample(level))
+        arr = self._pyramid.get_level(level)
+        row_hi = max(bounds.row_min, bounds.row_max)
+        col_hi = max(bounds.col_min, bounds.col_max)
+        needed_r1 = int(np.ceil(row_hi / ds))
+        needed_c1 = int(np.ceil(col_hi / ds))
+        return needed_r1 <= arr.shape[0] and needed_c1 <= arr.shape[1]
 
     def choose_mode(self, request: ViewRequest, clip: np.ndarray) -> RenderMode:
         """Choose the render mode for a request.

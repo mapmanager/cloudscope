@@ -15,7 +15,7 @@ _DEFAULT_GRID = RasterGridSpec(dx=1.0, dy=1.0, x_unit='', y_unit='')
 @pytest.fixture()
 def sample_array() -> np.ndarray:
     """Return a small deterministic 2D array for tests."""
-    return np.arange(8 * 16, dtype=np.float32).reshape(8, 16)
+    return np.arange(16 * 32, dtype=np.float32).reshape(16, 32)
 
 
 @pytest.fixture()

@@ -138,6 +138,83 @@ def test_choose_level_picks_coarser_level_for_small_viewport() -> None:
     assert level >= 1
 
 
+def _kymograph_service() -> RasterViewService:
+    """Build a skinny kymograph-shaped service like production data."""
+    rng = np.random.default_rng(0)
+    data = rng.random((30_000, 24), dtype=np.float32)
+    grid = RasterGridSpec(dx=0.001, dy=1.0, x_unit='s', y_unit='ch')
+    source = BackendImage(data=data, grid=grid)
+    pyramid = ImagePyramid(source)
+    return RasterViewService(source=source, pyramid=pyramid)
+
+
+def test_choose_level_refines_when_spatial_axis_truncated() -> None:
+    """Time-driven density must not pick a level that truncates spatial coverage."""
+    svc = _kymograph_service()
+    request = ViewRequest(
+        bounds=RowColBounds(row_min=3625.67, row_max=26132.93, col_min=0.0, col_max=24.0),
+        viewport=ViewportSize(width_px=800, height_px=400),
+    )
+
+    level = svc.choose_level(request)
+    ds = svc.pyramid.get_downsample(level)
+    arr = svc.pyramid.get_level(level)
+
+    assert ds <= 4
+    assert arr.shape[1] >= int(np.ceil(24.0 / ds))
+
+
+def test_choose_level_allows_coarser_level_for_partial_spatial_extent() -> None:
+    """Zooming the bottom spatial half should not force unnecessary refinement."""
+    svc = _kymograph_service()
+    request = ViewRequest(
+        bounds=RowColBounds(row_min=0.0, row_max=30_000.0, col_min=0.0, col_max=12.0),
+        viewport=ViewportSize(width_px=800, height_px=400),
+    )
+
+    level = svc.choose_level(request)
+    ds = svc.pyramid.get_downsample(level)
+
+    assert ds >= 4
+
+
+def test_render_spatial_extent_covers_full_col_bounds() -> None:
+    """Regression: full spatial extent must tile through col_max after render."""
+    svc = _kymograph_service()
+    bounds = RowColBounds(row_min=3625.67, row_max=26132.93, col_min=0.0, col_max=24.0)
+    request = ViewRequest(bounds=bounds, viewport=ViewportSize(width_px=800, height_px=400))
+
+    response = svc.render(request)
+
+    assert response.mode == 'heatmap_z'
+    assert response.z is not None
+    ds = float(svc.pyramid.get_downsample(response.level))
+    col0 = float(np.floor(min(bounds.col_min, bounds.col_max) / ds) * ds)
+    spatial_bins = int(response.z.shape[0])
+    covered_col_hi = col0 + spatial_bins * ds
+    assert covered_col_hi >= bounds.col_max
+    assert spatial_bins > 1
+
+
+def test_render_square_image_full_bounds_coverage() -> None:
+    """Square images use the same choose/render path and cover both axes."""
+    rng = np.random.default_rng(2)
+    data = rng.random((1024, 1024), dtype=np.float32)
+    grid = RasterGridSpec(dx=1.0, dy=1.0, x_unit='um', y_unit='um')
+    source = BackendImage(data=data, grid=grid)
+    pyramid = ImagePyramid(source)
+    svc = RasterViewService(source=source, pyramid=pyramid)
+    bounds = RowColBounds(row_min=0.0, row_max=1024.0, col_min=0.0, col_max=1024.0)
+    request = ViewRequest(bounds=bounds, viewport=ViewportSize(width_px=512, height_px=512))
+
+    response = svc.render(request)
+
+    assert response.z is not None
+    ds = float(svc.pyramid.get_downsample(response.level))
+    assert int(np.ceil(bounds.row_max / ds)) <= svc.pyramid.get_level(response.level).shape[0]
+    assert int(np.ceil(bounds.col_max / ds)) <= svc.pyramid.get_level(response.level).shape[1]
+
+
 # ---- choose_mode ----
 
 

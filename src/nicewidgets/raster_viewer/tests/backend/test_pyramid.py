@@ -4,19 +4,49 @@ from __future__ import annotations
 
 import numpy as np
 
-from nicewidgets.raster_viewer.backend.image_model import RowColBounds
-from nicewidgets.raster_viewer.backend.pyramid import ImagePyramid
+from nicewidgets.raster_viewer.backend.image_model import BackendImage, RasterGridSpec, RowColBounds
+from nicewidgets.raster_viewer.backend.pyramid import MIN_PYRAMID_AXIS, ImagePyramid
 
 
 def test_pyramid_builds_expected_first_levels(image_pyramid: ImagePyramid) -> None:
-    """Pyramid should build power-of-two downsample levels."""
+    """Pyramid should build power-of-two downsample levels until the short axis cap."""
     info = image_pyramid.level_info()
     assert info[0].downsample == 1
-    assert info[0].shape == (8, 16)
+    assert info[0].shape == (16, 32)
     assert info[1].downsample == 2
-    assert info[1].shape == (4, 8)
-    assert info[2].downsample == 4
-    assert info[2].shape == (2, 4)
+    assert info[1].shape == (8, 16)
+    assert len(info) == 2
+
+
+def test_pyramid_stops_before_short_axis_collapses_below_min() -> None:
+    """Skinny kymograph arrays should not build single-column pyramid levels."""
+    rng = np.random.default_rng(0)
+    data = rng.random((30_000, 24), dtype=np.float32)
+    grid = RasterGridSpec(dx=0.001, dy=1.0, x_unit='s', y_unit='ch')
+    source = BackendImage(data=data, grid=grid)
+    pyramid = ImagePyramid(source)
+
+    info = pyramid.level_info()
+    coarsest = info[-1]
+
+    assert coarsest.downsample == 4
+    assert coarsest.shape == (7_500, 6)
+    assert min(coarsest.shape) >= MIN_PYRAMID_AXIS
+
+
+def test_pyramid_square_image_coarsest_level_respects_min_axis() -> None:
+    """Square arrays use the same short-axis cap without a separate code path."""
+    rng = np.random.default_rng(1)
+    data = rng.random((1024, 1024), dtype=np.float32)
+    grid = RasterGridSpec(dx=1.0, dy=1.0, x_unit='um', y_unit='um')
+    source = BackendImage(data=data, grid=grid)
+    pyramid = ImagePyramid(source)
+
+    coarsest = pyramid.level_info()[-1]
+
+    assert coarsest.downsample == 128
+    assert coarsest.shape == (8, 8)
+    assert min(coarsest.shape) >= MIN_PYRAMID_AXIS
 
 
 def test_downsample2_averages_2x2_blocks() -> None:
@@ -28,7 +58,7 @@ def test_downsample2_averages_2x2_blocks() -> None:
 
 def test_clip_from_level_uses_source_coordinates(image_pyramid: ImagePyramid) -> None:
     """Level clips should map full-resolution row/col bounds through the downsample."""
-    bounds = RowColBounds(row_min=2.0, row_max=6.0, col_min=4.0, col_max=12.0)
+    bounds = RowColBounds(row_min=4.0, row_max=12.0, col_min=8.0, col_max=24.0)
     clip = image_pyramid.clip_from_level(level=1, bounds=bounds)
-    expected = image_pyramid.get_level(1)[1:3, 2:6]
+    expected = image_pyramid.get_level(1)[2:6, 4:12]
     np.testing.assert_array_equal(clip, expected)
