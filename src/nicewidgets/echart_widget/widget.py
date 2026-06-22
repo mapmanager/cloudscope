@@ -16,7 +16,8 @@ from nicewidgets.echart_widget.context_menu import EChartWidgetContextMenu
 from nicewidgets.echart_widget.display_options import EChartDisplayOptions
 from nicewidgets.echart_widget.event_overlay import EChartEventOverlayApi
 from nicewidgets.echart_widget.models import EChartAxisRange, EChartLineData
-from nicewidgets.utils.clipboard import copy_png_bytes_to_native_clipboard, is_pywebview_desktop
+from nicewidgets.utils.clipboard import copy_png_bytes_to_native_clipboard
+from nicewidgets.utils.desktop import is_pywebview_desktop
 from nicewidgets.utils.logging import get_logger
 
 logger = get_logger(__name__)

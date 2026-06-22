@@ -20,7 +20,7 @@ from nicewidgets.tree_widget.js_hooks import (
     js_on_cell_key_down_select_prev_next,
     js_on_row_clicked,
 )
-from nicewidgets.utils.clipboard import is_pywebview_desktop
+from nicewidgets.utils.desktop import is_pywebview_desktop
 from nicewidgets.utils.logging import get_logger
 
 try:

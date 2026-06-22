@@ -30,7 +30,8 @@ from nicewidgets.raster_viewer.frontend.plotly_clipboard import (
     copy_png_bytes_to_native_clipboard,
     get_plotly_png_bytes,
 )
-from nicewidgets.utils.clipboard import is_pywebview_desktop
+from nicewidgets.raster_viewer.frontend.plotly_context_menu_guards import pywebview_plot_context_menu_guard_js
+from nicewidgets.utils.desktop import is_pywebview_desktop
 from nicewidgets.raster_viewer.frontend.plotly_context_menu import (
     PlotlyRasterViewerContextMenu,
 )
@@ -237,6 +238,8 @@ if (!plotDiv || !plotDiv.data) return;
         self._ctx_menu = ui.context_menu()
         self._context_menu_builder = PlotlyRasterViewerContextMenu(get_viewer=lambda: self)
         self._plot.on('contextmenu', self._on_context_menu_event)
+        if is_pywebview_desktop():
+            ui.timer(0.05, self._install_pywebview_context_menu_guards, once=True)
 
         return self._plot
 
@@ -865,6 +868,21 @@ Plotly.restyle(plotDiv, {{
         with self._ctx_menu.clear():
             self._context_menu_builder.build()
         self._ctx_menu.open()
+
+    def _install_pywebview_context_menu_guards(self) -> None:
+        """Install desktop-only capture listeners so secondary taps open the menu.
+
+        Browser Chrome already delivers ``contextmenu`` on the Plotly canvas.
+        Option C pywebview (WKWebView) can hand secondary taps to Plotly drag
+        handlers first; guards are skipped outside a pywebview shell.
+        """
+        if self._plot is None or not is_pywebview_desktop():
+            return
+        js = pywebview_plot_context_menu_guard_js(plot_id=self._plot.id)
+        try:
+            self._plot.client.run_javascript(js, timeout=2.0)
+        except RuntimeError:
+            logger.debug('Could not install pywebview context-menu guards; client unavailable.')
 
     def _apply_display_options_to_plotly_dict(self) -> None:
         """Synchronize all display options into the local Plotly dictionary."""

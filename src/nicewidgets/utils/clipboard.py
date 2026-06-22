@@ -11,27 +11,12 @@ try:
 except ImportError:  # pragma: no cover - depends on optional runtime package
     pyperclip = None  # type: ignore[assignment]
 
-from nicegui import app, ui
+from nicegui import ui
 
+from nicewidgets.utils.desktop import is_pywebview_desktop
 from nicewidgets.utils.logging import get_logger
 
 logger = get_logger(__name__)
-
-
-def is_pywebview_desktop() -> bool:
-    """Return whether the app is running inside a desktop pywebview shell.
-
-    Returns:
-        True for NiceGUI native mode and Option C multi-window desktop mode.
-    """
-    native_cfg = getattr(app, 'native', None)
-    if getattr(native_cfg, 'main_window', None) is not None:
-        return True
-    try:
-        import webview
-    except ImportError:
-        return False
-    return len(webview.windows) > 0
 
 
 def copy_to_clipboard(text: str) -> None:
