@@ -20,6 +20,10 @@ from nicewidgets.raster_viewer.backend.image_model import (
 )
 from nicewidgets.raster_viewer.backend.pyramid import ImagePyramid
 
+from cloudscope.utils.logging import get_logger
+
+logger = get_logger(__name__)
+
 # Plotly.py resolves these named colorscales in the OPPOSITE direction from
 # Plotly.js. The heatmap trace is rendered by Plotly.js, but the PNG LUT is
 # built here with Plotly.py's ``sample_colorscale``. For these names we sample
@@ -106,6 +110,8 @@ class RasterViewService:
         shape = self._source.shape
         if mode == 'image_png':
             png_arr = np.asarray(clip).T
+            logger.info(f'returning renderresponse for image_png png_arr.shape:{png_arr.shape}')
+            logger.info(f'  boundsis :{bounds}')
             return RenderResponse(
                 mode='image_png',
                 level=level,
@@ -125,6 +131,9 @@ class RasterViewService:
         zmax_data = float(np.nanmax(z)) if z.size else 0.0
         zmin_eff = float(style.zmin) if style.zmin is not None else zmin_data
         zmax_eff = float(style.zmax) if style.zmax is not None else zmax_data
+        
+        logger.info(f'returning renderresponse for heatmap_z z.shape:{z.shape}')
+        logger.info(f'  bounds is :{bounds}')
         return RenderResponse(
             mode='heatmap_z',
             level=level,
