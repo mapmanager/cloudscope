@@ -80,6 +80,24 @@ OnRoiBoundsPreview = Callable[[int, float, float, float, float], None]
 _X_RANGE_ECHO_EPS = 1e-9
 _RELAYOUT_RENDER_DEBOUNCE_SECONDS = 0.12
 
+# DEBUG 20260621
+from pprint import pprint
+
+def _summarize_plotly_args(args: dict) -> dict:
+    """Return Plotly event args with large arrays summarized."""
+    out = {}
+    for key, value in args.items():
+        if isinstance(value, dict):
+            out[key] = _summarize_plotly_args(value)
+        elif key == 'z' and isinstance(value, list):
+            rows = len(value[0]) if value and isinstance(value[0], list) else len(value)
+            cols = len(value[0][0]) if value and isinstance(value[0], list) and value[0] and isinstance(value[0][0], list) else None
+            out[key] = f'<z array summarized: outer_len={len(value)}, rows={rows}, cols={cols}>'
+        elif key == 'source' and isinstance(value, list):
+            out[key] = f'<source summarized: {len(value)} item(s), first_len={len(value[0]) if value else 0}>'
+        else:
+            out[key] = value
+    return out
 
 def _range_pair_equal(
     a: tuple[float | None, float | None],
@@ -167,6 +185,11 @@ class PlotlyRasterViewer:
         # events after full figure updates; matching events are self-echoes,
         # not new user input, and should not schedule another raster refresh.
         self._last_applied_display_axis_ranges: tuple[tuple[float, float], tuple[float, float]] | None = None
+        # Relayout-driven raster refreshes can trigger a follow-up Plotly
+        # relayout after this viewer pushes trace data or a replacement
+        # figure. This one-shot latch prevents that programmatic echo from
+        # being treated as a new user wheel/drag gesture.
+        self._ignore_next_programmatic_relayout = False
 
     def _js_plotly_graph_div(self) -> str:
         """Resolve the Plotly graph div from NiceGUI; bail out if missing (cf. ``el.data`` guard)."""
@@ -315,6 +338,7 @@ if (!plotDiv || !plotDiv.data) return;
         self._last_applied_x_range = None
         self._last_display_axis_ranges = None
         self._last_applied_display_axis_ranges = None
+        self._ignore_next_programmatic_relayout = False
         self._last_viewport_size_px = None
         self._heatmap_colorscale = DEFAULT_HEATMAP_COLORSCALE
         self._contrast_zmin = None
@@ -359,22 +383,15 @@ if (!plotDiv || !plotDiv.data) return;
         # client-owned x/y axis ranges are left untouched. Full figure rebuilds
         # remain the path for initial load, reset, ROI/layout changes, and
         # PNG<->heatmap trace-type switches.
-        can_restyle_trace0 = self._can_restyle_raster_trace(response, previous_trace_type)
-        logger.info(
-            f'APPLY RESPONSE === response.mode:{response.mode} '
-            f'previous_trace_type:{previous_trace_type} '
-            f'display_axis_ranges:{display_axis_ranges} '
-            f'can_restyle_trace0:{can_restyle_trace0}'
-        )
-
-        if display_axis_ranges is not None and can_restyle_trace0:
-            logger.info('TRACE UPDATE START === calling Plotly.restyle for raster trace 0')
+        if display_axis_ranges is not None and self._can_restyle_raster_trace(response, previous_trace_type):
             self._current_bounds = response.bounds
             self._replace_local_raster_trace(next_plotly_dict)
             self._sync_hover_info_to_plotly_dict()
             self._last_display_axis_ranges = display_axis_ranges
             self._last_applied_display_axis_ranges = display_axis_ranges
             self._last_applied_x_range = display_axis_ranges[0]
+            logger.info('TRACE UPDATE START === calling Plotly.restyle for raster trace 0')
+            self._ignore_next_programmatic_relayout = True
             await self._restyle_raster_trace0_from_plotly_dict()
             logger.info('TRACE UPDATE END === calling Plotly.restyle for raster trace 0')
             return
@@ -398,11 +415,17 @@ if (!plotDiv || !plotDiv.data) return;
             self._last_display_axis_ranges = display_axis_ranges
             self._last_applied_display_axis_ranges = display_axis_ranges
             self._last_applied_x_range = display_axis_ranges[0]
+            logger.info('TRACE UPDATE START === full self._plot.figure replacement for relayout raster refresh')
+            self._ignore_next_programmatic_relayout = True
+        else:
+            logger.info('TRACE UPDATE START === full self._plot.figure replacement')
 
-        logger.info('TRACE UPDATE START === full self._plot.figure replacement')
         self._plot.figure = self._plotly_dict
         self._plot.update()
-        logger.info('TRACE UPDATE END === full self._plot.figure replacement')
+        if display_axis_ranges is not None:
+            logger.info('TRACE UPDATE END === full self._plot.figure replacement for relayout raster refresh')
+        else:
+            logger.info('TRACE UPDATE END === full self._plot.figure replacement')
 
     def _raster_trace_type(self) -> str | None:
         """Return the current raster trace type for trace 0, if present."""
@@ -452,8 +475,8 @@ if (!plotDiv || !plotDiv.data) return;
             return
         trace0 = data[0]
         restyle = {key: [value] for key, value in trace0.items() if key != 'type'}
-        logger.info(f'TRACE UPDATE DETAIL === Plotly.restyle trace0 keys:{list(restyle.keys())}')
-        logger.info(f'TRACE UPDATE DETAIL === raster trace type:{trace0.get("type")}')
+        logger.info('TRACE UPDATE PAYLOAD === Plotly.restyle keys are:')
+        pprint(sorted(restyle.keys()))
         js = f"""
 {self._js_plotly_graph_div()}
 Plotly.restyle(plotDiv, {json.dumps(restyle)}, [0]);
@@ -1377,17 +1400,20 @@ Plotly.restyle(plotDiv, {{
             self._on_x_range_changed(None, None)
 
     async def _on_plotly_autosize(self, event) -> None:
-        """Handle NiceGUI Plotly autosize events (diagnostic logging only)."""
-        args = dict(getattr(event, 'args', {}) or {})
+        """Handle NiceGUI Plotly autosize events (diagnostic no-op)."""
+        raw_args = getattr(event, 'args', {}) or {}
+        args = dict(raw_args) if isinstance(raw_args, dict) else {'raw_args': raw_args}
         logger.info('=== === === AUTOSIZE ENTER args is:')
         pprint(args)
         return
 
     async def _on_plotly_restyle(self, event) -> None:
-        """Handle Plotly restyle events (diagnostic logging only)."""
-        args = dict(getattr(event, 'args', {}) or {})
+        """Log Plotly restyle events forwarded by NiceGUI for raster diagnostics."""
+        raw_args = getattr(event, 'args', {}) or {}
+        args = dict(raw_args) if isinstance(raw_args, dict) else {'raw_args': raw_args}
         logger.info('=== === === RESTYLE ENTER args is:')
-        pprint(args)
+        # pprint(args)
+        pprint(_summarize_plotly_args(args))
         return
 
     async def _on_plotly_relayout(self, event) -> None:
@@ -1403,7 +1429,9 @@ Plotly.restyle(plotDiv, {{
         if self._service is None or self._plot is None or self._transform is None:
             return
 
-        args = dict(getattr(event, 'args', {}) or {})
+        raw_args = getattr(event, 'args', {}) or {}
+        args = dict(raw_args) if isinstance(raw_args, dict) else {'raw_args': raw_args}
+
         logger.info('=== === === RELAYOUT ENTER args is:')
         pprint(args)
 
@@ -1413,12 +1441,21 @@ Plotly.restyle(plotDiv, {{
         if self._handle_roi_shape_relayout(args):
             return
 
+        if self._ignore_next_programmatic_relayout:
+            if self._looks_like_programmatic_relayout_echo(args):
+                self._ignore_next_programmatic_relayout = False
+                logger.info('=== === === RELAYOUT IGNORED === programmatic raster update echo args is:')
+                pprint(args)
+                return
+            self._ignore_next_programmatic_relayout = False
+            logger.info('=== === === RELAYOUT LATCH CLEARED === next event looked user-driven args is:')
+            pprint(args)
+
         # Ignore relayout payloads that do not carry axis ranges. Context-menu
         # display changes, shape redraws, autosize, and double-click reset
         # payloads should not ask the backend raster service for a new viewport
         # image unless a dedicated reset path handles them.
         if not any(k.startswith('xaxis.range') or k.startswith('yaxis.range') for k in args):
-            logger.info('=== === === RELAYOUT EXIT === no x/y axis range keys')
             return
 
         # Plotly has already zoomed/panned the browser-side view by the time
@@ -1428,30 +1465,19 @@ Plotly.restyle(plotDiv, {{
         # quantized and are not the visual source of truth.
         display_axis_ranges = self._display_axis_ranges_from_relayout(args)
         if display_axis_ranges is None:
-            logger.info('=== === === RELAYOUT EXIT === could not extract display_axis_ranges')
-            return
-        logger.info(f'=== === === RELAYOUT display_axis_ranges:{display_axis_ranges}')
-
-        # Full figure replacement emits a follow-up Plotly relayout. If that
-        # payload matches the viewport this viewer just applied, it is an echo
-        # of our own update rather than a new user gesture.
-        if self._is_display_axis_range_echo(display_axis_ranges):
-            logger.info('=== === === RELAYOUT IGNORED === display axis range echo')
             return
 
+        logger.info(f'=== === === RELAYOUT ACCEPTED display_axis_ranges:{display_axis_ranges}')
         relayout = self._relayout_from_display_axis_ranges(display_axis_ranges)
-        logger.info(f'=== === === RELAYOUT canonical relayout:{relayout}')
 
         # Keep this synchronous and immediate: external CloudScope state uses
         # x-range callbacks to track the visible row/time range. Only the
         # expensive raster rerender below is debounced.
-        logger.info('=== === === RELAYOUT ACTION === emit x range callback')
         self._emit_x_range_from_relayout(relayout)
 
         # Plotly has already zoomed/panned the current browser plot. This
         # scheduled refresh only swaps in raster data/pyramid level appropriate
         # for the final viewport and then reapplies this same display viewport.
-        logger.info('=== === === RELAYOUT ACTION === schedule debounced raster refresh')
         self._schedule_debounced_relayout_render(relayout)
 
     def _schedule_debounced_relayout_render(self, relayout: dict[str, object]) -> None:
@@ -1463,13 +1489,12 @@ Plotly.restyle(plotDiv, {{
         Returns:
             None.
         """
-        logger.info(f'RELAYOUT RENDER SCHEDULE === pending relayout:{relayout}')
+        logger.info('=== === === RELAYOUT SCHEDULED relayout is:')
+        pprint(relayout)
         self._pending_relayout_render = dict(relayout)
         task = self._relayout_render_task
         if task is not None and not task.done():
-            logger.info('RELAYOUT RENDER SCHEDULE === debounce task already active')
             return
-        logger.info('RELAYOUT RENDER SCHEDULE === create debounce task')
         self._relayout_render_task = asyncio.create_task(self._debounced_relayout_render_loop())
 
     async def _debounced_relayout_render_loop(self) -> None:
@@ -1489,31 +1514,22 @@ Plotly.restyle(plotDiv, {{
                 relayout = self._pending_relayout_render
                 self._pending_relayout_render = None
                 if relayout is None:
-                    logger.info('RELAYOUT RENDER LOOP === no pending relayout, exiting')
                     return
 
-                logger.info(f'RELAYOUT RENDER LOOP START === relayout:{relayout}')
+                logger.info('=== === === DEBOUNCED RENDER START relayout is:')
+                pprint(relayout)
                 viewport = await self._build_viewport_payload(relayout=relayout)
                 if viewport is not None:
-                    logger.info(
-                        f'RELAYOUT RENDER LOOP === viewport '
-                        f'x_range:({viewport.x_min}, {viewport.x_max}) '
-                        f'y_range:({viewport.y_min}, {viewport.y_max}) '
-                        f'size_px:({viewport.width_px}, {viewport.height_px})'
-                    )
                     display_axis_ranges = self._display_axis_ranges_from_relayout(relayout)
-                    logger.info(f'RELAYOUT RENDER LOOP === display_axis_ranges:{display_axis_ranges}')
+                    logger.info(f'=== === === DEBOUNCED RENDER display_axis_ranges:{display_axis_ranges}')
                     await self.rerender_from_plotly(
                         viewport,
                         display_axis_ranges=display_axis_ranges,
                     )
-                else:
-                    logger.info('RELAYOUT RENDER LOOP === viewport is None, skipping render')
+                    logger.info('=== === === DEBOUNCED RENDER END')
 
                 if self._pending_relayout_render is None:
-                    logger.info('RELAYOUT RENDER LOOP END === no newer pending relayout')
                     return
-                logger.info('RELAYOUT RENDER LOOP CONTINUE === newer pending relayout exists')
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -1533,6 +1549,21 @@ Plotly.restyle(plotDiv, {{
         if task is not None and not task.done():
             task.cancel()
         self._relayout_render_task = None
+
+    def _looks_like_programmatic_relayout_echo(self, args: dict[str, object]) -> bool:
+        """Return whether a relayout payload looks like our Plotly update echo.
+
+        User wheel/drag events observed in CloudScope usually arrive with
+        bracket keys such as ``xaxis.range[0]`` and ``yaxis.range[1]``. The
+        follow-up event produced after this viewer pushes raster updates arrives
+        as normalized full-range keys plus ``*.autorange: False``. Use that
+        structural shape to consume the one-shot programmatic-update latch
+        without comparing floating point ranges.
+        """
+        has_normalized_range = 'xaxis.range' in args or 'yaxis.range' in args
+        has_autorange_false = args.get('xaxis.autorange') is False or args.get('yaxis.autorange') is False
+        has_bracket_range = any('[0]' in key or '[1]' in key for key in args)
+        return has_normalized_range and has_autorange_false and not has_bracket_range
 
     def _handle_roi_shape_relayout(self, args: dict[str, object]) -> bool:
         """Handle Plotly shape drag relayout while ROI editing is active.

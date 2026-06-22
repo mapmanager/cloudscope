@@ -814,6 +814,7 @@ def test_on_plotly_relayout_roi_shape_relayout_does_not_schedule_render() -> Non
 
         assert viewer._pending_relayout_render is None
         assert viewer._relayout_render_task is None
+        assert viewer._ignore_next_programmatic_relayout is False
 
     asyncio.run(run())
 
@@ -855,6 +856,7 @@ def test_on_plotly_relayout_suppresses_self_generated_display_echo() -> None:
         display_axis_ranges = ((1.0, 2.0), (3.0, 4.0))
         viewer._last_display_axis_ranges = display_axis_ranges
         viewer._last_applied_display_axis_ranges = display_axis_ranges
+        viewer._ignore_next_programmatic_relayout = True
 
         await viewer._on_plotly_relayout(
             types.SimpleNamespace(
