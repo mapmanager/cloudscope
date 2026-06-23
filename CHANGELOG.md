@@ -16,6 +16,40 @@ This project uses a simple changelog format inspired by Keep a Changelog. During
 
 ---
 
+## [0.1.3] - 2026-06-23
+
+### Added
+
+- Two-window desktop mode: home page + plot pool in separate native windows.
+- Desktop launcher with pywebview, window geometry persistence, and theme sync.
+- Lazy TIFF loading in acqstore file loaders.
+- CZI reference image support and dimension handling improvements.
+- Load controller integration with task runner for file-tree loads.
+- LRU cache for image pyramid builds; raster display cache in cloudscope.
+- SmartExpansion in nicewidgets: when expansion is closed, child BaseView(s) disconnect from MVC for responsiveness; when open, they reconnect and refresh from current app state.
+- SmartExpansion on home page for file list, analysis plot, and reference image panels.
+
+### Changed
+
+- Refactored native windowing away from NiceGUI main_window to pywebview.
+- Updated home page splitter to use SmartExpansion.
+- Raster viewer: relayout-based zoom/pan, pyramid level constraints, kymograph fixes.
+- acqstore scan-path / reference-image API updates.
+
+### Fixed
+
+- macOS PyInstaller multiprocessing freeze (multiple window relaunch).
+- Plotly mouse+wheel zoom and heatmap corruption with space dim 1.
+- macOS two-finger context menu in Plotly raster view.
+- Reference image view when no reference image is present.
+
+### Documentation
+
+- Added kymograph reference-image MkDocs notebook.
+- Expanded velocity, diameter, and heart rate notebooks.
+
+---
+
 ## [0.1.0] - 2026-06-10
 
 ### Added
@@ -61,18 +95,3 @@ This project uses a simple changelog format inspired by Keep a Changelog. During
 - Fixed macOS build metadata generation when building from a git tag.
 
 - Fixed the automated macOS release asset build path for tagged releases.
-
-## [0.1.3] - In progress 2026-06-12
-
-### Added
- - added nicewidgets/ SmartExpansion. when expansion is close() the child baseview(s) disconnect from mvc thus keeing gui responsive. then smartexpansion is open the enclosing/child base view reconnect to mvc and update their display on current app state.
- - used smartexpansion in homee page for file list, analysis plot, and reference image
- - updated home page splitter to use new smart expansion
- - applied chatgpt updates cloudscope_smart_expansion_splitter_replacements_v1
- 
-### Changed
-
-### Fixed
-
-### Documentation
- - expanded velocity, diameter, heart rate ipynb
