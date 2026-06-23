@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from cloudscope.controllers.home_page_controller import HomePageController
-from cloudscope.controllers.image_pixels_controller import ImagePixelsController
+from cloudscope.controllers.acq_image_data_controller import AcqImageDataController
 from cloudscope.event_bus import EventBus
 from cloudscope.events.selection import FileSelectionChanged, SelectFileIntent
 from cloudscope.state import PrimarySelection
@@ -23,10 +23,11 @@ class _FakeAcqImage:
         self._loaded = loaded
         self.load_calls = 0
 
-    def pixels_loaded(self) -> bool:
+    @property
+    def is_fully_loaded(self) -> bool:
         return self._loaded
 
-    def load_image_data(self) -> None:
+    def load_lazy_data(self) -> None:
         self.load_calls += 1
         self._loaded = True
 
@@ -39,8 +40,8 @@ class _FakeAcqImage:
 
 def test_clear_selection_publishes_immediately() -> None:
     bus = EventBus()
-    pixels = ImagePixelsController()
-    home = HomePageController(event_bus=bus, image_pixels_controller=pixels)
+    pixels = AcqImageDataController()
+    home = HomePageController(event_bus=bus, acq_image_data_controller=pixels)
     home.bind()
     home.load_demo_files(['file-a'])
 
@@ -58,8 +59,8 @@ def test_cold_file_defers_file_selection_until_pixels_loaded(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     bus = EventBus()
-    pixels = ImagePixelsController()
-    home = HomePageController(event_bus=bus, image_pixels_controller=pixels)
+    pixels = AcqImageDataController()
+    home = HomePageController(event_bus=bus, acq_image_data_controller=pixels)
     home.bind()
 
     acq = _FakeAcqImage(loaded=False)
@@ -82,11 +83,11 @@ def test_cold_file_defers_file_selection_until_pixels_loaded(
         pending_tasks.append(asyncio.create_task(coro))
 
     monkeypatch.setattr(
-        'cloudscope.controllers.image_pixels_controller.run.io_bound',
+        'cloudscope.controllers.acq_image_data_controller.run.io_bound',
         _fake_io_bound,
     )
     monkeypatch.setattr(
-        'cloudscope.controllers.image_pixels_controller._schedule_coro',
+        'cloudscope.controllers.acq_image_data_controller._schedule_coro',
         _capture_schedule,
     )
 

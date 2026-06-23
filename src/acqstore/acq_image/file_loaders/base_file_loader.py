@@ -1,6 +1,7 @@
 from typing import Any
 from dataclasses import dataclass, fields, replace
 import math
+from pathlib import Path
 import numpy as np
 from typing import BinaryIO, Self
 
@@ -23,6 +24,8 @@ class ImageHeader:
         physical_units_labels: Human-readable labels aligned with ``physical_units``.
         date: Acquisition calendar date as ``YYYYMMDD``, or ``""`` if unknown.
         time: Acquisition time-of-day as ``HH:MM:SS`` (24-hour), or ``""`` if unknown.
+        file_size: Finder-style decimal file size string, such as ``"842 KB"``
+            or ``"4.8 MB"``. Empty when the source is not an on-disk file.
     """
 
     path: str
@@ -36,6 +39,7 @@ class ImageHeader:
     physical_units_labels: tuple[str, ...]
     date: str = ""
     time: str = ""
+    file_size: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         """Return the header as a plain dictionary."""
@@ -62,6 +66,7 @@ class ImageHeader:
             "physical_units_labels": list(d["physical_units_labels"]),
             "date": d["date"],
             "time": d["time"],
+            "file_size": d["file_size"],
         }
 
     def format_dims_display(self) -> str:
@@ -172,6 +177,39 @@ class ImageHeader:
             if lab:
                 return str(lab)
         return dim
+
+
+
+def format_file_size(path: str | Path) -> str:
+    """Return a Finder-style decimal file size string for an on-disk path.
+
+    Args:
+        path: File or directory path. Directory sizes are intentionally not
+            expanded recursively; stores such as ``.cs.ome.zarr`` return an
+            empty string unless the platform reports a direct size.
+
+    Returns:
+        Display string such as ``"842 KB"`` or ``"4.8 MB"``. Returns ``""``
+        if size cannot be read.
+    """
+    try:
+        size = Path(path).stat().st_size
+    except OSError:
+        return ""
+    if size < 0:
+        return ""
+    units = ("bytes", "KB", "MB", "GB", "TB")
+    value = float(size)
+    unit_index = 0
+    while value >= 1000.0 and unit_index < len(units) - 1:
+        value /= 1000.0
+        unit_index += 1
+    if unit_index == 0:
+        suffix = "byte" if size == 1 else "bytes"
+        return f"{size} {suffix}"
+    if value >= 10.0:
+        return f"{value:.0f} {units[unit_index]}"
+    return f"{value:.1f} {units[unit_index]}"
 
 @dataclass(frozen=True, eq=False)
 class ReferenceImagePlane:
@@ -373,6 +411,8 @@ class BaseFileLoader:
             self._header = self.read_header().with_coerced_physical_calibration()
         else:
             self._header = header.with_coerced_physical_calibration()
+        if not self._header.file_size and self._stream is None:
+            self._header = replace(self._header, file_size=format_file_size(self.path))
 
     def replace_header(self, header: ImageHeader) -> None:
         """Replace the loader header at runtime (e.g. edited calibration).
@@ -490,7 +530,14 @@ class BaseFileLoader:
         self._referenceImage = None
 
     def unload_all_cached_data(self) -> None:
-        """Clear primary pixels, and reference caches."""
+        """Clear primary pixels and reference caches.
+
+        Notes:
+            CloudScope lazy image unload calls :meth:`unload_image_data` directly
+            so reference images remain available after primary pixels are
+            unloaded. Use this method only when all loader caches should be
+            discarded.
+        """
         self.unload_image_data()
         self.unload_reference_data()
 

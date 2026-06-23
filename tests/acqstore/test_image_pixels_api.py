@@ -64,18 +64,20 @@ def test_get_slice_data_loaded_returns_plane_without_disk_read() -> None:
 
 def test_acq_image_pixels_loaded_and_load_delegate() -> None:
     acq = AcqImage.__new__(AcqImage)
+    acq._pixels = None
 
     class _Images:
         def __init__(self) -> None:
-            self._loaded = False
+            self.load_calls = 0
 
-        def pixels_loaded(self) -> bool:
-            return self._loaded
+        def load_pixels(self):
+            self.load_calls += 1
+            return object()
 
-        def load_image_data(self) -> None:
-            self._loaded = True
-
-    acq._images = _Images()  # type: ignore[assignment]
-    assert acq.pixels_loaded() is False
-    acq.load_image_data()
+    images = _Images()
+    acq._images = images  # type: ignore[assignment]
+    assert acq.images_loaded is False
+    acq.load_images()
+    assert acq.images_loaded is True
+    assert images.load_calls == 1
     assert acq.pixels_loaded() is True

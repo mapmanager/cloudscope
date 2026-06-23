@@ -35,6 +35,7 @@ class AcqAnalysisSet:
         self.source_path = str(source_path)
         self._data_provider = data_provider
         self._analyses: dict[AnalysisKey, BaseAnalysis] = {}
+        self._results_csv_loaded = False
         self._dirty = False
 
     def is_dirty(self) -> bool:
@@ -469,6 +470,7 @@ class AcqAnalysisSet:
             context=context,
             dependencies=dependencies,
         )
+        self._results_csv_loaded = True
         self.set_dirty()
         return result
 
@@ -526,6 +528,7 @@ class AcqAnalysisSet:
             ValueError: If duplicate records exist.
         """
         self._analyses.clear()
+        self._results_csv_loaded = False
 
         for record in records:
             analysis_name = str(record["analysis_name"])
@@ -536,6 +539,32 @@ class AcqAnalysisSet:
             analysis.load_json_dict(record)
             self.add(analysis)
 
+        self.set_clean()
+
+    def results_csv_loaded(self) -> bool:
+        """Return whether every known analysis has a loaded result table.
+
+        Returns:
+            True when there is at least one analysis and all analyses have a
+            non-None ``result.table``. Empty analysis sets return ``True``
+            because there are no CSV tables required to be fully loaded.
+        """
+        if not self._analyses:
+            return True
+        return self._results_csv_loaded and all(
+            analysis.result.table is not None for analysis in self._analyses.values()
+        )
+
+    def unload_results_dfs(self) -> None:
+        """Drop loaded result DataFrames from every child analysis.
+
+        JSON summaries, detection parameters, analysis identities, and dirty
+        state are preserved. This supports CloudScope's lazy unload workflow
+        without removing analysis rows from the file tree.
+        """
+        for analysis in self._analyses.values():
+            analysis.result.table = None
+        self._results_csv_loaded = False
         self.set_clean()
 
     def load_all_results_dfs_from_csv(self, source_path: str | Path) -> None:
@@ -556,6 +585,7 @@ class AcqAnalysisSet:
             if csv_path.exists() and analysis_name not in tables_by_name:
                 tables_by_name[analysis_name] = pd.read_csv(csv_path)
 
+        self.unload_results_dfs()
         for analysis in self._analyses.values():
             table = tables_by_name.get(analysis.key.analysis_name)
             if table is None:
@@ -576,6 +606,7 @@ class AcqAnalysisSet:
                 continue
             analysis.result.table = sub.drop(columns=["channel", "roi_id"])
 
+        self._results_csv_loaded = True
         self.set_clean()
 
 
@@ -615,6 +646,7 @@ class AcqAnalysisSet:
 
     def load_results_tables_by_name(self, tables_by_name: dict[str, pd.DataFrame]) -> None:
         """Hydrate child analysis result tables from combined tables by name."""
+        self.unload_results_dfs()
         for analysis in self._analyses.values():
             table = tables_by_name.get(analysis.key.analysis_name)
             if table is None:
@@ -632,13 +664,14 @@ class AcqAnalysisSet:
             if sub.empty:
                 continue
             analysis.result.table = sub.drop(columns=["channel", "roi_id"])
+        self._results_csv_loaded = True
         self.set_clean()
 
     def load_results_tables_from_directory(self, directory: str | Path) -> None:
         """Load combined CSV tables from ``directory`` into existing analyses."""
         src_dir = Path(directory)
         if not src_dir.is_dir():
-            self.set_clean()
+            self.unload_results_dfs()
             return
         tables_by_name = {path.stem: pd.read_csv(path) for path in src_dir.glob("*.csv")}
         self.load_results_tables_by_name(tables_by_name)
@@ -655,6 +688,11 @@ class AcqAnalysisSet:
         Raises:
             ValueError: If one analysis type produces inconsistent table columns.
         """
+        if not self._results_csv_loaded and any(
+            analysis.result.table is None for analysis in self._analyses.values()
+        ):
+            return
+
         source = Path(source_path)
         tables_by_name: dict[str, list[pd.DataFrame]] = {}
 

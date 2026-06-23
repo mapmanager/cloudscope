@@ -10,7 +10,7 @@ from acqstore.acq_image.acq_image import AcqImage
 from acqstore.acq_image.acq_image_list import AcqImageList
 
 from cloudscope.event_bus import EventBus
-from cloudscope.events.files import FileListChanged
+from cloudscope.events.files import FileListChanged, ImageDataUnloaded, UnloadImageDataIntent
 from cloudscope.events.metadata import ApplyMetadataIntent, MetadataChanged
 from cloudscope.events.selection import (
     ChannelSelectionChanged,
@@ -23,7 +23,7 @@ from cloudscope.events.selection import (
 from cloudscope.state import PrimarySelection
 
 if TYPE_CHECKING:
-    from cloudscope.controllers.image_pixels_controller import ImagePixelsController
+    from cloudscope.controllers.acq_image_data_controller import AcqImageDataController
 
 
 @dataclass(slots=True)
@@ -64,7 +64,7 @@ class HomePageController:
         self,
         event_bus: EventBus,
         *,
-        image_pixels_controller: ImagePixelsController | None = None,
+        acq_image_data_controller: AcqImageDataController | None = None,
         initial_state: HomePageState | None = None,
     ) -> None:
         """Initialize the controller.
@@ -72,14 +72,15 @@ class HomePageController:
         Args:
             event_bus: Event bus used for subscribing to intent events and
                 publishing resulting state events.
-            image_pixels_controller: Optional controller that loads pixel data
-                before :class:`FileSelectionChanged` is published. When omitted,
-                file selection is published immediately (tests only).
+            acq_image_data_controller: Optional controller that loads lazy
+                acquisition data before :class:`FileSelectionChanged` is
+                published. When omitted, file selection is published
+                immediately (tests only).
             initial_state: Optional initial state. If omitted, an empty state is
                 created.
         """
         self._event_bus = event_bus
-        self._image_pixels_controller = image_pixels_controller
+        self._acq_image_data_controller = acq_image_data_controller
         self._state = initial_state or HomePageState(
             file_ids=[],
             selection=PrimarySelection(),
@@ -105,6 +106,7 @@ class HomePageController:
         self._event_bus.subscribe(SelectChannelIntent, self._on_select_channel)
         self._event_bus.subscribe(SelectRoiIntent, self._on_select_roi)
         self._event_bus.subscribe(ApplyMetadataIntent, self._on_apply_metadata)
+        self._event_bus.subscribe(UnloadImageDataIntent, self._on_unload_image_data)
 
     def load_acq_image_list(self, acq_image_list: AcqImageList) -> None:
         """Replace the current file list with a backend AcqImageList.
@@ -131,7 +133,7 @@ class HomePageController:
             channel=channel,
             roi_id=roi_id,
         )
-        self._publish_file_selection_after_pixels_loaded()
+        self._publish_file_selection_after_lazy_data_loaded()
 
     def load_demo_files(self, file_ids: list[str]) -> None:
         """Replace the current file list with demo data.
@@ -152,7 +154,7 @@ class HomePageController:
             channel=0 if default_file_id is not None else None,
             roi_id=None,
         )
-        self._publish_file_selection_after_pixels_loaded()
+        self._publish_file_selection_after_lazy_data_loaded()
 
     def _on_select_file(self, event: SelectFileIntent) -> None:
         """Handle file selection changes.
@@ -184,7 +186,7 @@ class HomePageController:
                 roi_id=roi_id,
                 analysis_name=event.analysis_name,
             )
-            self._publish_file_selection_after_pixels_loaded()
+            self._publish_file_selection_after_lazy_data_loaded()
             return
 
         if event.file_id not in self._state.file_ids:
@@ -194,7 +196,7 @@ class HomePageController:
         self._state.selection.channel = event.channel if event.channel is not None else 0
         self._state.selection.roi_id = event.roi_id
         self._state.selection.analysis_name = event.analysis_name
-        self._publish_file_selection_after_pixels_loaded()
+        self._publish_file_selection_after_lazy_data_loaded()
 
     def _on_select_channel(self, event: SelectChannelIntent) -> None:
         """Handle channel selection changes.
@@ -268,6 +270,43 @@ class HomePageController:
             )
         )
 
+
+    def _on_unload_image_data(self, event: UnloadImageDataIntent) -> None:
+        """Handle request to unload one file's lazy image/analysis data.
+
+        If the requested file is currently selected, selection is cleared before
+        unloading so views transition to the existing "no file selected" state
+        and never need to understand lazy-loading state themselves.
+
+        Args:
+            event: Unload request carrying a file identifier.
+
+        Raises:
+            RuntimeError: If no acquisition list is loaded.
+            ValueError: If ``event.file_id`` is unknown.
+        """
+        if self._state.acq_image_list is None:
+            raise RuntimeError('Cannot unload image data without a loaded AcqImageList')
+        acq_image = self._state.acq_image_list.get_file_by_id(event.file_id)
+        if acq_image is None:
+            raise ValueError(f'Unknown file_id: {event.file_id!r}')
+
+        if self._state.selection.file_id == event.file_id:
+            self._state.selection = PrimarySelection()
+            self._publish_file_selection_changed()
+
+        if self._acq_image_data_controller is None:
+            acq_image.unload_lazy_data()
+            self._event_bus.publish(
+                ImageDataUnloaded(
+                    file_id=event.file_id,
+                    file_list_row=dict(acq_image.get_schema_row()),
+                )
+            )
+            return
+
+        self._acq_image_data_controller.unload_file_data(event.file_id, acq_image)
+
     def _resolved_acq_image_for_selection(self) -> AcqImage | None:
         """Return the ``AcqImage`` for the current selection when available.
 
@@ -279,17 +318,17 @@ class HomePageController:
             return self._state.acq_image_list.get_file_by_id(fid)
         return None
 
-    def _publish_file_selection_after_pixels_loaded(self) -> None:
-        """Ensure pixels are loaded, then publish file selection state once.
+    def _publish_file_selection_after_lazy_data_loaded(self) -> None:
+        """Ensure lazy data is loaded, then publish file selection state once.
 
         Returns:
             None.
         """
-        if self._image_pixels_controller is None:
+        if self._acq_image_data_controller is None:
             self._publish_file_selection_changed()
             return
 
-        self._image_pixels_controller.ensure_loaded(
+        self._acq_image_data_controller.ensure_loaded_for_selection(
             self._state.selection.file_id,
             self._resolved_acq_image_for_selection(),
             on_complete=self._publish_file_selection_changed,

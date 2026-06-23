@@ -27,6 +27,8 @@ import numpy as np
 class _FakeImages:
     """Small image-loader test double for schema-row generation."""
 
+    reference_image = None
+
     def __init__(self, *, num_channels: int = 2, path: str = '/tmp/sample.tif') -> None:
         self.num_channels = num_channels
         self.default_channel = 0
@@ -105,6 +107,7 @@ def _make_acq_image(path: Path, *, with_analysis: bool = True) -> AcqImage:
     acq_image = AcqImage.__new__(AcqImage)
     acq_image.path = str(path.resolve())
     acq_image._accept = True
+    acq_image._pixels = None
     acq_image._images = _FakeImages(num_channels=2, path=str(path.resolve()))
     acq_image._experimental_metadata = _FakeMetadata(genotype='wt', condition='control')
     acq_image._image_header_metadata = _FakeMetadata(genotype='')

@@ -362,6 +362,8 @@ class LoadSaveController:
                 folder_depth=folder_depth,
                 progress_callback=report,
                 should_cancel=context.is_cancelled,
+                load_images=False,
+                load_analysis_csv=False,
             )
         except LoadCancelled as exc:
             raise TaskCancelled(str(exc)) from exc

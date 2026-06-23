@@ -32,7 +32,7 @@ from acqstore.schema import ACQ_FILE_LIST_SCHEMA
 from cloudscope.event_bus import EventBus
 from cloudscope.events.acq_image_events import AcqImageEventsChanged
 from cloudscope.events.analysis import AnalysisCompleted
-from cloudscope.events.files import FileListChanged
+from cloudscope.events.files import FileListChanged, ImageDataUnloaded, UnloadImageDataIntent
 from cloudscope.events.metadata import MetadataChanged
 from cloudscope.events.roi import RoiChanged
 from cloudscope.events.selection import SelectFileIntent
@@ -149,6 +149,27 @@ class AcqImageListTreeView(BaseView):
             None.
         """
         ui.menu_item("Reveal In Finder", on_click=self._reveal_selected_file_in_finder)
+        ui.menu_item("Unload Data", on_click=self._unload_selected_file_data)
+
+
+    def _unload_selected_file_data(self) -> None:
+        """Publish an unload intent for the selected file or analysis row.
+
+        Returns:
+            None.
+        """
+        if self._tree is None:
+            logger.warning("Unload Data requested before file tree was built")
+            return
+        selected_rows = self._tree.get_selected_rows()
+        if not selected_rows:
+            ui.notify("No file selected", type="warning")
+            return
+        file_id = self._resolve_file_id_from_row(selected_rows[0])
+        if not isinstance(file_id, str) or not file_id:
+            ui.notify("Selected row has no file path", type="warning")
+            return
+        self.event_bus.publish(UnloadImageDataIntent(file_id=file_id))
 
     def _reveal_selected_file_in_finder(self) -> None:
         """Reveal the selected file in the OS file manager.
@@ -245,6 +266,7 @@ class AcqImageListTreeView(BaseView):
         self.add_subscription(self.event_bus.subscribe(AnalysisCompleted, self._on_analysis_completed))
         self.add_subscription(self.event_bus.subscribe(AcqImageEventsChanged, self._on_acq_image_events_changed))
         self.add_subscription(self.event_bus.subscribe(RoiChanged, self._on_roi_changed))
+        self.add_subscription(self.event_bus.subscribe(ImageDataUnloaded, self._on_image_data_unloaded))
 
     def refresh_from_state(self) -> None:
         """Refresh tree rows and selection from current app state.
@@ -357,6 +379,15 @@ class AcqImageListTreeView(BaseView):
             return
 
         self._tree.set_selected_row_ids([file_id], origin="state")
+
+
+    def _on_image_data_unloaded(self, event: ImageDataUnloaded) -> None:
+        """Refresh one file subtree after lazy image/analysis data unload.
+
+        Args:
+            event: Unload state event.
+        """
+        self._replace_group_rows_from_acq_image(event.file_id)
 
     def _on_metadata_changed(self, event: MetadataChanged) -> None:
         """Refresh one file's subtree after metadata apply.

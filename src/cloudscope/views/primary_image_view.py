@@ -1,7 +1,7 @@
 """Primary raster image view: slice + header calibration into ``PlotlyRasterViewer``.
 
-Full-file pixel loads are orchestrated by
-:class:`cloudscope.controllers.image_pixels_controller.ImagePixelsController`
+Lazy acquisition data loads are orchestrated by
+:class:`cloudscope.controllers.acq_image_data_controller.AcqImageDataController`
 before :class:`FileSelectionChanged` is published. This view refreshes from
 :class:`BaseView` selection hooks and slices via
 :meth:`BaseFileLoader.get_slice_data_loaded` (no implicit disk I/O).

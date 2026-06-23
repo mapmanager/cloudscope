@@ -29,5 +29,10 @@ class OmeZarrFileLoader(BaseFileLoader):
         """Return Zarr-backed pixels without eagerly loading the full array."""
         return self._load_pixels_lazy()
 
+    def unload_image_data(self) -> None:
+        """Drop cached lazy ``AcqPixels`` and any materialized NumPy array."""
+        self._pixels = None
+        super().unload_image_data()
+
     def _load_full_image_array(self) -> np.ndarray:
         return np.asarray(self._load_pixels_lazy().get_array(0))

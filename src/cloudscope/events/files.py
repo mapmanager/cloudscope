@@ -58,6 +58,30 @@ class SaveAllIntent(IntentEvent):
 
 
 @dataclass(frozen=True)
+class UnloadImageDataIntent(IntentEvent):
+    """Request lazy unload of one acquisition file's loaded data.
+
+    Attributes:
+        file_id: Stable acquisition file identifier to unload.
+    """
+
+    file_id: str
+
+
+@dataclass(frozen=True)
+class ImageDataUnloaded(StateEvent):
+    """Emitted after one acquisition file's lazy data was unloaded.
+
+    Attributes:
+        file_id: Stable acquisition file identifier that was unloaded.
+        file_list_row: Updated display row for table/tree refresh.
+    """
+
+    file_id: str
+    file_list_row: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class FileListChanged(StateEvent):
     """Emitted when the current file list changes.
 

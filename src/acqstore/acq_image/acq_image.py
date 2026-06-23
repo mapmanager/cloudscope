@@ -172,7 +172,13 @@ class AcqImage:
         ValueError: If the file extension is not a supported acquisition format.
     """
 
-    def __init__(self, path: str):
+    def __init__(
+        self,
+        path: str,
+        *,
+        load_images: bool = True,
+        load_analysis_csv: bool = True,
+    ):
         """Create and hydrate an acquisition file object.
 
         The source file is opened through the appropriate file loader, default
@@ -181,6 +187,12 @@ class AcqImage:
 
         Args:
             path: Filesystem path for this acquisition file.
+            load_images: When true, materialize primary image pixels during
+                construction. When false, only header/reference/sidecar state is
+                loaded and callers must use :meth:`load_images` or
+                :meth:`load_lazy_data` before reading primary pixels.
+            load_analysis_csv: When true, load analysis CSV result tables during
+                construction. Analysis JSON summaries are always loaded.
 
         Raises:
             ValueError: If the file extension is not a supported acquisition format.
@@ -190,9 +202,14 @@ class AcqImage:
         self._accept = True
 
         self._images = create_file_loader(self.path)
-        self._pixels = self._images.load_pixels()
+        # ``_images`` is the source-file loader and owns header/reference access.
+        # ``_pixels`` is the normalized AcqPixels wrapper and exists only while
+        # primary image pixels are intentionally loaded. Clearing it on unload is
+        # critical because it can otherwise keep a second reference to large arrays.
+        self._pixels: AcqPixels | None = None
+        self._load_analysis_csv_on_sidecar_load = bool(load_analysis_csv)
         self._experimental_metadata = ExperimentMetadata()
-        self._image_header_metadata = ImageHeaderMetadata(self._pixels.header, self._apply_image_header)
+        self._image_header_metadata = ImageHeaderMetadata(self._images.header, self._apply_image_header)
         self._rois = RoiSet(self._infer_image_bounds())
         self._acq_analysis_set = AcqAnalysisSet(
             self.path,
@@ -205,6 +222,9 @@ class AcqImage:
             self.load_native_zarr_sidecar_json()
         else:
             self.load_sidecar_json()
+
+        if load_images:
+            self.load_images()
 
     @property
     def file_id(self) -> str:
@@ -358,7 +378,8 @@ class AcqImage:
         if not isinstance(analysis_obj, list):
             raise ValueError("Sidecar field 'analysis' must be a list")
         self._acq_analysis_set.load_json_analysis(analysis_obj)
-        self._acq_analysis_set.load_all_results_dfs_from_csv(self.path)
+        if self._load_analysis_csv_on_sidecar_load:
+            self.load_analysis_csv()
 
         # region image_contrast persistence
         # Comment out this region (and the matching one in
@@ -457,9 +478,6 @@ class AcqImage:
             return
         try:
             self._load_sidecar_payload(read_json_file(sidecar_path), source=str(sidecar_path))
-            self._acq_analysis_set.load_results_tables_from_directory(
-                Path(self.path) / 'acqstore' / 'analysis'
-            )
         except Exception as exc:  # pragma: no cover - defensive native-load path
             logger.warning('Failed to load native Zarr sidecar for %s: %s', self.path, exc)
 
@@ -491,22 +509,20 @@ class AcqImage:
 
     @property
     def pixels(self) -> AcqPixels:
-        """Return pixels plus OME/NGFF-style acquisition metadata for this file.
+        """Return loaded pixels plus OME/NGFF-style acquisition metadata.
 
-        The normal constructor initializes ``_pixels`` immediately. This lazy
-        fallback keeps lightweight tests and scripts that construct ``AcqImage``
-        instances without invoking ``__init__`` from failing when a real loader
-        is present. Test doubles that only mimic legacy loader attributes should
-        continue using ``images``-level fields such as ``num_channels``.
+        Accessing this property is an explicit lazy-load trigger for scripting
+        compatibility. CloudScope runtime code should use
+        :meth:`load_lazy_data` through its controller before publishing file
+        selection state, then views should read already-loaded data through the
+        file-loader APIs.
+
+        Returns:
+            Loaded :class:`AcqPixels` wrapper.
         """
-        if not hasattr(self, '_pixels'):
-            load_pixels = getattr(getattr(self, '_images', None), 'load_pixels', None)
-            if not callable(load_pixels):
-                raise AttributeError(
-                    "AcqImage pixels are not initialized and the image loader "
-                    "does not provide load_pixels()."
-                )
-            self._pixels = load_pixels()
+        if getattr(self, '_pixels', None) is None:
+            self.load_images()
+        assert self._pixels is not None
         return self._pixels
 
     @property
@@ -520,26 +536,97 @@ class AcqImage:
         """
         return self._images
 
+    @property
+    def images_loaded(self) -> bool:
+        """Return whether primary image pixels and ``AcqPixels`` are loaded."""
+        return self._pixels is not None
+
+    @property
+    def analysis_csv_loaded(self) -> bool:
+        """Return whether analysis CSV result tables are currently loaded."""
+        return self._acq_analysis_set.results_csv_loaded()
+
+    @property
+    def is_fully_loaded(self) -> bool:
+        """Return whether all lazy primary image and analysis CSV data are loaded."""
+        return self.images_loaded and self.analysis_csv_loaded
+
     def pixels_loaded(self) -> bool:
-        """Return whether the full pixel volume is cached in memory.
+        """Return whether primary image pixels are loaded.
 
-        Returns:
-            ``True`` after :meth:`load_image_data` has completed at least once
-            without unloading pixel data on the backing file loader.
+        Compatibility wrapper for older CloudScope code. New code should use
+        :attr:`images_loaded`.
         """
-        return self._images.pixels_loaded()
+        return self.images_loaded
 
-    def load_image_data(self) -> None:
-        """Eagerly load the full pixel volume from disk into memory.
-
-        Idempotent: repeated calls are safe when pixels are already loaded.
-        Callers that need 2D slices without implicit disk I/O should use
-        :meth:`BaseFileLoader.get_slice_data_loaded` after this completes.
+    def load_images(self) -> None:
+        """Load primary image pixels using the same path used by eager init.
 
         Returns:
             None.
         """
-        self._images.load_image_data()
+        if self._pixels is None:
+            self._pixels = self._images.load_pixels()
+
+    def unload_images(self) -> None:
+        """Unload primary image pixels and clear the normalized pixel wrapper.
+
+        Reference images, file headers, ROI state, experiment metadata, and
+        analysis JSON summaries remain loaded.
+        """
+        self._images.unload_image_data()
+        self._pixels = None
+
+    def load_analysis_csv(self) -> None:
+        """Load all analysis CSV result tables for analyses known from JSON."""
+        if self.path.lower().endswith('.cs.ome.zarr'):
+            self._acq_analysis_set.load_results_tables_from_directory(
+                Path(self.path) / 'acqstore' / 'analysis'
+            )
+        else:
+            self._acq_analysis_set.load_all_results_dfs_from_csv(self.path)
+
+    def unload_analysis_csv(self) -> None:
+        """Unload all analysis CSV-backed result tables from child analyses."""
+        self._acq_analysis_set.unload_results_dfs()
+
+    def load_lazy_data(
+        self,
+        *,
+        load_images: bool = True,
+        load_analysis_csv: bool = True,
+    ) -> None:
+        """Load selected lazy data categories for this acquisition.
+
+        Args:
+            load_images: Load primary image pixels when true.
+            load_analysis_csv: Load analysis CSV result tables when true.
+        """
+        if load_images:
+            self.load_images()
+        if load_analysis_csv:
+            self.load_analysis_csv()
+
+    def unload_lazy_data(
+        self,
+        *,
+        unload_images: bool = True,
+        unload_analysis_csv: bool = True,
+    ) -> None:
+        """Unload selected lazy data categories for this acquisition.
+
+        Args:
+            unload_images: Unload primary image pixels when true.
+            unload_analysis_csv: Unload analysis CSV result tables when true.
+        """
+        if unload_analysis_csv:
+            self.unload_analysis_csv()
+        if unload_images:
+            self.unload_images()
+
+    def load_image_data(self) -> None:
+        """Compatibility wrapper for :meth:`load_images`."""
+        self.load_images()
 
     @property
     def rois(self) -> RoiSet:
@@ -683,7 +770,8 @@ class AcqImage:
             self.path,
             loaded_from_stream=loaded_from_stream,
         )
-        values: dict[str, object] = {
+        schema = self.get_schema()
+        raw_values: dict[str, object] = {
             'name': self.name,
             'saved': not self.is_dirty,
             'path': self.path,
@@ -691,12 +779,16 @@ class AcqImage:
             'grandparent': grandparent,
             'condition': self._experimental_metadata.condition,
             'genotype': self._experimental_metadata.genotype,
+            'loaded': '✅' if self.is_fully_loaded else '',
+            'reference_image': '✅' if self._images.reference_image is not None else '',
+            'file_size': self._images.header.file_size,
             'num_channels': self._images.num_channels,
             'dims': self._images.header.format_dims_display(),
             'num_rois': self.rois.num_rois,
             'accept': self._accept,
         }
-        validate_values_for_schema(self.get_schema(), values)
+        values = {name: raw_values[name] for name in schema.field_names()}
+        validate_values_for_schema(schema, values)
         return values
 
     def get_tree_rows(self) -> list[dict[str, object]]:
@@ -787,7 +879,7 @@ class AcqImage:
             Zero-based channel index for the first channel, or ``None`` when the
             file exposes no channels.
         """
-        return self._pixels.default_channel
+        return self._images.default_channel
 
     def get_default_roi(self) -> int | None:
         """Return the default ROI identifier for this file.
@@ -852,7 +944,7 @@ class AcqImage:
         Raises:
             ValueError: If the file header does not define a ``Y``/``X`` plane.
         """
-        return self._pixels.get_image_physical_units()
+        return self._images.get_image_physical_units()
 
     def _infer_image_bounds(self) -> ImageBounds:
         """Infer image bounds from loaded header information.
@@ -860,7 +952,7 @@ class AcqImage:
         Returns:
             Image bounds built from known header dimensions.
         """
-        sizes = self._pixels.header.sizes
+        sizes = self._images.header.sizes
         width = int(sizes.get('X', 1))
         height = int(sizes.get('Y', 1))
         num_slices = int(sizes.get('Z', 1))

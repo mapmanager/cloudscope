@@ -182,6 +182,10 @@ class AcqImageList:
         file_factory: Optional factory for creating ``AcqImage``-like objects.
         folder_depth: Maximum directory depth used for folder discovery.
         path_kind: Optional explicit ``PathKind``. When omitted, the kind is
+        load_images: Passed to default ``AcqImage`` construction. Ignored when a
+            custom ``file_factory`` is supplied.
+        load_analysis_csv: Passed to default ``AcqImage`` construction. Ignored
+            when a custom ``file_factory`` is supplied.
             inferred from the path.
     """
 
@@ -192,6 +196,8 @@ class AcqImageList:
         file_factory: Callable[[str], AcqImage] | None = None,
         folder_depth: int = 4,
         path_kind: PathKind | str | None = None,
+        load_images: bool = True,
+        load_analysis_csv: bool = True,
     ):
         """Load one file, a folder of files, or a CSV file list.
 
@@ -206,6 +212,10 @@ class AcqImageList:
             path_kind: Optional explicit source type (``file``, ``folder``, or
                 ``csv``). When omitted, the constructor infers kind from path
                 suffix and filesystem checks.
+            load_images: When true, default ``AcqImage`` construction eagerly
+                loads primary pixels.
+            load_analysis_csv: When true, default ``AcqImage`` construction
+                eagerly loads analysis CSV result tables.
 
         Raises:
             ValueError: If ``folder_depth`` is less than one or strict CSV
@@ -237,7 +247,12 @@ class AcqImageList:
         if file_factory is None:
             from acqstore.acq_image.acq_image import AcqImage
 
-            file_factory = AcqImage
+            def file_factory(file_path: str) -> AcqImage:
+                return AcqImage(
+                    file_path,
+                    load_images=load_images,
+                    load_analysis_csv=load_analysis_csv,
+                )
         self._files = [file_factory(file_path) for file_path in self.file_list]
         self._files_by_id = {acq_file.file_id: acq_file for acq_file in self._files}
         self._attach_analysis_pools()
@@ -252,6 +267,8 @@ class AcqImageList:
         folder_depth: int = 4,
         progress_callback: Callable[[int, int, str], None] | None = None,
         should_cancel: Callable[[], bool] | None = None,
+        load_images: bool = True,
+        load_analysis_csv: bool = True,
     ) -> LoadResult:
         """Load acquisition files while collecting non-fatal warnings.
 
@@ -272,6 +289,10 @@ class AcqImageList:
                 and after each attempted file load.
             should_cancel: Optional callback checked between file loads. Return
                 ``True`` to cancel loading.
+            load_images: When true, default ``AcqImage`` construction eagerly
+                loads primary pixels.
+            load_analysis_csv: When true, default ``AcqImage`` construction
+                eagerly loads analysis CSV result tables.
 
         Returns:
             :class:`LoadResult` containing an ``AcqImageList`` and collected
@@ -325,7 +346,11 @@ class AcqImageList:
                 if file_factory is None:
                     from acqstore.acq_image.acq_image import AcqImage
 
-                    built = AcqImage(candidate)
+                    built = AcqImage(
+                        candidate,
+                        load_images=load_images,
+                        load_analysis_csv=load_analysis_csv,
+                    )
                 else:
                     built = file_factory(candidate)
                 files.append(built)
@@ -537,6 +562,42 @@ class AcqImageList:
         """
         for _event in self.iter_save_all(should_cancel=should_cancel):
             continue
+
+    def load_lazy_data(
+        self,
+        *,
+        load_images: bool = True,
+        load_analysis_csv: bool = True,
+    ) -> None:
+        """Load selected lazy data categories for every acquisition in the list.
+
+        Args:
+            load_images: Load primary image pixels when true.
+            load_analysis_csv: Load analysis CSV result tables when true.
+        """
+        for acq_file in self._files:
+            acq_file.load_lazy_data(
+                load_images=load_images,
+                load_analysis_csv=load_analysis_csv,
+            )
+
+    def unload_lazy_data(
+        self,
+        *,
+        unload_images: bool = True,
+        unload_analysis_csv: bool = True,
+    ) -> None:
+        """Unload selected lazy data categories for every acquisition in the list.
+
+        Args:
+            unload_images: Unload primary image pixels when true.
+            unload_analysis_csv: Unload analysis CSV result tables when true.
+        """
+        for acq_file in self._files:
+            acq_file.unload_lazy_data(
+                unload_images=unload_images,
+                unload_analysis_csv=unload_analysis_csv,
+            )
 
     def get_schema(self) -> SchemaDefinition:
         """Return schema definition for rows in this list."""

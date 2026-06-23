@@ -10,7 +10,7 @@ from acqstore.schema import ACQ_FILE_LIST_SCHEMA
 from cloudscope.event_bus import EventBus
 from cloudscope.events.acq_image_events import AcqImageEventsChanged
 from cloudscope.events.analysis import AnalysisCompleted
-from cloudscope.events.files import FileListChanged
+from cloudscope.events.files import FileListChanged, ImageDataUnloaded
 from cloudscope.events.metadata import MetadataChanged
 from cloudscope.events.roi import RoiChanged
 from cloudscope.events.selection import SelectFileIntent
@@ -175,6 +175,7 @@ class AcqImageListTableView(BaseView):
         self.add_subscription(self.event_bus.subscribe(AnalysisCompleted, self._on_analysis_completed))
         self.add_subscription(self.event_bus.subscribe(AcqImageEventsChanged, self._on_acq_image_events_changed))
         self.add_subscription(self.event_bus.subscribe(RoiChanged, self._on_roi_changed))
+        self.add_subscription(self.event_bus.subscribe(ImageDataUnloaded, self._on_image_data_unloaded))
 
     def refresh_from_state(self) -> None:
         """Refresh table rows and selection from current app state.
@@ -231,6 +232,17 @@ class AcqImageListTableView(BaseView):
             self._table.clear_selection()
             return
         self._table.set_selected_row_ids([file_id], origin="state")
+
+
+    def _on_image_data_unloaded(self, event: ImageDataUnloaded) -> None:
+        """Refresh one table row after lazy image/analysis data unload.
+
+        Args:
+            event: Unload state event carrying an updated file-list row.
+        """
+        if self._table is None:
+            return
+        self._table.update_row(event.file_id, dict(event.file_list_row))
 
     def _on_metadata_changed(self, event: MetadataChanged) -> None:
         """Refresh one table row after metadata apply.
