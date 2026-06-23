@@ -33,3 +33,19 @@ def test_set_data_clears_trace_overlays() -> None:
     figure_data = viewer.figure.get('data')
     assert isinstance(figure_data, list)
     assert len(figure_data) == 1
+
+
+def test_set_data_from_pyramid_reuses_prebuilt_pyramid() -> None:
+    """Prebuilt pyramids should bypass a second pyramid build in the viewer."""
+    from nicewidgets.raster_viewer.backend.image_model import BackendImage
+    from nicewidgets.raster_viewer.backend.pyramid import ImagePyramid
+
+    viewer = PlotlyRasterViewer()
+    data = np.arange(36, dtype=np.float32).reshape(6, 6)
+    grid = RasterGridSpec(dx=0.5, dy=0.25, x_unit='s', y_unit='um')
+    pyramid = ImagePyramid(BackendImage(data, grid=grid))
+
+    asyncio.run(viewer.set_data_from_pyramid(data, grid=grid, pyramid=pyramid))
+
+    assert viewer.has_data
+    assert viewer.figure.get('data') is not None

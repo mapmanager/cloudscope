@@ -242,6 +242,9 @@ def test_publishes_primary_plane_loaded_after_set_data() -> None:
         async def set_data(self, *_a, **_k) -> None:
             return None
 
+        async def set_data_from_pyramid(self, *_a, **_k) -> None:
+            return None
+
     fake = _DataViewer()
     view._viewer = fake  # type: ignore[assignment]
 
@@ -264,20 +267,20 @@ def test_publishes_primary_plane_loaded_after_set_data() -> None:
     async def _run() -> None:
         from cloudscope.views import primary_image_view as pim
 
-        original = pim._load_plane_payload
+        original = pim._load_primary_display_payload
         from nicewidgets.raster_viewer.backend.image_model import (
             RasterGridSpec as RGS,
         )
 
-        pim._load_plane_payload = (
-            lambda *_a, **_k: (plane, RGS(dx=1.0, dy=1.0, x_unit='Y', y_unit='X'), False)
+        pim._load_primary_display_payload = (
+            lambda *_a, **_k: (plane, RGS(dx=1.0, dy=1.0, x_unit='Y', y_unit='X'), None, False)
         )
         view._refresh_roi_overlays = lambda **_k: None  # type: ignore[assignment]
         view._refresh_diameter_trace_overlays = lambda **_k: None  # type: ignore[assignment]
         try:
             await view._refresh_raster_async('f', _Acq(), 0)
         finally:
-            pim._load_plane_payload = original
+            pim._load_primary_display_payload = original
 
     asyncio.run(_run())
     assert len(seen) == 1

@@ -16,6 +16,7 @@ from cloudscope.controllers.roi_controller import RoiController
 from cloudscope.controllers.velocity_pool_controller import VelocityPoolController
 from cloudscope.event_bus import EventBus
 from cloudscope.events.files import LoadPathIntent, LoadPathKind
+from cloudscope.raster_display_cache import RasterDisplayCache, resolve_raster_display_cache_max_entries
 from cloudscope.task_runner import TaskRunner
 from cloudscope.user_context import (
     UserContext,
@@ -56,6 +57,7 @@ class CloudScopeRuntime:
         event_analysis_controller: Event-analysis controller.
         velocity_pool_controller: Velocity pool synchronization controller.
         task_runner: Background task runner for long-running work.
+        raster_display_cache: Shared LRU cache of raster planes and pyramids.
         initialized: Whether one-time bootstrap has completed.
         controllers_bound: Whether controller ``bind()`` has run.
     """
@@ -70,6 +72,7 @@ class CloudScopeRuntime:
     event_analysis_controller: EventAnalysisController
     velocity_pool_controller: VelocityPoolController
     task_runner: TaskRunner
+    raster_display_cache: RasterDisplayCache
     initialized: bool = False
     controllers_bound: bool = False
 
@@ -320,6 +323,9 @@ def _build_runtime(user_context: UserContext, app_config: AppConfig) -> CloudSco
             home_controller=home_page_controller,
         ),
         task_runner=task_runner,
+        raster_display_cache=RasterDisplayCache(
+            max_entries=resolve_raster_display_cache_max_entries(),
+        ),
     )
 
 

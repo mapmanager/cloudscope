@@ -14,10 +14,16 @@ from acqstore.acq_image.file_loaders.base_file_loader import ReferenceImagePlane
 from acqstore.acq_image.image_contrast import contrast_clip_min_max
 from cloudscope.event_bus import EventBus
 from cloudscope.events.theme import ThemeChanged
+from cloudscope.raster_display_cache import (
+    RasterDisplayCache,
+    RasterDisplayCacheKey,
+    RasterDisplayPlaneKind,
+)
 from cloudscope.utils.logging import get_logger
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
 from nicewidgets.raster_viewer.backend.image_model import RasterGridSpec
+from nicewidgets.raster_viewer.backend.pyramid import ImagePyramid
 from nicewidgets.raster_viewer.frontend.plotly_display_options import (
     PlotlyRasterViewerDisplayOptions,
 )
@@ -82,6 +88,54 @@ def _load_reference_plane_payload(
     return array, grid, 'Reference image', True
 
 
+def _load_reference_display_payload(
+    file_id: str | None,
+    acq_image: AcqImage | None,
+    channel: int | None,
+    cache: RasterDisplayCache | None,
+) -> tuple[np.ndarray | None, RasterGridSpec | None, ImagePyramid | None, str, bool]:
+    """Load reference display payload, optionally using the raster display cache.
+
+    This function is safe to run off the UI thread with ``run.io_bound``.
+
+    Args:
+        file_id: Selected file id, if any.
+        acq_image: Selected acquisition image, if any.
+        channel: Selected channel, if any.
+        cache: Optional shared LRU cache for planes and pyramids.
+
+    Returns:
+        Tuple of ``(array, grid, pyramid, message, is_real_reference)``.
+        ``array``, ``grid``, and ``pyramid`` are ``None`` when no reference
+        plane is available. ``pyramid`` is ``None`` when no cache is configured.
+    """
+    plane, grid, message, is_real_reference = _load_reference_plane_payload(
+        file_id,
+        acq_image,
+        channel,
+    )
+    if not is_real_reference or plane is None or grid is None or file_id is None or channel is None:
+        return plane, grid, None, message, is_real_reference
+
+    if cache is None:
+        return plane, grid, None, message, is_real_reference
+
+    key = RasterDisplayCacheKey(
+        file_id=file_id,
+        channel=int(channel),
+        kind=RasterDisplayPlaneKind.REFERENCE,
+    )
+
+    def _load_plane() -> np.ndarray:
+        loaded = np.asarray(plane)
+        if loaded.ndim != 2:
+            raise ValueError(f'Expected 2D reference plane (Y, X), got shape={loaded.shape}')
+        return loaded
+
+    entry = cache.get_or_build(key, plane_loader=_load_plane)
+    return entry.plane, grid, entry.pyramid, message, is_real_reference
+
+
 def reference_contrast_window(plane: np.ndarray) -> tuple[float, float] | None:
     """Return a stable percentile contrast window for a reference image plane.
 
@@ -139,6 +193,7 @@ class ReferenceImageView(BaseView):
         dark_mode: Initial Plotly raster-viewer theme state.
         dark_mode_provider: Optional callable returning the current application
             dark-mode state when the view is shown after being hidden.
+        raster_display_cache: Optional shared LRU cache for planes and pyramids.
     """
 
     view_id = ViewId.REFERENCE_IMAGE
@@ -153,6 +208,7 @@ class ReferenceImageView(BaseView):
         initially_visible: bool = True,
         dark_mode: bool = False,
         dark_mode_provider: Callable[[], bool] | None = None,
+        raster_display_cache: RasterDisplayCache | None = None,
     ) -> None:
         super().__init__(event_bus=event_bus, app_state=app_state, initially_visible=initially_visible)
         self._title = title
@@ -165,6 +221,7 @@ class ReferenceImageView(BaseView):
         self._last_file_id: str | None = None
         self._last_channel: int | None = None
         self._dark_mode_provider = dark_mode_provider
+        self._raster_display_cache = raster_display_cache
 
     def build(self, parent: ui.element | None = None) -> ui.element:
         """Create the reference image card.
@@ -301,11 +358,12 @@ class ReferenceImageView(BaseView):
             None.
         """
         try:
-            plane, grid, _message, is_real_reference = await run.io_bound(
-                _load_reference_plane_payload,
+            plane, grid, pyramid, _message, is_real_reference = await run.io_bound(
+                _load_reference_display_payload,
                 file_id,
                 acq_image,
                 channel,
+                self._raster_display_cache,
             )
         except Exception as exc:
             logger.exception('Reference image load failed file_id=%r channel=%r', file_id, channel)
@@ -327,11 +385,19 @@ class ReferenceImageView(BaseView):
             return
 
         try:
-            await self._viewer.set_data(
-                plane,
-                grid=grid,
-                overview_max_pixels=_REFERENCE_OVERVIEW_MAX_PIXELS,
-            )
+            if pyramid is None:
+                await self._viewer.set_data(
+                    plane,
+                    grid=grid,
+                    overview_max_pixels=_REFERENCE_OVERVIEW_MAX_PIXELS,
+                )
+            else:
+                await self._viewer.set_data_from_pyramid(
+                    plane,
+                    grid=grid,
+                    pyramid=pyramid,
+                    overview_max_pixels=_REFERENCE_OVERVIEW_MAX_PIXELS,
+                )
             await self._apply_reference_contrast(plane)
         except RuntimeError as exc:
             logger.exception('Reference image set_data failed: %s', exc)

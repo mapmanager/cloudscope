@@ -136,6 +136,7 @@ class HomePage:
             initially_visible=True,
             dark_mode=dark_mode,
             dark_mode_provider=_dark_mode,
+            raster_display_cache=get_current_runtime().raster_display_cache,
         )
         acq_analysis_plot = AcqAnalysisPlotView(
             self.event_bus,
@@ -150,6 +151,7 @@ class HomePage:
             initially_visible=False,
             dark_mode=dark_mode,
             dark_mode_provider=_dark_mode,
+            raster_display_cache=get_current_runtime().raster_display_cache,
         )
         velocity_pool_view: VelocityPoolView | None = None
         if SHOW_EMBEDDED_VELOCITY_POOL:

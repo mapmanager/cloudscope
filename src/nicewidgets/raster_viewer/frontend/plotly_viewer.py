@@ -264,11 +264,43 @@ if (!plotDiv || !plotDiv.data) return;
         Returns:
             Initial full-image PNG response for the new dataset.
         """
+        source = BackendImage(data, grid=grid)
+        pyramid = ImagePyramid(source)
+        return await self.set_data_from_pyramid(
+            data,
+            grid=grid,
+            pyramid=pyramid,
+            overview_max_pixels=overview_max_pixels,
+        )
+
+    async def set_data_from_pyramid(
+        self,
+        data: np.ndarray,
+        *,
+        grid: RasterGridSpec,
+        pyramid: ImagePyramid,
+        overview_max_pixels: int | None = None,
+    ) -> RenderResponse:
+        """Set a new 2D dataset using a prebuilt pyramid and fully refresh the plot.
+
+        Use this when a caller already cached :class:`ImagePyramid` levels for
+        ``data``. Physical calibration may change without rebuilding the pyramid.
+
+        Args:
+            data: Full-resolution 2D array ``(rows, columns)``.
+            grid: Physical spacing and axis labels (``dx``/``dy`` must be positive).
+            pyramid: Prebuilt pyramid for ``data``.
+            overview_max_pixels: Optional pixel budget for full-extent overview
+                PNGs (initial render and double-click reset). When ``None``, the
+                service's conservative coarse overview is used.
+
+        Returns:
+            Initial full-image PNG response for the new dataset.
+        """
         self._cancel_viewport_settle()
         source = BackendImage(data, grid=grid)
         self._display_options.square_plot = source.height == source.width
         self._square_plot_scaleratio = self._square_plot_scaleratio_for_source(source)
-        pyramid = ImagePyramid(source)
         self._service = RasterViewService(
             source=source,
             pyramid=pyramid,

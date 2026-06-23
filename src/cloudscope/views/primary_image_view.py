@@ -22,17 +22,25 @@ from acqstore.acq_image.acq_image import AcqImage
 from acqstore.acq_image.analysis.model import AnalysisKey, AnalysisOverlayTraceData
 from acqstore.acq_image.roi import RectROI, RectRoiBounds
 from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader
+from acqstore.acq_image.metadata import ImageHeaderMetadata
 from cloudscope.event_bus import EventBus
 from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind
 from cloudscope.events.contrast import ImageContrastChanged
+from cloudscope.events.metadata import MetadataChanged
 from cloudscope.events.raster import PrimaryPlaneLoaded
 from cloudscope.events.roi import RoiChanged, RoiEditModeChanged, RoiEditPreviewChanged
 from cloudscope.events.theme import ThemeChanged
 from cloudscope.events.x_range import PrimaryXRangeChanged, SetPrimaryXRangeIntent
+from cloudscope.raster_display_cache import (
+    RasterDisplayCache,
+    RasterDisplayCacheKey,
+    RasterDisplayPlaneKind,
+)
 from cloudscope.utils.logging import get_logger
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
 from nicewidgets.contrast_widget.colorscales import get_colorscale
+from nicewidgets.raster_viewer.backend.pyramid import ImagePyramid
 from nicewidgets.raster_viewer.backend.image_model import RasterGridSpec
 from nicewidgets.raster_viewer.frontend.plotly_display_options import (
     PlotlyRasterViewerDisplayOptions,
@@ -122,6 +130,55 @@ def _load_plane_payload(
     return plane, grid, False
 
 
+def _load_primary_display_payload(
+    file_id: str | None,
+    acq_image: AcqImage | None,
+    channel: int | None,
+    cache: RasterDisplayCache | None,
+) -> tuple[np.ndarray, RasterGridSpec, ImagePyramid | None, bool]:
+    """Load primary display payload, optionally using the raster display cache.
+
+    This function is safe to run off the UI thread with ``run.io_bound``.
+
+    Args:
+        file_id: Selected file id, if any.
+        acq_image: Resolved acquisition object, if any.
+        channel: Selected channel index, if any.
+        cache: Optional shared LRU cache for planes and pyramids.
+
+    Returns:
+        Tuple of plane, grid, optional cached pyramid, and placeholder flag.
+        ``pyramid`` is ``None`` when no cache is configured.
+
+    Raises:
+        ValueError: If header calibration cannot be mapped or slice is not 2D.
+        IndexError: If ``channel`` is out of range for the loader.
+    """
+    if file_id is None or acq_image is None or channel is None:
+        plane, grid = _placeholder_plane()
+        return plane, grid, None, True
+
+    grid = raster_grid_spec_from_image_header(acq_image.images.header)
+    channel_index = int(channel)
+
+    def _load_plane() -> np.ndarray:
+        plane = np.asarray(acq_image.images.get_slice_data(channel_index))
+        if plane.ndim != 2:
+            raise ValueError(f'Expected 2D slice (Y, X), got shape={plane.shape}')
+        return plane
+
+    if cache is None:
+        return _load_plane(), grid, None, False
+
+    key = RasterDisplayCacheKey(
+        file_id=file_id,
+        channel=channel_index,
+        kind=RasterDisplayPlaneKind.PRIMARY,
+    )
+    entry = cache.get_or_build(key, plane_loader=_load_plane)
+    return entry.plane, grid, entry.pyramid, False
+
+
 def _schedule_coro(coro: Coroutine[Any, Any, None]) -> None:
     """Run ``coro`` on the running loop, or ``asyncio.run`` when no loop exists.
 
@@ -152,6 +209,7 @@ class PrimaryImageView(BaseView):
         dark_mode: Initial Plotly raster-viewer theme state.
         dark_mode_provider: Optional callable returning the current application
             dark-mode state when the view is shown after being hidden.
+        raster_display_cache: Optional shared LRU cache for planes and pyramids.
     """
 
     view_id = ViewId.PRIMARY_IMAGE
@@ -165,6 +223,7 @@ class PrimaryImageView(BaseView):
         initially_visible: bool = True,
         dark_mode: bool = False,
         dark_mode_provider: Callable[[], bool] | None = None,
+        raster_display_cache: RasterDisplayCache | None = None,
     ) -> None:
         super().__init__(event_bus=event_bus, app_state=None, initially_visible=initially_visible)
         self._title = title
@@ -185,6 +244,7 @@ class PrimaryImageView(BaseView):
         # Set when this view publishes x-range from its own Plotly viewer so
         # the consumer path does not round-trip ``set_x_axis_range`` back.
         self._viewer_originated_x_range = False
+        self._raster_display_cache = raster_display_cache
 
     def build(self, parent: ui.element | None = None) -> ui.element:
         """Create the card, title, and Plotly raster element.
@@ -236,6 +296,9 @@ class PrimaryImageView(BaseView):
         )
         self.add_subscription(
             self.event_bus.subscribe(PrimaryXRangeChanged, self._on_primary_x_range_changed)
+        )
+        self.add_subscription(
+            self.event_bus.subscribe(MetadataChanged, self._on_metadata_changed)
         )
 
     def _on_viewer_x_range_changed(
@@ -290,6 +353,24 @@ class PrimaryImageView(BaseView):
         self.event_bus.publish(
             RoiEditPreviewChanged(selection=selection, bounds=bounds)
         )
+
+    def _on_metadata_changed(self, event: MetadataChanged) -> None:
+        """Refresh axis calibration when image-header metadata changes.
+
+        Physical unit edits do not require rebuilding the cached pyramid; the
+        refresh re-applies the current header grid to the cached plane.
+
+        Args:
+            event: Metadata state event.
+
+        Returns:
+            None.
+        """
+        if event.metadata_section_id != ImageHeaderMetadata.metadata_section_id:
+            return
+        if event.file_id != self.current_selection.file_id:
+            return
+        self._refresh_raster_from_current_selection()
 
     def _on_primary_x_range_changed(self, event: PrimaryXRangeChanged) -> None:
         """Consumer: cache the authoritative x-range and apply it to the viewer.
@@ -419,8 +500,12 @@ class PrimaryImageView(BaseView):
             None.
         """
         try:
-            plane, grid, is_placeholder = await run.io_bound(
-                _load_plane_payload, file_id, acq_image, channel
+            plane, grid, pyramid, is_placeholder = await run.io_bound(
+                _load_primary_display_payload,
+                file_id,
+                acq_image,
+                channel,
+                self._raster_display_cache,
             )
         except Exception as exc:
             logger.exception('Primary plane load failed file_id=%r channel=%r', file_id, channel)
@@ -434,11 +519,11 @@ class PrimaryImageView(BaseView):
             return
 
         try:
-            # logger.info('calling self._viewer.set_data:')
-            # logger.info('  plane:%s min:%s max:%s', plane.shape, plane.min(), plane.max())
-            # logger.info('  grid:%s', grid)
             self._current_grid = grid
-            await self._viewer.set_data(plane, grid=grid)
+            if pyramid is None:
+                await self._viewer.set_data(plane, grid=grid)
+            else:
+                await self._viewer.set_data_from_pyramid(plane, grid=grid, pyramid=pyramid)
             self._refresh_roi_overlays(acq_image=acq_image, grid=grid)
             self._refresh_diameter_trace_overlays(acq_image=acq_image, grid=grid)
             if not is_placeholder and file_id is not None and channel is not None and acq_image is not None:
