@@ -106,7 +106,7 @@ def test_acq_image_get_roi_image_uses_z0_slice(tmp_path: Path) -> None:
     z1 = np.zeros((3, 4), dtype=np.uint16)
     vol = np.stack([z0, z1], axis=0)
     path = tmp_path / 'stack.tif'
-    tifffile.imwrite(path, vol)
+    tifffile.imwrite(path, vol, metadata={'axes': 'ZYX'}, photometric='minisblack')
 
     acq = AcqImage(str(path))
     rect = acq.rois.create_rect_roi(RectRoiBounds(1, 3, 0, 2))
