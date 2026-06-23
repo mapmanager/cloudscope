@@ -63,6 +63,19 @@ def test_tree_widget_config_defaults() -> None:
     assert cfg.clear_selection_on_set_data is True
     assert cfg.enable_keyboard_row_nav is True
     assert cfg.auto_size_columns is True
+    assert cfg.suppress_movable_columns is False
+
+
+def test_build_aggrid_options_suppress_movable_columns() -> None:
+    tw = TreeWidget(
+        columns=_sample_columns(),
+        row_id_field='row_id',
+        rows=_sample_rows(),
+        config=TreeWidgetConfig(suppress_movable_columns=True),
+    )
+    opts = tw._build_aggrid_options()
+    assert opts['suppressMovableColumns'] is True
+    assert opts['defaultColDef']['suppressMovable'] is True
 
 
 def test_scaled_row_header_heights_px_clamped() -> None:

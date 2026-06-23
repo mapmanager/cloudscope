@@ -12,6 +12,16 @@ from typing import Any
 from acqstore.schema import FieldSchema, SchemaDefinition, ValueType
 from nicewidgets.table_widget.column_def import ColumnDef
 
+_TREE_NAME_COLUMN_MIN_WIDTH_PX = 260
+_TREE_COLUMN_WIDTHS: dict[str, dict[str, object]] = {
+    'name': {'minWidth': _TREE_NAME_COLUMN_MIN_WIDTH_PX, 'flex': 1},
+    'saved': {'width': 72},
+    'num_channels': {'width': 90},
+    'dims': {'width': 140},
+    'num_rois': {'width': 72},
+    'accept': {'width': 72},
+}
+
 
 def field_schema_to_column_def(field: FieldSchema) -> ColumnDef:
     """Convert one AcqStore field schema into a NiceWidgets column definition.
@@ -86,5 +96,9 @@ def schema_to_column_defs(
                 f"tree_group_display_field {tree_group_display_field!r} "
                 f"is not declared by schema {schema.schema_id!r}"
             )
+        for col in columns:
+            width_extra = _TREE_COLUMN_WIDTHS.get(col.field)
+            if width_extra is not None:
+                col.extra.update(width_extra)
 
     return columns

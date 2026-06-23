@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from acqstore.schema import FieldSchema, SchemaDefinition, ValueType
+from acqstore.schema import ACQ_FILE_LIST_SCHEMA, FieldSchema, SchemaDefinition, ValueType
 from cloudscope.schema_adapters import (
     field_schema_to_column_def,
     schema_to_column_defs,
@@ -80,3 +80,13 @@ def test_schema_to_column_defs_preserves_schema_order() -> None:
     columns = schema_to_column_defs(schema)
 
     assert [column.field for column in columns] == ["a", "b"]
+
+
+def test_schema_to_column_defs_tree_name_column_gets_width_and_flex() -> None:
+    columns = schema_to_column_defs(ACQ_FILE_LIST_SCHEMA, tree_group_display_field='name')
+    by_field = {column.field: column for column in columns}
+
+    assert by_field['name'].extra['minWidth'] == 260
+    assert by_field['name'].extra['flex'] == 1
+    assert by_field['name'].extra['cellRenderer'] == 'agGroupCellRenderer'
+    assert by_field['dims'].extra['width'] == 140

@@ -31,6 +31,8 @@ class TreeWidgetConfig:
         auto_size_columns: Forwarded to ``ui.aggrid(auto_size_columns=...)``.
         fit_columns_on_grid_resize: When true, AG Grid calls
             ``sizeColumnsToFit`` after browser-side grid size changes.
+        suppress_movable_columns: When true, users cannot drag columns to
+            reorder them.
         cell_font_size_px: When set, cell and header font size in pixels
             (merged into ``defaultColDef``). When ``None``, AG Grid theme
             defaults apply.
@@ -51,6 +53,7 @@ class TreeWidgetConfig:
     enable_keyboard_row_nav: bool = True
     auto_size_columns: bool = True
     fit_columns_on_grid_resize: bool = False
+    suppress_movable_columns: bool = False
     cell_font_size_px: int | None = None
     row_height: int | None = None
     header_height: int | None = None

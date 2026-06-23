@@ -64,6 +64,14 @@ class ImageHeader:
             "time": d["time"],
         }
 
+    def format_dims_display(self) -> str:
+        """Return compact axis sizes for display, e.g. ``C:2 Y:100 X:200``.
+
+        Returns:
+            Space-separated ``dim:size`` tokens in :attr:`dims` order.
+        """
+        return ' '.join(f'{dim}:{self.sizes[dim]}' for dim in self.dims if dim in self.sizes)
+
     @staticmethod
     def default_physical_for_dims(
         dims: tuple[str, ...],

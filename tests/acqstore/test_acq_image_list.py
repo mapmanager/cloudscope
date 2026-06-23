@@ -50,6 +50,7 @@ class _FakeAcqImage:
             'condition': '',
             'genotype': '',
             'num_channels': 1,
+            'dims': '',
             'num_rois': 0 if self._default_roi is None else 1,
             'accept': True,
         }

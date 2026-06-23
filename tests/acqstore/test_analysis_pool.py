@@ -61,6 +61,7 @@ class _PoolFakeAcqImage:
             "condition": "ctrl",
             "genotype": "wt",
             "num_channels": 2,
+            "dims": "",
             "num_rois": 1,
             "accept": True,
         }

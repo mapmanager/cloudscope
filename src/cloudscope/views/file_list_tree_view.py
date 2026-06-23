@@ -124,8 +124,9 @@ class AcqImageListTreeView(BaseView):
             on_build_context_menu=self._build_context_menu,
             config=TreeWidgetConfig(
                 selection_mode="single",
-                auto_size_columns=True,
-                fit_columns_on_grid_resize=True,
+                auto_size_columns=False,
+                fit_columns_on_grid_resize=False,
+                suppress_movable_columns=True,
                 cell_font_size_px=font_px,
                 row_height=row_h,
                 header_height=header_h,

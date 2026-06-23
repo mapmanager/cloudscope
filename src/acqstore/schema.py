@@ -282,6 +282,14 @@ ACQ_FILE_LIST_SCHEMA = SchemaDefinition(
             group='Image',
         ),
         FieldSchema(
+            name='dims',
+            display_name='Dims',
+            value_type=ValueType.STR,
+            description='Image axis sizes from the file header (e.g. C:2 Y:10000 X:1024).',
+            default_value='',
+            group='Image',
+        ),
+        FieldSchema(
             name='num_rois',
             display_name='ROIs',
             value_type=ValueType.INT,

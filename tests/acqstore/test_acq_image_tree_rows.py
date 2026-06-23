@@ -19,15 +19,28 @@ from acqstore.acq_image.tree_rows import (
     ACQ_TREE_ROW_TYPE_FILE,
     build_analysis_tree_row_id,
 )
+from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader
 from acqstore.schema import ACQ_FILE_LIST_SCHEMA
+import numpy as np
 
 
 class _FakeImages:
     """Small image-loader test double for schema-row generation."""
 
-    def __init__(self, *, num_channels: int = 2) -> None:
+    def __init__(self, *, num_channels: int = 2, path: str = '/tmp/sample.tif') -> None:
         self.num_channels = num_channels
         self.default_channel = 0
+        self.header = ImageHeader(
+            path=path,
+            shape=(100, 200, num_channels),
+            dims=('C', 'Y', 'X'),
+            sizes={'C': num_channels, 'Y': 100, 'X': 200},
+            dtype=np.dtype('uint16'),
+            num_channels=num_channels,
+            num_scenes=1,
+            physical_units=(1.0, 1.0, 1.0),
+            physical_units_labels=('Pixels', 'Pixels', 'Pixels'),
+        )
 
 
 class _FakeRois:
@@ -92,7 +105,7 @@ def _make_acq_image(path: Path, *, with_analysis: bool = True) -> AcqImage:
     acq_image = AcqImage.__new__(AcqImage)
     acq_image.path = str(path.resolve())
     acq_image._accept = True
-    acq_image._images = _FakeImages(num_channels=2)
+    acq_image._images = _FakeImages(num_channels=2, path=str(path.resolve()))
     acq_image._experimental_metadata = _FakeMetadata(genotype='wt', condition='control')
     acq_image._image_header_metadata = _FakeMetadata(genotype='')
     acq_image._rois = _FakeRois(num_rois=3)
@@ -129,6 +142,7 @@ def test_acq_image_tree_rows_file_row_carries_schema_keys_with_values(tmp_path: 
     for key, value in schema_row.items():
         assert file_row[key] == value
     assert file_row['condition'] == 'control'
+    assert file_row['dims'] == 'C:2 Y:100 X:200'
     assert file_row[ACQ_TREE_ROW_ID_FIELD] == acq_image.file_id
     assert file_row[ACQ_TREE_ROW_TYPE_FIELD] == ACQ_TREE_ROW_TYPE_FILE
     assert file_row[ACQ_TREE_ANALYSIS_NAME_FIELD] is None

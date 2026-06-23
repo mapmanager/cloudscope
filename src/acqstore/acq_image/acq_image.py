@@ -671,6 +671,7 @@ class AcqImage:
             'condition': self._experimental_metadata.condition,
             'genotype': self._experimental_metadata.genotype,
             'num_channels': self._images.num_channels,
+            'dims': self._images.header.format_dims_display(),
             'num_rois': self.rois.num_rois,
             'accept': self._accept,
         }

@@ -471,6 +471,9 @@ class TreeWidget:
                 base['headerHeight'] = hh_i
         if self._config.fit_columns_on_grid_resize:
             base[':onGridSizeChanged'] = 'params => params.api.sizeColumnsToFit()'
+        if self._config.suppress_movable_columns:
+            base['suppressMovableColumns'] = True
+            default_col_def['suppressMovable'] = True
         if self._config.selection_mode != 'none':
             mode = 'singleRow' if self._config.selection_mode == 'single' else 'multiRow'
             base['rowSelection'] = {'mode': mode, 'enableClickSelection': True, 'checkboxes': False}
