@@ -39,13 +39,22 @@ find packaging \
         -name "*.plist" \
     \) -print | zip cloudscope_packaging_20260610_v1.zip -@
         
-find docs -type f \( \
-    -name "*.md" -o \
-    -name "*.ipynb" -o \
-    -name "*.css" -o \
-    -name "*.png" -o \
-    -name "*.svg" \
-\) -print | zip cloudscope_docs_20260611_v1.zip -@
+find docs \
+    -type d \( \
+        -name .ipynb_checkpoints -o \
+        -name __pycache__ -o \
+        -name build -o \
+        -name site \
+    \) -prune -o \
+    -type f ! -name '.DS_Store' ! -name '*.pyc' \( \
+        -name '*.md' -o \
+        -name '*.ipynb' -o \
+        -name '*.css' -o \
+        -name '*.png' -o \
+        -name '*.svg' -o \
+        -name '*.html' -o \
+        -name '*.py' \
+    \) -print | zip cloudscope_docs_20260623_v1.zip -@
 
 find tests -type f \( \
     -name "*.py" -o \
