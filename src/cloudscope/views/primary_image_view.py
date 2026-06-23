@@ -1,7 +1,13 @@
-"""Primary raster image view: AcqStore slice + header calibration into ``PlotlyRasterViewer``.
+"""Primary raster image view: slice + header calibration into ``PlotlyRasterViewer``.
+
+Full-file pixel loads are orchestrated by
+:class:`cloudscope.controllers.image_pixels_controller.ImagePixelsController`
+before :class:`FileSelectionChanged` is published. This view refreshes from
+:class:`BaseView` selection hooks and slices via
+:meth:`BaseFileLoader.get_slice_data_loaded` (no implicit disk I/O).
 
 ``z`` / ``t`` are **not** raster-viewer concepts. They belong to
-:meth:`BaseFileLoader.get_slice_data`, which defaults to ``z=0`` and ``t=0``
+:meth:`BaseFileLoader.get_slice_data_loaded`, which defaults to ``z=0`` and ``t=0``
 when omitted; CloudScope relies on those defaults for v1.
 
 Pixel arrays are passed through from AcqStore without forced dtype conversion;
@@ -51,7 +57,7 @@ from nicewidgets.raster_viewer.frontend.trace_overlay import PlotlyTraceOverlay
 
 logger = get_logger(__name__)
 
-_PLACEHOLDER_GRID = RasterGridSpec(dx=1.0, dy=1.0, x_unit='Pixels', y_unit='Pixels')
+_IDLE_MESSAGE = 'No file selected'
 
 
 def raster_grid_spec_from_image_header(header: ImageHeader) -> RasterGridSpec:
@@ -88,20 +94,11 @@ def raster_grid_spec_from_image_header(header: ImageHeader) -> RasterGridSpec:
     return RasterGridSpec(dx=float(dx), dy=float(dy), x_unit=x_unit, y_unit=y_unit)
 
 
-def _placeholder_plane() -> tuple[np.ndarray, RasterGridSpec]:
-    """Return a tiny neutral plane when no file/channel is selected.
-
-    Returns:
-        Placeholder image and grid specification.
-    """
-    return np.zeros((2, 2), dtype=np.float32), _PLACEHOLDER_GRID
-
-
 def _load_plane_payload(
     file_id: str | None,
     acq_image: AcqImage | None,
     channel: int | None,
-) -> tuple[np.ndarray, RasterGridSpec, bool]:
+) -> tuple[np.ndarray, RasterGridSpec, bool] | None:
     """Load ``(array, grid, is_placeholder)`` for a selection.
 
     This function is safe to run off the UI thread with ``run.io_bound``.
@@ -113,18 +110,17 @@ def _load_plane_payload(
 
     Returns:
         Tuple of two-dimensional array ``(Y, X)``, its :class:`RasterGridSpec`,
-        and a flag indicating whether the result is the neutral placeholder
-        (no contrast publish should occur for placeholders).
+        and ``False`` when real data was loaded. ``None`` when there is no valid
+        selection.
 
     Raises:
         ValueError: If header calibration cannot be mapped.
         IndexError: If ``channel`` is out of range for the loader.
     """
     if file_id is None or acq_image is None or channel is None:
-        plane, grid = _placeholder_plane()
-        return plane, grid, True
+        return None
     grid = raster_grid_spec_from_image_header(acq_image.images.header)
-    plane = np.asarray(acq_image.images.get_slice_data(channel))
+    plane = np.asarray(acq_image.images.get_slice_data_loaded(channel))
     if plane.ndim != 2:
         raise ValueError(f'Expected 2D slice (Y, X), got shape={plane.shape}')
     return plane, grid, False
@@ -135,7 +131,7 @@ def _load_primary_display_payload(
     acq_image: AcqImage | None,
     channel: int | None,
     cache: RasterDisplayCache | None,
-) -> tuple[np.ndarray, RasterGridSpec, ImagePyramid | None, bool]:
+) -> tuple[np.ndarray, RasterGridSpec, ImagePyramid | None, bool] | None:
     """Load primary display payload, optionally using the raster display cache.
 
     This function is safe to run off the UI thread with ``run.io_bound``.
@@ -148,21 +144,21 @@ def _load_primary_display_payload(
 
     Returns:
         Tuple of plane, grid, optional cached pyramid, and placeholder flag.
-        ``pyramid`` is ``None`` when no cache is configured.
+        ``pyramid`` is ``None`` when no cache is configured. The whole result is
+        ``None`` when there is no valid selection.
 
     Raises:
         ValueError: If header calibration cannot be mapped or slice is not 2D.
         IndexError: If ``channel`` is out of range for the loader.
     """
     if file_id is None or acq_image is None or channel is None:
-        plane, grid = _placeholder_plane()
-        return plane, grid, None, True
+        return None
 
     grid = raster_grid_spec_from_image_header(acq_image.images.header)
     channel_index = int(channel)
 
     def _load_plane() -> np.ndarray:
-        plane = np.asarray(acq_image.images.get_slice_data(channel_index))
+        plane = np.asarray(acq_image.images.get_slice_data_loaded(channel_index))
         if plane.ndim != 2:
             raise ValueError(f'Expected 2D slice (Y, X), got shape={plane.shape}')
         return plane
@@ -245,6 +241,7 @@ class PrimaryImageView(BaseView):
         # the consumer path does not round-trip ``set_x_axis_range`` back.
         self._viewer_originated_x_range = False
         self._raster_display_cache = raster_display_cache
+        self._idle_label: ui.label | None = None
 
     def build(self, parent: ui.element | None = None) -> ui.element:
         """Create the card, title, and Plotly raster element.
@@ -259,12 +256,12 @@ class PrimaryImageView(BaseView):
 
         def _build() -> None:
             with ui.column().classes("w-full h-full min-h-0 flex flex-col overflow-hidden flex-1") as self.root:
-                
-                # dislpay name of widget, comment it out
-                # ui.label(self._title).classes("text-lg font-medium shrink-0")
-                
-                plot = self._viewer.build()
-                plot.classes('w-full h-full min-h-0 flex-1')
+                with ui.element('div').classes('relative w-full h-full min-h-0 flex-1'):
+                    plot = self._viewer.build()
+                    plot.classes('w-full h-full min-h-0')
+                    self._idle_label = ui.label(_IDLE_MESSAGE).classes(
+                        'absolute inset-0 flex items-center justify-center opacity-70 pointer-events-none'
+                    )
 
         if parent is None:
             _build()
@@ -436,12 +433,43 @@ class PrimaryImageView(BaseView):
         self._viewer.set_dark_mode(bool(self._dark_mode_provider()))
 
     def on_primary_selection_changed(self) -> None:
-        """Refresh raster after BaseView updates the primary selection.
+        """Refresh the raster when BaseView selection changes.
 
         Returns:
             None.
         """
         self._refresh_raster_from_current_selection()
+
+    def _set_idle_visible(self, visible: bool, message: str = _IDLE_MESSAGE) -> None:
+        """Show or hide the idle-state label over the raster viewer.
+
+        Args:
+            visible: Whether the idle label should be visible.
+            message: Text to display when idle.
+
+        Returns:
+            None.
+        """
+        if self._idle_label is None:
+            return
+        self._idle_label.text = message
+        self._idle_label.set_visibility(visible)
+
+    async def _clear_primary_display(self, message: str = _IDLE_MESSAGE) -> None:
+        """Clear raster data and show the idle label.
+
+        Args:
+            message: Idle-state message to display.
+
+        Returns:
+            None.
+        """
+        try:
+            await self._viewer.clear_data()
+        except RuntimeError as exc:
+            logger.warning('Primary image clear_data failed: %s', exc)
+        self._current_grid = None
+        self._run_ui(lambda: self._set_idle_visible(True, message))
 
     def refresh_from_state(self) -> None:
         """Refresh raster from cached BaseView selection.
@@ -500,7 +528,7 @@ class PrimaryImageView(BaseView):
             None.
         """
         try:
-            plane, grid, pyramid, is_placeholder = await run.io_bound(
+            payload = await run.io_bound(
                 _load_primary_display_payload,
                 file_id,
                 acq_image,
@@ -511,15 +539,21 @@ class PrimaryImageView(BaseView):
             logger.exception('Primary plane load failed file_id=%r channel=%r', file_id, channel)
             err_msg = str(exc)
             self._run_ui(lambda: ui.notify(err_msg, type='negative'))
-            try:
-                plane, grid = _placeholder_plane()
-                await self._viewer.set_data(plane, grid=grid)
-            except RuntimeError as inner:
-                logger.warning('Placeholder set_data failed: %s', inner)
+            await self._clear_primary_display()
+            return
+
+        if payload is None:
+            await self._clear_primary_display()
+            return
+
+        plane, grid, pyramid, is_placeholder = payload
+        if is_placeholder:
+            await self._clear_primary_display()
             return
 
         try:
             self._current_grid = grid
+            self._run_ui(lambda: self._set_idle_visible(False))
             if pyramid is None:
                 await self._viewer.set_data(plane, grid=grid)
             else:

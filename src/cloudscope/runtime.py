@@ -11,6 +11,7 @@ from cloudscope.app_config import AppConfig
 from cloudscope.controllers.analysis_controller import AnalysisController
 from cloudscope.controllers.event_analysis_controller import EventAnalysisController
 from cloudscope.controllers.home_page_controller import HomePageController, HomePageState
+from cloudscope.controllers.image_pixels_controller import ImagePixelsController
 from cloudscope.controllers.load_save_controller import LoadSaveController
 from cloudscope.controllers.roi_controller import RoiController
 from cloudscope.controllers.velocity_pool_controller import VelocityPoolController
@@ -56,6 +57,7 @@ class CloudScopeRuntime:
         roi_controller: ROI mutation controller.
         event_analysis_controller: Event-analysis controller.
         velocity_pool_controller: Velocity pool synchronization controller.
+        image_pixels_controller: Explicit full-file pixel load controller.
         task_runner: Background task runner for long-running work.
         raster_display_cache: Shared LRU cache of raster planes and pyramids.
         initialized: Whether one-time bootstrap has completed.
@@ -71,6 +73,7 @@ class CloudScopeRuntime:
     roi_controller: RoiController
     event_analysis_controller: EventAnalysisController
     velocity_pool_controller: VelocityPoolController
+    image_pixels_controller: ImagePixelsController
     task_runner: TaskRunner
     raster_display_cache: RasterDisplayCache
     initialized: bool = False
@@ -290,7 +293,11 @@ def _build_runtime(user_context: UserContext, app_config: AppConfig) -> CloudSco
         New, uninitialized ``CloudScopeRuntime``.
     """
     event_bus = EventBus()
-    home_page_controller = HomePageController(event_bus=event_bus)
+    image_pixels_controller = ImagePixelsController()
+    home_page_controller = HomePageController(
+        event_bus=event_bus,
+        image_pixels_controller=image_pixels_controller,
+    )
     task_runner = TaskRunner(event_bus=event_bus)
     load_save_controller = LoadSaveController(
         event_bus=event_bus,
@@ -322,6 +329,7 @@ def _build_runtime(user_context: UserContext, app_config: AppConfig) -> CloudSco
             event_bus=event_bus,
             home_controller=home_page_controller,
         ),
+        image_pixels_controller=image_pixels_controller,
         task_runner=task_runner,
         raster_display_cache=RasterDisplayCache(
             max_entries=resolve_raster_display_cache_max_entries(),

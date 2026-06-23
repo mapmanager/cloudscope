@@ -520,6 +520,27 @@ class AcqImage:
         """
         return self._images
 
+    def pixels_loaded(self) -> bool:
+        """Return whether the full pixel volume is cached in memory.
+
+        Returns:
+            ``True`` after :meth:`load_image_data` has completed at least once
+            without unloading pixel data on the backing file loader.
+        """
+        return self._images.pixels_loaded()
+
+    def load_image_data(self) -> None:
+        """Eagerly load the full pixel volume from disk into memory.
+
+        Idempotent: repeated calls are safe when pixels are already loaded.
+        Callers that need 2D slices without implicit disk I/O should use
+        :meth:`BaseFileLoader.get_slice_data_loaded` after this completes.
+
+        Returns:
+            None.
+        """
+        self._images.load_image_data()
+
     @property
     def rois(self) -> RoiSet:
         """Return the ROI set for this acquisition.

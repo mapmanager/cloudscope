@@ -115,7 +115,7 @@ def test_load_primary_display_payload_uses_cache() -> None:
             self._plane = plane
             self.header = header
 
-        def get_slice_data(self, channel: int) -> np.ndarray:
+        def get_slice_data_loaded(self, channel: int) -> np.ndarray:
             assert channel == 0
             return self._plane
 

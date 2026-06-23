@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
+from acqstore.acq_image.acq_image import AcqImage
 from acqstore.acq_image.acq_image_list import AcqImageList
 
 from cloudscope.event_bus import EventBus
@@ -19,6 +21,9 @@ from cloudscope.events.selection import (
     SelectRoiIntent,
 )
 from cloudscope.state import PrimarySelection
+
+if TYPE_CHECKING:
+    from cloudscope.controllers.image_pixels_controller import ImagePixelsController
 
 
 @dataclass(slots=True)
@@ -55,16 +60,26 @@ class HomePageController:
     state or calling each other.
     """
 
-    def __init__(self, event_bus: EventBus, initial_state: HomePageState | None = None) -> None:
+    def __init__(
+        self,
+        event_bus: EventBus,
+        *,
+        image_pixels_controller: ImagePixelsController | None = None,
+        initial_state: HomePageState | None = None,
+    ) -> None:
         """Initialize the controller.
 
         Args:
             event_bus: Event bus used for subscribing to intent events and
                 publishing resulting state events.
+            image_pixels_controller: Optional controller that loads pixel data
+                before :class:`FileSelectionChanged` is published. When omitted,
+                file selection is published immediately (tests only).
             initial_state: Optional initial state. If omitted, an empty state is
                 created.
         """
         self._event_bus = event_bus
+        self._image_pixels_controller = image_pixels_controller
         self._state = initial_state or HomePageState(
             file_ids=[],
             selection=PrimarySelection(),
@@ -116,7 +131,7 @@ class HomePageController:
             channel=channel,
             roi_id=roi_id,
         )
-        self._publish_file_selection_changed()
+        self._publish_file_selection_after_pixels_loaded()
 
     def load_demo_files(self, file_ids: list[str]) -> None:
         """Replace the current file list with demo data.
@@ -137,7 +152,7 @@ class HomePageController:
             channel=0 if default_file_id is not None else None,
             roi_id=None,
         )
-        self._publish_file_selection_changed()
+        self._publish_file_selection_after_pixels_loaded()
 
     def _on_select_file(self, event: SelectFileIntent) -> None:
         """Handle file selection changes.
@@ -169,7 +184,7 @@ class HomePageController:
                 roi_id=roi_id,
                 analysis_name=event.analysis_name,
             )
-            self._publish_file_selection_changed()
+            self._publish_file_selection_after_pixels_loaded()
             return
 
         if event.file_id not in self._state.file_ids:
@@ -179,7 +194,7 @@ class HomePageController:
         self._state.selection.channel = event.channel if event.channel is not None else 0
         self._state.selection.roi_id = event.roi_id
         self._state.selection.analysis_name = event.analysis_name
-        self._publish_file_selection_changed()
+        self._publish_file_selection_after_pixels_loaded()
 
     def _on_select_channel(self, event: SelectChannelIntent) -> None:
         """Handle channel selection changes.
@@ -253,16 +268,41 @@ class HomePageController:
             )
         )
 
+    def _resolved_acq_image_for_selection(self) -> AcqImage | None:
+        """Return the ``AcqImage`` for the current selection when available.
+
+        Returns:
+            Matching acquisition object, or ``None``.
+        """
+        fid = self._state.selection.file_id
+        if fid is not None and self._state.acq_image_list is not None:
+            return self._state.acq_image_list.get_file_by_id(fid)
+        return None
+
+    def _publish_file_selection_after_pixels_loaded(self) -> None:
+        """Ensure pixels are loaded, then publish file selection state once.
+
+        Returns:
+            None.
+        """
+        if self._image_pixels_controller is None:
+            self._publish_file_selection_changed()
+            return
+
+        self._image_pixels_controller.ensure_loaded(
+            self._state.selection.file_id,
+            self._resolved_acq_image_for_selection(),
+            on_complete=self._publish_file_selection_changed,
+        )
+
     def _publish_file_selection_changed(self) -> None:
         """Publish file selection (includes default channel and ROI for that file).
 
         Returns:
             None.
         """
-        acq_image = None
+        acq_image = self._resolved_acq_image_for_selection()
         fid = self._state.selection.file_id
-        if fid is not None and self._state.acq_image_list is not None:
-            acq_image = self._state.acq_image_list.get_file_by_id(fid)
         self._event_bus.publish(
             FileSelectionChanged(
                 file_id=fid,

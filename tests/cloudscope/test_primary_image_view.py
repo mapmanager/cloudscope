@@ -9,7 +9,6 @@ from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader
 
 from cloudscope.views.primary_image_view import (
     _load_plane_payload,
-    _placeholder_plane,
     raster_grid_spec_from_image_header,
 )
 
@@ -73,16 +72,9 @@ def test_raster_grid_spec_raises_on_nan_calibration() -> None:
         raster_grid_spec_from_image_header(h)
 
 
-def test_load_plane_payload_placeholder_without_acq() -> None:
-    plane, grid, is_placeholder = _load_plane_payload('/x', None, 0)
-    assert plane.shape == (2, 2)
-    assert grid.dx == 1.0 and grid.dy == 1.0
-    assert is_placeholder is True
+def test_load_plane_payload_returns_none_without_acq() -> None:
+    assert _load_plane_payload('/x', None, 0) is None
 
-
-def test_placeholder_plane_returns_float32() -> None:
-    plane, _ = _placeholder_plane()
-    assert plane.dtype == np.float32
 
 import asyncio
 
@@ -289,12 +281,15 @@ def test_publishes_primary_plane_loaded_after_set_data() -> None:
     assert seen[0].plane.flags.writeable is False
 
 
-def test_does_not_publish_primary_plane_loaded_for_placeholder() -> None:
+def test_does_not_publish_primary_plane_loaded_when_selection_cleared() -> None:
     bus = EventBus()
     view = PrimaryImageView(bus)
 
     class _Viewer:
         has_data = True
+
+        async def clear_data(self) -> None:
+            return None
 
         async def set_data(self, *_a, **_k) -> None:
             return None

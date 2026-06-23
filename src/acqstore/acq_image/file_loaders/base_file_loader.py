@@ -445,6 +445,15 @@ class BaseFileLoader:
             f"{type(self).__name__} must implement _load_full_image_array()"
         )
 
+    def pixels_loaded(self) -> bool:
+        """Return whether the full pixel volume is cached in memory.
+
+        Returns:
+            ``True`` after :meth:`load_image_data` has completed at least once
+            without a subsequent :meth:`unload_image_data`.
+        """
+        return self._img_data is not None
+
     def load_image_data(self) -> np.ndarray:
         """Load and cache the full image array (lazy, idempotent).
 
@@ -538,6 +547,37 @@ class BaseFileLoader:
             )
 
         return arr_work
+
+    def get_slice_data_loaded(self, channel: int, z: int = 0, t: int = 0) -> np.ndarray:
+        """Return a 2D ``(Y, X)`` slice from already-loaded pixel data.
+
+        Unlike :meth:`get_slice_data`, this method does not read from disk.
+
+        Args:
+            channel: Channel index along ``C`` (or ``0`` when there is no ``C`` axis).
+            z: Index along ``Z`` if present; ignored if ``Z`` is absent.
+            t: Index along ``T`` if present; ignored if ``T`` is absent.
+
+        Returns:
+            Two-dimensional array with dimensions ``(Y, X)``.
+
+        Raises:
+            RuntimeError: If pixel data has not been loaded yet.
+            IndexError: If any index is out of range.
+            ValueError: If dims cannot be reduced to ``(Y, X)``.
+        """
+        if self._img_data is None:
+            raise RuntimeError(
+                'Image pixels are not loaded; call load_image_data() first.'
+            )
+        return self.yx_slice_from_volume(
+            self._img_data,
+            self._header.dims,
+            self._header.num_channels,
+            channel,
+            z=z,
+            t=t,
+        )
 
     def get_slice_data(self, channel: int, z: int = 0, t: int = 0) -> np.ndarray:
         """Return a single 2D ``(Y, X)`` slice after optional ``T``/``Z``/``C`` selection.

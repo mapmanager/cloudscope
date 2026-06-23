@@ -344,8 +344,8 @@ def test_roi_local_traces_to_plotly_overlays_skips_invisible_or_empty() -> None:
 # ---- on_primary_selection_changed and refresh_from_state ----
 
 
-def test_on_primary_selection_changed_delegates_to_refresh() -> None:
-    """on_primary_selection_changed should delegate to _refresh_raster_from_current_selection."""
+def test_on_primary_selection_changed_refreshes_raster() -> None:
+    """File selection refresh is driven by the BaseView selection hook."""
     view = _view_with_fake_viewer()
     calls: list[str] = []
     view._refresh_raster_from_current_selection = lambda: calls.append("r")  # type: ignore[method-assign]
