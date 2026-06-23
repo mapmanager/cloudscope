@@ -96,3 +96,52 @@ def test_reference_image_get_plane_rejects_unsupported_non_singleton_axis() -> N
 
     with pytest.raises(NotImplementedError, match="non-singleton"):
         ref.get_plane()
+
+
+def test_reference_image_get_scan_path_returns_none_when_missing() -> None:
+    """Reference images without scan-path metadata report no scan path."""
+    ref = _reference_image(np.zeros((2, 3), dtype=np.uint8), ("Y", "X"))
+
+    assert ref.has_scan_path() is False
+    assert ref.get_scan_path() is None
+    assert ref.get_scan_path_plot() is None
+
+
+def test_reference_image_get_scan_path_plot_returns_xy_rows() -> None:
+    """ReferenceImage exposes stored ``(2, N)`` scan paths as X/Y arrays."""
+    scan_path = np.asarray([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+    ref = ReferenceImage(
+        array=np.zeros((2, 3), dtype=np.uint8),
+        dims=("Y", "X"),
+        num_channels=1,
+        line_roi=None,
+        coord_units=(("Y", "um"), ("X", "um")),
+        coord_scales=(("Y", 0.5), ("X", 0.25)),
+        coords=(),
+        scan_path=scan_path,
+    )
+
+    assert ref.has_scan_path() is True
+    np.testing.assert_array_equal(ref.get_scan_path(), scan_path)
+    x_pixels, y_pixels = ref.get_scan_path_plot()
+    np.testing.assert_array_equal(x_pixels, np.asarray([1.0, 2.0, 3.0]))
+    np.testing.assert_array_equal(y_pixels, np.asarray([4.0, 5.0, 6.0]))
+    assert x_pixels.flags.writeable is False
+    assert y_pixels.flags.writeable is False
+
+
+def test_reference_image_get_scan_path_plot_rejects_invalid_shape() -> None:
+    """ReferenceImage scan paths must use two rows for X and Y coordinates."""
+    ref = ReferenceImage(
+        array=np.zeros((2, 3), dtype=np.uint8),
+        dims=("Y", "X"),
+        num_channels=1,
+        line_roi=None,
+        coord_units=(("Y", "um"), ("X", "um")),
+        coord_scales=(("Y", 0.5), ("X", 0.25)),
+        coords=(),
+        scan_path=np.zeros((3, 4), dtype=float),
+    )
+
+    with pytest.raises(ValueError, match="shape"):
+        ref.get_scan_path_plot()

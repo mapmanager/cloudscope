@@ -201,6 +201,8 @@ def _reference_snapshot_from_czi(czi_file: Any) -> ReferenceImage | None:
             ('Y', y_um_per_pixel),
         )
 
+    scan_path = _find_czi_scan_path_plot_array(czi_file, reference_array, scaling)
+
     return ReferenceImage(
         array=reference_array,
         dims=('C', 'Y', 'X'),
@@ -209,6 +211,105 @@ def _reference_snapshot_from_czi(czi_file: Any) -> ReferenceImage | None:
         coord_units=(('X', 'um'), ('Y', 'um')),
         coord_scales=coord_scales,
         coords=(),
+        scan_path=scan_path,
+    )
+
+
+
+
+def _find_czi_scan_path_plot_array(
+    czi_file: Any,
+    reference_array: np.ndarray,
+    scaling_um: tuple[float, float] | None,
+) -> np.ndarray | None:
+    """Return a plot-ready CZI scan path in reference-image pixel coordinates.
+
+    Args:
+        czi_file: Open ``czifile.CziFile``-like object.
+        reference_array: Reference image array shaped as ``(C, Y, X)``.
+        scaling_um: Reference-image pixel size as ``(x_um_per_pixel,
+            y_um_per_pixel)``.
+
+    Returns:
+        Read-only ``(2, N)`` array where row ``0`` contains X pixel
+        coordinates and row ``1`` contains Y pixel coordinates, or ``None``
+        when no candidate CZI scan path is found or scaling is unavailable.
+    """
+    if scaling_um is None:
+        return None
+    raw_scan_path = _find_czi_scan_path_array(czi_file)
+    if raw_scan_path is None:
+        return None
+
+    x_um_per_pixel, y_um_per_pixel = scaling_um
+    x_m_per_pixel = x_um_per_pixel * 1e-6
+    y_m_per_pixel = y_um_per_pixel * 1e-6
+    if x_m_per_pixel <= 0.0 or y_m_per_pixel <= 0.0:
+        return None
+
+    _channels, height, width = reference_array.shape
+    raw = np.asarray(raw_scan_path, dtype=float)
+
+    # Current best-supported CZI trajectory hypothesis: xy_center. The raw
+    # attachment rows are interpreted as physical X/Y scanner coordinates in
+    # meters, scaled to pixels, then centered on the reference image. Keep this
+    # transform isolated so future CZI work can test alternatives such as:
+    #   xy_origin: x = raw[0] / sx,          y = raw[1] / sy
+    #   yx_origin: x = raw[1] / sx,          y = raw[0] / sy
+    #   yx_center: x = raw[1] / sx + w / 2,  y = raw[0] / sy + h / 2
+    x_pixels = raw[0] / x_m_per_pixel + (width / 2.0)
+    y_pixels = raw[1] / y_m_per_pixel + (height / 2.0)
+
+    scan_path = np.asarray([x_pixels, y_pixels], dtype=float)
+    scan_path.setflags(write=False)
+    return scan_path
+
+
+def _find_czi_scan_path_array(czi_file: Any) -> np.ndarray | None:
+    """Return the raw CZI candidate scan-path attachment.
+
+    Args:
+        czi_file: Open ``czifile.CziFile``-like object.
+
+    Returns:
+        Read-only raw ``(2, N)`` floating-point path array in the physical
+        coordinate values stored by Zeiss, or ``None`` when no attachment passes
+        the current scan-path heuristic.
+    """
+    for attachment in czi_file.attachments():
+        entry = attachment.attachment_entry
+        if not _is_czi_reference_attachment(entry):
+            continue
+        try:
+            data = attachment.data()
+        except Exception as exc:  # pragma: no cover - defensive around czifile decoding.
+            logger.warning('Could not decode CZI attachment %r: %s', getattr(entry, 'filename', ''), exc)
+            continue
+        if not isinstance(data, np.ndarray):
+            continue
+        array = np.asarray(data)
+        if not _is_czi_scan_path_array(array):
+            continue
+        array.setflags(write=False)
+        return array
+    return None
+
+
+def _is_czi_scan_path_array(array: np.ndarray) -> bool:
+    """Return whether an array matches the current CZI scan-path heuristic.
+
+    Args:
+        array: Decoded CZI attachment array.
+
+    Returns:
+        ``True`` for floating-point arrays shaped as ``(2, N)`` with enough
+        samples to represent a dense scanner trajectory.
+    """
+    return (
+        array.ndim == 2
+        and array.shape[0] == 2
+        and array.shape[1] > 100
+        and np.issubdtype(array.dtype, np.floating)
     )
 
 

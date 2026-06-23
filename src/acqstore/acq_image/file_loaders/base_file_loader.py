@@ -265,6 +265,56 @@ class ReferenceImage:
     coord_units: tuple[tuple[str, str], ...]
     coord_scales: tuple[tuple[str, float], ...]
     coords: tuple[tuple[str, np.ndarray], ...]
+    scan_path: np.ndarray | None = None
+
+    def has_scan_path(self) -> bool:
+        """Return whether this reference image has a plot-ready scan path.
+
+        Returns:
+            ``True`` when :attr:`scan_path` contains a two-row path that can be
+            plotted over reference-image planes.
+        """
+        return self.scan_path is not None
+
+    def get_scan_path(self) -> np.ndarray | None:
+        """Return the plot-ready scan path associated with this reference image.
+
+        The returned array uses shape ``(2, N)`` where row ``0`` contains X
+        pixel coordinates and row ``1`` contains Y pixel coordinates in the
+        reference-image plotting coordinate system. For formats with sparse
+        line metadata, such as OIR, ``N`` can be ``2``. For CZI spline-like
+        scanner trajectories, ``N`` can be much larger.
+
+        Returns:
+            Read-only ``(2, N)`` scan path array, or ``None`` when no scan path
+            metadata is available.
+        """
+        if self.scan_path is None:
+            return None
+        scan_path = np.asarray(self.scan_path)
+        scan_path.setflags(write=False)
+        return scan_path
+
+    def get_scan_path_plot(self) -> tuple[np.ndarray, np.ndarray] | None:
+        """Return scan path coordinates for direct Matplotlib plotting.
+
+        Returns:
+            ``(x_pixels, y_pixels)`` arrays, or ``None`` when no scan path is
+            available.
+
+        Raises:
+            ValueError: If :attr:`scan_path` is not shaped as ``(2, N)``.
+        """
+        scan_path = self.get_scan_path()
+        if scan_path is None:
+            return None
+        if scan_path.ndim != 2 or scan_path.shape[0] != 2:
+            raise ValueError(f"scan_path must have shape (2, N), got shape={scan_path.shape}")
+        x_pixels = np.asarray(scan_path[0])
+        y_pixels = np.asarray(scan_path[1])
+        x_pixels.setflags(write=False)
+        y_pixels.setflags(write=False)
+        return x_pixels, y_pixels
 
     def get_plane(self, channel: int | None = None) -> ReferenceImagePlane:
         """Return a display-ready 2D reference-image plane.

@@ -19,8 +19,12 @@ def _reference_snapshot_from_oir_reference(ref: Any) -> ReferenceImage:
     sizes: dict[str, int] = dict(ref.sizes)
     num_channels = int(sizes["C"]) if "C" in sizes else 1
     line_roi = ref.line_roi
+    scan_path: np.ndarray | None = None
     if line_roi is not None:
         line_roi = tuple(float(x) for x in line_roi)
+        x0, y0, x1, y1 = line_roi
+        scan_path = np.asarray([[x0, x1], [y0, y1]], dtype=float)
+        scan_path.setflags(write=False)
     units_t = tuple(sorted((str(k), str(v)) for k, v in ref.coord_units.items()))
     scales_raw = ref.coord_scales
     scales_t = tuple(sorted((str(k), float(v)) for k, v in scales_raw.items()))
@@ -37,6 +41,7 @@ def _reference_snapshot_from_oir_reference(ref: Any) -> ReferenceImage:
         coord_units=units_t,
         coord_scales=scales_t,
         coords=tuple(coord_items),
+        scan_path=scan_path,
     )
 
 def _step_from_coord(coord: Any) -> float | None:

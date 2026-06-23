@@ -138,6 +138,12 @@ class _FakeCziWithReference:
 def _fake_open_czi_reference(_self: CziFileLoader):
     """Yield a fake CZI containing one reference attachment and XML scaling."""
     reference = np.arange(2 * 64 * 96, dtype=np.uint8).reshape(2, 64, 96)
+    raw_scan_path = np.vstack(
+        [
+            np.linspace(-1.5e-8, 1.5e-8, 128, dtype=np.float32),
+            np.linspace(-2.5e-8, 2.5e-8, 128, dtype=np.float32),
+        ]
+    )
     attachments = [
         _FakeAttachment(
             _FakeAttachmentEntry('Thumbnail', 'JPG', 'thumbnail.jpg'),
@@ -146,6 +152,10 @@ def _fake_open_czi_reference(_self: CziFileLoader):
         _FakeAttachment(
             _FakeAttachmentEntry('Image', 'ZISRAW', 'Image@123.zisraw'),
             reference,
+        ),
+        _FakeAttachment(
+            _FakeAttachmentEntry('Image', 'ZISRAW', 'Image@scan.zisraw'),
+            raw_scan_path,
         ),
     ]
     xml = '<ImageDocument><ScalingX>1.5e-8</ScalingX><ScalingY>2.5e-8</ScalingY></ImageDocument>'
@@ -182,6 +192,16 @@ def test_czi_reference_image_from_zisraw_attachment() -> None:
     scales = dict(reference.coord_scales)
     assert scales['X'] == pytest.approx(0.015)
     assert scales['Y'] == pytest.approx(0.025)
+    assert reference.has_scan_path() is True
+    scan_path = reference.get_scan_path()
+    assert scan_path is not None
+    assert scan_path.shape == (2, 128)
+    assert scan_path.flags.writeable is False
+    x_pixels, y_pixels = reference.get_scan_path_plot()
+    assert x_pixels[0] == pytest.approx(47.0)
+    assert x_pixels[-1] == pytest.approx(49.0)
+    assert y_pixels[0] == pytest.approx(31.0)
+    assert y_pixels[-1] == pytest.approx(33.0)
 
     plane = reference.get_plane(channel=1)
     assert plane.array.shape == (64, 96)
