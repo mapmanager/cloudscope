@@ -67,7 +67,7 @@ Support for commercial microscopy formats builds on the scientific Python ecosys
 
     Install the desktop app, open the web app, load data, run analysis, inspect images, and export results.
 
-    [:octicons-arrow-right-24: End User Guide](users/)
+    [:octicons-arrow-right-24: End User Guide](users/index.md)
 
 -   :material-flask:{ .lg .middle } **Data Scientist**
 
@@ -75,7 +75,7 @@ Support for commercial microscopy formats builds on the scientific Python ecosys
 
     Understand `AcqImage`, `AcqImageList`, line scan kymograph analysis, saved files, metadata, and notebook workflows.
 
-    [:octicons-arrow-right-24: Data Scientist Guide](scientists/)
+    [:octicons-arrow-right-24: Data Scientist Guide](scientists/index.md)
 
 -   :material-code-braces:{ .lg .middle } **Developer**
 
@@ -83,6 +83,6 @@ Support for commercial microscopy formats builds on the scientific Python ecosys
 
     Clone the repository, run tests, build docs, understand the architecture, and follow the release/deployment workflow.
 
-    [:octicons-arrow-right-24: Developer Guide](developers/)
+    [:octicons-arrow-right-24: Developer Guide](developers/index.md)
 
 </div>

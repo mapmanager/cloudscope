@@ -70,6 +70,10 @@ markdown_extensions:
   - toc:
       permalink: true
 
+exclude_docs: |
+  hooks.py
+  schemas/*.md
+
 nav:
   - Home: index.md
   - End User:
@@ -87,6 +91,8 @@ nav:
           - Velocity Analysis Notebook: notebooks/velocity-analysis.ipynb
           - Diameter Analysis Notebook: notebooks/diameter-analysis.ipynb
           - Kymograph Reference Images: notebooks/kymograph-reference-image.ipynb
+          - Heart Rate Analysis Notebook: notebooks/heart-rate-analysis.ipynb
+          - Heart Rate Batch Analysis Notebook: notebooks/heart-rate-batch-analysis.ipynb
       - Reproducibility: scientists/reproducibility.md
   - Developer:
       - developers/index.md

@@ -83,4 +83,4 @@ Traditional two-dimensional image analysis workflows are not yet implemented as 
 
 - [Using the GUI](gui.md)
 - [End-user recipes](recipes.md)
-- [Data Scientist Guide](../scientists/)
+- [Data Scientist Guide](../scientists/index.md)

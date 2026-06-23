@@ -131,4 +131,4 @@ Traditional two-dimensional segmentation, tracking, and image-analysis workflows
 - [Diameter Analysis](diameter-analysis.md)
 - [AcqImage Metadata](acqimage-metadata.md)
 - [Notebook Workflows](notebooks.md)
-- [API Reference](../api/)
+- [API Reference](../api/index.md)
