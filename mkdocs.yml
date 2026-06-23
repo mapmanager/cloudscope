@@ -86,8 +86,7 @@ nav:
           - Load and Plot Image: notebooks/load-and-plot-image.ipynb
           - Velocity Analysis Notebook: notebooks/velocity-analysis.ipynb
           - Diameter Analysis Notebook: notebooks/diameter-analysis.ipynb
-          - Heart Rate Analysis Notebook: notebooks/heart-rate-analysis.ipynb
-          - Heart Rate Batch Analysis Notebook: notebooks/heart-rate-batch-analysis.ipynb
+          - Kymograph Reference Images: notebooks/kymograph-reference-image.ipynb
       - Reproducibility: scientists/reproducibility.md
   - Developer:
       - developers/index.md

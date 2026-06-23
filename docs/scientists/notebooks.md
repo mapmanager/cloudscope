@@ -9,6 +9,7 @@ The notebooks are rendered in the documentation site and are not currently execu
 - [Load and Plot Image](../notebooks/load-and-plot-image.ipynb)
 - [Velocity Analysis](../notebooks/velocity-analysis.ipynb)
 - [Diameter Analysis](../notebooks/diameter-analysis.ipynb)
+- [Kymograph Reference Images](../notebooks/kymograph-reference-image.ipynb)
 - [Heart Rate Analysis](../notebooks/heart-rate-analysis.ipynb)
 - [Heart Rate Batch Analysis](../notebooks/heart-rate-batch-analysis.ipynb)
 
