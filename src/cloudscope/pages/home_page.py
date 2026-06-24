@@ -518,33 +518,45 @@ class HomePage:
         Returns:
             None.
         """
-        with ui.column().classes(self._scrollable_fill_column_classes()):
-            reference_image_expansion = SmartExpansion(
-                'Reference image',
-                icon='image',
-                initially_open=False,
-                on_open=lambda: self._open_reference_image_panel(views, splitter_manager, layout_state),
-                on_close=lambda: self._close_reference_image_panel(views, splitter_manager, layout_state),
-            )
-            layout_state.expansions['reference_image'] = reference_image_expansion
-            with reference_image_expansion:
-                views.reference_image.build()
-            reference_image_expansion.apply_initial_state()
-            view_manager.register(views.reference_image)
+        reference_preset = HOME_SPLITTER_PRESETS[SplitterId.REFERENCE_IMAGE]
+        with ui.splitter(
+            value=reference_preset.limits[0],
+            limits=reference_preset.limits,
+            horizontal=True,
+        ).classes('w-full h-full min-h-0 mt-[6px] overflow-hidden') as reference_splitter:
+            splitter_manager.register(SplitterId.REFERENCE_IMAGE, reference_splitter)
 
-            if SHOW_EMBEDDED_VELOCITY_POOL and views.velocity_pool_view is not None:
-                velocity_pool_expansion = SmartExpansion(
-                    'Velocity pool',
-                    icon='table_chart',
-                    initially_open=False,
-                    on_open=lambda: self._open_velocity_pool_panel(views, layout_state),
-                    on_close=lambda: self._close_velocity_pool_panel(views, layout_state),
-                )
-                layout_state.expansions['velocity_pool'] = velocity_pool_expansion
-                with velocity_pool_expansion:
-                    views.velocity_pool_view.build()
-                velocity_pool_expansion.apply_initial_state()
-                view_manager.register(views.velocity_pool_view)
+            with reference_splitter.before:
+                with ui.column().classes(self._fill_column_classes()):
+                    reference_image_expansion = SmartExpansion(
+                        'Reference image',
+                        icon='image',
+                        initially_open=False,
+                        on_open=lambda: self._open_reference_image_panel(views, splitter_manager, layout_state),
+                        on_close=lambda: self._close_reference_image_panel(views, splitter_manager, layout_state),
+                    )
+                    layout_state.expansions['reference_image'] = reference_image_expansion
+                    with reference_image_expansion:
+                        views.reference_image.build()
+                    reference_image_expansion.apply_initial_state()
+                    view_manager.register(views.reference_image)
+
+                    if SHOW_EMBEDDED_VELOCITY_POOL and views.velocity_pool_view is not None:
+                        velocity_pool_expansion = SmartExpansion(
+                            'Velocity pool',
+                            icon='table_chart',
+                            initially_open=False,
+                            on_open=lambda: self._open_velocity_pool_panel(views, layout_state),
+                            on_close=lambda: self._close_velocity_pool_panel(views, layout_state),
+                        )
+                        layout_state.expansions['velocity_pool'] = velocity_pool_expansion
+                        with velocity_pool_expansion:
+                            views.velocity_pool_view.build()
+                        velocity_pool_expansion.apply_initial_state()
+                        view_manager.register(views.velocity_pool_view)
+
+            with reference_splitter.after:
+                ui.element('div').classes('w-full h-full min-h-0 overflow-hidden')
 
     def _subscribe_layout_reset(
         self,
@@ -577,6 +589,7 @@ class HomePage:
             splitter_manager.restore_open_value(SplitterId.FILE_LIST)
             splitter_manager.restore_open_value(SplitterId.PRIMARY_IMAGE)
             splitter_manager.restore_open_value(SplitterId.ANALYSIS_REFERENCE)
+            splitter_manager.collapse_pane(SplitterId.REFERENCE_IMAGE, 'before')
             ui.notify('View layout reset', type='positive')
 
         self.event_bus.subscribe(ResetHomeLayoutIntent, _reset_home_layout)
@@ -623,6 +636,7 @@ class HomePage:
         """
         layout_state.panel_open['reference_image'] = True
         views.reference_image.show()
+        splitter_manager.restore_open_value(SplitterId.REFERENCE_IMAGE)
         self._sync_analysis_reference_layout(splitter_manager, layout_state)
 
     def _close_reference_image_panel(
@@ -643,6 +657,7 @@ class HomePage:
         """
         layout_state.panel_open['reference_image'] = False
         views.reference_image.hide()
+        splitter_manager.collapse_pane(SplitterId.REFERENCE_IMAGE, 'before')
         self._sync_analysis_reference_layout(splitter_manager, layout_state)
 
     def _open_velocity_pool_panel(self, views: HomePageViews, layout_state: HomePageLayoutState) -> None:
