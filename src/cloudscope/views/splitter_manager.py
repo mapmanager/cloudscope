@@ -24,7 +24,6 @@ class SplitterId(StrEnum):
     FILE_LIST = 'file_list'
     PRIMARY_IMAGE = 'primary_image'
     ANALYSIS_REFERENCE = 'analysis_reference'
-    REFERENCE_IMAGE = 'reference_image'
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,11 +65,6 @@ HOME_SPLITTER_PRESETS: dict[SplitterId, SplitterPreset] = {
         SplitterId.ANALYSIS_REFERENCE,
         DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT,
         (0.0, 90.0),
-    ),
-    SplitterId.REFERENCE_IMAGE: SplitterPreset(
-        SplitterId.REFERENCE_IMAGE,
-        85.0,
-        (8.0, 95.0),
     ),
 }
 
@@ -154,8 +148,6 @@ class SplitterManager:
         preset = HOME_SPLITTER_PRESETS[splitter_id]
         if splitter_id is SplitterId.LEFT_TOOLBAR:
             return preset.clamp(HOME_LEFT_TOOLBAR_CLOSED_SPLITTER_PCT)
-        if splitter_id is SplitterId.REFERENCE_IMAGE:
-            return preset.default_value
         return preset.clamp(self._app_config.get_home_splitter_value(splitter_id.value))
 
     def set_value(self, splitter_id: SplitterId, value: float, *, remember: bool = True) -> float:
@@ -184,12 +176,9 @@ class SplitterManager:
         Returns:
             Applied splitter value.
         """
-        preset = HOME_SPLITTER_PRESETS[splitter_id]
-        if splitter_id is SplitterId.REFERENCE_IMAGE:
-            return self.set_value(splitter_id, preset.default_value, remember=False)
         value = self._app_config.get_home_splitter_value(splitter_id.value)
         if self._is_collapsed_value(splitter_id, value):
-            value = preset.default_value
+            value = HOME_SPLITTER_PRESETS[splitter_id].default_value
         return self.set_value(splitter_id, value, remember=False)
 
     def collapse_pane(self, splitter_id: SplitterId, side: SplitterSide) -> float:
@@ -249,8 +238,6 @@ class SplitterManager:
         for splitter_id in self._splitters:
             if splitter_id is SplitterId.LEFT_TOOLBAR:
                 self.set_value(splitter_id, HOME_LEFT_TOOLBAR_CLOSED_SPLITTER_PCT, remember=False)
-            elif splitter_id is SplitterId.REFERENCE_IMAGE:
-                self.collapse_pane(splitter_id, 'before')
             else:
                 self.set_value(splitter_id, self._app_config.get_home_splitter_value(splitter_id.value), remember=False)
 
@@ -264,8 +251,6 @@ class SplitterManager:
         Returns:
             None.
         """
-        if splitter_id is SplitterId.REFERENCE_IMAGE:
-            return
         if self._is_collapsed_value(splitter_id, value):
             return
         self._app_config.set_home_splitter_value(splitter_id.value, value)
@@ -290,6 +275,4 @@ class SplitterManager:
             return value >= upper
         if splitter_id is SplitterId.ANALYSIS_REFERENCE:
             return value <= lower or value >= upper
-        if splitter_id is SplitterId.REFERENCE_IMAGE:
-            return value <= lower
         return False
