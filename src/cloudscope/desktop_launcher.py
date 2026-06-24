@@ -18,6 +18,7 @@ from cloudscope.runtime import (
     set_process_app_config,
 )
 from cloudscope.user_context import resolve_user_context
+from cloudscope.desktop.quit_flow import handle_main_window_closing
 from cloudscope.utils.logging import get_logger
 from cloudscope.window_geometry import WindowGeometryTracker
 
@@ -328,7 +329,7 @@ def run_option_c_desktop(config: CloudScopeRunConfig) -> None:
         y=y,
         width=w,
         height=h,
-        confirm_close=True,
+        confirm_close=False,
     )
     _pool_launcher._main_window = main_window
 
@@ -340,6 +341,9 @@ def run_option_c_desktop(config: CloudScopeRunConfig) -> None:
     )
     geometry_tracker.attach()
 
+    def _on_main_closing() -> bool:
+        return handle_main_window_closing(geometry_tracker)
+
     def _on_main_closed() -> None:
         logger.info('Main window closed; shutting down Option C desktop')
         launcher = get_pool_launcher()
@@ -349,12 +353,12 @@ def run_option_c_desktop(config: CloudScopeRunConfig) -> None:
             except Exception:
                 logger.debug('Pool window destroy failed', exc_info=True)
             launcher.pool_window = None
-        geometry_tracker.persist()
         try:
             app.shutdown()
         except Exception:
             logger.debug('NiceGUI shutdown failed', exc_info=True)
 
+    main_window.events.closing += _on_main_closing
     main_window.events.closed += _on_main_closed
 
     try:

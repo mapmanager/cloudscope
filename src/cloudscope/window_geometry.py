@@ -18,6 +18,10 @@ SaveConfig = Callable[[], None]
 class WindowGeometryTracker:
     """Track pywebview window move/resize and update stored geometry.
 
+    Move and resize handlers update in-memory config only. Call
+    :meth:`sync_from_window` while the window is still live (for example from
+    ``events.closing``), then :meth:`persist` to flush config to disk.
+
     Args:
         window: pywebview window object created by ``webview.create_window``.
         get_rect: Read current stored geometry, or ``None`` when unset.
@@ -51,23 +55,23 @@ class WindowGeometryTracker:
     def sync_from_window(self) -> None:
         """Read current window geometry into config via ``set_rect``.
 
-        Geometry is only available after the GUI loop is running.
+        Geometry is only available while the pywebview window instance exists.
 
         Returns:
             None.
         """
-        try:
-            x = int(self._window.x)
-            y = int(self._window.y)
-            w = int(self._window.width)
-            h = int(self._window.height)
-        except Exception:
-            logger.debug('Could not read pywebview window geometry', exc_info=True)
+        rect = self._read_live_rect()
+        if rect is None:
+            logger.debug('Window geometry unavailable; skipping sync')
             return
+        x, y, w, h = rect
         self._set_rect(x, y, w, h)
 
     def persist(self) -> None:
-        """Sync geometry from the window and save config once.
+        """Flush in-memory geometry config to disk once.
+
+        Does not read live window geometry. Call :meth:`sync_from_window` first
+        when the window is still available.
 
         Returns:
             None.
@@ -75,8 +79,27 @@ class WindowGeometryTracker:
         if self._persisted or self._save is None:
             return
         self._persisted = True
-        self.sync_from_window()
         self._save()
+
+    def _read_live_rect(self) -> Rect | None:
+        """Return live window geometry, or ``None`` when unavailable.
+
+        Returns:
+            Current ``(x, y, w, h)``, or ``None`` when attrs are missing.
+        """
+        try:
+            x = self._window.x
+            y = self._window.y
+            w = self._window.width
+            h = self._window.height
+        except AttributeError:
+            return None
+        if x is None or y is None or w is None or h is None:
+            return None
+        try:
+            return (int(x), int(y), int(w), int(h))
+        except (TypeError, ValueError):
+            return None
 
     def _current_rect(self) -> Rect | None:
         """Return stored rect or live window geometry when unset.
@@ -87,16 +110,7 @@ class WindowGeometryTracker:
         stored = self._get_rect()
         if stored is not None:
             return stored
-        try:
-            return (
-                int(self._window.x),
-                int(self._window.y),
-                int(self._window.width),
-                int(self._window.height),
-            )
-        except Exception:
-            logger.debug('Could not read pywebview window geometry', exc_info=True)
-            return None
+        return self._read_live_rect()
 
     def _on_moved(self, *_args: object) -> None:
         """Update cached x/y while preserving width/height.
@@ -111,12 +125,10 @@ class WindowGeometryTracker:
         if current is None:
             return
         _x, _y, w, h = current
-        try:
-            x = int(self._window.x)
-            y = int(self._window.y)
-        except Exception:
-            logger.debug('Could not read pywebview window position', exc_info=True)
+        live = self._read_live_rect()
+        if live is None:
             return
+        x, y, _, _ = live
         self._set_rect(x, y, w, h)
 
     def _on_resized(self, *_args: object) -> None:
@@ -132,10 +144,8 @@ class WindowGeometryTracker:
         if current is None:
             return
         x, y, _w, _h = current
-        try:
-            w = int(self._window.width)
-            h = int(self._window.height)
-        except Exception:
-            logger.debug('Could not read pywebview window size', exc_info=True)
+        live = self._read_live_rect()
+        if live is None:
             return
+        _, _, w, h = live
         self._set_rect(x, y, w, h)

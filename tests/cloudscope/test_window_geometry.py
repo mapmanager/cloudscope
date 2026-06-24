@@ -24,6 +24,7 @@ class _FakeEvents:
         self.moved = _FakeEventSlot()
         self.resized = _FakeEventSlot()
         self.closed = _FakeEventSlot()
+        self.closing = _FakeEventSlot()
 
 
 class _FakeWindow:
@@ -112,8 +113,42 @@ def test_persist_saves_once(tmp_path) -> None:
         save=save,
     )
 
+    tracker.sync_from_window()
     tracker.persist()
     tracker.persist()
 
     save.assert_called_once()
     assert app_config.get_window_rect() == (11, 22, 333, 444)
+
+
+def test_persist_does_not_read_live_window(tmp_path) -> None:
+    app_config = AppConfig.ephemeral(config_path=tmp_path / 'config.json')
+    app_config.set_window_rect(1, 2, 800, 600)
+    window = _FakeWindow(x=99, y=88, width=111, height=222)
+    save = MagicMock()
+    tracker = WindowGeometryTracker(
+        window,
+        app_config.get_window_rect,
+        app_config.set_window_rect,
+        save=save,
+    )
+
+    tracker.persist()
+
+    save.assert_called_once()
+    assert app_config.get_window_rect() == (1, 2, 800, 600)
+
+
+def test_sync_from_window_skips_when_attrs_are_none(tmp_path) -> None:
+    app_config = AppConfig.ephemeral(config_path=tmp_path / 'config.json')
+    app_config.set_window_rect(1, 2, 800, 600)
+    window = _FakeWindow()
+    window.x = None
+    window.y = None
+    window.width = None
+    window.height = None
+    tracker = _main_tracker(app_config, window)
+
+    tracker.sync_from_window()
+
+    assert app_config.get_window_rect() == (1, 2, 800, 600)
