@@ -107,6 +107,15 @@ class VelocityPoolView(BaseView):
         self.add_subscription(self.event_bus.subscribe(VelocityPoolChanged, self._on_velocity_pool_changed))
         self.add_subscription(self.event_bus.subscribe(ThemeChanged, self._on_theme_changed))
 
+    def on_show(self) -> None:
+        """Handle transition to visible state.
+
+        Returns:
+            None.
+        """
+        self._disposed = False
+        super().on_show()
+
     def on_hide(self) -> None:
         """Unsubscribe and mark this view inactive for cross-client callbacks.
 

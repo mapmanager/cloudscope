@@ -105,6 +105,19 @@ def test_on_hide_sets_disposed_and_unsubscribes() -> None:
     assert not view._subscriptions
 
 
+def test_on_show_clears_disposed() -> None:
+    bus = EventBus()
+    view = VelocityPoolView(event_bus=bus, app_state=None, initially_visible=False)
+    view._built = True
+    view.root = FakeRoot()
+    view.on_hide()
+    assert view._disposed is True
+
+    view.on_show()
+
+    assert view._disposed is False
+
+
 def test_velocity_pool_changed_ignored_after_on_hide() -> None:
     bus = EventBus()
     view = VelocityPoolView(event_bus=bus, app_state=None, initially_visible=False)

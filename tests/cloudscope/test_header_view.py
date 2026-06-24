@@ -18,8 +18,10 @@ def test_build_main_header_signature_accepts_title() -> None:
     sig = inspect.signature(build_main_header)
     assert "title" in sig.parameters
     assert "event_bus" in sig.parameters
+    assert "on_pool_drawer_toggle" in sig.parameters
     params = sig.parameters["title"]
     assert params.default == "CloudScope"
+    assert sig.parameters["on_pool_drawer_toggle"].default is None
 
 
 def test_build_main_header_is_documented_callable() -> None:

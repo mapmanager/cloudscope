@@ -44,6 +44,8 @@ from cloudscope.utils.logging import get_logger
 logger = get_logger(__name__)
 
 SHOW_EMBEDDED_VELOCITY_POOL = False
+SHOW_VELOCITY_POOL_RIGHT_DRAWER = False
+VELOCITY_POOL_RIGHT_DRAWER_WIDTH_PX = 560
 
 # HOME_WORKSPACE_CLOSED_HEIGHT_CSS = 'calc(100vh - 4rem)'
 # HOME_WORKSPACE_REFERENCE_OPEN_HEIGHT_CSS = 'calc(100vh - 4rem + 420px)'
@@ -58,7 +60,7 @@ class HomePage:
     Args:
         controller: Home page controller.
         load_save_controller: Load/save controller.
-        event_bus: Shared runtime event bus.
+        event_bus: Share d runtime event bus.
         app_config: Shared app configuration.
         user_context: User/workspace context for config and storage paths.
         analysis_controller: Shared analysis controller.
@@ -162,6 +164,16 @@ class HomePage:
         velocity_pool_view: VelocityPoolView | None = None
         if SHOW_EMBEDDED_VELOCITY_POOL:
             velocity_pool_view = VelocityPoolView(
+                event_bus=self.event_bus,
+                app_state=app_state,
+                table_font_size_px=int(self.app_config.data.table_font_size_px),
+                initially_visible=False,
+                dark_mode=dark_mode,
+                dark_mode_provider=_dark_mode,
+            )
+        drawer_velocity_pool_view: VelocityPoolView | None = None
+        if SHOW_VELOCITY_POOL_RIGHT_DRAWER:
+            drawer_velocity_pool_view = VelocityPoolView(
                 event_bus=self.event_bus,
                 app_state=app_state,
                 table_font_size_px=int(self.app_config.data.table_font_size_px),
@@ -470,16 +482,65 @@ class HomePage:
             """
         )
 
+        pool_drawer_state: dict[str, Any] = {}
+
+        if SHOW_VELOCITY_POOL_RIGHT_DRAWER and drawer_velocity_pool_view is not None:
+            pool_drawer_state['view'] = drawer_velocity_pool_view
+            pool_drawer_state['drawer_ref'] = {'drawer': None}
+
+            def _sync_pool_drawer_visibility(opened: bool) -> None:
+                """Show or hide the drawer velocity pool view.
+
+                Args:
+                    opened: Whether the right drawer is open.
+
+                Returns:
+                    None.
+                """
+                view = pool_drawer_state['view']
+                if opened:
+                    view.show()
+                else:
+                    view.hide()
+
+            def _toggle_pool_drawer() -> None:
+                """Toggle the dev velocity-pool right drawer.
+
+                Returns:
+                    None.
+                """
+                drawer = pool_drawer_state['drawer_ref']['drawer']
+                if drawer is None:
+                    return
+                drawer.toggle()
+                _sync_pool_drawer_visibility(bool(drawer.value))
+
+            pool_drawer_state['sync'] = _sync_pool_drawer_visibility
+            pool_drawer_state['toggle'] = _toggle_pool_drawer
+
         build_main_header(
             title='CloudScope',
             app_config=self.app_config,
             event_bus=self.event_bus,
             show_open_pool=True,
+            on_pool_drawer_toggle=pool_drawer_state.get('toggle'),
         )
         footer.build()
         view_manager.register(footer)
         task_progress_dialog.build()
         view_manager.register(task_progress_dialog)
+
+        if SHOW_VELOCITY_POOL_RIGHT_DRAWER and drawer_velocity_pool_view is not None:
+            with ui.right_drawer(value=False).props(
+                f'width={VELOCITY_POOL_RIGHT_DRAWER_WIDTH_PX} bordered'
+            ) as pool_drawer:
+                pool_drawer_state['drawer_ref']['drawer'] = pool_drawer
+                with ui.column().classes('w-full h-[calc(100vh-4rem)] min-h-0 p-2'):
+                    drawer_velocity_pool_view.build()
+                pool_drawer.on_value_change(
+                    lambda event: pool_drawer_state['sync'](bool(event.value)),
+                )
+            view_manager.register(drawer_velocity_pool_view)
 
         left_preset = HOME_SPLITTER_PRESETS[SplitterId.LEFT_TOOLBAR]
         with ui.splitter(
