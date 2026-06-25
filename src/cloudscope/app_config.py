@@ -24,6 +24,9 @@ MAX_TABLE_FONT_SIZE_PX = 32
 HOME_LEFT_TOOLBAR_CLOSED_SPLITTER_PCT = 4.0
 HOME_LEFT_TOOLBAR_COLLAPSED_SLACK_PCT = 2.0
 DEFAULT_HOME_LEFT_TOOLBAR_OPEN_SPLITTER_PCT = 28.0
+HOME_RIGHT_POOL_CLOSED_SPLITTER_PCT = 98.0
+HOME_RIGHT_POOL_COLLAPSED_SLACK_PCT = 2.0
+DEFAULT_HOME_RIGHT_POOL_OPEN_SPLITTER_PCT = 72.0
 DEFAULT_HOME_FILE_LIST_SPLITTER_PCT = 18.0
 DEFAULT_HOME_PRIMARY_IMAGE_SPLITTER_PCT = 65.0
 DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT = 50.0
@@ -36,6 +39,7 @@ _HOME_SPLITTER_KEYS = {
     'file_list': 'home_file_list_splitter_pct',
     'primary_image': 'home_primary_image_splitter_pct',
     'analysis_reference': 'home_analysis_reference_splitter_pct',
+    'right_pool': 'home_right_pool_open_splitter_pct',
 }
 
 
@@ -128,6 +132,7 @@ class AppConfigData:
     home_file_list_splitter_pct: float = DEFAULT_HOME_FILE_LIST_SPLITTER_PCT
     home_primary_image_splitter_pct: float = DEFAULT_HOME_PRIMARY_IMAGE_SPLITTER_PCT
     home_analysis_reference_splitter_pct: float = DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT
+    home_right_pool_open_splitter_pct: float = DEFAULT_HOME_RIGHT_POOL_OPEN_SPLITTER_PCT
     contrast_auto_percentile_low: float = DEFAULT_CONTRAST_AUTO_PERCENTILE_LOW
     contrast_auto_percentile_high: float = DEFAULT_CONTRAST_AUTO_PERCENTILE_HIGH
     default_channel_color_lut: dict[str, str] = field(default_factory=_default_channel_color_lut)
@@ -235,6 +240,10 @@ class AppConfigData:
             home_analysis_reference_splitter_pct=_float_field(
                 'home_analysis_reference_splitter_pct',
                 DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT,
+            ),
+            home_right_pool_open_splitter_pct=_float_field(
+                'home_right_pool_open_splitter_pct',
+                DEFAULT_HOME_RIGHT_POOL_OPEN_SPLITTER_PCT,
             ),
             contrast_auto_percentile_low=_float_field(
                 'contrast_auto_percentile_low',
@@ -453,6 +462,12 @@ class AppConfig:
             90.0,
             DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT,
         )
+        self.data.home_right_pool_open_splitter_pct = _clamp_float(
+            self.data.home_right_pool_open_splitter_pct,
+            50.0,
+            HOME_RIGHT_POOL_CLOSED_SPLITTER_PCT,
+            DEFAULT_HOME_RIGHT_POOL_OPEN_SPLITTER_PCT,
+        )
         low, high = self._normalize_contrast_percentiles(
             self.data.contrast_auto_percentile_low,
             self.data.contrast_auto_percentile_high,
@@ -610,6 +625,7 @@ class AppConfig:
         self.data.home_file_list_splitter_pct = DEFAULT_HOME_FILE_LIST_SPLITTER_PCT
         self.data.home_primary_image_splitter_pct = DEFAULT_HOME_PRIMARY_IMAGE_SPLITTER_PCT
         self.data.home_analysis_reference_splitter_pct = DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT
+        self.data.home_right_pool_open_splitter_pct = DEFAULT_HOME_RIGHT_POOL_OPEN_SPLITTER_PCT
 
     def get_contrast_auto_percentiles(self) -> tuple[float, float]:
         """Return the ``(low, high)`` percentile pair used for Auto contrast.

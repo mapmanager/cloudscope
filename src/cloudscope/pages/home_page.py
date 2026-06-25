@@ -44,8 +44,7 @@ from cloudscope.utils.logging import get_logger
 logger = get_logger(__name__)
 
 SHOW_EMBEDDED_VELOCITY_POOL = False
-SHOW_VELOCITY_POOL_RIGHT_DRAWER = False
-VELOCITY_POOL_RIGHT_DRAWER_WIDTH_PX = 560
+SHOW_VELOCITY_POOL_RIGHT_PANEL = True
 
 # HOME_WORKSPACE_CLOSED_HEIGHT_CSS = 'calc(100vh - 4rem)'
 # HOME_WORKSPACE_REFERENCE_OPEN_HEIGHT_CSS = 'calc(100vh - 4rem + 420px)'
@@ -171,9 +170,9 @@ class HomePage:
                 dark_mode=dark_mode,
                 dark_mode_provider=_dark_mode,
             )
-        drawer_velocity_pool_view: VelocityPoolView | None = None
-        if SHOW_VELOCITY_POOL_RIGHT_DRAWER:
-            drawer_velocity_pool_view = VelocityPoolView(
+        right_panel_velocity_pool_view: VelocityPoolView | None = None
+        if SHOW_VELOCITY_POOL_RIGHT_PANEL:
+            right_panel_velocity_pool_view = VelocityPoolView(
                 event_bus=self.event_bus,
                 app_state=app_state,
                 table_font_size_px=int(self.app_config.data.table_font_size_px),
@@ -482,65 +481,130 @@ class HomePage:
             """
         )
 
-        pool_drawer_state: dict[str, Any] = {}
-
-        if SHOW_VELOCITY_POOL_RIGHT_DRAWER and drawer_velocity_pool_view is not None:
-            pool_drawer_state['view'] = drawer_velocity_pool_view
-            pool_drawer_state['drawer_ref'] = {'drawer': None}
-
-            def _sync_pool_drawer_visibility(opened: bool) -> None:
-                """Show or hide the drawer velocity pool view.
-
-                Args:
-                    opened: Whether the right drawer is open.
-
-                Returns:
-                    None.
-                """
-                view = pool_drawer_state['view']
-                if opened:
-                    view.show()
-                else:
-                    view.hide()
-
-            def _toggle_pool_drawer() -> None:
-                """Toggle the dev velocity-pool right drawer.
-
-                Returns:
-                    None.
-                """
-                drawer = pool_drawer_state['drawer_ref']['drawer']
-                if drawer is None:
-                    return
-                drawer.toggle()
-                _sync_pool_drawer_visibility(bool(drawer.value))
-
-            pool_drawer_state['sync'] = _sync_pool_drawer_visibility
-            pool_drawer_state['toggle'] = _toggle_pool_drawer
-
         build_main_header(
             title='CloudScope',
             app_config=self.app_config,
             event_bus=self.event_bus,
             show_open_pool=True,
-            on_pool_drawer_toggle=pool_drawer_state.get('toggle'),
         )
         footer.build()
         view_manager.register(footer)
         task_progress_dialog.build()
         view_manager.register(task_progress_dialog)
 
-        if SHOW_VELOCITY_POOL_RIGHT_DRAWER and drawer_velocity_pool_view is not None:
-            with ui.right_drawer(value=False).props(
-                f'width={VELOCITY_POOL_RIGHT_DRAWER_WIDTH_PX} bordered'
-            ) as pool_drawer:
-                pool_drawer_state['drawer_ref']['drawer'] = pool_drawer
-                with ui.column().classes('w-full h-[calc(100vh-4rem)] min-h-0 p-2'):
-                    drawer_velocity_pool_view.build()
-                pool_drawer.on_value_change(
-                    lambda event: pool_drawer_state['sync'](bool(event.value)),
-                )
-            view_manager.register(drawer_velocity_pool_view)
+        def _build_main_workspace() -> None:
+            """Build the central home workspace inside the current parent pane.
+
+            Returns:
+                None.
+            """
+            with ui.element('div').classes(_main_scroll_shell_classes()):
+                with ui.element('div').classes(_workspace_frame_classes()).style(
+                    _workspace_frame_style(HOME_WORKSPACE_CLOSED_HEIGHT_CSS)
+                ) as workspace_frame:
+                    workspace_frame_ref['value'] = workspace_frame
+                    file_preset = HOME_SPLITTER_PRESETS[SplitterId.FILE_LIST]
+                    with ui.splitter(
+                        value=splitter_manager.value_for(SplitterId.FILE_LIST),
+                        limits=file_preset.limits,
+                        horizontal=True,
+                    ).classes('w-full h-full min-h-0 overflow-hidden') as file_list_splitter:
+                        splitter_manager.register(SplitterId.FILE_LIST, file_list_splitter)
+
+                        with file_list_splitter.before:
+                            with ui.column().classes(_content_column_classes()):
+                                load_save_view.build()
+                                view_manager.register(load_save_view)
+
+                                file_list_panel.show()
+                                file_list_panel.build()
+
+                                view_manager.register(file_list_panel)
+
+                        with file_list_splitter.after:
+                            primary_preset = HOME_SPLITTER_PRESETS[SplitterId.PRIMARY_IMAGE]
+                            with ui.splitter(
+                                value=splitter_manager.value_for(SplitterId.PRIMARY_IMAGE),
+                                limits=primary_preset.limits,
+                                horizontal=True,
+                            ).classes('w-full h-full min-h-0 mt-[6px]') as primary_splitter:
+                                splitter_manager.register(SplitterId.PRIMARY_IMAGE, primary_splitter)
+
+                                with primary_splitter.before:
+                                    with ui.column().classes(_fill_column_classes()):
+                                        image_toolbar.build()
+                                        view_manager.register(image_toolbar)
+                                        primary_image.build()
+                                        view_manager.register(primary_image)
+
+                                with primary_splitter.after:
+                                    analysis_preset = HOME_SPLITTER_PRESETS[SplitterId.ANALYSIS_REFERENCE]
+                                    with ui.splitter(
+                                        value=splitter_manager.value_for(SplitterId.ANALYSIS_REFERENCE),
+                                        limits=analysis_preset.limits,
+                                        horizontal=True,
+                                    ).classes('w-full h-full min-h-0 mt-[6px]') as analysis_reference_splitter:
+                                        splitter_manager.register(
+                                            SplitterId.ANALYSIS_REFERENCE,
+                                            analysis_reference_splitter,
+                                        )
+
+                                        with analysis_reference_splitter.before:
+                                            with ui.column().classes(_fill_column_classes()):
+                                                acq_analysis_plot.show()
+                                                acq_analysis_plot.build()
+
+                                                view_manager.register(acq_analysis_plot)
+
+                                        with analysis_reference_splitter.after:
+                                            with ui.column().classes(_fill_column_classes()):
+                                                reference_image_expansion = SmartExpansion(
+                                                    'Reference image',
+                                                    icon='image',
+                                                    initially_open=False,
+                                                    on_open=_open_reference_image_panel,
+                                                    on_close=_close_reference_image_panel,
+                                                )
+                                                home_expansion_refs['reference_image'] = reference_image_expansion
+                                                with reference_image_expansion:
+                                                    reference_image.build()
+                                                reference_image_expansion.apply_initial_state()
+                                                view_manager.register(reference_image)
+
+                                                if SHOW_EMBEDDED_VELOCITY_POOL and velocity_pool_view is not None:
+                                                    velocity_pool_expansion = SmartExpansion(
+                                                        'Velocity pool',
+                                                        icon='table_chart',
+                                                        initially_open=False,
+                                                        on_open=_open_velocity_pool_panel,
+                                                        on_close=_close_velocity_pool_panel,
+                                                    )
+                                                    home_expansion_refs['velocity_pool'] = velocity_pool_expansion
+                                                    with velocity_pool_expansion:
+                                                        velocity_pool_view.build()
+                                                    velocity_pool_expansion.apply_initial_state()
+                                                    view_manager.register(velocity_pool_view)
+
+                                        add_splitter_handle(analysis_reference_splitter, orientation='horizontal')
+                                        analysis_reference_splitter.on(
+                                            'update:model-value',
+                                            lambda _event=None: _capture(SplitterId.ANALYSIS_REFERENCE),
+                                            throttle=0.2,
+                                        )
+
+                                add_splitter_handle(primary_splitter, orientation='horizontal')
+                                primary_splitter.on(
+                                    'update:model-value',
+                                    lambda _event=None: _capture(SplitterId.PRIMARY_IMAGE),
+                                    throttle=0.2,
+                                )
+
+                        add_splitter_handle(file_list_splitter, orientation='horizontal')
+                        file_list_splitter.on(
+                            'update:model-value',
+                            lambda _event=None: _capture(SplitterId.FILE_LIST),
+                            throttle=0.2,
+                        )
 
         left_preset = HOME_SPLITTER_PRESETS[SplitterId.LEFT_TOOLBAR]
         with ui.splitter(
@@ -563,138 +627,62 @@ class HomePage:
                 view_manager.register(left_toolbar)
 
             with left_splitter.after:
-                with ui.element('div').classes(_main_scroll_shell_classes()):
-                    with ui.element('div').classes(_workspace_frame_classes()).style(
-                        _workspace_frame_style(HOME_WORKSPACE_CLOSED_HEIGHT_CSS)
-                    ) as workspace_frame:
-                        workspace_frame_ref['value'] = workspace_frame
-                        file_preset = HOME_SPLITTER_PRESETS[SplitterId.FILE_LIST]
-                        with ui.splitter(
-                            value=splitter_manager.value_for(SplitterId.FILE_LIST),
-                            limits=file_preset.limits,
-                            horizontal=True,
-                        ).classes('w-full h-full min-h-0 overflow-hidden') as file_list_splitter:
-                            splitter_manager.register(SplitterId.FILE_LIST, file_list_splitter)
+                if SHOW_VELOCITY_POOL_RIGHT_PANEL and right_panel_velocity_pool_view is not None:
+                    def _sync_right_pool_panel_visibility() -> None:
+                        """Show or hide the right-panel velocity pool from splitter state.
 
-                            with file_list_splitter.before:
-                                with ui.column().classes(_content_column_classes()):
-                                    # load save toolbar buttons
-                                    load_save_view.build()
-                                    view_manager.register(load_save_view)
-                            
-                                    # file list
-                                    # file_list_expansion = SmartExpansion(
-                                    #     'File list',
-                                    #     icon='folder',
-                                    #     initially_open=True,
-                                    #     on_open=_open_file_list_panel,
-                                    #     on_close=_close_file_list_panel,
-                                    # )
-                                    # home_expansion_refs['file_list'] = file_list_expansion
-                                    # with file_list_expansion:
-                                    #     file_list_panel.build()
-                                    # file_list_expansion.apply_initial_state()
+                        Returns:
+                            None.
+                        """
+                        if right_panel_velocity_pool_view is None:
+                            return
+                        if splitter_manager.is_right_pool_open():
+                            right_panel_velocity_pool_view.show()
+                        else:
+                            right_panel_velocity_pool_view.hide()
 
-                                    # old style, not using SmartExpansion
-                                    file_list_panel.show()
-                                    file_list_panel.build()
+                    def _toggle_right_pool_panel() -> None:
+                        """Toggle the right velocity-pool splitter between open and collapsed.
 
-                                    view_manager.register(file_list_panel)
+                        Returns:
+                            None.
+                        """
+                        splitter_manager.set_right_pool_open(not splitter_manager.is_right_pool_open())
+                        _sync_right_pool_panel_visibility()
 
-                            with file_list_splitter.after:
-                                primary_preset = HOME_SPLITTER_PRESETS[SplitterId.PRIMARY_IMAGE]
-                                with ui.splitter(
-                                    value=splitter_manager.value_for(SplitterId.PRIMARY_IMAGE),
-                                    limits=primary_preset.limits,
-                                    horizontal=True,
-                                ).classes('w-full h-full min-h-0 mt-[6px]') as primary_splitter:
-                                    splitter_manager.register(SplitterId.PRIMARY_IMAGE, primary_splitter)
+                    right_pool_preset = HOME_SPLITTER_PRESETS[SplitterId.RIGHT_POOL]
+                    with ui.splitter(
+                        value=splitter_manager.value_for(SplitterId.RIGHT_POOL),
+                        limits=right_pool_preset.limits,
+                    ).classes('w-full h-full min-h-0 overflow-hidden') as right_pool_splitter:
+                        splitter_manager.register(SplitterId.RIGHT_POOL, right_pool_splitter)
 
-                                    with primary_splitter.before:
-                                        with ui.column().classes(_fill_column_classes()):
-                                            image_toolbar.build()
-                                            view_manager.register(image_toolbar)
-                                            primary_image.build()
-                                            view_manager.register(primary_image)
+                        with right_pool_splitter.before:
+                            _build_main_workspace()
 
-                                    with primary_splitter.after:
-                                        analysis_preset = HOME_SPLITTER_PRESETS[SplitterId.ANALYSIS_REFERENCE]
-                                        with ui.splitter(
-                                            value=splitter_manager.value_for(SplitterId.ANALYSIS_REFERENCE),
-                                            limits=analysis_preset.limits,
-                                            horizontal=True,
-                                        ).classes('w-full h-full min-h-0 mt-[6px]') as analysis_reference_splitter:
-                                            splitter_manager.register(SplitterId.ANALYSIS_REFERENCE, analysis_reference_splitter)
+                        with right_pool_splitter.after:
+                            with ui.column().classes(_fill_column_classes()):
+                                right_panel_velocity_pool_view.build()
+                            view_manager.register(right_panel_velocity_pool_view)
 
-                                            with analysis_reference_splitter.before:
-                                                with ui.column().classes(_fill_column_classes()):
-                                                    # analysis_plot_expansion = SmartExpansion(
-                                                    #     'Analysis plot',
-                                                    #     icon='show_chart',
-                                                    #     initially_open=True,
-                                                    #     on_open=_open_analysis_plot_panel,
-                                                    #     on_close=_close_analysis_plot_panel,
-                                                    # )
-                                                    # home_expansion_refs['analysis_plot'] = analysis_plot_expansion
-                                                    # with analysis_plot_expansion:
-                                                    #     acq_analysis_plot.build()
-                                                    # analysis_plot_expansion.apply_initial_state()
-                                            
-                                                    # old style, not using SmartExpansion
-                                                    acq_analysis_plot.show()
-                                                    acq_analysis_plot.build()
+                        add_splitter_handle(
+                            right_pool_splitter,
+                            orientation='vertical',
+                            offset='before',
+                            on_dblclick=_toggle_right_pool_panel,
+                        )
+                        right_pool_splitter.on(
+                            'update:model-value',
+                            lambda _event=None: (
+                                _capture(SplitterId.RIGHT_POOL),
+                                _sync_right_pool_panel_visibility(),
+                            ),
+                            throttle=0.2,
+                        )
 
-                                                    view_manager.register(acq_analysis_plot)
-
-                                            with analysis_reference_splitter.after:
-                                                with ui.column().classes(_fill_column_classes()):
-                                                    reference_image_expansion = SmartExpansion(
-                                                        'Reference image',
-                                                        icon='image',
-                                                        initially_open=False,
-                                                        on_open=_open_reference_image_panel,
-                                                        on_close=_close_reference_image_panel,
-                                                    )
-                                                    home_expansion_refs['reference_image'] = reference_image_expansion
-                                                    with reference_image_expansion:
-                                                        reference_image.build()
-                                                    reference_image_expansion.apply_initial_state()
-                                                    view_manager.register(reference_image)
-
-                                                    if SHOW_EMBEDDED_VELOCITY_POOL and velocity_pool_view is not None:
-                                                        velocity_pool_expansion = SmartExpansion(
-                                                            'Velocity pool',
-                                                            icon='table_chart',
-                                                            initially_open=False,
-                                                            on_open=_open_velocity_pool_panel,
-                                                            on_close=_close_velocity_pool_panel,
-                                                        )
-                                                        home_expansion_refs['velocity_pool'] = velocity_pool_expansion
-                                                        with velocity_pool_expansion:
-                                                            velocity_pool_view.build()
-                                                        velocity_pool_expansion.apply_initial_state()
-                                                        view_manager.register(velocity_pool_view)
-
-                                            add_splitter_handle(analysis_reference_splitter, orientation='horizontal')
-                                            analysis_reference_splitter.on(
-                                                'update:model-value',
-                                                lambda _event=None: _capture(SplitterId.ANALYSIS_REFERENCE),
-                                                throttle=0.2,
-                                            )
-
-                                    add_splitter_handle(primary_splitter, orientation='horizontal')
-                                    primary_splitter.on(
-                                        'update:model-value',
-                                        lambda _event=None: _capture(SplitterId.PRIMARY_IMAGE),
-                                        throttle=0.2,
-                                    )
-
-                            add_splitter_handle(file_list_splitter, orientation='horizontal')
-                            file_list_splitter.on(
-                                'update:model-value',
-                                lambda _event=None: _capture(SplitterId.FILE_LIST),
-                                throttle=0.2,
-                            )
+                    _sync_right_pool_panel_visibility()
+                else:
+                    _build_main_workspace()
 
             add_splitter_handle(left_splitter, orientation='vertical', offset='after')
             left_splitter.on(

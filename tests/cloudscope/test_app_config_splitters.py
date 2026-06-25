@@ -11,6 +11,7 @@ from cloudscope.app_config import (
     DEFAULT_HOME_FILE_LIST_SPLITTER_PCT,
     DEFAULT_HOME_LEFT_TOOLBAR_OPEN_SPLITTER_PCT,
     DEFAULT_HOME_PRIMARY_IMAGE_SPLITTER_PCT,
+    DEFAULT_HOME_RIGHT_POOL_OPEN_SPLITTER_PCT,
     AppConfig,
     AppConfigData,
 )
@@ -24,6 +25,7 @@ def test_app_config_defaults_include_home_splitters(tmp_path: Path) -> None:
     assert cfg.get_home_splitter_value('file_list') == DEFAULT_HOME_FILE_LIST_SPLITTER_PCT
     assert cfg.get_home_splitter_value('primary_image') == DEFAULT_HOME_PRIMARY_IMAGE_SPLITTER_PCT
     assert cfg.get_home_splitter_value('analysis_reference') == DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT
+    assert cfg.get_home_splitter_value('right_pool') == DEFAULT_HOME_RIGHT_POOL_OPEN_SPLITTER_PCT
 
 
 def test_app_config_home_splitter_values_round_trip(tmp_path: Path) -> None:

@@ -11,8 +11,11 @@ from cloudscope.app_config import (
     DEFAULT_HOME_FILE_LIST_SPLITTER_PCT,
     DEFAULT_HOME_LEFT_TOOLBAR_OPEN_SPLITTER_PCT,
     DEFAULT_HOME_PRIMARY_IMAGE_SPLITTER_PCT,
+    DEFAULT_HOME_RIGHT_POOL_OPEN_SPLITTER_PCT,
     HOME_LEFT_TOOLBAR_CLOSED_SPLITTER_PCT,
     HOME_LEFT_TOOLBAR_COLLAPSED_SLACK_PCT,
+    HOME_RIGHT_POOL_CLOSED_SPLITTER_PCT,
+    HOME_RIGHT_POOL_COLLAPSED_SLACK_PCT,
     AppConfig,
 )
 
@@ -24,6 +27,7 @@ class SplitterId(StrEnum):
     FILE_LIST = 'file_list'
     PRIMARY_IMAGE = 'primary_image'
     ANALYSIS_REFERENCE = 'analysis_reference'
+    RIGHT_POOL = 'right_pool'
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +69,11 @@ HOME_SPLITTER_PRESETS: dict[SplitterId, SplitterPreset] = {
         SplitterId.ANALYSIS_REFERENCE,
         DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT,
         (0.0, 90.0),
+    ),
+    SplitterId.RIGHT_POOL: SplitterPreset(
+        SplitterId.RIGHT_POOL,
+        HOME_RIGHT_POOL_CLOSED_SPLITTER_PCT,
+        (50.0, HOME_RIGHT_POOL_CLOSED_SPLITTER_PCT),
     ),
 }
 
@@ -148,6 +157,8 @@ class SplitterManager:
         preset = HOME_SPLITTER_PRESETS[splitter_id]
         if splitter_id is SplitterId.LEFT_TOOLBAR:
             return preset.clamp(HOME_LEFT_TOOLBAR_CLOSED_SPLITTER_PCT)
+        if splitter_id is SplitterId.RIGHT_POOL:
+            return preset.clamp(HOME_RIGHT_POOL_CLOSED_SPLITTER_PCT)
         return preset.clamp(self._app_config.get_home_splitter_value(splitter_id.value))
 
     def set_value(self, splitter_id: SplitterId, value: float, *, remember: bool = True) -> float:
@@ -228,6 +239,34 @@ class SplitterManager:
         else:
             self.set_value(SplitterId.LEFT_TOOLBAR, HOME_LEFT_TOOLBAR_CLOSED_SPLITTER_PCT, remember=False)
 
+    def is_right_pool_open(self) -> bool:
+        """Return whether the right velocity-pool panel is expanded.
+
+        Returns:
+            True when the right-pool splitter leaves a usable pool pane.
+        """
+        managed = self._splitters.get(SplitterId.RIGHT_POOL)
+        if managed is None:
+            return False
+        return not self._is_collapsed_value(SplitterId.RIGHT_POOL, managed.value)
+
+    def set_right_pool_open(self, is_open: bool) -> None:
+        """Set right velocity-pool splitter to open or collapsed state.
+
+        Args:
+            is_open: True to expand the pool pane, False to collapse it.
+
+        Returns:
+            None.
+        """
+        if is_open:
+            value = self._app_config.get_home_splitter_value(SplitterId.RIGHT_POOL.value)
+            if self._is_collapsed_value(SplitterId.RIGHT_POOL, value):
+                value = DEFAULT_HOME_RIGHT_POOL_OPEN_SPLITTER_PCT
+            self.set_value(SplitterId.RIGHT_POOL, value, remember=False)
+        else:
+            self.set_value(SplitterId.RIGHT_POOL, HOME_RIGHT_POOL_CLOSED_SPLITTER_PCT, remember=False)
+
     def reset_all(self) -> None:
         """Reset all managed splitters to factory values.
 
@@ -238,6 +277,8 @@ class SplitterManager:
         for splitter_id in self._splitters:
             if splitter_id is SplitterId.LEFT_TOOLBAR:
                 self.set_value(splitter_id, HOME_LEFT_TOOLBAR_CLOSED_SPLITTER_PCT, remember=False)
+            elif splitter_id is SplitterId.RIGHT_POOL:
+                self.set_value(splitter_id, HOME_RIGHT_POOL_CLOSED_SPLITTER_PCT, remember=False)
             else:
                 self.set_value(splitter_id, self._app_config.get_home_splitter_value(splitter_id.value), remember=False)
 
@@ -275,4 +316,6 @@ class SplitterManager:
             return value >= upper
         if splitter_id is SplitterId.ANALYSIS_REFERENCE:
             return value <= lower or value >= upper
+        if splitter_id is SplitterId.RIGHT_POOL:
+            return value >= HOME_RIGHT_POOL_CLOSED_SPLITTER_PCT - HOME_RIGHT_POOL_COLLAPSED_SLACK_PCT
         return False

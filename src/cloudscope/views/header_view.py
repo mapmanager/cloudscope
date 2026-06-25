@@ -11,7 +11,6 @@ before the main scrollable column — same ordering as KymFlow ``HomePage.render
 from __future__ import annotations
 
 import webbrowser
-from collections.abc import Callable
 from typing import Any
 
 from nicegui import app
@@ -100,7 +99,6 @@ def build_main_header(
     show_open_pool: bool = False,
     show_open_main: bool = False,
     show_github: bool = True,
-    on_pool_drawer_toggle: Callable[[], None] | None = None,
 ) -> None:
     """Create the shared page header (layout element, top-level only).
 
@@ -114,8 +112,6 @@ def build_main_header(
         show_open_pool: When True, add a web button that opens ``/pool`` in a named tab.
         show_open_main: When True, add a button that navigates to ``/``.
         show_github: When True, render the GitHub repository link.
-        on_pool_drawer_toggle: When set, add a dev header button that toggles the
-            home-page velocity-pool right drawer.
     """
     with ui.header().classes(
         "items-center justify-between bg-gray-900 text-gray-100"
@@ -127,11 +123,6 @@ def build_main_header(
                 ui.button("Open Main", on_click=lambda: ui.navigate.to("/")).props("flat dense")
             if show_open_pool:
                 ui.button("Open Pool", on_click=_open_pool).props("flat dense")
-            if on_pool_drawer_toggle is not None:
-                pool_drawer_btn = ui.button("Pool Drawer", on_click=on_pool_drawer_toggle).props(
-                    "flat dense"
-                )
-                pool_drawer_btn.tooltip("Toggle velocity pool in right drawer (dev)")
             if app_config is not None:
                 dark_mode_el = ui.dark_mode(value=bool(app_config.data.dark_mode))
                 theme_btn = ui.button(

@@ -7,7 +7,9 @@ from pathlib import Path
 
 from cloudscope.app_config import (
     DEFAULT_HOME_LEFT_TOOLBAR_OPEN_SPLITTER_PCT,
+    DEFAULT_HOME_RIGHT_POOL_OPEN_SPLITTER_PCT,
     HOME_LEFT_TOOLBAR_CLOSED_SPLITTER_PCT,
+    HOME_RIGHT_POOL_CLOSED_SPLITTER_PCT,
     AppConfig,
 )
 from cloudscope.views.splitter_manager import HOME_SPLITTER_PRESETS, SplitterId, SplitterManager
@@ -80,6 +82,24 @@ def test_splitter_manager_left_toolbar_open_closed(tmp_path: Path) -> None:
 
     manager.set_left_toolbar_open(False)
     assert splitter.value == HOME_LEFT_TOOLBAR_CLOSED_SPLITTER_PCT
+
+
+def test_splitter_manager_right_pool_open_closed(tmp_path: Path) -> None:
+    """Right pool panel open/closed helpers should use collapsed and remembered open values."""
+    cfg = AppConfig(path=tmp_path / 'app_config.json')
+    manager = SplitterManager(cfg)
+    splitter = FakeSplitter(value=HOME_RIGHT_POOL_CLOSED_SPLITTER_PCT)
+    manager.register(SplitterId.RIGHT_POOL, splitter)
+
+    assert manager.is_right_pool_open() is False
+
+    manager.set_right_pool_open(True)
+    assert splitter.value == DEFAULT_HOME_RIGHT_POOL_OPEN_SPLITTER_PCT
+    assert manager.is_right_pool_open() is True
+
+    manager.set_right_pool_open(False)
+    assert splitter.value == HOME_RIGHT_POOL_CLOSED_SPLITTER_PCT
+    assert manager.is_right_pool_open() is False
 
 
 def test_splitter_manager_capture_does_not_remember_collapsed_left_toolbar(tmp_path: Path) -> None:
