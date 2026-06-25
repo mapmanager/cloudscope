@@ -13,7 +13,8 @@ from acqstore.acq_image.analysis.heart_rate_analysis.heart_rate_analysis import 
 from acqstore.acq_image.analysis.velocity_analysis.radon_velocity_analysis import (
     RadonVelocityAnalysis,
 )
-from acqstore.analysis_pool.base_analysis_pool import AnalysisPool
+from acqstore.analysis_pool.base_analysis_pool import AnalysisPool, pool_column_name
+from acqstore.analysis_pool.velocity_analysis_pool import VelocityAnalysisPool
 
 
 class _FakeImages:
@@ -103,6 +104,18 @@ class _SingleChannelFakeAcqImage(_PoolFakeAcqImage):
         return row
 
 
+def test_pool_column_name_skips_existing_prefix() -> None:
+    assert pool_column_name("velocity", "velocity_mean") == "velocity_mean"
+    assert pool_column_name("velocity", "analysis_date") == "velocity_analysis_date"
+    assert pool_column_name("hr", "lomb_bpm") == "hr_lomb_bpm"
+    assert pool_column_name("event", "num_events") == "event_num_events"
+
+
+def test_velocity_analysis_pool_column_names_are_unique() -> None:
+    columns = VelocityAnalysisPool.pool_column_names()
+    assert len(columns) == len(set(columns))
+
+
 def test_acq_image_list_owns_velocity_analysis_pool(tmp_path: Path) -> None:
     file_path = tmp_path / "sample.tif"
     file_path.write_text("")
@@ -133,7 +146,7 @@ def test_velocity_analysis_pool_creates_seed_rows_without_analysis(tmp_path: Pat
         AnalysisPool.build_pool_row_id(str(file_path.resolve()), channel=0, roi_id=1),
         AnalysisPool.build_pool_row_id(str(file_path.resolve()), channel=1, roi_id=1),
     }
-    assert "velocity_velocity_mean" in df.columns
+    assert "velocity_mean" in df.columns
     assert "velocity_analysis_date" in df.columns
     assert "velocity_analysis_time" in df.columns
     assert "velocity_analysis_version" in df.columns
@@ -141,7 +154,8 @@ def test_velocity_analysis_pool_creates_seed_rows_without_analysis(tmp_path: Pat
     assert "event_analysis_version" in df.columns
     assert "hr_status" in df.columns
     assert "event_num_events" in df.columns
-    assert pd.isna(df.loc[0, "velocity_velocity_mean"])
+    assert "velocity_velocity_mean" not in df.columns
+    assert pd.isna(df.loc[0, "velocity_mean"])
 
 
 def test_velocity_analysis_pool_refreshes_one_row_from_summaries(tmp_path: Path) -> None:
@@ -198,7 +212,7 @@ def test_velocity_analysis_pool_refreshes_one_row_from_summaries(tmp_path: Path)
     assert df.loc[0, "velocity_num_windows"] == 3
     assert df.loc[0, "velocity_analysis_date"] == "260623"
     assert df.loc[0, "velocity_analysis_version"] == 1
-    assert df.loc[0, "velocity_velocity_mean"] == 12.5
+    assert df.loc[0, "velocity_mean"] == 12.5
     assert df.loc[0, "hr_status"] == "ok"
     assert df.loc[0, "hr_lomb_bpm"] == 300.0
     assert df.loc[0, "hr_agreement_agree_ok"] is True

@@ -10,6 +10,7 @@ from cloudscope.app_config import (
     DEFAULT_HOME_RIGHT_POOL_OPEN_SPLITTER_PCT,
     HOME_LEFT_TOOLBAR_CLOSED_SPLITTER_PCT,
     HOME_RIGHT_POOL_CLOSED_SPLITTER_PCT,
+    HOME_RIGHT_POOL_MAIN_MIN_SPLITTER_PCT,
     AppConfig,
 )
 from cloudscope.views.splitter_manager import HOME_SPLITTER_PRESETS, SplitterId, SplitterManager
@@ -68,6 +69,27 @@ def test_splitter_manager_smart_expansion_collapse_values_are_temporary(tmp_path
 def test_splitter_manager_keeps_left_toolbar_closed_limit() -> None:
     """Left toolbar keeps its closed rail instead of collapsing fully."""
     assert HOME_SPLITTER_PRESETS[SplitterId.LEFT_TOOLBAR].limits[0] == HOME_LEFT_TOOLBAR_CLOSED_SPLITTER_PCT
+
+
+def test_splitter_manager_right_pool_main_min_limit() -> None:
+    """Right pool splitter should allow the main workspace to shrink below the old 50% floor."""
+    assert (
+        HOME_SPLITTER_PRESETS[SplitterId.RIGHT_POOL].limits[0]
+        == HOME_RIGHT_POOL_MAIN_MIN_SPLITTER_PCT
+    )
+
+
+def test_splitter_manager_right_pool_set_value_clamps_to_main_min(tmp_path: Path) -> None:
+    """Right pool splitter values below the main minimum should clamp."""
+    cfg = AppConfig(path=tmp_path / 'app_config.json')
+    manager = SplitterManager(cfg)
+    splitter = FakeSplitter(value=HOME_RIGHT_POOL_CLOSED_SPLITTER_PCT)
+    manager.register(SplitterId.RIGHT_POOL, splitter)
+
+    applied = manager.set_value(SplitterId.RIGHT_POOL, 10.0)
+
+    assert applied == HOME_RIGHT_POOL_MAIN_MIN_SPLITTER_PCT
+    assert splitter.value == HOME_RIGHT_POOL_MAIN_MIN_SPLITTER_PCT
 
 
 def test_splitter_manager_left_toolbar_open_closed(tmp_path: Path) -> None:

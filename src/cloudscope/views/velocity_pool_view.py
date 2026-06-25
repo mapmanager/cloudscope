@@ -82,7 +82,7 @@ class VelocityPoolView(BaseView):
                         "roi_id": PRE_FILTER_NONE,
                     },
                     xcol="parent",
-                    ycol="velocity_velocity_mean",
+                    ycol="velocity_mean",
                     plot_type=PlotType.SWARM,
                     group_col="parent",
                     color_grouping="roi_id",
@@ -289,12 +289,5 @@ class VelocityPoolView(BaseView):
         return pool.get_dataframe()
 
 
-def _velocity_pool_columns() -> list[str]:
-    columns = list(VelocityAnalysisPool.base_columns)
-    for prefix, analysis_cls in VelocityAnalysisPool.analysis_specs:
-        columns.extend(f"{prefix}_{column}" for column in analysis_cls.get_summary_columns())
-    return columns
-
-
 def _empty_velocity_pool_dataframe() -> pd.DataFrame:
-    return pd.DataFrame(columns=_velocity_pool_columns())
+    return pd.DataFrame(columns=VelocityAnalysisPool.pool_column_names())

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import pandas as pd
 
@@ -20,6 +20,27 @@ from acqstore.acq_image.analysis.model import AnalysisKey, BaseAnalysis
 if TYPE_CHECKING:
     from acqstore.acq_image.acq_image import AcqImage
     from acqstore.acq_image.acq_image_list import AcqImageList
+
+
+def pool_column_name(prefix: str, summary_key: str) -> str:
+    """Return a unique pool DataFrame column name for one summary key.
+
+    Summary keys that already start with ``{prefix}_`` are used as-is so
+    analysis-local metric names such as ``velocity_mean`` are not double-prefixed.
+    All other keys receive the pool spec prefix, for example
+    ``analysis_date`` becomes ``velocity_analysis_date``.
+
+    Args:
+        prefix: Pool analysis-spec prefix such as ``"velocity"`` or ``"hr"``.
+        summary_key: Analysis-local summary column name.
+
+    Returns:
+        Stable pool column name.
+    """
+    head = f"{prefix}_"
+    if summary_key.startswith(head):
+        return summary_key
+    return f"{head}{summary_key}"
 
 
 class AnalysisPool:
@@ -55,11 +76,50 @@ class AnalysisPool:
         "step_x",
     )
     analysis_specs: tuple[tuple[str, type[BaseAnalysis]], ...] = ()
+    _analysis_column_specs: ClassVar[
+        tuple[tuple[str, str, type[BaseAnalysis]], ...] | None
+    ] = None
 
     def __init__(self, acq_image_list: AcqImageList) -> None:
         self._acq_image_list = acq_image_list
         self._df = pd.DataFrame(columns=self.columns)
         self.rebuild()
+
+    @classmethod
+    def get_analysis_column_specs(
+        cls,
+    ) -> tuple[tuple[str, str, type[BaseAnalysis]], ...]:
+        """Return cached ``(pool_column, summary_key, analysis_cls)`` tuples.
+
+        Column specs are computed once per concrete pool class because analysis
+        summary schemas are fixed for the lifetime of a process.
+
+        Returns:
+            Tuple of pool column mappings for each configured analysis spec.
+        """
+        cached = cls._analysis_column_specs
+        if cached is not None:
+            return cached
+        specs: list[tuple[str, str, type[BaseAnalysis]]] = []
+        for prefix, analysis_cls in cls.analysis_specs:
+            for summary_key in analysis_cls.get_summary_columns():
+                specs.append(
+                    (pool_column_name(prefix, summary_key), summary_key, analysis_cls)
+                )
+        cls._analysis_column_specs = tuple(specs)
+        return cls._analysis_column_specs
+
+    @classmethod
+    def pool_column_names(cls) -> tuple[str, ...]:
+        """Return the complete pool column schema for this pool class.
+
+        Returns:
+            Tuple containing base columns followed by analysis summary columns.
+        """
+        analysis_columns = tuple(
+            pool_column for pool_column, _, _ in cls.get_analysis_column_specs()
+        )
+        return cls.base_columns + analysis_columns
 
     @property
     def columns(self) -> tuple[str, ...]:
@@ -69,12 +129,7 @@ class AnalysisPool:
             Tuple containing base columns followed by prefixed analysis summary
             columns.
         """
-        columns = list(self.base_columns)
-        for prefix, analysis_cls in self.analysis_specs:
-            columns.extend(
-                f"{prefix}_{column}" for column in analysis_cls.get_summary_columns()
-            )
-        return tuple(columns)
+        return self.pool_column_names()
 
     @property
     def dataframe(self) -> pd.DataFrame:
@@ -242,19 +297,22 @@ class AnalysisPool:
         base = self._build_base_row(acq_image, channel=channel, roi_id=roi_id)
         row: dict[str, object] = {column: base.get(column, pd.NA) for column in self.base_columns}
         analysis_set = getattr(acq_image, "analysis_set", None)
-        for prefix, analysis_cls in self.analysis_specs:
-            values: dict[str, object] = {}
-            if analysis_set is not None:
-                key = AnalysisKey(
-                    analysis_name=analysis_cls.analysis_name,
-                    channel=int(channel),
-                    roi_id=int(roi_id),
-                )
-                analysis = analysis_set.get(key)
-                if analysis is not None:
-                    values = analysis.get_summary_values()
-            for column in analysis_cls.get_summary_columns():
-                row[f"{prefix}_{column}"] = values.get(column, pd.NA)
+        values_by_cls: dict[type[BaseAnalysis], dict[str, object]] = {}
+        for pool_column, summary_key, analysis_cls in self.get_analysis_column_specs():
+            values = values_by_cls.get(analysis_cls)
+            if values is None:
+                values = {}
+                if analysis_set is not None:
+                    key = AnalysisKey(
+                        analysis_name=analysis_cls.analysis_name,
+                        channel=int(channel),
+                        roi_id=int(roi_id),
+                    )
+                    analysis = analysis_set.get(key)
+                    if analysis is not None:
+                        values = analysis.get_summary_values()
+                values_by_cls[analysis_cls] = values
+            row[pool_column] = values.get(summary_key, pd.NA)
         return {column: row.get(column, pd.NA) for column in self.columns}
 
     def _build_base_row(self, acq_image: AcqImage, *, channel: int, roi_id: int) -> dict[str, object]:

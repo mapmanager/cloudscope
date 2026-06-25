@@ -88,11 +88,8 @@ def test_empty_velocity_pool_dataframe_uses_full_backend_schema() -> None:
 
     df = view._pool_dataframe_from_state()
 
-    expected_columns = list(VelocityAnalysisPool.base_columns)
-    for prefix, analysis_cls in VelocityAnalysisPool.analysis_specs:
-        expected_columns.extend(f"{prefix}_{column}" for column in analysis_cls.get_summary_columns())
-    assert list(df.columns) == expected_columns
-    assert {"accept", "channel", "roi_id", "parent", "velocity_velocity_mean"}.issubset(df.columns)
+    assert list(df.columns) == list(VelocityAnalysisPool.pool_column_names())
+    assert {"accept", "channel", "roi_id", "parent", "velocity_mean"}.issubset(df.columns)
 
 
 def test_on_hide_sets_disposed_and_unsubscribes() -> None:
@@ -175,7 +172,7 @@ def test_velocity_pool_view_configures_default_plot_state(monkeypatch: pytest.Mo
         "roi_id": PRE_FILTER_NONE,
     }
     assert state.xcol == "parent"
-    assert state.ycol == "velocity_velocity_mean"
+    assert state.ycol == "velocity_mean"
     assert state.plot_type is PlotType.SWARM
     assert state.group_col == "parent"
     assert state.color_grouping == "roi_id"

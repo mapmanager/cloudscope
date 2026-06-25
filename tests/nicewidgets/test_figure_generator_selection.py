@@ -26,7 +26,7 @@ def _sample_df() -> pd.DataFrame:
                 "roi_id": 1,
                 "accept": True,
                 "channel": 0,
-                "velocity_velocity_mean": 1.5,
+                "velocity_mean": 1.5,
                 "path": "/data/f1.oir",
             },
             {
@@ -35,7 +35,7 @@ def _sample_df() -> pd.DataFrame:
                 "roi_id": 2,
                 "accept": True,
                 "channel": 0,
-                "velocity_velocity_mean": 2.5,
+                "velocity_mean": 2.5,
                 "path": "/data/f2.oir",
             },
             {
@@ -44,7 +44,7 @@ def _sample_df() -> pd.DataFrame:
                 "roi_id": 1,
                 "accept": True,
                 "channel": 1,
-                "velocity_velocity_mean": 3.0,
+                "velocity_mean": 3.0,
                 "path": "/data/f3.oir",
             },
         ]
@@ -59,7 +59,7 @@ def _cloudscope_plot_state(plot_type: PlotType) -> PlotState:
             "roi_id": PRE_FILTER_NONE,
         },
         xcol="parent",
-        ycol="velocity_velocity_mean",
+        ycol="velocity_mean",
         plot_type=plot_type,
         group_col="parent",
         color_grouping="roi_id",

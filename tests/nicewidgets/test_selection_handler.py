@@ -15,14 +15,14 @@ def test_select_by_row_id_works_for_swarm_plot() -> None:
     """Programmatic selection should target swarm plots, not only scatter."""
     df = pd.DataFrame(
         [
-            {"pool_row_id": "a", "parent": "g1", "roi_id": 1, "velocity_velocity_mean": 1.0},
-            {"pool_row_id": "b", "parent": "g1", "roi_id": 2, "velocity_velocity_mean": 2.0},
+            {"pool_row_id": "a", "parent": "g1", "roi_id": 1, "velocity_mean": 1.0},
+            {"pool_row_id": "b", "parent": "g1", "roi_id": 2, "velocity_mean": 2.0},
         ]
     )
     state = PlotState(
         pre_filter={"parent": PRE_FILTER_NONE},
         xcol="parent",
-        ycol="velocity_velocity_mean",
+        ycol="velocity_mean",
         plot_type=PlotType.SWARM,
         group_col="parent",
         color_grouping="roi_id",

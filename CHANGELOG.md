@@ -8,9 +8,28 @@ This project uses a simple changelog format inspired by Keep a Changelog. During
 
 ### Added
 
+- Analysis run metadata (`analysis_date`, `analysis_time`, `analysis_version`) stamped into velocity, diameter, heart-rate, and event summaries via `BaseAnalysis.finalize_summary()`.
+- `DiameterAnalysis.summary_columns` schema for collection-level analysis pools.
+- Right-side velocity pool panel on the home page with collapsible splitter, persisted open width, and header toggle button.
+- `analysis_summary_display` helpers for formatted velocity/diameter result summary expansions.
+- Option C desktop quit flow with native Save / Don't Save / Cancel dialog and synchronous dirty-file save on quit.
+- `NicePool.relayout_plots()` and `VelocityPoolView.relayout_plots()` for plot refresh after embedded pool resize.
+- `SplitterManager` right-pool open/collapse helpers and `RIGHT_POOL` splitter preset.
+
 ### Changed
 
+- Desktop launcher defaults back to single-window mode; velocity pool is embedded in the home page right panel instead of requiring a separate native window.
+- Home page layout refactor for natural scrolling and right-toolbar velocity pool integration.
+- Velocity and diameter analysis views show a collapsed summary expansion instead of a raw summary dict label.
+- Velocity analysis pool column naming: metric keys such as `velocity_mean` are no longer double-prefixed (`velocity_velocity_mean`).
+- Analysis summary display rounds float values to three decimal places.
+- `WindowGeometryTracker` syncs live geometry on window close before persisting config to disk.
+- NicePool embedded layout uses `h-full` / `min-h-0` sizing instead of `h-screen` for splitter panes.
+
 ### Fixed
+
+- Option C desktop window geometry could be lost when closing because persistence ran after the pywebview window was destroyed.
+- Embedded velocity pool plots could fail to relayout correctly after the right-panel splitter was resized.
 
 ### Documentation
 

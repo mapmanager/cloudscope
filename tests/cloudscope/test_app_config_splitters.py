@@ -12,6 +12,7 @@ from cloudscope.app_config import (
     DEFAULT_HOME_LEFT_TOOLBAR_OPEN_SPLITTER_PCT,
     DEFAULT_HOME_PRIMARY_IMAGE_SPLITTER_PCT,
     DEFAULT_HOME_RIGHT_POOL_OPEN_SPLITTER_PCT,
+    HOME_RIGHT_POOL_MAIN_MIN_SPLITTER_PCT,
     AppConfig,
     AppConfigData,
 )
@@ -54,6 +55,28 @@ def test_app_config_restores_zero_for_collapsible_home_splitters(tmp_path: Path)
     assert loaded.get_home_splitter_value('file_list') == 0.0
     assert loaded.get_home_splitter_value('primary_image') == 0.0
     assert loaded.get_home_splitter_value('analysis_reference') == 0.0
+
+
+def test_app_config_right_pool_open_splitter_clamps_to_main_min_on_load(tmp_path: Path) -> None:
+    """Persisted right-pool values below the main minimum should normalize on load."""
+    cfg = AppConfig(path=tmp_path / 'app_config.json')
+    cfg.set_home_splitter_value('right_pool', 10.0)
+    cfg.save()
+
+    loaded = AppConfig.load(config_path=cfg.path)
+
+    assert loaded.get_home_splitter_value('right_pool') == HOME_RIGHT_POOL_MAIN_MIN_SPLITTER_PCT
+
+
+def test_app_config_right_pool_open_splitter_keeps_at_main_min_on_load(tmp_path: Path) -> None:
+    """Persisted right-pool values at the main minimum should survive normalization."""
+    cfg = AppConfig(path=tmp_path / 'app_config.json')
+    cfg.set_home_splitter_value('right_pool', HOME_RIGHT_POOL_MAIN_MIN_SPLITTER_PCT)
+    cfg.save()
+
+    loaded = AppConfig.load(config_path=cfg.path)
+
+    assert loaded.get_home_splitter_value('right_pool') == HOME_RIGHT_POOL_MAIN_MIN_SPLITTER_PCT
 
 
 def test_app_config_reset_home_splitters(tmp_path: Path) -> None:

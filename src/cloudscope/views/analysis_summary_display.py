@@ -2,11 +2,30 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
+import numpy as np
 from nicegui import ui
 
 from acqstore.acq_image.analysis.model import RUN_SUMMARY_METADATA_KEYS
+
+
+def _format_summary_value(value: Any) -> str:
+    """Format one summary value for display.
+
+    Floats are rounded to three decimal places without trailing zeros.
+    """
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, (float, np.floating)):
+        as_float = float(value)
+        if math.isnan(as_float) or math.isinf(as_float):
+            return str(as_float)
+        return f"{round(as_float, 3):.3f}".rstrip("0").rstrip(".")
+    return str(value)
 
 
 def format_analysis_summary_lines(summary: dict[str, Any]) -> str:
@@ -24,7 +43,7 @@ def format_analysis_summary_lines(summary: dict[str, Any]) -> str:
     metadata_keys = [key for key in RUN_SUMMARY_METADATA_KEYS if key in summary]
     remaining_keys = [key for key in summary if key not in RUN_SUMMARY_METADATA_KEYS]
     ordered_keys = metadata_keys + remaining_keys
-    return "\n".join(f"{key}: {summary[key]}" for key in ordered_keys)
+    return "\n".join(f"{key}: {_format_summary_value(summary[key])}" for key in ordered_keys)
 
 
 def build_analysis_summary_expansion(summary: dict[str, Any]) -> None:

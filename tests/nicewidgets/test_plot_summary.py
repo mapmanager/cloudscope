@@ -16,7 +16,7 @@ def test_build_scatter_summary_when_xcol_equals_group_col() -> None:
     state = PlotState(
         pre_filter={"parent": PRE_FILTER_NONE},
         xcol="parent",
-        ycol="velocity_velocity_mean",
+        ycol="velocity_mean",
         plot_type=PlotType.SCATTER,
         group_col="parent",
         color_grouping="roi_id",
@@ -51,7 +51,7 @@ def test_build_swarm_summary_when_color_grouping_equals_group_col() -> None:
     state = PlotState(
         pre_filter={"parent": PRE_FILTER_NONE},
         xcol="parent",
-        ycol="velocity_velocity_mean",
+        ycol="velocity_mean",
         plot_type=PlotType.SWARM,
         group_col="parent",
         color_grouping="parent",
@@ -80,20 +80,20 @@ def test_figure_generator_split_scatter_when_xcol_equals_group_col() -> None:
                 "pool_row_id": "a",
                 "parent": "folder-a",
                 "roi_id": 1,
-                "velocity_velocity_mean": 1.5,
+                "velocity_mean": 1.5,
             },
             {
                 "pool_row_id": "b",
                 "parent": "folder-a",
                 "roi_id": 2,
-                "velocity_velocity_mean": 2.5,
+                "velocity_mean": 2.5,
             },
         ]
     )
     state = PlotState(
         pre_filter={},
         xcol="parent",
-        ycol="velocity_velocity_mean",
+        ycol="velocity_mean",
         plot_type=PlotType.SCATTER,
         group_col="parent",
         color_grouping="roi_id",

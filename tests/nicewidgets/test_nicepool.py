@@ -122,7 +122,7 @@ def test_nicepool_relayout_plots_rebuilds_plot_panel() -> None:
     from unittest.mock import patch
 
     df = pd.DataFrame(
-        [{"pool_row_id": "a", "accept": True, "channel": 0, "roi_id": 1, "parent": "p", "velocity_velocity_mean": 1.0}]
+        [{"pool_row_id": "a", "accept": True, "channel": 0, "roi_id": 1, "parent": "p", "velocity_mean": 1.0}]
     )
     widget = NicePool(df, config=NicePoolConfig(unique_row_id_col="pool_row_id"))
 

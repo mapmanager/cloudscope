@@ -435,8 +435,9 @@ class BaseAnalysis(ABC):
         Derived analyses declare this class-level schema so collection-level
         pools can create stable DataFrame columns even when a given
         ``(channel, roi_id)`` has no completed analysis. Column names returned
-        here are analysis-local names; pool classes own any prefixing needed to
-        make combined tables unique.
+        here are analysis-local names. Pool classes map them to unique pool
+        column names, prepending the pool spec prefix unless a key already
+        starts with that prefix.
 
         Returns:
             Tuple of stable analysis-local summary column names.
