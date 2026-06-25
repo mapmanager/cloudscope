@@ -54,6 +54,8 @@ class NicePool(PlotPoolController):
             show_table_widget=cfg.show_table_widget,
             enable_config_persistence=cfg.enable_config_persistence,
             dark_mode=cfg.dark_mode,
+            enable_plot_presets=cfg.enable_plot_presets,
+            plot_preset_path=cfg.plot_preset_path,
         )
         super().__init__(df, config=controller_config)
         self.nicepool_config = cfg

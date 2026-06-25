@@ -33,6 +33,12 @@ from nicewidgets.nicepool.pre_filter_conventions import (
     default_pre_filter,
     format_pre_filter_display,
 )
+from nicewidgets.nicepool.plot_preset_config import PlotPresetStore
+from nicewidgets.nicepool.plot_preset_validation import (
+    sanitize_layout,
+    sanitize_plot_state,
+    sanitize_preset_payload,
+)
 
 logger = get_logger(__name__)
 
@@ -78,6 +84,8 @@ class PlotPoolConfig:
             only the controls and plots area is displayed.
         enable_config_persistence: Whether to load and save plot configuration.
         dark_mode: Initial Plotly layout theme for generated figures.
+        enable_plot_presets: Whether to show named plot preset controls.
+        plot_preset_path: Optional explicit JSON path for named plot presets.
     """
     pre_filter_columns: list[str] | None = None
     unique_row_id_col: str = "path"
@@ -92,6 +100,8 @@ class PlotPoolConfig:
     show_table_widget: bool = False
     enable_config_persistence: bool = True
     dark_mode: bool = False
+    enable_plot_presets: bool = True
+    plot_preset_path: Path | None = None
 
 
 class PlotPoolController:
@@ -138,6 +148,9 @@ class PlotPoolController:
         self._show_table_widget = cfg.show_table_widget
         self._enable_config_persistence = cfg.enable_config_persistence
         self._dark_mode = bool(cfg.dark_mode)
+        self._enable_plot_presets = bool(cfg.enable_plot_presets)
+        self._plot_preset_path = cfg.plot_preset_path
+        self._plot_preset_store = self._load_plot_preset_store()
 
         # Guard: Check for missing pre_filter columns and filter them out
         missing_columns = [col for col in self.pre_filter_columns if col not in df.columns]
@@ -200,7 +213,7 @@ class PlotPoolController:
                     app_name=self._app_name if self._app_name is not None else "kymflow",
                 )
             loaded_plot_states = config.get_plot_states()
-            loaded_layout = config.get_layout()
+            loaded_layout = sanitize_layout(config.get_layout())
             self._control_panel_splitter_value: float = config.get_control_panel_splitter_value()
         else:
             loaded_plot_states = []
@@ -264,6 +277,87 @@ class PlotPoolController:
             on_apply_selection=self._apply_selection_to_all_plots,
             on_update_label=self._set_selection_label_count,
         )
+
+    def _load_plot_preset_store(self) -> PlotPresetStore:
+        """Load named plot presets into memory for this controller."""
+        if self._plot_preset_path is not None:
+            return PlotPresetStore.load(path=self._plot_preset_path)
+        return PlotPresetStore.load(
+            app_name=self._app_name if self._app_name is not None else "nicewidgets",
+        )
+
+    def get_plot_preset_names(self) -> list[str]:
+        """Return saved plot preset names available to the control panel."""
+        return self._plot_preset_store.names()
+
+    def save_current_plot_preset(self, name: str) -> bool:
+        """Save the current left-toolbar plot configuration as a named preset.
+
+        Args:
+            name: User-facing preset name. Existing names are overwritten.
+
+        Returns:
+            True when the preset was saved.
+        """
+        normalized = PlotPresetStore.normalize_name(name)
+        if not normalized:
+            ui.notify("Plot name cannot be empty", type="warning")
+            return False
+        try:
+            self.plot_states[self.current_plot_index] = self._widgets_to_state()
+            payload = {
+                "layout": self.layout,
+                "plot_states": [state.to_dict() for state in self.plot_states],
+            }
+            self._plot_preset_store.upsert(normalized, payload)
+            self._plot_preset_store.save()
+        except Exception as exc:
+            logger.exception("Failed to save NicePool plot preset %r: %s", normalized, exc)
+            ui.notify(f"Could not save plot preset {normalized!r}", type="negative")
+            return False
+        ui.notify(f"Saved plot preset {normalized!r}", type="positive")
+        return True
+
+    def load_plot_preset(self, name: str) -> bool:
+        """Load and apply a named plot preset from the in-memory store.
+
+        Args:
+            name: Preset name selected in the control panel.
+
+        Returns:
+            True when a preset was found and applied.
+        """
+        preset = self._plot_preset_store.get(name)
+        if preset is None:
+            ui.notify(f"Plot preset {name!r} was not found", type="warning")
+            return False
+        try:
+            layout, states = sanitize_preset_payload(
+                preset,
+                df=self.df,
+                data_processor=self.data_processor,
+                pre_filter_columns=list(self.pre_filter_columns),
+                default_state=self.default_plot_state,
+            )
+        except Exception as exc:
+            logger.exception("Failed to load NicePool plot preset %r: %s", name, exc)
+            ui.notify(f"Could not load plot preset {name!r}", type="negative")
+            return False
+
+        self.layout = layout
+        self.current_plot_index = min(self.current_plot_index, len(states) - 1) if states else 0
+        self.plot_states = states
+        while len(self.plot_states) < 4:
+            self.plot_states.append(PlotState.from_dict(self.default_plot_state.to_dict()))
+        if self._control_panel is not None:
+            self._control_panel.set_layout_and_current_plot(
+                layout=self.layout,
+                current_plot_index=self.current_plot_index,
+            )
+            self._state_to_widgets(self.plot_states[self.current_plot_index])
+        self._rebuild_plot_panel()
+        ui.notify(f"Loaded plot preset {name!r}", type="positive")
+        return True
 
     def select_points_by_row_id(self, row_id: str) -> None:
         """Programmatically select points in the plots that match the given row_id (public API).
@@ -386,6 +480,10 @@ class PlotPoolController:
             on_x_column_selected=self._on_x_column_selected,
             on_y_column_selected=self._on_y_column_selected,
             show_save_button=self._show_save_button,
+            show_plot_presets=self._enable_plot_presets,
+            get_plot_preset_names=self.get_plot_preset_names,
+            on_plot_preset_selected=self.load_plot_preset,
+            on_save_plot_preset=self.save_current_plot_preset,
         )
         with self._control_panel_container:
             self._control_panel.build(pre_filter_options=pre_filter_options)
@@ -506,6 +604,10 @@ class PlotPoolController:
                             on_x_column_selected=self._on_x_column_selected,
                             on_y_column_selected=self._on_y_column_selected,
                             show_save_button=self._show_save_button,
+                            show_plot_presets=self._enable_plot_presets,
+                            get_plot_preset_names=self.get_plot_preset_names,
+                            on_plot_preset_selected=self.load_plot_preset,
+                            on_save_plot_preset=self.save_current_plot_preset,
                         )
                         self._control_panel.build(pre_filter_options=pre_filter_options)
                 with self._mainSplitter.after:
@@ -800,65 +902,20 @@ class PlotPoolController:
         return x_default, y_default
 
     def _validate_plot_state_columns(self, state: PlotState) -> PlotState:
-        """Ensure state's configured columns exist in the current DataFrame.
+        """Validate a plot state against current DataFrame columns and options.
 
-        Falls back to numeric columns when available, otherwise to ordinary
-        columns. This allows empty/schema-only DataFrames to initialize without
-        requiring numeric dtypes.
+        Args:
+            state: Plot state to validate.
+
+        Returns:
+            Sanitized plot state safe for plotting and widget binding.
         """
-        x_default, y_default = self._default_plot_columns(self.df)
-        cols = set(str(column) for column in self.df.columns)
-        changed = False
-        xcol = state.xcol
-        ycol = state.ycol
-        if state.xcol not in cols:
-            logger.warning(f"Loaded xcol {state.xcol!r} not in dataframe columns, using {x_default!r}")
-            xcol = x_default
-            changed = True
-        if state.ycol not in cols:
-            logger.warning(f"Loaded ycol {state.ycol!r} not in dataframe columns, using {y_default!r}")
-            ycol = y_default
-            changed = True
-        group_col = state.group_col
-        if state.group_col is not None and state.group_col not in cols:
-            logger.warning(f"Loaded group_col {state.group_col!r} not in dataframe columns, using None")
-            group_col = None
-            changed = True
-        color_grouping = state.color_grouping
-        if state.color_grouping is not None and state.color_grouping not in cols:
-            logger.warning(f"Loaded color_grouping {state.color_grouping!r} not in dataframe columns, using None")
-            color_grouping = None
-            changed = True
-        pre_filter = dict(state.pre_filter)
-        for key in list(pre_filter.keys()):
-            if key not in cols:
-                logger.warning(f"Loaded pre_filter key {key!r} not in dataframe columns, removing")
-                del pre_filter[key]
-                changed = True
-        if not changed:
-            return state
-        return PlotState(
-            pre_filter=pre_filter,
-            xcol=xcol,
-            ycol=ycol,
-            plot_type=state.plot_type,
-            group_col=group_col,
-            color_grouping=color_grouping,
-            ystat=state.ystat,
-            cv_epsilon=state.cv_epsilon,
-            use_absolute_value=state.use_absolute_value,
-            swarm_jitter_amount=state.swarm_jitter_amount,
-            swarm_group_offset=state.swarm_group_offset,
-            use_remove_values=state.use_remove_values,
-            remove_values_threshold=state.remove_values_threshold,
-            show_mean=state.show_mean,
-            show_std_sem=state.show_std_sem,
-            std_sem_type=state.std_sem_type,
-            mean_line_width=state.mean_line_width,
-            error_line_width=state.error_line_width,
-            show_raw=state.show_raw,
-            point_size=state.point_size,
-            show_legend=state.show_legend,
+        return sanitize_plot_state(
+            state,
+            df=self.df,
+            data_processor=self.data_processor,
+            pre_filter_columns=list(self.pre_filter_columns),
+            default_state=self.default_plot_state,
         )
 
     def _get_num_plots_for_layout(self, layout_str: str) -> int:
@@ -870,7 +927,8 @@ class PlotPoolController:
         Returns:
             Number of plots needed.
         """
-        rows, cols = map(int, layout_str.split('x'))
+        safe_layout = sanitize_layout(layout_str)
+        rows, cols = map(int, safe_layout.split('x'))
         return rows * cols
     
     def _on_plot_radio_change(self, e) -> None:
@@ -903,6 +961,7 @@ class PlotPoolController:
         Args:
             layout_str: Layout string like "1x1", "1x2", "2x1", "2x2".
         """
+        layout_str = sanitize_layout(layout_str, default=self.layout)
         # logger.info(f"Layout changed to: {layout_str}")
         # Save current plot state before changing layout
         self.plot_states[self.current_plot_index] = self._widgets_to_state()

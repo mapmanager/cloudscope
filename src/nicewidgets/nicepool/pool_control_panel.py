@@ -47,6 +47,10 @@ class PoolControlPanel:
         on_x_column_selected: Callable[[dict[str, Any]], None],
         on_y_column_selected: Callable[[dict[str, Any]], None],
         show_save_button: bool = False,
+        show_plot_presets: bool = True,
+        get_plot_preset_names: Callable[[], list[str]] | None = None,
+        on_plot_preset_selected: Callable[[str], bool] | None = None,
+        on_save_plot_preset: Callable[[str], bool] | None = None,
     ) -> None:
         self.df = df
         self.layout = layout
@@ -64,6 +68,10 @@ class PoolControlPanel:
         self._on_x_column_selected = on_x_column_selected
         self._on_y_column_selected = on_y_column_selected
         self._show_save_button = show_save_button
+        self._show_plot_presets = show_plot_presets
+        self._get_plot_preset_names = get_plot_preset_names
+        self._on_plot_preset_selected = on_plot_preset_selected
+        self._on_save_plot_preset = on_save_plot_preset
 
         # Widget refs (set in build())
         self._layout_select: ui.select | None = None
@@ -90,6 +98,7 @@ class PoolControlPanel:
         self._show_raw_checkbox: ui.checkbox | None = None
         self._point_size_input: ui.number | None = None
         self._show_legend_checkbox: ui.checkbox | None = None
+        self._preset_select: ui.select | None = None
         self._pending_timers: list[Any] = []
 
     def dispose(self) -> None:
@@ -139,6 +148,8 @@ class PoolControlPanel:
                 ui.button("Replot", on_click=self._on_replot_current).classes("flex-1")
                 ui.button("Reset Plots", on_click=self._on_reset_to_default).classes("flex-1")
                 ui.button("Copy stats", on_click=self._on_copy_stats).classes("flex-1")
+
+            self._build_saved_plots_section()
 
             with ui.card().classes("w-full"):
                 ui.label("Pre Filter").classes("text-sm font-semibold")
@@ -279,6 +290,69 @@ class PoolControlPanel:
 
             self._build_plot_options()
 
+    def _build_saved_plots_section(self) -> None:
+        """Build named plot-preset controls when preset support is enabled."""
+        if (
+            not self._show_plot_presets
+            or self._get_plot_preset_names is None
+            or self._on_plot_preset_selected is None
+            or self._on_save_plot_preset is None
+        ):
+            return
+
+        with ui.card().classes("w-full"):
+            ui.label("Saved Plots").classes("text-sm font-semibold")
+            self._preset_select = ui.select(
+                options=self._get_plot_preset_names(),
+                value=None,
+                label="Plot",
+                on_change=self._handle_plot_preset_selected,
+            ).classes("w-full")
+            ui.button("Save Plot", on_click=self._open_save_plot_dialog).classes("w-full")
+
+    def _handle_plot_preset_selected(self, event: GenericEventArguments) -> None:
+        """Load a named preset selected by the user."""
+        if self._on_plot_preset_selected is None or event.value in (None, ""):
+            return
+        self._on_plot_preset_selected(str(event.value))
+
+    def _open_save_plot_dialog(self) -> None:
+        """Open a small dialog for naming and saving the current plot preset."""
+        if self._on_save_plot_preset is None:
+            return
+
+        with ui.dialog() as dialog, ui.card().classes("w-96"):
+            ui.label("Save Plot").classes("text-lg font-semibold")
+            name_input = ui.input("Plot name").classes("w-full")
+
+            def save_and_close() -> None:
+                name = str(name_input.value or "").strip()
+                if not name:
+                    ui.notify("Plot name cannot be empty", type="warning")
+                    return
+                saved = self._on_save_plot_preset(name)
+                if saved:
+                    self.refresh_plot_preset_options(selected_name=name)
+                    dialog.close()
+
+            with ui.row().classes("w-full justify-end gap-2"):
+                ui.button("Cancel", on_click=dialog.close)
+                ui.button("OK", on_click=save_and_close)
+
+        dialog.open()
+
+    def refresh_plot_preset_options(self, *, selected_name: str | None = None) -> None:
+        """Refresh the saved-plot select options from the controller."""
+        if self._preset_select is None or self._get_plot_preset_names is None:
+            return
+        names = self._get_plot_preset_names()
+        self._preset_select.set_options(names)
+        if selected_name in names:
+            self._preset_select.value = selected_name
+        elif self._preset_select.value not in names:
+            self._preset_select.value = None
+        self._preset_select.update()
+
     def _build_plot_options(self) -> None:
         with ui.card().classes("w-full mt-4"):
             ui.label("Plot Options").classes("text-sm font-semibold")
@@ -373,6 +447,15 @@ class PoolControlPanel:
             timer = ui.timer(0.1, set_initial, once=True)
             self._pending_timers.append(timer)
         return aggrid
+
+    def set_layout_and_current_plot(self, *, layout: str, current_plot_index: int) -> None:
+        """Update layout and active-plot widgets without applying plot state."""
+        self.layout = layout
+        self.current_plot_index = current_plot_index
+        if self._layout_select is not None:
+            self._layout_select.value = layout
+        if self._plot_radio is not None:
+            self._plot_radio.value = str(current_plot_index + 1)
 
     def bind_state(self, state: PlotState) -> None:
         """Populate all widgets from a PlotState."""

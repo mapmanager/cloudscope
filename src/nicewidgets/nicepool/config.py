@@ -46,6 +46,8 @@ class NicePoolConfig(PlotPoolConfig):
         table_font_size_px: Reserved for future table style integration.
         enable_config_persistence: Whether to load/save plot configuration.
         dark_mode: Initial Plotly layout theme for generated figures.
+        enable_plot_presets: Whether to show and persist named plot presets.
+        plot_preset_path: Optional explicit path for named plot presets.
     """
 
     pre_filter_columns: Sequence[str] | None = None
@@ -63,6 +65,8 @@ class NicePoolConfig(PlotPoolConfig):
     table_font_size_px: int | None = None
     enable_config_persistence: bool = False
     dark_mode: bool = False
+    enable_plot_presets: bool = True
+    plot_preset_path: Path | None = None
 
 
 def resolve_pre_filter_columns(
