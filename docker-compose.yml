@@ -8,9 +8,16 @@
 #   docker compose up --build cloudscope-dev
 #   then visit http://localhost:8080
 #
+# Web/single-window runtime env and startup: docs-dev/cloudscope_single_window_runtime.md
+#
 # Server-side data mount:
 #   create ./data for local compose runs; inside the app use /data.
 #   On Oracle/prod, prefer an absolute host path such as /srv/cloudscope/data:/data.
+#
+# Manning manuscript preset (optional sibling repo):
+#   ../cloudscope-data/data/manning_velocity_20260625 on host ->
+#   /data/presets/manning_velocity_20260625 in container (read-only).
+#   Create the host folder before ``docker compose up``; empty dirs disable the menu item.
 
 services:
   cloudscope:
@@ -33,8 +40,10 @@ services:
       CLOUDSCOPE_DEMO_SESSION_QUOTA_MB: "500"
       CLOUDSCOPE_DEMO_MAX_UPLOAD_MB: "250"
       CLOUDSCOPE_DEMO_MAX_SESSION_AGE_HOURS: "24"
+      CLOUDSCOPE_PRESET_DATA_MANNING: "/data/presets/manning_velocity_20260625"
     volumes:
       - ./data:/data
+      - ../cloudscope-data/data/manning_velocity_20260625:/data/presets/manning_velocity_20260625:ro
 
   cloudscope-dev:
     build:
@@ -56,6 +65,8 @@ services:
       CLOUDSCOPE_DEMO_SESSION_QUOTA_MB: "500"
       CLOUDSCOPE_DEMO_MAX_UPLOAD_MB: "250"
       CLOUDSCOPE_DEMO_MAX_SESSION_AGE_HOURS: "24"
+      CLOUDSCOPE_PRESET_DATA_MANNING: "/data/presets/manning_velocity_20260625"
     volumes:
       - ./src:/app/src
       - ./data:/data
+      - ../cloudscope-data/data/manning_velocity_20260625:/data/presets/manning_velocity_20260625:ro

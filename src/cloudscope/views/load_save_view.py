@@ -31,8 +31,9 @@ from cloudscope.events.files import (
 from cloudscope.events.status import AppStatusChanged
 from cloudscope._py_web_view import _prompt_for_path
 from cloudscope.app_config import AppConfig, normalize_stored_path
+from cloudscope.preset_data import get_manning_preset_path, is_loadable_preset_folder
 from cloudscope.quota import QuotaExceededError, ensure_within_quota
-from cloudscope.user_context import UserContext
+from cloudscope.user_context import UserContext, UserContextKind
 from cloudscope.utils.logging import get_logger
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
@@ -261,6 +262,7 @@ class LoadSaveView(BaseView):
                 ui.separator()
             ui.menu_item('Load CSV', lambda: self._on_load_clicked(LoadPathKind.CSV))
             ui.menu_item('Load Sample Data', self._on_load_sample_data_clicked)
+            self._append_manning_preset_menu_item()
             if recent_folders or recent_files:
                 ui.separator()
                 ui.menu_item('Clear recents', lambda: self.event_bus.publish(ClearRecentPathsIntent()))
@@ -303,6 +305,45 @@ class LoadSaveView(BaseView):
     def _on_load_sample_data_clicked(self) -> None:
         """Emit a request to load the default sample dataset."""
         self.event_bus.publish(LoadSampleDataIntent(name='demo-small'))
+
+    def _manning_preset_load_path(self) -> Path | None:
+        """Return the Manning preset path for server/docker contexts.
+
+        Returns:
+            Configured preset directory, or ``None`` when not offered.
+        """
+        if self.user_context is None:
+            return None
+        if self.user_context.kind is UserContextKind.LOCAL_OS_USER:
+            return None
+        return get_manning_preset_path()
+
+    def _append_manning_preset_menu_item(self) -> None:
+        """Add the Manning velocity preset load item for remote/server runs.
+
+        Returns:
+            None.
+        """
+        preset_path = self._manning_preset_load_path()
+        if preset_path is None:
+            return
+
+        item = ui.menu_item('Load Manning Velocity 2026', self._on_load_manning_preset_clicked)
+        if not is_loadable_preset_folder(preset_path):
+            item.disable()
+
+    def _on_load_manning_preset_clicked(self) -> None:
+        """Emit a folder load for the configured Manning preset path."""
+        preset_path = self._manning_preset_load_path()
+        if preset_path is None or not is_loadable_preset_folder(preset_path):
+            return
+        self.event_bus.publish(
+            LoadPathIntent(
+                path=str(preset_path),
+                kind=LoadPathKind.FOLDER,
+                from_recent=False,
+            ),
+        )
 
     def _on_upload_progress(self, fraction: float, message: str | None) -> None:
         """Update or open the upload progress dialog from widget progress events.

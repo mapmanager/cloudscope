@@ -271,6 +271,91 @@ def test_load_sample_data_clicked_publishes_default_sample_intent(tmp_path) -> N
     assert events == [LoadSampleDataIntent(name='demo-small')]
 
 
+def _server_demo_view(tmp_path: Path) -> LoadSaveView:
+    from cloudscope.user_context import resolve_user_context
+
+    context = resolve_user_context(remote=True, native=False, demo_session_id='demo-manning')
+    context = context.__class__(
+        kind=context.kind,
+        user_id=context.user_id,
+        config_path=tmp_path / 'demo' / 'app_config.json',
+        data_dir=tmp_path / 'demo',
+        upload_dir=tmp_path / 'demo' / 'uploads',
+        sample_data_dir=tmp_path / 'shared' / 'sample-data',
+        cache_dir=tmp_path / 'demo' / 'cache',
+        quota=context.quota,
+        last_used_path=tmp_path / 'demo' / '.last_used',
+        persistent=False,
+    )
+    cfg = AppConfig.ephemeral(config_path=context.config_path)
+    return LoadSaveView(event_bus=EventBus(), app_config=cfg, user_context=context, initially_visible=False)
+
+
+def test_manning_preset_load_path_hidden_for_local_desktop(tmp_path: Path) -> None:
+    from cloudscope.user_context import resolve_user_context
+
+    context = resolve_user_context(remote=False, native=True)
+    view = LoadSaveView(
+        event_bus=EventBus(),
+        app_config=AppConfig.ephemeral(config_path=tmp_path / 'cfg.json'),
+        user_context=context,
+        initially_visible=False,
+    )
+    assert view._manning_preset_load_path() is None
+
+
+def test_manning_preset_load_path_uses_env_on_server(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from cloudscope.preset_data import PRESET_MANNING_ENV
+
+    preset = tmp_path / 'manning'
+    preset.mkdir()
+    monkeypatch.setenv(PRESET_MANNING_ENV, str(preset))
+    view = _server_demo_view(tmp_path)
+    assert view._manning_preset_load_path() == preset
+
+
+def test_on_load_manning_preset_clicked_publishes_folder_intent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from cloudscope.preset_data import PRESET_MANNING_ENV
+
+    preset = tmp_path / 'manning'
+    preset.mkdir()
+    (preset / 'sample.tif').write_bytes(b'x')
+    monkeypatch.setenv(PRESET_MANNING_ENV, str(preset))
+    view = _server_demo_view(tmp_path)
+    events: list[LoadPathIntent] = []
+    view.event_bus.subscribe(LoadPathIntent, events.append)
+
+    view._on_load_manning_preset_clicked()
+
+    assert events == [
+        LoadPathIntent(path=str(preset), kind=LoadPathKind.FOLDER, from_recent=False),
+    ]
+
+
+def test_on_load_manning_preset_clicked_noop_when_preset_not_loadable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from cloudscope.preset_data import PRESET_MANNING_ENV
+
+    preset = tmp_path / 'manning'
+    preset.mkdir()
+    monkeypatch.setenv(PRESET_MANNING_ENV, str(preset))
+    view = _server_demo_view(tmp_path)
+    events: list[LoadPathIntent] = []
+    view.event_bus.subscribe(LoadPathIntent, events.append)
+
+    view._on_load_manning_preset_clicked()
+
+    assert events == []
+
+
 # ---- upload helpers ----
 
 
