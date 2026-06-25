@@ -134,6 +134,11 @@ def test_velocity_analysis_pool_creates_seed_rows_without_analysis(tmp_path: Pat
         AnalysisPool.build_pool_row_id(str(file_path.resolve()), channel=1, roi_id=1),
     }
     assert "velocity_velocity_mean" in df.columns
+    assert "velocity_analysis_date" in df.columns
+    assert "velocity_analysis_time" in df.columns
+    assert "velocity_analysis_version" in df.columns
+    assert "hr_analysis_date" in df.columns
+    assert "event_analysis_version" in df.columns
     assert "hr_status" in df.columns
     assert "event_num_events" in df.columns
     assert pd.isna(df.loc[0, "velocity_velocity_mean"])
@@ -147,6 +152,9 @@ def test_velocity_analysis_pool_refreshes_one_row_from_summaries(tmp_path: Path)
 
     velocity = RadonVelocityAnalysis(channel=0, roi_id=1)
     velocity.result.summary = {
+        "analysis_date": "260623",
+        "analysis_time": "14:32:07.042",
+        "analysis_version": 1,
         "num_windows": 3,
         "velocity_mean": 12.5,
         "velocity_median": 12.0,
@@ -156,6 +164,9 @@ def test_velocity_analysis_pool_refreshes_one_row_from_summaries(tmp_path: Path)
 
     hr = HeartRateAnalysis(channel=0, roi_id=1)
     hr.result.summary = {
+        "analysis_date": "260623",
+        "analysis_time": "14:32:07.042",
+        "analysis_version": 1,
         "version": 1,
         "n_total": 10,
         "n_valid": 9,
@@ -169,6 +180,9 @@ def test_velocity_analysis_pool_refreshes_one_row_from_summaries(tmp_path: Path)
 
     event = EventAnalysis(channel=0, roi_id=1)
     event.result.summary = {
+        "analysis_date": "260623",
+        "analysis_time": "14:32:07.042",
+        "analysis_version": 2,
         "version": 2,
         "parent_analysis_name": "radon_velocity",
         "events": [
@@ -182,6 +196,8 @@ def test_velocity_analysis_pool_refreshes_one_row_from_summaries(tmp_path: Path)
     df = images.velocity_analysis_pool.get_dataframe()
 
     assert df.loc[0, "velocity_num_windows"] == 3
+    assert df.loc[0, "velocity_analysis_date"] == "260623"
+    assert df.loc[0, "velocity_analysis_version"] == 1
     assert df.loc[0, "velocity_velocity_mean"] == 12.5
     assert df.loc[0, "hr_status"] == "ok"
     assert df.loc[0, "hr_lomb_bpm"] == 300.0

@@ -16,6 +16,7 @@ from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind, RunAnaly
 from cloudscope.events.roi import RoiChanged
 from cloudscope.state import PrimarySelection
 from cloudscope.views.base_view import BaseView
+from cloudscope.views.analysis_summary_display import build_analysis_summary_expansion
 from cloudscope.views.dialogs.batch_analysis_dialog import BatchAnalysisDialog, BatchAnalysisDialogResult
 from cloudscope.views.view_ids import ViewId
 from nicewidgets.utils.clipboard import copy_to_clipboard
@@ -267,7 +268,6 @@ class DiameterAnalysisView(BaseView):
         acq_image = self.get_selected_acq_image()
         selection = self.current_selection
         with self._results_container:
-            ui.label("Results").classes("text-sm font-medium")
             if acq_image is None:
                 ui.label("No AcqImage selected.").classes("text-xs opacity-70")
                 return
@@ -283,8 +283,7 @@ class DiameterAnalysisView(BaseView):
             if analysis is None:
                 ui.label("No diameter result for this channel/ROI.").classes("text-xs opacity-70")
                 return
-            summary = analysis.result.summary
-            ui.label(f"Summary: {summary}").classes("text-xs break-all")
+            build_analysis_summary_expansion(analysis.result.summary)
 
     def _current_detection_params(self) -> dict[str, object]:
         """Return current detection parameter values from controls.

@@ -17,6 +17,7 @@ import json
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, ClassVar, TYPE_CHECKING
@@ -25,6 +26,12 @@ import pandas as pd
 
 if TYPE_CHECKING:
     from acqstore.acq_image.analysis.data_provider import AnalysisDataProvider
+
+RUN_SUMMARY_METADATA_KEYS: tuple[str, ...] = (
+    "analysis_date",
+    "analysis_time",
+    "analysis_version",
+)
 
 
 class AnalysisCancelled(RuntimeError):
@@ -279,6 +286,7 @@ class BaseAnalysis(ABC):
     depends_on: ClassVar[tuple[str, ...]] = ()
     detection_schema: ClassVar[tuple[Any, ...]] = ()
     summary_columns: ClassVar[tuple[str, ...]] = ()
+    analysis_version: ClassVar[int | float | str | None] = None
     exclusive_group: ClassVar[str | None] = None
 
     def __init__(
@@ -393,6 +401,32 @@ class BaseAnalysis(ABC):
             for entry in cls.get_detection_schema()
         ]
         return pd.DataFrame(rows, columns=columns).set_index("name")
+
+    def finalize_summary(self, summary: dict[str, Any]) -> dict[str, Any]:
+        """Merge run metadata into a summary with metadata keys first.
+
+        Args:
+            summary: Analysis-local summary produced by the derived ``run``
+                implementation before metadata is applied.
+
+        Returns:
+            Summary dictionary with ``analysis_date``, ``analysis_time``, and
+            optional ``analysis_version`` prepended before remaining keys.
+        """
+        now = datetime.now()
+        metadata: dict[str, Any] = {
+            "analysis_date": now.strftime("%y%m%d"),
+            "analysis_time": f"{now.strftime('%H:%M:%S')}.{now.microsecond // 1000:03d}",
+        }
+        if self.analysis_version is not None:
+            metadata["analysis_version"] = self.analysis_version
+
+        metadata_keys = set(RUN_SUMMARY_METADATA_KEYS)
+        rest = {key: value for key, value in summary.items() if key not in metadata_keys}
+        ordered: dict[str, Any] = {}
+        ordered.update(metadata)
+        ordered.update(rest)
+        return ordered
 
     @classmethod
     def get_summary_columns(cls) -> tuple[str, ...]:

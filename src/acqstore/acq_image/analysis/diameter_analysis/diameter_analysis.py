@@ -61,6 +61,20 @@ class DiameterAnalysis(BaseAnalysis):
     """
 
     analysis_name = "diameter"
+    analysis_version = 1
+    summary_columns = (
+        "analysis_date",
+        "analysis_time",
+        "analysis_version",
+        "num_rows",
+        "diameter_um_mean",
+        "diameter_um_median",
+        "diameter_um_cv",
+        "qc_score_mean",
+        "num_qc_edge_violations",
+        "num_qc_diameter_violations",
+        "num_qc_center_violations",
+    )
     exclusive_group = "primary_kymograph"
     detection_schema = (
         DetectionParamSchema(
@@ -271,7 +285,7 @@ class DiameterAnalysis(BaseAnalysis):
         except DiameterCancelled as exc:
             raise AnalysisCancelled(str(exc)) from exc
 
-        self.result.summary = result.summary
+        self.result.summary = self.finalize_summary(result.summary)
         self.result.table = result.table
         self.set_dirty()
         return self.result

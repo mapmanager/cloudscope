@@ -105,7 +105,11 @@ class RadonVelocityAnalysis(BaseAnalysis):
         self._processes = None if processes is None else int(processes)
 
     analysis_name = "radon_velocity"
+    analysis_version = 1
     summary_columns = (
+        "analysis_date",
+        "analysis_time",
+        "analysis_version",
         "num_windows",
         "velocity_mean",
         "velocity_median",
@@ -168,7 +172,7 @@ class RadonVelocityAnalysis(BaseAnalysis):
         except RadonVelocityCancelled as exc:
             raise AnalysisCancelled(str(exc)) from exc
 
-        self.result.summary = result.summary
+        self.result.summary = self.finalize_summary(result.summary)
         self.result.table = result.table
         self.set_dirty()
         return self.result

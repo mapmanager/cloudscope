@@ -115,3 +115,18 @@ def test_figure_generator_builds_scatter_figure() -> None:
     assert len(summary.columnar) == 2
     assert figure["data"]
     assert str(summary.params["plot_type"]) == "scatter"
+
+
+def test_nicepool_relayout_plots_rebuilds_plot_panel() -> None:
+    """Relayout should rebuild the plot panel without requiring NiceGUI UI."""
+    from unittest.mock import patch
+
+    df = pd.DataFrame(
+        [{"pool_row_id": "a", "accept": True, "channel": 0, "roi_id": 1, "parent": "p", "velocity_velocity_mean": 1.0}]
+    )
+    widget = NicePool(df, config=NicePoolConfig(unique_row_id_col="pool_row_id"))
+
+    with patch.object(widget, "_rebuild_plot_panel") as rebuild:
+        widget.relayout_plots()
+
+    rebuild.assert_called_once()

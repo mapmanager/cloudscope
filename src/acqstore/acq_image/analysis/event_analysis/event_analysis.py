@@ -449,7 +449,11 @@ class EventAnalysis(BaseAnalysis):
     """Event interval analysis dependent on Radon velocity plot data."""
 
     analysis_name = "event"
+    analysis_version = EVENT_SUMMARY_VERSION
     summary_columns = (
+        "analysis_date",
+        "analysis_time",
+        "analysis_version",
         "version",
         "parent_analysis_name",
         "num_events",
@@ -538,6 +542,7 @@ class EventAnalysis(BaseAnalysis):
         plot_data = self._required_parent_plot_data(dependencies)
         self.events.reanalyze_events(plot_data, self.pre_post_win_sec)
         self._sync_summary()
+        self.result.summary = self.finalize_summary(self.result.summary)
         self.set_dirty()
         if context is not None:
             context.report_progress(1.0, "Event analysis complete")
@@ -668,6 +673,9 @@ class EventAnalysis(BaseAnalysis):
                     continue
 
         values: dict[str, object] = {
+            "analysis_date": summary.get("analysis_date", pd.NA),
+            "analysis_time": summary.get("analysis_time", pd.NA),
+            "analysis_version": summary.get("analysis_version", pd.NA),
             "version": summary.get("version", pd.NA),
             "parent_analysis_name": summary.get("parent_analysis_name", pd.NA),
             "num_events": len(events),

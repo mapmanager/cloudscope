@@ -479,13 +479,15 @@ class PlotPoolController:
                     value=self._control_panel_splitter_value,
                     limits=(0, 50),
                     on_change=lambda e: self._on_splitter_change(e),
-                ).classes("w-full h-full")
+                ).classes("w-full h-full min-h-0")
                 pre_filter_options = {
                     col: [PRE_FILTER_NONE] + [str(v) for v in self.data_processor.get_pre_filter_values(col)]
                     for col in self.pre_filter_columns
                 }
                 with self._mainSplitter.before:
-                    self._control_panel_container = ui.column().classes("w-full")
+                    self._control_panel_container = ui.column().classes(
+                        "w-full h-full min-h-0 overflow-hidden"
+                    )
                     with self._control_panel_container:
                         self._control_panel = PoolControlPanel(
                             self.df,
@@ -525,7 +527,7 @@ class PlotPoolController:
                     value=0,
                     limits=(0, 100),
                     horizontal=True,
-                ).classes("w-full h-screen")
+                ).classes("w-full h-full min-h-0")
                 with self._verticalSplitter.before:
                     self._table_container = ui.column().classes("w-full h-full min-h-0")
                     with self._table_container:
@@ -542,7 +544,7 @@ class PlotPoolController:
                 self._verticalSplitter = None
                 self._table_container = None
                 self._table_view = None
-                with ui.column().classes("w-full h-screen"):
+                with ui.column().classes("w-full h-full min-h-0"):
                     _build_controls_and_plots()
 
             self._control_panel.sync_controls(
@@ -558,6 +560,14 @@ class PlotPoolController:
                 _build_content()
         else:
             _build_content()
+
+    def relayout_plots(self) -> None:
+        """Rebuild the plot panel after the widget container changes size.
+
+        Returns:
+            None.
+        """
+        self._rebuild_plot_panel()
 
     def build_lazy(
         self,

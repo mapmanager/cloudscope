@@ -73,7 +73,11 @@ class HeartRateAnalysis(BaseAnalysis):
     """
 
     analysis_name = "heart_rate"
+    analysis_version = HEART_RATE_SUMMARY_VERSION
     summary_columns = (
+        "analysis_date",
+        "analysis_time",
+        "analysis_version",
         "version",
         "n_total",
         "n_valid",
@@ -271,7 +275,7 @@ class HeartRateAnalysis(BaseAnalysis):
         time_s = np.asarray(plot_data.x, dtype=float)
         velocity = np.asarray(plot_data.y, dtype=float)
 
-        self.result.summary = self._build_summary(time_s, velocity)
+        self.result.summary = self.finalize_summary(self._build_summary(time_s, velocity))
         self.result.table = None
         self.set_dirty()
 
@@ -311,6 +315,9 @@ class HeartRateAnalysis(BaseAnalysis):
             else {}
         )
         values: dict[str, object] = {
+            "analysis_date": summary.get("analysis_date", pd.NA),
+            "analysis_time": summary.get("analysis_time", pd.NA),
+            "analysis_version": summary.get("analysis_version", pd.NA),
             "version": summary.get("version", pd.NA),
             "n_total": summary.get("n_total", pd.NA),
             "n_valid": summary.get("n_valid", pd.NA),

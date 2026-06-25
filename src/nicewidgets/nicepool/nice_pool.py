@@ -78,6 +78,14 @@ class NicePool(PlotPoolController):
         super().build(container=root)
         return root
 
+    def relayout_plots(self) -> None:
+        """Rebuild Plotly figures after the widget container resizes.
+
+        Returns:
+            None.
+        """
+        super().relayout_plots()
+
     def set_dataframe(self, df: pd.DataFrame) -> None:
         """Replace the source DataFrame and refresh the widget.
 

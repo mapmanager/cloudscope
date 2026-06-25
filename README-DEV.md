@@ -119,17 +119,17 @@ find .github/workflows -type f \( \
 uv run python src/cloudscope/app.py
 ```
 
-`CLOUDSCOPE_NATIVE` defaults to `true` when `CLOUDSCOPE_REMOTE` is unset. Local native launch uses **Option C** multi-window desktop mode: one process, one NiceGUI server, separate pywebview windows for Home (`/`) and Velocity Pool (`/pool`). Use **Open Pool** in the header to open or focus the pool window.
+`CLOUDSCOPE_NATIVE` defaults to `true` when `CLOUDSCOPE_REMOTE` is unset. Local native launch uses **single-window** mode: NiceGUI `ui.run(native=True)` with the velocity pool in the resizable right splitter panel on the home page. Use **Velocity Pool** in the header or drag the right splitter handle to open the panel.
 
-### Legacy single-window native
+Main-window geometry is persisted to `AppConfig` on move, resize, and shutdown.
+
+### Option C multi-window native (opt-in)
 
 ```bash
-CLOUDSCOPE_SINGLE_WINDOW=1 uv run python src/cloudscope/app.py
+CLOUDSCOPE_SINGLE_WINDOW=0 uv run python src/cloudscope/app.py
 ```
 
-Restores NiceGUI `ui.run(native=True)` with a single pywebview window. Open Pool shows a warning in this mode; use web mode or default Option C instead.
-
-Main-window geometry is persisted to `AppConfig` on move, resize, and close. Pool window uses a fixed 1000×800 size offset from the main window; pool geometry is not persisted.
+Restores Option C multi-window desktop mode: one process, one NiceGUI server, separate pywebview windows for Home (`/`) and Velocity Pool (`/pool`). Use **Open Pool** in the header to open or focus the pool window. Pool window uses a fixed 1000×800 size offset from the main window unless saved geometry exists.
 
 ## Browser mode (native disabled)
 
@@ -167,8 +167,8 @@ CLOUDSCOPE_NATIVE=false CLOUDSCOPE_RELOAD=true uv run python src/cloudscope/app.
 | --- | --- | --- |
 | `CLOUDSCOPE_REMOTE` | Treat the app as running on a remote/server host. Implies `native=false` and binds to `0.0.0.0:8080` unless overridden. | `false` |
 | `CLOUDSCOPE_NATIVE` | Force native (pywebview) on/off. | `true` when `CLOUDSCOPE_REMOTE` is unset, otherwise `false` |
-| `CLOUDSCOPE_SINGLE_WINDOW` | Use legacy single-window `ui.run(native=True)` instead of default Option C multi-window desktop. | `false` |
-| `CLOUDSCOPE_MULTI_WINDOW` | Deprecated explicit opt-in for Option C; default local native already uses Option C. | unset |
+| `CLOUDSCOPE_SINGLE_WINDOW` | Use single-window `ui.run(native=True)` for local desktop. Set to `0` for Option C multi-window. | `true` |
+| `CLOUDSCOPE_MULTI_WINDOW` | Deprecated explicit opt-in for Option C; set `CLOUDSCOPE_SINGLE_WINDOW=0` instead. | unset |
 | `CLOUDSCOPE_DESKTOP_LAUNCHER` | Deprecated explicit launcher alias (`option_c`). | unset |
 | `CLOUDSCOPE_URL_HOST` | Host name used in Option C pywebview URLs. | `127.0.0.1` |
 | `CLOUDSCOPE_RELOAD` | Toggle NiceGUI reload mode. | `false` |

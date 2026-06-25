@@ -62,6 +62,10 @@ class FakeNicePool:
         """Record dark-mode updates."""
         self.dark_mode_values.append(enabled)
 
+    def relayout_plots(self) -> None:
+        """Record relayout requests."""
+        self.relayout_calls = getattr(self, "relayout_calls", 0) + 1
+
 
 def test_velocity_pool_view_row_selection_publishes_select_file_intent() -> None:
     """Selecting a pool row should request the matching file/channel/ROI."""
@@ -246,3 +250,17 @@ def test_velocity_pool_view_refresh_syncs_theme_provider(monkeypatch: pytest.Mon
     view.refresh_from_state()
 
     assert pool.dark_mode_values == [True]
+
+
+def test_velocity_pool_view_relayout_plots_delegates_to_nicepool(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Relayout should forward to the embedded NicePool widget."""
+    FakeNicePool.instances.clear()
+    monkeypatch.setattr(velocity_pool_view_module, "NicePool", FakeNicePool)
+    view = VelocityPoolView(event_bus=EventBus(), app_state=None, initially_visible=False)
+    view.build()
+    view._disposed = False
+    pool = FakeNicePool.instances[0]
+
+    view.relayout_plots()
+
+    assert pool.relayout_calls == 1

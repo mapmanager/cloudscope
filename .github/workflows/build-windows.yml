@@ -19,6 +19,7 @@ jobs:
       CLOUDSCOPE_NATIVE: '1'
       CLOUDSCOPE_REMOTE: '0'
       CLOUDSCOPE_RELOAD: '0'
+      CLOUDSCOPE_SINGLE_WINDOW: '1'
       CLOUDSCOPE_STORAGE_SECRET: cloudscope-packaged-app-secret
 
     steps:

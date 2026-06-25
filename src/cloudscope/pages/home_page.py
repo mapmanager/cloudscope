@@ -190,6 +190,8 @@ class HomePage:
             initially_visible=True,
         )
         left_toolbar_ref: dict[str, LeftToolbarView | None] = {'value': None}
+        right_pool_toggle_ref: dict[str, Any | None] = {'value': None}
+        right_pool_column_ref: dict[str, ui.element | None] = {'value': None}
         workspace_frame_ref: dict[str, Any | None] = {'value': None}
         home_expansion_refs: dict[str, SmartExpansion | None] = {
             'file_list': None,
@@ -481,11 +483,26 @@ class HomePage:
             """
         )
 
+        def _header_toggle_right_pool_panel() -> None:
+            """Toggle the right velocity-pool panel from the header button.
+
+            Returns:
+                None.
+            """
+            toggle = right_pool_toggle_ref['value']
+            if toggle is not None:
+                toggle()
+
+        from cloudscope.desktop_launcher import get_pool_launcher
+
         build_main_header(
             title='CloudScope',
             app_config=self.app_config,
             event_bus=self.event_bus,
-            show_open_pool=True,
+            show_open_pool=get_pool_launcher() is not None,
+            on_velocity_pool_toggle=(
+                _header_toggle_right_pool_panel if SHOW_VELOCITY_POOL_RIGHT_PANEL else None
+            ),
         )
         footer.build()
         view_manager.register(footer)
@@ -628,18 +645,31 @@ class HomePage:
 
             with left_splitter.after:
                 if SHOW_VELOCITY_POOL_RIGHT_PANEL and right_panel_velocity_pool_view is not None:
-                    def _sync_right_pool_panel_visibility() -> None:
-                        """Show or hide the right-panel velocity pool from splitter state.
+                    def _sync_right_pool_panel() -> None:
+                        """Build, show, hide, or relayout the right-panel velocity pool.
 
                         Returns:
                             None.
                         """
                         if right_panel_velocity_pool_view is None:
                             return
-                        if splitter_manager.is_right_pool_open():
+                        if not splitter_manager.is_right_pool_open():
+                            if right_panel_velocity_pool_view.is_built:
+                                right_panel_velocity_pool_view.hide()
+                            return
+
+                        parent = right_pool_column_ref['value']
+                        if parent is None:
+                            return
+
+                        if not right_panel_velocity_pool_view.is_built:
+                            right_panel_velocity_pool_view.build(parent=parent)
+                            view_manager.register(right_panel_velocity_pool_view)
                             right_panel_velocity_pool_view.show()
-                        else:
-                            right_panel_velocity_pool_view.hide()
+                            return
+
+                        right_panel_velocity_pool_view.show()
+                        right_panel_velocity_pool_view.relayout_plots()
 
                     def _toggle_right_pool_panel() -> None:
                         """Toggle the right velocity-pool splitter between open and collapsed.
@@ -648,7 +678,9 @@ class HomePage:
                             None.
                         """
                         splitter_manager.set_right_pool_open(not splitter_manager.is_right_pool_open())
-                        _sync_right_pool_panel_visibility()
+                        _sync_right_pool_panel()
+
+                    right_pool_toggle_ref['value'] = _toggle_right_pool_panel
 
                     right_pool_preset = HOME_SPLITTER_PRESETS[SplitterId.RIGHT_POOL]
                     with ui.splitter(
@@ -661,9 +693,8 @@ class HomePage:
                             _build_main_workspace()
 
                         with right_pool_splitter.after:
-                            with ui.column().classes(_fill_column_classes()):
-                                right_panel_velocity_pool_view.build()
-                            view_manager.register(right_panel_velocity_pool_view)
+                            with ui.column().classes(_fill_column_classes()) as right_pool_column:
+                                right_pool_column_ref['value'] = right_pool_column
 
                         add_splitter_handle(
                             right_pool_splitter,
@@ -675,12 +706,12 @@ class HomePage:
                             'update:model-value',
                             lambda _event=None: (
                                 _capture(SplitterId.RIGHT_POOL),
-                                _sync_right_pool_panel_visibility(),
+                                _sync_right_pool_panel(),
                             ),
                             throttle=0.2,
                         )
 
-                    _sync_right_pool_panel_visibility()
+                    _sync_right_pool_panel()
                 else:
                     _build_main_workspace()
 

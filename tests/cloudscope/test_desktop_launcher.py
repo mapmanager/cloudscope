@@ -43,6 +43,13 @@ def test_option_c_enabled_from_launcher_env(monkeypatch) -> None:
     assert option_c_enabled() is True
 
 
+def test_should_use_option_c_desktop_with_multi_window_env(monkeypatch) -> None:
+    from cloudscope.desktop_launcher import should_use_option_c_desktop
+
+    monkeypatch.setenv('CLOUDSCOPE_MULTI_WINDOW', '1')
+    assert should_use_option_c_desktop(_local_native_config()) is True
+
+
 def test_option_c_disabled_by_default(monkeypatch) -> None:
     from cloudscope.desktop_launcher import option_c_enabled
 
@@ -55,21 +62,30 @@ def test_single_window_requested(monkeypatch) -> None:
     from cloudscope.desktop_launcher import single_window_requested
 
     monkeypatch.delenv('CLOUDSCOPE_SINGLE_WINDOW', raising=False)
-    assert single_window_requested() is False
+    monkeypatch.delenv('CLOUDSCOPE_MULTI_WINDOW', raising=False)
+    monkeypatch.delenv('CLOUDSCOPE_DESKTOP_LAUNCHER', raising=False)
+    assert single_window_requested() is True
     monkeypatch.setenv('CLOUDSCOPE_SINGLE_WINDOW', '1')
     assert single_window_requested() is True
+    monkeypatch.setenv('CLOUDSCOPE_SINGLE_WINDOW', '0')
+    assert single_window_requested() is False
+    monkeypatch.setenv('CLOUDSCOPE_SINGLE_WINDOW', '1')
+    monkeypatch.setenv('CLOUDSCOPE_MULTI_WINDOW', '1')
+    assert single_window_requested() is False
 
 
 def test_should_use_option_c_desktop_default_local_native(monkeypatch) -> None:
     from cloudscope.desktop_launcher import should_use_option_c_desktop
 
-    monkeypatch.delenv('CLOUDSCOPE_SINGLE_WINDOW', raising=False)
+    monkeypatch.setenv('CLOUDSCOPE_SINGLE_WINDOW', '0')
     assert should_use_option_c_desktop(_local_native_config()) is True
 
 
 def test_should_use_option_c_desktop_false_when_single_window(monkeypatch) -> None:
     from cloudscope.desktop_launcher import should_use_option_c_desktop
 
+    monkeypatch.delenv('CLOUDSCOPE_SINGLE_WINDOW', raising=False)
+    assert should_use_option_c_desktop(_local_native_config()) is False
     monkeypatch.setenv('CLOUDSCOPE_SINGLE_WINDOW', '1')
     assert should_use_option_c_desktop(_local_native_config()) is False
 

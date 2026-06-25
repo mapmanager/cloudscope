@@ -98,6 +98,16 @@ class VelocityPoolView(BaseView):
         self.after_build()
         return self.root
 
+    def relayout_plots(self) -> None:
+        """Rebuild pool plots after the parent pane resizes.
+
+        Returns:
+            None.
+        """
+        if self._disposed or self._pool_widget is None:
+            return
+        self._pool_widget.relayout_plots()
+
     def subscribe_events(self) -> None:
         """Subscribe to velocity-pool changes while visible.
 

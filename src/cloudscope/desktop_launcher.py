@@ -58,12 +58,19 @@ def _parse_bool_env(name: str, *, default: bool) -> bool:
 
 
 def single_window_requested() -> bool:
-    """Return whether legacy single-window native mode was requested.
+    """Return whether single-window native mode is active.
 
     Returns:
-        True when ``CLOUDSCOPE_SINGLE_WINDOW`` is set.
+        True when ``CLOUDSCOPE_SINGLE_WINDOW`` is unset or enabled, unless
+        explicit Option C opt-in env vars are set.
     """
-    return _parse_bool_env('CLOUDSCOPE_SINGLE_WINDOW', default=False)
+    multi = os.getenv('CLOUDSCOPE_MULTI_WINDOW', '').strip().lower()
+    if multi in _TRUE_VALUES:
+        return False
+    launcher = os.getenv('CLOUDSCOPE_DESKTOP_LAUNCHER', '').strip().lower()
+    if launcher in {'option_c', 'option-c', 'c'}:
+        return False
+    return _parse_bool_env('CLOUDSCOPE_SINGLE_WINDOW', default=True)
 
 
 def should_use_option_c_desktop(config: CloudScopeRunConfig) -> bool:  # noqa: F821

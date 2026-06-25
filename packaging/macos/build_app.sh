@@ -88,6 +88,7 @@ mkdir -p "$DIST_DIR" "$BUILD_DIR"
 export CLOUDSCOPE_NATIVE=1
 export CLOUDSCOPE_REMOTE=0
 export CLOUDSCOPE_RELOAD=0
+export CLOUDSCOPE_SINGLE_WINDOW=1
 export CLOUDSCOPE_STORAGE_SECRET="${CLOUDSCOPE_STORAGE_SECRET:-cloudscope-packaged-app-secret}"
 
 bash "$SCRIPT_DIR/build_info.sh"
