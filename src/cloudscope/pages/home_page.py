@@ -92,11 +92,7 @@ class HomePage:
         setUpGuiDefaults(text_size)
 
         self._install_shutdown_handlers()
-
-        native = getattr(app, 'native', None)
-        if native is not None and getattr(native, 'main_window', None) is not None:
-            app.native.on('resized', self._native_resize)
-            app.native.on('moved', self._native_moved)
+        self._register_native_geometry_handlers()
 
         view_manager = ViewManager()
         splitter_manager = SplitterManager(self.app_config)
@@ -772,21 +768,32 @@ class HomePage:
 
         self.app_config.set_window_rect(x, y, w, h)
 
+    def _register_native_geometry_handlers(self) -> None:
+        """Register NiceGUI native window geometry handlers.
+
+        Move/resize update in-memory ``AppConfig``; disk persist is on shutdown.
+
+        Returns:
+            None.
+        """
+        if getattr(app, 'native', None) is None:
+            return
+
+        app.native.on('resized', self._native_resize)
+        app.native.on('moved', self._native_moved)
+
     def _install_shutdown_handlers(self) -> None:
-        """Register app shutdown handlers for GUI v2.
-        
-        Only installs handlers when running in native mode (native=True).
-        In browser mode, configs are saved via other mechanisms.
+        """Register app shutdown handlers for native desktop mode.
+
+        Returns:
+            None.
         """
         native = getattr(app, "native", None)
         if native is None:
-            logger.debug("skipping (not native mode)")
             return
-        
-        # logger.info("installing (native mode detected)")
 
         async def _persist_on_shutdown() -> None:
-            """Persist user and app config on shutdown without touching native window APIs."""
+            """Persist application config on shutdown."""
             self.app_config.save()
 
         app.on_shutdown(_persist_on_shutdown)

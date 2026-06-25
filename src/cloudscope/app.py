@@ -175,6 +175,9 @@ def get_run_config_from_env() -> CloudScopeRunConfig:
 def configure_native_window(config: CloudScopeRunConfig) -> None:
     """Configure pywebview/native-window behavior when native mode is enabled.
 
+    Populates ``app.native.window_args`` before ``ui.run()`` so NiceGUI passes
+    them to ``webview.create_window`` in the pywebview child process.
+
     Args:
         config: Runtime configuration.
 
@@ -188,7 +191,7 @@ def configure_native_window(config: CloudScopeRunConfig) -> None:
     user_context = resolve_user_context(remote=config.remote, native=config.native)
     app_config = user_context.load_app_config()
     x, y, w, h = app_config.get_window_rect()
-    logger.info(f'initial window rect: x:{x}, y:{y}, w:{w}, h:{h}')
+    logger.info('initial window rect: x:%s, y:%s, w:%s, h:%s', x, y, w, h)
 
     try:
         app.native.window_args.update({
@@ -197,9 +200,8 @@ def configure_native_window(config: CloudScopeRunConfig) -> None:
             'width': w,
             'height': h,
             'confirm_close': True,
-            # 'icon': 'assets/icons/cloudscope.png',
         })
-        logger.info(f'global app.native.window_args: {app.native.window_args}')
+        logger.info('global app.native.window_args: %s', app.native.window_args)
     except Exception:
         logger.exception('Failed to configure app.native.window_args')
 
@@ -207,7 +209,7 @@ def configure_native_window(config: CloudScopeRunConfig) -> None:
 def main() -> None:
     """Run the CloudScope NiceGUI application."""
     config = get_run_config_from_env()
-    logger.info(f'CloudScope run config: {config}')
+    logger.info('CloudScope run config: %s', config)
     from cloudscope.desktop_launcher import run_option_c_desktop, should_use_option_c_desktop
 
     if should_use_option_c_desktop(config):
@@ -221,3 +223,7 @@ def main() -> None:
 if __name__ == '__main__':
     multiprocessing.freeze_support()
     main()
+elif __name__ == '__mp_main__':
+    # macOS spawn: pywebview child re-imports this module before _open_window.
+    # Populate window_args here only — never call main() or ui.run() from __mp_main__.
+    configure_native_window(get_run_config_from_env())
