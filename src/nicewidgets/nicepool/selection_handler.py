@@ -234,7 +234,7 @@ class PlotSelectionHandler:
         # for v in df_f[self._unique_row_id_col].head().tolist():
         #     print(v)
 
-        matching = df_f[df_f[self._unique_row_id_col] == row_id]
+        matching = df_f[df_f[self._unique_row_id_col].astype(str) == str(row_id)]
         
         if len(matching) == 0:
             # logger.warning(f"Row ID '{row_id}' {type(row_id)} not found in filtered dataframe")

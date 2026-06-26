@@ -15,7 +15,13 @@ import plotly.graph_objects as go
 from nicewidgets.utils.logging import get_logger
 from nicewidgets.nicepool.plot_state import PlotType, PlotState
 from nicewidgets.nicepool.dataframe_processor import DataFrameProcessor
-from nicewidgets.nicepool.plot_helpers import is_categorical_column
+from nicewidgets.nicepool.plot_errors import (
+    PlotConfigurationError,
+    PlotDataError,
+    require_categorical_group_col,
+    require_group_col,
+    require_histogram_x_values,
+)
 from nicewidgets.nicepool.plot_summary import (
     PlotSummary,
     build_cumulative_histogram_summary,
@@ -176,6 +182,10 @@ class FigureGenerator:
 
         Returns:
             Tuple of (Plotly figure dictionary, PlotSummary).
+
+        Raises:
+            PlotConfigurationError: When plot state is invalid for ``df_f``.
+            PlotDataError: When filtered data cannot satisfy the requested plot.
         """
         # logger.info(
         #     f"FigureGenerator.make_figure: plot_type={state.plot_type.value}, "
@@ -188,38 +198,20 @@ class FigureGenerator:
         elif state.plot_type == PlotType.SCATTER:
             fig_dict, summary = self._figure_split_scatter(df_f, state, selected_row_ids=selected_row_ids)
         elif state.plot_type == PlotType.BOX_PLOT:
-            if not state.group_col or not is_categorical_column(df_f, state.group_col):
-                logger.warning(
-                    f"Box plot requires categorical group_col for x-axis; group_col={state.group_col} is not categorical. "
-                    "Falling back to scatter."
-                )
-                fig_dict, summary = self._figure_split_scatter(df_f, state, selected_row_ids=selected_row_ids)
-            else:
-                fig_dict, summary = self._figure_box(df_f, state)
+            require_categorical_group_col(df_f, state.group_col, plot_type=PlotType.BOX_PLOT)
+            fig_dict, summary = self._figure_box(df_f, state)
         elif state.plot_type == PlotType.VIOLIN:
-            if not state.group_col or not is_categorical_column(df_f, state.group_col):
-                logger.warning(
-                    f"Violin plot requires categorical group_col for x-axis; group_col={state.group_col} is not categorical. "
-                    "Falling back to scatter."
-                )
-                fig_dict, summary = self._figure_split_scatter(df_f, state, selected_row_ids=selected_row_ids)
-            else:
-                fig_dict, summary = self._figure_violin(df_f, state)
+            require_categorical_group_col(df_f, state.group_col, plot_type=PlotType.VIOLIN)
+            fig_dict, summary = self._figure_violin(df_f, state)
         elif state.plot_type == PlotType.SWARM:
-            if not state.group_col or not is_categorical_column(df_f, state.group_col):
-                logger.warning(
-                    f"Swarm plot requires categorical group_col for x-axis; group_col={state.group_col} is not categorical. "
-                    "Falling back to scatter."
-                )
-                fig_dict, summary = self._figure_split_scatter(df_f, state, selected_row_ids=selected_row_ids)
-            else:
-                fig_dict, summary = self._figure_swarm(df_f, state, selected_row_ids=selected_row_ids)
+            require_categorical_group_col(df_f, state.group_col, plot_type=PlotType.SWARM)
+            fig_dict, summary = self._figure_swarm(df_f, state, selected_row_ids=selected_row_ids)
         elif state.plot_type == PlotType.HISTOGRAM:
             fig_dict, summary = self._figure_histogram(df_f, state)
         elif state.plot_type == PlotType.CUMULATIVE_HISTOGRAM:
             fig_dict, summary = self._figure_cumulative_histogram(df_f, state)
         else:
-            fig_dict, summary = self._figure_split_scatter(df_f, state, selected_row_ids=selected_row_ids)
+            raise PlotConfigurationError(f"Unsupported plot type: {state.plot_type!r}")
 
         layout = fig_dict.setdefault('layout', {})
         if isinstance(layout, dict):
@@ -1279,7 +1271,9 @@ class FigureGenerator:
             state: PlotState to use for configuration.
         """
         if not state.group_col:
-            return self._figure_scatter(df_f, state)  # returns (dict, PlotSummary)
+            raise PlotConfigurationError(
+                "Grouped plot requires a Group column. Select a categorical column such as parent or roi_id."
+            )
 
         g = df_f[state.group_col].astype(str)
         y = self.data_processor.get_y_values(
@@ -1338,9 +1332,7 @@ class FigureGenerator:
             df_f, state.xcol, state.use_absolute_value,
             state.use_remove_values, state.remove_values_threshold
         ).dropna()
-        if len(x) == 0:
-            logger.warning("No valid data for cumulative histogram. Falling back to scatter plot.")
-            return self._figure_scatter(df_f, state)  # returns (dict, PlotSummary)
+        require_histogram_x_values(x, xcol=state.xcol, plot_type=PlotType.CUMULATIVE_HISTOGRAM)
 
         def _file_stem_for_index(idx):
             if "path" in df_f.columns:
@@ -1393,7 +1385,10 @@ class FigureGenerator:
                 tmp_dict["color"] = df_f.loc[x.index, state.color_grouping].astype(str)
             tmp = pd.DataFrame(tmp_dict).dropna(subset=["g"])
             if len(tmp) == 0:
-                return self._figure_scatter(df_f, state)  # returns (dict, PlotSummary)
+                raise PlotDataError(
+                    f"Cumulative histogram has no grouped rows for column {state.group_col!r} after filters. "
+                    "Widen pre-filters or choose another Group column."
+                )
             group_series = tmp["g"]
             color_series = tmp["color"] if "color" in tmp.columns else None
             groupby_cols = ["g", "color"] if "color" in tmp.columns else ["g"]
@@ -1458,9 +1453,7 @@ class FigureGenerator:
             df_f, state.xcol, state.use_absolute_value,
             state.use_remove_values, state.remove_values_threshold
         ).dropna()
-        if len(x) == 0:
-            logger.warning("No valid data for histogram. Falling back to scatter plot.")
-            return self._figure_scatter(df_f, state)  # returns (dict, PlotSummary)
+        require_histogram_x_values(x, xcol=state.xcol, plot_type=PlotType.HISTOGRAM)
 
         fig = go.Figure()
         group_series = None
@@ -1477,7 +1470,10 @@ class FigureGenerator:
             g = df_f.loc[x.index, state.group_col].astype(str)
             tmp = pd.DataFrame({"x": x, "g": g}).dropna(subset=["g"])
             if len(tmp) == 0:
-                return self._figure_scatter(df_f, state)  # returns (dict, PlotSummary)
+                raise PlotDataError(
+                    f"Histogram has no grouped rows for column {state.group_col!r} after filters. "
+                    "Widen pre-filters or choose another Group column."
+                )
             group_series = tmp["g"]
             for group_value, sub in tmp.groupby("g", sort=True):
                 fig.add_trace(go.Histogram(

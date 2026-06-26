@@ -24,6 +24,13 @@ from nicewidgets.nicepool.plot_summary import PlotSummary, format_plot_summary_t
 from nicewidgets.nicepool.plot_helpers import numeric_columns, is_categorical_column
 from nicewidgets.nicepool.dataframe_processor import DataFrameProcessor
 from nicewidgets.nicepool.figure_generator import FigureGenerator
+from nicewidgets.nicepool.plot_errors import (
+    PlotConfigurationError,
+    PlotDataError,
+    empty_plotly_figure,
+    require_categorical_group_col,
+)
+from nicewidgets.plotly_theme import apply_plotly_theme_to_layout
 from nicewidgets.nicepool.pool_control_panel import PoolControlPanel
 from nicewidgets.nicepool.selection_handler import PlotSelectionHandler, is_selection_compatible
 from nicewidgets.utils.lazy_section import LazySection, LazySectionConfig
@@ -437,7 +444,7 @@ class PlotPoolController:
             new_df: New DataFrame. Must have unique_row_id_col, pre_filter_columns,
                 and at least one numeric column for y.
         """
-        if self._control_panel_container is None:
+        if getattr(self, "_control_panel_container", None) is None:
             return
         if self.unique_row_id_col not in new_df.columns:
             raise ValueError(f"new_df must have column {self.unique_row_id_col!r}")
@@ -1120,24 +1127,25 @@ class PlotPoolController:
         new_state.ycol = self.plot_states[self.current_plot_index].ycol
 
         if new_state.plot_type in (PlotType.BOX_PLOT, PlotType.VIOLIN, PlotType.SWARM):
-            if not new_state.group_col or new_state.group_col == "(none)":
-                ui.notify(
-                    "Box/Violin/Swarm plots require a Group/Color column for x-axis. Select a categorical column.",
-                    type="warning",
-                )
-                new_state.group_col = self.plot_states[self.current_plot_index].group_col
-                self._control_panel._group_select.value = new_state.group_col if new_state.group_col else "(none)"
-            elif not is_categorical_column(self.df, new_state.group_col):
-                ui.notify(
-                    "Group/Color column must be categorical for Box/Violin/Swarm plots.",
-                    type="warning",
-                )
-                new_state.group_col = self.plot_states[self.current_plot_index].group_col
-                self._control_panel._group_select.value = new_state.group_col if new_state.group_col else "(none)"
+            try:
+                require_categorical_group_col(self.df, new_state.group_col, plot_type=new_state.plot_type)
+            except PlotConfigurationError as exc:
+                ui.notify(str(exc), type="warning")
+                previous = self.plot_states[self.current_plot_index]
+                new_state.group_col = previous.group_col
+                if self._control_panel is not None:
+                    self._control_panel._group_select.value = (
+                        new_state.group_col if new_state.group_col else "(none)"
+                    )
             if new_state.color_grouping and not is_categorical_column(self.df, new_state.color_grouping):
-                ui.notify("Group/Nesting column must be categorical.", type="warning")
+                ui.notify(
+                    "Group/Nesting column must be categorical. Choose a low-cardinality column such as roi_id.",
+                    type="warning",
+                )
                 new_state.color_grouping = self.plot_states[self.current_plot_index].color_grouping
-                self._control_panel._color_grouping_select.value = new_state.color_grouping if new_state.color_grouping else "(none)"
+                self._control_panel._color_grouping_select.value = (
+                    new_state.color_grouping if new_state.color_grouping else "(none)"
+                )
 
         self.plot_states[self.current_plot_index] = new_state
         self._control_panel.sync_controls(new_state.plot_type, new_state.show_std_sem)
@@ -1364,11 +1372,20 @@ class PlotPoolController:
         df_f = self._get_filtered_df(state)
         self._id_to_index_filtered = self.data_processor.build_row_id_index(df_f)
 
-        # logger.debug(f"Making figure: plot_type={state.plot_type.value}, filtered_rows={len(df_f)}")
-        figure_dict, summary = self.figure_generator.make_figure(
-            df_f, state, selected_row_ids=selected_row_ids or self._selection_handler.get_selected_row_ids() or None
-        )
-        # logger.debug(f"Figure generated: {len(figure_dict.get('data', []))} traces")
+        try:
+            figure_dict, summary = self.figure_generator.make_figure(
+                df_f,
+                state,
+                selected_row_ids=selected_row_ids or self._selection_handler.get_selected_row_ids() or None,
+            )
+        except (PlotConfigurationError, PlotDataError) as exc:
+            ui.notify(str(exc), type="warning")
+            figure_dict = empty_plotly_figure(str(exc))
+            layout = figure_dict.setdefault("layout", {})
+            if isinstance(layout, dict):
+                apply_plotly_theme_to_layout(layout, self.figure_generator._theme)
+            return figure_dict
+
         idx = plot_index if plot_index is not None else self.current_plot_index
         if 0 <= idx < len(self._plot_summaries):
             self._plot_summaries[idx] = summary

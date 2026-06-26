@@ -48,6 +48,7 @@ class CloudScopeRunConfig:
         reload: Whether NiceGUI reload mode is enabled.
         remote: Whether the app is running in a remote/server environment.
         storage_secret: NiceGUI storage secret.
+        show: Whether NiceGUI should open a browser tab on startup.
     """
 
     host: str | None
@@ -56,6 +57,7 @@ class CloudScopeRunConfig:
     reload: bool
     remote: bool
     storage_secret: str
+    show: bool
 
     def ui_run_kwargs(self) -> dict[str, Any]:
         """Return keyword arguments for ``ui.run``.
@@ -71,6 +73,7 @@ class CloudScopeRunConfig:
             'reload': self.reload,
             'native': self.native,
             'storage_secret': self.storage_secret,
+            'show': self.show,
 
             # 1. This handles the browser favicon for web mode
             'favicon': icon_path,
@@ -140,6 +143,7 @@ def get_run_config_from_env() -> CloudScopeRunConfig:
         CLOUDSCOPE_PORT: Explicit NiceGUI port.
         PORT: Platform-provided port, preferred over ``CLOUDSCOPE_PORT``.
         CLOUDSCOPE_STORAGE_SECRET: NiceGUI storage secret.
+        CLOUDSCOPE_SHOW: Open a browser tab on startup (default: off when remote).
 
     Returns:
         Runtime configuration for ``ui.run``.
@@ -147,6 +151,7 @@ def get_run_config_from_env() -> CloudScopeRunConfig:
     remote = _parse_bool_env('CLOUDSCOPE_REMOTE', default=False)
     native = _parse_bool_env('CLOUDSCOPE_NATIVE', default=not remote)
     reload = _parse_bool_env('CLOUDSCOPE_RELOAD', default=False)
+    show = _parse_bool_env('CLOUDSCOPE_SHOW', default=not remote)
 
     host = os.getenv('CLOUDSCOPE_HOST')
     if host is not None and host.strip() == '':
@@ -169,6 +174,7 @@ def get_run_config_from_env() -> CloudScopeRunConfig:
         reload=reload,
         remote=remote,
         storage_secret=storage_secret,
+        show=show,
     )
 
 

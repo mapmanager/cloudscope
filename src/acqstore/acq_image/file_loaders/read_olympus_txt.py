@@ -10,7 +10,10 @@ from datetime import datetime
 
 import numpy as np
 
+from acqstore.utils.logging import get_logger
 from .base_file_loader import ImageHeader
+
+logger = get_logger(__name__)
 
 
 def _dtype_from_olympus_bits(bits: int | None) -> np.dtype:

@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+from acqstore.acq_image.file_loaders import czi_file_loader as czi_file_loader_module
 from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader
 from acqstore.acq_image.file_loaders.czi_file_loader import CziFileLoader
 
@@ -58,15 +59,18 @@ def _read_header_with_patch(raw_header: ImageHeader) -> ImageHeader:
             return loader._read_czi_header()
 
 
-def test_read_czi_header_remaps_linescan_t_to_y(caplog: pytest.LogCaptureFixture) -> None:
+def test_read_czi_header_remaps_linescan_t_to_y(monkeypatch: pytest.MonkeyPatch) -> None:
     """('C', 'T', 'X') line-scan headers gain a Y axis label."""
+    mock_warning = MagicMock()
+    monkeypatch.setattr(czi_file_loader_module.logger, 'warning', mock_warning)
     raw = _czi_header(dims=('C', 'T', 'X'), shape=(2, 30000, 24))
     header = _read_header_with_patch(raw)
 
     assert header.dims == ('C', 'Y', 'X')
     assert header.sizes == {'C': 2, 'Y': 30000, 'X': 24}
     assert header.physical_units_labels == ('C', 'Y', 'X')
-    assert 'remapping \'T\' axis to \'Y\'' in caplog.text
+    mock_warning.assert_called_once()
+    assert "remapping 'T' axis to 'Y'" in mock_warning.call_args.args[0]
 
 
 @pytest.mark.parametrize(
@@ -78,15 +82,17 @@ def test_read_czi_header_remaps_linescan_t_to_y(caplog: pytest.LogCaptureFixture
 )
 def test_read_czi_header_leaves_existing_y_dims_unchanged(
     dims: tuple[str, ...],
-    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Frame stacks and 2D CZI layouts must not remap T when Y exists."""
+    mock_warning = MagicMock()
+    monkeypatch.setattr(czi_file_loader_module.logger, 'warning', mock_warning)
     raw = _czi_header(dims=dims)
     header = _read_header_with_patch(raw)
 
     assert header.dims == dims
     assert header.sizes == raw.sizes
-    assert 'remapping \'T\' axis to \'Y\'' not in caplog.text
+    mock_warning.assert_not_called()
 
 
 class _FakeContentType:

@@ -24,6 +24,18 @@ from nicewidgets.nicepool.pre_filter_conventions import PRE_FILTER_NONE
 
 logger = get_logger(__name__)
 
+def _default_plot_preset_dialog_name(selected_name: object) -> str:
+    """Return the initial name shown in the save-plot dialog.
+
+    Args:
+        selected_name: Current value from the saved-plot select widget.
+
+    Returns:
+        Existing selected name when present, otherwise ``"my-plot"``.
+    """
+    normalized = str(selected_name or "").strip()
+    return normalized or "my-plot"
+
 
 class PoolControlPanel:
     """Left-panel UI for plot configuration: layout, filters, plot type, X/Y columns, options."""
@@ -341,9 +353,12 @@ class PoolControlPanel:
         if self._on_save_plot_preset is None:
             return
 
+        default_name = _default_plot_preset_dialog_name(
+            self._preset_select.value if self._preset_select is not None else None
+        )
         with ui.dialog() as dialog, ui.card().classes("w-96"):
             ui.label("Save Plot").classes("text-lg font-semibold")
-            name_input = ui.input("Plot name").classes("w-full")
+            name_input = ui.input("Plot name", value=default_name).classes("w-full")
 
             def save_and_close() -> None:
                 name = str(name_input.value or "").strip()

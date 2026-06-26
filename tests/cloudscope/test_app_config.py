@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
-import logging
+from unittest.mock import MagicMock
 
+import pytest
+
+from cloudscope import app_config as app_config_module
 from cloudscope.app_config import (
     AppConfig,
     DEFAULT_FOLDER_DEPTH,
@@ -121,8 +124,13 @@ def test_push_recent_moves_existing_to_end_and_enforces_max(tmp_path) -> None:
     assert cfg.get_recent_files()[-1].endswith('f2.tif')
 
 
-def test_recents_kept_when_missing_on_disk_but_last_path_cleared(tmp_path, caplog) -> None:
+def test_recents_kept_when_missing_on_disk_but_last_path_cleared(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Recents are not pruned at config load (offline-friendly); last_path still drops if missing."""
+    mock_warning = MagicMock()
+    monkeypatch.setattr(app_config_module.logger, 'warning', mock_warning)
     cfg_path = tmp_path / 'app_config.json'
     existing_folder = tmp_path / 'existing'
     existing_folder.mkdir()
@@ -143,7 +151,6 @@ def test_recents_kept_when_missing_on_disk_but_last_path_cleared(tmp_path, caplo
         encoding='utf-8',
     )
 
-    caplog.set_level(logging.WARNING, logger='cloudscope.app_config')
     cfg = AppConfig.load(config_path=cfg_path)
     assert cfg.get_recent_files() == [
         str(existing_file.resolve(strict=False)),
@@ -154,7 +161,8 @@ def test_recents_kept_when_missing_on_disk_but_last_path_cleared(tmp_path, caplo
         str(missing_folder.resolve(strict=False)),
     ]
     assert cfg.get_last_path() == ''
-    assert 'Pruned missing last_path' in caplog.text
+    mock_warning.assert_called_once()
+    assert 'Pruned missing last_path' in mock_warning.call_args.args[0]
 
 
 def test_dark_mode_round_trip_in_json(tmp_path) -> None:
