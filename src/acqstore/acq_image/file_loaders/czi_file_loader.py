@@ -28,6 +28,8 @@ class CziFileLoader(BaseFileLoader):
     """Lazy-loading CZI reader for scene ``0`` only."""
 
     def __init__(self, path: str, header: ImageHeader | None = None) -> None:
+        self._has_reference_image = False
+        self._cached_reference_array: np.ndarray | None = None
         super().__init__(path, header)
 
     @contextmanager
@@ -59,6 +61,16 @@ class CziFileLoader(BaseFileLoader):
         return cls.from_stream(stream, filename).header
 
     @property
+    def has_reference_image(self) -> bool:
+        """Return whether a CZI reference attachment was found during header read.
+
+        Returns:
+            ``True`` when a decoded reference attachment matched the current
+            channel-first ``(C, Y, X)`` heuristic.
+        """
+        return self._has_reference_image
+
+    @property
     def reference_image(self) -> ReferenceImage | None:
         """Return a CZI reference/overview image snapshot when one exists.
 
@@ -76,7 +88,10 @@ class CziFileLoader(BaseFileLoader):
             return self._referenceImage
 
         with self._open_czi() as czi_file:
-            self._referenceImage = _reference_snapshot_from_czi(czi_file)
+            self._referenceImage = _reference_snapshot_from_czi(
+                czi_file,
+                reference_array=self._cached_reference_array,
+            )
 
         return self._referenceImage
 
@@ -138,6 +153,9 @@ class CziFileLoader(BaseFileLoader):
             num_scenes = len(czi_file.scenes)
             scene = czi_file.scenes[0]
             header = _image_header_from_scene(logical, scene, num_scenes=num_scenes)
+            ref_array = _find_czi_reference_array(czi_file)
+            self._has_reference_image = ref_array is not None
+            self._cached_reference_array = ref_array
 
         dims = header.dims
         # CZI line-scan kymographs can report ('C', 'T', 'X') with no 'Y' axis.
@@ -177,20 +195,28 @@ class CziFileLoader(BaseFileLoader):
             return np.asarray(czi_file.scenes[0].asarray())
 
 
-def _reference_snapshot_from_czi(czi_file: Any) -> ReferenceImage | None:
+def _reference_snapshot_from_czi(
+    czi_file: Any,
+    reference_array: np.ndarray | None = None,
+) -> ReferenceImage | None:
     """Build a :class:`ReferenceImage` from a CZI reference attachment.
 
     Args:
         czi_file: Open ``czifile.CziFile``-like object.
+        reference_array: Optional pre-decoded ``(C, Y, X)`` reference array.
+            When omitted, the first matching attachment is loaded from
+            ``czi_file``.
 
     Returns:
         Immutable reference-image snapshot, or ``None`` if no reference image
         attachment matches the current CZI heuristic.
     """
-    reference_array = _find_czi_reference_array(czi_file)
+    if reference_array is None:
+        reference_array = _find_czi_reference_array(czi_file)
     if reference_array is None:
         return None
-
+    reference_array = np.asarray(reference_array)
+    reference_array.setflags(write=False)
     scaling = _reference_pixel_size_um_from_czi(czi_file)
     if scaling is None:
         coord_scales: tuple[tuple[str, float], ...] = ()

@@ -780,7 +780,7 @@ class AcqImage:
             'condition': self._experimental_metadata.condition,
             'genotype': self._experimental_metadata.genotype,
             'loaded': '✅' if self.is_fully_loaded else '',
-            'reference_image': '✅' if self._images.reference_image is not None else '',
+            'reference_image': '✅' if self._images.has_reference_image else '',
             'file_size': self._images.header.file_size,
             'num_channels': self._images.num_channels,
             'dims': self._images.header.format_dims_display(),

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from typing import Any, Iterator
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 
+from acqstore.acq_image.acq_image import AcqImage
 from acqstore.acq_image.file_loaders import czi_file_loader as czi_file_loader_module
 from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader
 from acqstore.acq_image.file_loaders.czi_file_loader import CziFileLoader
@@ -130,6 +132,13 @@ class _FakeCziWithReference:
         self._attachments = attachments
         self.xml_element = None
         self._xml = xml or '<ImageDocument />'
+        scene = MagicMock()
+        scene.shape = (2, 10, 10)
+        scene.dims = ('C', 'Y', 'X')
+        scene.sizes = {'C': 2, 'Y': 10, 'X': 10}
+        scene.dtype = np.dtype(np.uint16)
+        scene.coords = {}
+        self.scenes = [scene]
 
     def attachments(self) -> list[_FakeAttachment]:
         """Return fake CZI attachments."""
@@ -226,3 +235,69 @@ def test_czi_reference_image_ignores_non_reference_attachments() -> None:
         reference = loader.reference_image
 
     assert reference is None
+
+
+def test_czi_has_reference_image_cached_during_header_read() -> None:
+    """Header read probes and caches reference existence without building snapshot."""
+    with patch.object(CziFileLoader, '_open_czi', _fake_open_czi_reference):
+        loader = CziFileLoader('/tmp/reference.czi')
+
+    assert loader.has_reference_image is True
+    assert loader._cached_reference_array is not None
+    assert loader._cached_reference_array.shape == (2, 64, 96)
+    assert loader._referenceImage is None
+
+
+def test_czi_has_reference_image_false_for_scan_path_only_fixture() -> None:
+    """Scan-path-only Image/ZISRAW attachments do not set the reference flag."""
+    with patch.object(CziFileLoader, '_open_czi', _fake_open_czi_without_reference):
+        loader = CziFileLoader('/tmp/no-reference.czi')
+
+    assert loader.has_reference_image is False
+    assert loader._cached_reference_array is None
+
+
+def test_get_schema_row_does_not_reopen_czi_for_reference_column() -> None:
+    """File-list schema rows use cached reference probe without a second CZI open."""
+    open_count = 0
+
+    @contextmanager
+    def _counting_fake_reference_open(_self: CziFileLoader) -> Iterator[Any]:
+        nonlocal open_count
+        open_count += 1
+        with _fake_open_czi_reference(_self) as czi:
+            yield czi
+
+    with patch.object(CziFileLoader, '_open_czi', _counting_fake_reference_open):
+        acq = AcqImage('/tmp/reference.czi', load_images=False, load_analysis_csv=False)
+
+    assert acq.images.has_reference_image is True
+    assert open_count == 1
+
+    open_count = 0
+    row = acq.get_schema_row()
+
+    assert row['reference_image'] == '✅'
+    assert open_count == 0
+
+
+def test_czi_reference_image_reuses_cached_array_without_rediscovering() -> None:
+    """Lazy reference snapshot reuses the array decoded during header read."""
+    with patch.object(CziFileLoader, '_open_czi', _fake_open_czi_reference):
+        loader = CziFileLoader('/tmp/reference.czi')
+
+    cached = loader._cached_reference_array
+    assert cached is not None
+
+    with patch.object(
+        CziFileLoader,
+        '_open_czi',
+        _fake_open_czi_reference,
+    ), patch(
+        'acqstore.acq_image.file_loaders.czi_file_loader._find_czi_reference_array',
+    ) as mock_find:
+        reference = loader.reference_image
+
+    assert reference is not None
+    mock_find.assert_not_called()
+    np.testing.assert_array_equal(reference.array, cached)

@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Iterator
 
 import numpy as np
 import pytest
 from oirfile import METADATA
 
+from acqstore.acq_image.acq_image import AcqImage
 from acqstore.acq_image.file_loaders.oir_file_loader import (
     OirFileLoader,
     _enabled_axes_from_lsmimage_xml,
@@ -63,6 +65,7 @@ class _FakeOirScene:
         coord_scales: dict[str, float],
         coords: dict[str, np.ndarray] | None = None,
         lsmimage_xml: str | None = None,
+        coords_raises: bool = False,
     ) -> None:
         self.dims = dims
         self.sizes = sizes
@@ -70,12 +73,19 @@ class _FakeOirScene:
         self.dtype = np.dtype(np.uint16)
         self.coord_units = coord_units
         self.coord_scales = coord_scales
-        self.coords = coords or {}
+        self._coords = coords or {}
+        self._coords_raises = coords_raises
         self.datetime = None
         if lsmimage_xml is None:
             self.xml_metadata = MappingProxyType({})
         else:
             self.xml_metadata = MappingProxyType({METADATA.LSMIMAGE: [lsmimage_xml]})
+
+    @property
+    def coords(self) -> dict[str, np.ndarray]:
+        if self._coords_raises:
+            raise AssertionError("coords should not be accessed when coord_scales are complete")
+        return self._coords
 
 
 def test_oir_reference_image_populates_scan_path_from_line_roi() -> None:
@@ -128,6 +138,70 @@ def test_physical_units_for_oir_header_relabels_y_for_line_scan_kymograph() -> N
 
     assert labels == ("seconds", "µm")
     assert units == (pytest.approx(0.000535), pytest.approx(0.0114))
+
+
+def test_physical_units_for_oir_header_skips_coords_when_scales_complete() -> None:
+    """Header calibration avoids ``coords`` when ``coord_scales`` covers every dim."""
+    scene = _FakeOirScene(
+        dims=("Y", "X"),
+        sizes={"Y": 30000, "X": 24},
+        coord_units={"Y": "µm", "X": "µm"},
+        coord_scales={"Y": 0.000535, "X": 0.0114},
+        lsmimage_xml=_TIMELAPSE_AXIS_XML,
+        coords_raises=True,
+    )
+
+    units, labels = _physical_units_for_oir_header(scene)
+
+    assert labels == ("seconds", "µm")
+    assert units == (pytest.approx(0.000535), pytest.approx(0.0114))
+
+
+@pytest.mark.skipif(not _KYMOGRAPH.is_file(), reason="kymograph OIR fixture missing")
+def test_oir_has_reference_image_cached_without_decoding_reference() -> None:
+    """Reference existence is probed during header read without loading pixels."""
+    loader = OirFileLoader(str(_KYMOGRAPH))
+
+    assert loader.has_reference_image is True
+    assert loader._referenceImage is None
+
+
+@pytest.mark.skipif(not _KYMOGRAPH.is_file(), reason="kymograph OIR fixture missing")
+def test_get_schema_row_uses_cached_reference_probe_without_reopening_oir(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """File-list schema rows do not reopen OIR files just to populate reference emoji."""
+    open_count = 0
+    real_open = OirFileLoader._open_oir
+
+    @contextmanager
+    def _counting_open(self: OirFileLoader) -> Iterator[Any]:
+        nonlocal open_count
+        open_count += 1
+        with real_open(self) as oir:
+            yield oir
+
+    monkeypatch.setattr(OirFileLoader, "_open_oir", _counting_open)
+
+    acq = AcqImage(str(_KYMOGRAPH), load_images=False, load_analysis_csv=False)
+    assert open_count == 1
+
+    open_count = 0
+    row = acq.get_schema_row()
+
+    assert row["reference_image"] == "✅"
+    assert open_count == 0
+
+
+@pytest.mark.skipif(not _KYMOGRAPH.is_file(), reason="kymograph OIR fixture missing")
+def test_oir_reference_image_still_decodes_lazily() -> None:
+    """Explicit reference access still builds a decoded snapshot on demand."""
+    loader = OirFileLoader(str(_KYMOGRAPH))
+
+    reference = loader.reference_image
+
+    assert reference is not None
+    assert reference.array.ndim >= 2
 
 
 @pytest.mark.skipif(not _KYMOGRAPH.is_file(), reason="kymograph OIR fixture missing")

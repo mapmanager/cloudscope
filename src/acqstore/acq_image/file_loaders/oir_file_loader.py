@@ -185,7 +185,7 @@ def _physical_units_for_oir_header(scene: Any) -> tuple[tuple[Any, ...], tuple[s
     dims = tuple(str(d) for d in scene.dims)
     coord_units: dict[str, str] = dict(scene.coord_units)
     coord_scales: dict[str, float] = dict(scene.coord_scales)
-    coords = scene.coords
+    coords: Any | None = None
     y_is_timelapse_line_scan = _is_y_timelapse_line_scan_axis(scene)
 
     physical_units: list[Any] = []
@@ -193,6 +193,8 @@ def _physical_units_for_oir_header(scene: Any) -> tuple[tuple[Any, ...], tuple[s
     for dim in dims:
         step = coord_scales.get(dim)
         if step is None:
+            if coords is None:
+                coords = scene.coords
             step = _step_from_coord(coords.get(dim))
         physical_units.append(step)
 
@@ -306,6 +308,7 @@ class OirFileLoader(BaseFileLoader):
     """
 
     def __init__(self, path: str, header: ImageHeader | None = None) -> None:
+        self._has_reference_image = False
         super().__init__(path, header)
 
     @contextmanager
@@ -318,6 +321,15 @@ class OirFileLoader(BaseFileLoader):
         else:
             with oirfile.OirFile(self.path) as oir:
                 yield oir
+
+    @property
+    def has_reference_image(self) -> bool:
+        """Return whether the OIR file has a reference attachment without decoding it.
+
+        Returns:
+            ``True`` when reference metadata was present during header read.
+        """
+        return self._has_reference_image
 
     @property
     def reference_image(self) -> ReferenceImage | None:
@@ -346,6 +358,7 @@ class OirFileLoader(BaseFileLoader):
     def _read_oir_header(self) -> ImageHeader:
         logical = self.path
         with self._open_oir() as oir_file:
+            self._has_reference_image = oir_file.reference is not None
             return _image_header_from_oir_scene(logical, oir_file, num_scenes=1)
 
     def _load_full_image_array(self) -> np.ndarray:

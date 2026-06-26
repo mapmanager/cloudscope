@@ -489,6 +489,18 @@ class BaseFileLoader:
         return self._header
 
     @property
+    def has_reference_image(self) -> bool:
+        """Return whether this file has a reference image.
+
+        Subclasses may override with a cheaper metadata-only probe. The default
+        loads or inspects :attr:`reference_image`.
+
+        Returns:
+            ``True`` when a reference image is available.
+        """
+        return self.reference_image is not None
+
+    @property
     def reference_image(self) -> ReferenceImage | None:
         """Return a reference image.
         """
