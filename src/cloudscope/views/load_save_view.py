@@ -340,7 +340,7 @@ class LoadSaveView(BaseView):
         if preset_path is None:
             return
 
-        item = ui.menu_item('Load Manning Velocity 2026', self._on_load_manning_preset_clicked)
+        item = ui.menu_item('Load Manuscript Velocity 2026', self._on_load_manning_preset_clicked)
         if not is_loadable_preset_folder(preset_path):
             item.disable()
 
