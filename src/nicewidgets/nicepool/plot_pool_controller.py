@@ -1337,8 +1337,25 @@ class PlotPoolController:
             self._last_plot_type = state.plot_type
             
             # logger.info(f"Plot {self.current_plot_index + 1} updated successfully")
+        except (PlotConfigurationError, PlotDataError) as ex:
+            logger.warning("Plot error for plot %s: %s", self.current_plot_index + 1, ex)
+            ui.notify(str(ex), type="warning")
+            figure_dict = empty_plotly_figure(str(ex))
+            layout = figure_dict.setdefault("layout", {})
+            if isinstance(layout, dict):
+                apply_plotly_theme_to_layout(layout, self.figure_generator._theme)
+            if plot_type_changed:
+                self._rebuild_plot_panel()
+            else:
+                self._plots[self.current_plot_index].update_figure(figure_dict)
+                self._plots[self.current_plot_index].update()
+            self._last_plot_type = state.plot_type
         except Exception as ex:
             logger.exception(f"Error replotting plot {self.current_plot_index + 1}: {ex}")
+            ui.notify(
+                f"Could not update plot {self.current_plot_index + 1}: {ex}",
+                type="negative",
+            )
     
     def _replot_all(self) -> None:
         """Replot all visible plots based on current layout."""
@@ -1379,6 +1396,7 @@ class PlotPoolController:
                 selected_row_ids=selected_row_ids or self._selection_handler.get_selected_row_ids() or None,
             )
         except (PlotConfigurationError, PlotDataError) as exc:
+            logger.warning("Plot error: %s", exc)
             ui.notify(str(exc), type="warning")
             figure_dict = empty_plotly_figure(str(exc))
             layout = figure_dict.setdefault("layout", {})

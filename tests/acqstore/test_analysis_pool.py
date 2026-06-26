@@ -8,6 +8,7 @@ import pandas as pd
 
 from acqstore.acq_image.acq_analysis_set import AcqAnalysisSet
 from acqstore.acq_image.acq_image_list import AcqImageList
+from acqstore.acq_image.metadata import ExperimentMetadata
 from acqstore.acq_image.analysis.event_analysis.event_analysis import EventAnalysis
 from acqstore.acq_image.analysis.heart_rate_analysis.heart_rate_analysis import HeartRateAnalysis
 from acqstore.acq_image.analysis.velocity_analysis.radon_velocity_analysis import (
@@ -48,6 +49,21 @@ class _PoolFakeAcqImage:
         self.images = _FakeImages()
         self.rois = _FakeRois([1])
         self.analysis_set = AcqAnalysisSet(self.path)
+        self._experimental_metadata = ExperimentMetadata(
+            genotype='wt',
+            age='P30',
+            sex='F',
+            branch_order=2,
+            direction='upstream',
+            depth=45.0,
+            note='good quality',
+        )
+
+    def get_metadata_section(self, metadata_section_id: str) -> ExperimentMetadata:
+        """Return experiment metadata for pool base-row tests."""
+        if metadata_section_id == ExperimentMetadata.metadata_section_id:
+            return self._experimental_metadata
+        raise ValueError(f'Unknown metadata section_id: {metadata_section_id!r}')
 
     def get_schema_row(self) -> dict[str, object]:
         """Return file-list schema values used by the pool."""
@@ -156,6 +172,12 @@ def test_velocity_analysis_pool_creates_seed_rows_without_analysis(tmp_path: Pat
     assert "event_num_events" in df.columns
     assert "velocity_velocity_mean" not in df.columns
     assert pd.isna(df.loc[0, "velocity_mean"])
+    assert df.loc[0, "age"] == "P30"
+    assert df.loc[0, "sex"] == "F"
+    assert df.loc[0, "branch_order"] == 2
+    assert df.loc[0, "direction"] == "upstream"
+    assert df.loc[0, "depth"] == 45.0
+    assert df.loc[0, "note"] == "good quality"
 
 
 def test_velocity_analysis_pool_refreshes_one_row_from_summaries(tmp_path: Path) -> None:

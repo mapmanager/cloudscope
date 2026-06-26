@@ -8,6 +8,7 @@ import pytest
 from nicewidgets.nicepool.plot_errors import (
     PlotConfigurationError,
     PlotDataError,
+    _format_plot_error_text,
     empty_plotly_figure,
     require_categorical_group_col,
     require_histogram_x_values,
@@ -35,3 +36,28 @@ def test_empty_plotly_figure_includes_message_annotation() -> None:
 
     assert fig["data"] == []
     assert fig["layout"]["annotations"][0]["text"] == "Choose another Group column."
+
+
+def test_format_plot_error_text_wraps_long_messages() -> None:
+    """Long plot errors should wrap with Plotly line breaks."""
+    message = (
+        "Column 'branch_order' has mixed value types (int, str) and cannot be used as "
+        "group axis. Use consistent metadata types or choose another column."
+    )
+
+    wrapped = _format_plot_error_text(message, width=40)
+
+    assert "<br>" in wrapped
+    assert all(len(line) <= 40 for line in wrapped.split("<br>"))
+
+
+def test_empty_plotly_figure_wraps_long_message_in_annotation() -> None:
+    """Plot annotation text should be wrapped for narrow plot panels."""
+    message = (
+        "Column 'branch_order' has mixed value types (int, str) and cannot be used as "
+        "group axis. Use consistent metadata types or choose another column."
+    )
+
+    fig = empty_plotly_figure(message, wrap_width=40)
+
+    assert "<br>" in fig["layout"]["annotations"][0]["text"]

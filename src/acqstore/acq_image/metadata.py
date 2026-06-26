@@ -51,6 +51,15 @@ EXPERIMENT_METADATA_SCHEMA = SchemaDefinition(
             group='Animal',
         ),
         FieldSchema(
+            name='age',
+            display_name='Age',
+            value_type=ValueType.STR,
+            default_value='',
+            description='Animal age label (e.g., P30, 8 weeks).',
+            editable=True,
+            group='Animal',
+        ),
+        FieldSchema(
             name='region',
             display_name='Region',
             value_type=ValueType.STR,
@@ -349,6 +358,7 @@ class ExperimentMetadata:
         direction: Flow direction or vessel orientation.
         sex: Animal sex.
         genotype: Genetic background or modification.
+        age: Animal age label (e.g., P30, 8 weeks).
         condition: Experimental condition or treatment.
         condition2: Second condition field.
         treatment: Treatment applied.
@@ -368,6 +378,7 @@ class ExperimentMetadata:
     direction: str = ''
     sex: str = ''
     genotype: str = ''
+    age: str = ''
     condition: str = ''
     condition2: str = ''
     treatment: str = ''
@@ -401,6 +412,7 @@ class ExperimentMetadata:
                 'direction',
                 'sex',
                 'genotype',
+                'age',
                 'condition',
                 'condition2',
                 'treatment',

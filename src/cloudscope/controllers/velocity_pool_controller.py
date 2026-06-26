@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from acqstore.acq_image.analysis.batch.types import BatchFileOutcome
+from acqstore.acq_image.metadata import ExperimentMetadata
 
 from cloudscope.controllers.home_page_controller import HomePageController
 from cloudscope.event_bus import EventBus
@@ -22,6 +23,7 @@ from cloudscope.events.analysis import (
     BatchFileAnalysisCompleted,
 )
 from cloudscope.events.files import FileListChanged
+from cloudscope.events.metadata import MetadataChanged
 from cloudscope.events.roi import RoiChanged, RoiChangeKind
 from cloudscope.events.velocity_pool import VelocityPoolChanged, VelocityPoolChangeKind
 from cloudscope.state import PrimarySelection
@@ -50,6 +52,7 @@ class VelocityPoolController:
         self.event_bus.subscribe(AnalysisChanged, self._on_analysis_changed)
         self.event_bus.subscribe(BatchFileAnalysisCompleted, self._on_batch_file_completed)
         self.event_bus.subscribe(RoiChanged, self._on_roi_changed)
+        self.event_bus.subscribe(MetadataChanged, self._on_metadata_changed)
 
     def _on_file_list_changed(self, event: FileListChanged) -> None:
         """Rebuild the pool after the loaded file list changes.
@@ -143,6 +146,31 @@ class VelocityPoolController:
         if channel is None:
             return
         self._refresh_row(file_id=file_id, channel=int(channel), roi_id=int(roi_id))
+
+    def _on_metadata_changed(self, event: MetadataChanged) -> None:
+        """Refresh pool rows after experiment metadata edits.
+
+        Args:
+            event: Metadata changed event for one file section.
+
+        Returns:
+            None.
+        """
+        if event.metadata_section_id != ExperimentMetadata.metadata_section_id:
+            return
+        pool = self._velocity_pool()
+        if pool is None:
+            return
+        df = pool.get_dataframe(copy=False)
+        if df.empty or "path" not in df.columns:
+            return
+        matching = df.loc[df["path"] == event.file_id]
+        for _, row in matching.iterrows():
+            self._refresh_row(
+                file_id=event.file_id,
+                channel=int(row["channel"]),
+                roi_id=int(row["roi_id"]),
+            )
 
     def _refresh_selection_row(self, selection: PrimarySelection) -> None:
         """Refresh the pool row for a complete selection.

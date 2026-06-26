@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, ClassVar
 import pandas as pd
 
 from acqstore.acq_image.analysis.model import AnalysisKey, BaseAnalysis
+from acqstore.acq_image.metadata import ExperimentMetadata
 
 if TYPE_CHECKING:
     from acqstore.acq_image.acq_image import AcqImage
@@ -60,6 +61,14 @@ class AnalysisPool:
         acq_image_list: Collection that owns this pool.
     """
 
+    experiment_metadata_columns: tuple[str, ...] = (
+        "age",
+        "sex",
+        "branch_order",
+        "direction",
+        "depth",
+        "note",
+    )
     base_columns: tuple[str, ...] = (
         "pool_row_id",
         "pool_row",
@@ -69,6 +78,12 @@ class AnalysisPool:
         "grandparent",
         "condition",
         "genotype",
+        "age",
+        "sex",
+        "branch_order",
+        "direction",
+        "depth",
+        "note",
         "accept",
         "channel",
         "roi_id",
@@ -319,7 +334,8 @@ class AnalysisPool:
         schema_row = acq_image.get_schema_row()
         step_y, step_x = self._safe_physical_units(acq_image)
         file_id = str(getattr(acq_image, "file_id", schema_row.get("path", "")))
-        return {
+        exp_values = self._experiment_metadata_values(acq_image)
+        row = {
             "pool_row_id": self.build_pool_row_id(file_id, channel=channel, roi_id=roi_id),
             "pool_row": 0,
             "name": schema_row.get("name", Path(file_id).name),
@@ -334,6 +350,35 @@ class AnalysisPool:
             "step_y": step_y,
             "step_x": step_x,
         }
+        for column in self.experiment_metadata_columns:
+            row[column] = self._pool_value(exp_values.get(column, pd.NA))
+        return row
+
+    def _experiment_metadata_values(self, acq_image: AcqImage) -> dict[str, object]:
+        """Return experiment-metadata values for pool base columns.
+
+        Args:
+            acq_image: Acquisition image whose experiment metadata should be read.
+
+        Returns:
+            Mapping from experiment-metadata field name to backend value.
+        """
+        section = acq_image.get_metadata_section(ExperimentMetadata.metadata_section_id)
+        return section.get_values()
+
+    @staticmethod
+    def _pool_value(value: object) -> object:
+        """Normalize one backend metadata value for pool DataFrame storage.
+
+        Args:
+            value: Raw backend metadata value.
+
+        Returns:
+            ``pandas.NA`` when ``value`` is ``None``; otherwise the value unchanged.
+        """
+        if value is None:
+            return pd.NA
+        return value
 
     def _safe_physical_units(self, acq_image: AcqImage) -> tuple[object, object]:
         getter = getattr(acq_image, "get_image_physical_units", None)

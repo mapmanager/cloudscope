@@ -15,6 +15,14 @@ from acqstore.acq_image.metadata import (
 from acqstore.schema import ACQ_FILE_LIST_SCHEMA, ValueType, validate_values_for_schema
 
 
+def test_experiment_metadata_age_defaults_to_empty_string() -> None:
+    m = ExperimentMetadata()
+    assert m.age == ''
+    row = m.get_values()
+    validate_values_for_schema(EXPERIMENT_METADATA_SCHEMA, row)
+    assert row['age'] == ''
+
+
 def test_experiment_metadata_get_values_matches_schema() -> None:
     m = ExperimentMetadata(species='mouse', depth=1.5, branch_order=2)
     row = m.get_values()

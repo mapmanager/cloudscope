@@ -18,6 +18,7 @@ from nicewidgets.nicepool.dataframe_processor import DataFrameProcessor
 from nicewidgets.nicepool.plot_errors import (
     PlotConfigurationError,
     PlotDataError,
+    prepare_categorical_column,
     require_categorical_group_col,
     require_group_col,
     require_histogram_x_values,
@@ -227,13 +228,17 @@ class FigureGenerator:
 
         Returns a Series with tmp.index and dtype float (jittered x positions).
         """
-        unique_cats = sorted(tmp["x"].astype(str).unique())
+        unique_cats = sorted(
+            prepare_categorical_column(tmp["x"], column_name="x", role="group axis")[1]
+        )
         cat_to_pos = {cat: i for i, cat in enumerate(unique_cats)}
         jitter_amount = state.swarm_jitter_amount
         result = pd.Series(index=tmp.index, dtype=float)
 
         if "color" in tmp.columns:
-            unique_colors = sorted(tmp["color"].astype(str).unique())
+            unique_colors = sorted(
+                prepare_categorical_column(tmp["color"], column_name="color", role="color grouping")[1]
+            )
             num_colors = len(unique_colors)
             group_offset_amount = state.swarm_group_offset
             for color_idx, (color_value, sub) in enumerate(tmp.groupby("color", sort=True)):
@@ -304,7 +309,13 @@ class FigureGenerator:
                 state.use_remove_values, state.remove_values_threshold
             )
         x_series = df_f[state.xcol]
-        unique_cats = sorted(x_series.dropna().astype(str).unique())
+        unique_cats = sorted(
+            prepare_categorical_column(
+                x_series.dropna(),
+                column_name=state.xcol,
+                role="x axis category",
+            )[1]
+        )
         cat_to_pos = {c: i for i, c in enumerate(unique_cats)}
         return x_series.astype(str).map(cat_to_pos).astype(float)
 
@@ -316,14 +327,23 @@ class FigureGenerator:
         Includes group offset to match visual positioning.
         """
         # Use group_col for x-axis (categorical grouping)
-        x_cat = df_f[state.group_col].astype(str)
-        unique_cats = sorted(x_cat.unique())
+        x_cat, unique_cats = prepare_categorical_column(
+            df_f[state.group_col],
+            column_name=state.group_col,
+            role="group axis",
+        )
         cat_to_pos = {cat: i for i, cat in enumerate(unique_cats)}
         jitter_amount = state.swarm_jitter_amount
         
         if state.color_grouping and state.color_grouping in df_f.columns:
             # Get all unique color values to calculate offset per group (match _figure_swarm)
-            unique_colors = sorted(df_f[state.color_grouping].astype(str).unique())
+            unique_colors = sorted(
+                prepare_categorical_column(
+                    df_f[state.color_grouping],
+                    column_name=state.color_grouping,
+                    role="color grouping",
+                )[1]
+            )
             num_colors = len(unique_colors)
             group_offset_amount = state.swarm_group_offset  # Match the offset used in _figure_swarm
             
@@ -819,15 +839,16 @@ class FigureGenerator:
             selected_row_ids: If set, these row_ids are shown as a selection overlay.
         """
         # Use group_col for x-axis (categorical grouping)
-        x_cat = df_f[state.group_col].astype(str)
+        x_cat, unique_cats = prepare_categorical_column(
+            df_f[state.group_col],
+            column_name=state.group_col,
+            role="group axis",
+        )
         y = self.data_processor.get_y_values(
             df_f, state.ycol, state.use_absolute_value,
             state.use_remove_values, state.remove_values_threshold
         )
         row_ids = df_f[self.unique_row_id_col].astype(str)
-
-        # Get unique categorical values and create mapping to numeric positions
-        unique_cats = sorted(x_cat.unique())
         cat_to_pos = {cat: i for i, cat in enumerate(unique_cats)}
         
         # Jitter parameters - use user-controllable amount
@@ -846,7 +867,12 @@ class FigureGenerator:
         else:
             tmp_data["file_stem"] = pd.Series("", index=df_f.index)
         if state.color_grouping and state.color_grouping in df_f.columns:
-            tmp_data["color"] = df_f[state.color_grouping].astype(str)
+            color_labels, _unique_colors = prepare_categorical_column(
+                df_f[state.color_grouping],
+                column_name=state.color_grouping,
+                role="color grouping",
+            )
+            tmp_data["color"] = color_labels
         tmp = pd.DataFrame(tmp_data).dropna(subset=["x"])
         
         # Calculate y-axis range from raw data (for preserving range when show_raw is off)
