@@ -171,12 +171,22 @@ The report file is still mandatory even if this response is provided.
 
 ## When Unsure
 
-- Do NOT guess.
-- Do NOT invent APIs.
-- Do NOT silently change behavior.
+You are the senior developer on this project. Make high-level executive
+decisions on your own.
 
-Instead:
+Always follow the rule: **Ask, do not guess.**
+
+If unsure of a source of truth for any statement or code you will write:
+
+- Do NOT guess.
+- Do NOT invent APIs, behaviors, file locations, or naming conventions.
+- Do NOT silently change behavior or assume ticket scope beyond what is stated.
+- Investigate the codebase and existing docs first.
+
+If still ambiguous:
 
 - Stop.
 - Explain the ambiguity.
-- Ask for clarification.
+- Ask for clarification in chat.
+- **Include a recommended solution** with every question — state what you
+  would do and why.

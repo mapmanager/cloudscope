@@ -525,7 +525,7 @@ class HomePage:
                         splitter_manager.register(SplitterId.FILE_LIST, file_list_splitter)
 
                         with file_list_splitter.before:
-                            with ui.column().classes(_content_column_classes()):
+                            with ui.column().classes(_fill_column_classes()):
                                 load_save_view.build()
                                 view_manager.register(load_save_view)
 

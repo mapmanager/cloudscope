@@ -397,3 +397,42 @@ def test_forwards_enabled_state_to_tree() -> None:
 
     assert view._tree is not None
     assert view._tree.enabled is False
+
+
+def test_build_passes_sized_parent_to_tree_widget(monkeypatch) -> None:
+    """Tree build should use a flex fill container, not TreeWidget's 24rem default."""
+    from unittest.mock import MagicMock
+
+    import cloudscope.views.file_list_tree_view as tree_view_mod
+
+    captured: dict[str, object] = {}
+    mock_root = MagicMock()
+
+    class CapturingTreeWidget:
+        def __init__(self, **kwargs: object) -> None:
+            pass
+
+        def build(self, parent: object | None = None) -> MagicMock:
+            captured['parent'] = parent
+            return MagicMock()
+
+    mock_column = MagicMock()
+    mock_with_classes = MagicMock()
+    mock_with_classes.__enter__ = MagicMock(return_value=mock_root)
+    mock_with_classes.__exit__ = MagicMock(return_value=False)
+    mock_column.classes.return_value = mock_with_classes
+
+    monkeypatch.setattr(tree_view_mod, 'TreeWidget', CapturingTreeWidget)
+    monkeypatch.setattr(tree_view_mod, 'schema_to_column_defs', lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(tree_view_mod.ui, 'column', lambda: mock_column)
+
+    view = AcqImageListTreeView(
+        event_bus=EventBus(),
+        table_font_size_px=13,
+        initially_visible=False,
+    )
+    built_root = view.build()
+
+    assert captured['parent'] is mock_root
+    assert built_root is mock_root
+    mock_column.classes.assert_called_once_with(tree_view_mod._FILE_TREE_ROOT_CLASSES)

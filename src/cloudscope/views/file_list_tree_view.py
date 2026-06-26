@@ -46,6 +46,10 @@ from nicewidgets.tree_widget.tree_widget import TreeWidget
 
 logger = get_logger(__name__)
 
+_FILE_TREE_ROOT_CLASSES = (
+    'w-full flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col'
+)
+
 
 _TREE_CHEVRON_COLUMN_FIELD = "name"
 """Schema field that hosts the AG Grid disclosure chevron in the tree view.
@@ -133,7 +137,17 @@ class AcqImageListTreeView(BaseView):
             ),
             path_field=ACQ_TREE_PATH_FIELD,
         )
-        self.root = self._tree.build(parent=parent)
+
+        def _build() -> None:
+            with ui.column().classes(_FILE_TREE_ROOT_CLASSES) as self.root:
+                self._tree.build(parent=self.root)
+
+        if parent is None:
+            _build()
+        else:
+            with parent:
+                _build()
+
         self.after_build()
         return self.root
 
