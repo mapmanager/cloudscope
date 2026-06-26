@@ -99,6 +99,8 @@ class LoadSaveView(BaseView):
         super().__init__(event_bus=event_bus, app_state=None, initially_visible=initially_visible)
         self.app_config = app_config
         self.user_context = user_context
+        self._load_file_button: ui.button | None = None
+        self._load_folder_button: ui.button | None = None
         self._save_selected_button: ui.button | None = None
         self._save_all_button: ui.button | None = None
         self._client = None
@@ -179,8 +181,18 @@ class LoadSaveView(BaseView):
             ).props('flat')
             self._build_recent_menu()
 
-        ui.button('Load File', on_click=lambda: self._on_load_clicked(LoadPathKind.FILE))
-        ui.button('Load Folder', on_click=lambda: self._on_load_clicked(LoadPathKind.FOLDER))
+        self._load_file_button = ui.button(
+            'Load File',
+            on_click=lambda: self._on_load_clicked(LoadPathKind.FILE),
+        )
+        self._load_folder_button = ui.button(
+            'Load Folder',
+            on_click=lambda: self._on_load_clicked(LoadPathKind.FOLDER),
+        )
+        if not self._local_path_pickers_enabled():
+            picker_hint = 'Local file picker is available in the desktop app'
+            self._load_file_button.tooltip(picker_hint)
+            self._load_folder_button.tooltip(picker_hint)
         self._build_upload_control()
 
         self._save_selected_button = ui.button(
@@ -581,6 +593,20 @@ class LoadSaveView(BaseView):
                 self._save_selected_button.enable()
         if self._save_all_button is not None:
             self._save_all_button.enable()
+
+        picker_enabled = self._local_path_pickers_enabled()
+        for load_button in (self._load_file_button, self._load_folder_button):
+            if load_button is None:
+                continue
+            if picker_enabled:
+                load_button.enable()
+            else:
+                load_button.disable()
+
+    @classmethod
+    def _local_path_pickers_enabled(cls) -> bool:
+        """Return whether Load File/Folder should open the native file picker."""
+        return cls._is_native_mode()
 
     @staticmethod
     def _is_native_mode() -> bool:

@@ -259,6 +259,65 @@ def test_update_button_states_tolerates_missing_buttons(tmp_path) -> None:
     view._update_button_states()
 
 
+def test_update_button_states_disables_load_buttons_when_not_native(tmp_path, monkeypatch) -> None:
+    """Load File/Folder should be disabled when native pickers are unavailable."""
+    monkeypatch.setattr(LoadSaveView, '_is_native_mode', staticmethod(lambda: False))
+    view = _new_view(tmp_path)
+    view._load_file_button = _FakeButton()
+    view._load_folder_button = _FakeButton()
+    view._save_selected_button = _FakeButton()
+    view._save_all_button = _FakeButton()
+
+    view._update_button_states()
+
+    assert view._load_file_button.enabled is False
+    assert view._load_folder_button.enabled is False
+
+
+def test_update_button_states_enables_load_buttons_in_native_mode(tmp_path, monkeypatch) -> None:
+    """Load File/Folder should stay enabled when native pickers are available."""
+    monkeypatch.setattr(LoadSaveView, '_is_native_mode', staticmethod(lambda: True))
+    view = _new_view(tmp_path)
+    view._load_file_button = _FakeButton()
+    view._load_folder_button = _FakeButton()
+    view._load_file_button.disable()
+    view._load_folder_button.disable()
+
+    view._update_button_states()
+
+    assert view._load_file_button.enabled is True
+    assert view._load_folder_button.enabled is True
+
+
+def test_update_button_states_keeps_load_buttons_disabled_after_save_refresh(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Busy/selection refresh must not re-enable load buttons on web/server runs."""
+    monkeypatch.setattr(LoadSaveView, '_is_native_mode', staticmethod(lambda: False))
+    view = _new_view(tmp_path)
+    view._load_file_button = _FakeButton()
+    view._load_folder_button = _FakeButton()
+    view._save_selected_button = _FakeButton()
+    view._save_all_button = _FakeButton()
+    view.get_selected_acq_image = lambda: _fake_acq_image(is_dirty=True)  # type: ignore[method-assign]
+    view.selected_acq_image_is_dirty = lambda: True  # type: ignore[method-assign]
+
+    view._update_button_states()
+
+    assert view._load_file_button.enabled is False
+    assert view._load_folder_button.enabled is False
+    assert view._save_selected_button.enabled is True
+
+
+def test_local_path_pickers_enabled_matches_native_mode(monkeypatch) -> None:
+    """``_local_path_pickers_enabled`` should mirror ``_is_native_mode``."""
+    monkeypatch.setattr(LoadSaveView, '_is_native_mode', staticmethod(lambda: True))
+    assert LoadSaveView._local_path_pickers_enabled() is True
+    monkeypatch.setattr(LoadSaveView, '_is_native_mode', staticmethod(lambda: False))
+    assert LoadSaveView._local_path_pickers_enabled() is False
+
+
 def test_load_sample_data_clicked_publishes_default_sample_intent(tmp_path) -> None:
     from cloudscope.events.files import LoadSampleDataIntent
 
