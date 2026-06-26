@@ -10,7 +10,7 @@ import numpy as np
 from nicegui import run, ui
 
 from acqstore.acq_image.acq_image import AcqImage
-from acqstore.acq_image.file_loaders.base_file_loader import ReferenceImagePlane
+from acqstore.acq_image.file_loaders.base_file_loader import ReferenceImage, ReferenceImagePlane
 from acqstore.acq_image.image_contrast import contrast_clip_min_max
 from cloudscope.event_bus import EventBus
 from cloudscope.events.theme import ThemeChanged
@@ -28,6 +28,7 @@ from nicewidgets.raster_viewer.frontend.plotly_display_options import (
     PlotlyRasterViewerDisplayOptions,
 )
 from nicewidgets.raster_viewer.frontend.plotly_viewer import PlotlyRasterViewer
+from nicewidgets.raster_viewer.frontend.trace_overlay import PlotlyTraceOverlay
 
 logger = get_logger(__name__)
 
@@ -36,6 +37,9 @@ logger = get_logger(__name__)
 # at full pyramid resolution, so the static overview PNG matches the crisp
 # zoomed-in heatmap instead of a coarse box-averaged thumbnail.
 _REFERENCE_OVERVIEW_MAX_PIXELS = 4_000_000
+_SCAN_PATH_TRACE_ID = 'scan_path'
+_SCAN_PATH_TRACE_COLOR = 'cyan'
+_SCAN_PATH_LINE_WIDTH = 4.0
 
 
 def raster_grid_spec_from_reference_plane(plane: ReferenceImagePlane) -> RasterGridSpec:
@@ -134,6 +138,50 @@ def _load_reference_display_payload(
 
     entry = cache.get_or_build(key, plane_loader=_load_plane)
     return entry.plane, grid, entry.pyramid, message, is_real_reference
+
+
+def scan_path_to_plotly_overlays(
+    reference_image: ReferenceImage,
+    *,
+    grid: RasterGridSpec,
+) -> list[PlotlyTraceOverlay]:
+    """Translate a reference-image scan path to Plotly trace overlays.
+
+    AcqStore exposes scan-path pixel coordinates as ``(x_pixels, y_pixels)``
+    where ``x`` is the reference-image column axis and ``y`` is the row axis.
+    The raster viewer maps rows to Plotly x and columns to Plotly y.
+
+    Args:
+        reference_image: AcqStore reference image snapshot.
+        grid: Raster grid for the displayed reference plane.
+
+    Returns:
+        One overlay when a scan path is available, otherwise an empty list.
+
+    Raises:
+        ValueError: If the stored scan path is not shaped as ``(2, N)``.
+    """
+    if not reference_image.has_scan_path():
+        return []
+    scan_path_xy = reference_image.get_scan_path_plot()
+    if scan_path_xy is None:
+        return []
+    x_pixels, y_pixels = scan_path_xy
+    plotly_x = tuple(float(value) * grid.dx for value in y_pixels)
+    plotly_y = tuple(float(value) * grid.dy for value in x_pixels)
+    return [
+        PlotlyTraceOverlay(
+            trace_id=_SCAN_PATH_TRACE_ID,
+            x=plotly_x,
+            y=plotly_y,
+            color=_SCAN_PATH_TRACE_COLOR,
+            line_width=_SCAN_PATH_LINE_WIDTH,
+            name='Scan path',
+            mode='lines+markers',
+            # TODO may want to switch back to just plotly_type 'scatter'.
+            plotly_type='scattergl',
+        )
+    ]
 
 
 def reference_contrast_window(plane: np.ndarray) -> tuple[float, float] | None:
@@ -399,10 +447,38 @@ class ReferenceImageView(BaseView):
                     overview_max_pixels=_REFERENCE_OVERVIEW_MAX_PIXELS,
                 )
             await self._apply_reference_contrast(plane)
-        except RuntimeError as exc:
-            logger.exception('Reference image set_data failed: %s', exc)
+            self._refresh_scan_path_trace_overlays(acq_image=acq_image, grid=grid)
+        except (RuntimeError, ValueError) as exc:
+            logger.exception('Reference image display refresh failed: %s', exc)
             err_msg = str(exc)
             self._run_ui(lambda: ui.notify(err_msg, type='negative'))
+
+    def _refresh_scan_path_trace_overlays(
+        self,
+        *,
+        acq_image: AcqImage | None,
+        grid: RasterGridSpec | None,
+    ) -> None:
+        """Push reference-image scan-path trace overlays into the Plotly viewer.
+
+        Args:
+            acq_image: Current acquisition image, or None.
+            grid: Current raster viewer grid, or None.
+
+        Returns:
+            None.
+
+        Raises:
+            ValueError: If the stored scan path is not shaped as ``(2, N)``.
+        """
+        if acq_image is None or grid is None:
+            return
+        reference_image = acq_image.images.reference_image
+        if reference_image is None:
+            return
+        overlays = scan_path_to_plotly_overlays(reference_image, grid=grid)
+        if overlays:
+            self._viewer.set_trace_overlays(overlays)
 
     async def _apply_reference_contrast(self, plane: np.ndarray) -> None:
         """Bake a stable percentile contrast window into the reference PNG.

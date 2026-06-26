@@ -17,6 +17,7 @@ from cloudscope.views.reference_image_view import (
     _load_reference_plane_payload,
     raster_grid_spec_from_reference_plane,
     reference_contrast_window,
+    scan_path_to_plotly_overlays,
 )
 from cloudscope.views.view_ids import ViewId
 
@@ -230,3 +231,72 @@ def test_raster_grid_spec_from_reference_plane() -> None:
     assert grid.dy == plane.dy
     assert grid.x_unit == plane.x_unit
     assert grid.y_unit == plane.y_unit
+
+
+def test_scan_path_to_plotly_overlays_returns_empty_without_scan_path() -> None:
+    """Reference images without scan paths produce no trace overlays."""
+    reference = _reference_image()
+    grid = raster_grid_spec_from_reference_plane(reference.get_plane(0))
+
+    assert scan_path_to_plotly_overlays(reference, grid=grid) == []
+
+
+def test_scan_path_to_plotly_overlays_maps_pixels_to_plotly_coords() -> None:
+    """Scan-path pixel coordinates map to raster-viewer physical axes."""
+    reference = ReferenceImage(
+        array=np.zeros((8, 9), dtype=np.uint8),
+        dims=("Y", "X"),
+        num_channels=1,
+        line_roi=None,
+        coord_units=(("Y", "um"), ("X", "um")),
+        coord_scales=(("Y", 0.5), ("X", 0.25)),
+        coords=(),
+        scan_path=np.asarray([[1.0, 7.0], [2.0, 6.0]]),
+    )
+    grid = raster_grid_spec_from_reference_plane(reference.get_plane(0))
+
+    overlays = scan_path_to_plotly_overlays(reference, grid=grid)
+
+    assert len(overlays) == 1
+    overlay = overlays[0]
+    assert overlay.trace_id == 'scan_path'
+    assert overlay.mode == 'lines+markers'
+    assert overlay.color == 'cyan'
+    assert overlay.plotly_type == 'scattergl'
+    assert overlay.x == (1.0, 3.0)
+    assert overlay.y == (0.25, 1.75)
+
+
+def test_refresh_reference_async_set_trace_overlays_when_scan_path_exists(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A reference image with scan-path metadata loads a trace overlay."""
+    async def _direct_io_bound(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    import cloudscope.views.reference_image_view as reference_image_view_module
+
+    monkeypatch.setattr(reference_image_view_module.run, 'io_bound', _direct_io_bound)
+
+    reference = ReferenceImage(
+        array=np.arange(6, dtype=np.uint16).reshape(2, 3),
+        dims=("Y", "X"),
+        num_channels=1,
+        line_roi=None,
+        coord_units=(("Y", "um"), ("X", "um")),
+        coord_scales=(("Y", 0.5), ("X", 0.25)),
+        coords=(),
+        scan_path=np.asarray([[1.0, 2.0], [0.0, 1.0]]),
+    )
+    view = ReferenceImageView(EventBus())
+    view._viewer = MagicMock()
+    view._viewer.clear_data = AsyncMock()
+    view._viewer.set_data = AsyncMock()
+    view._apply_reference_contrast = AsyncMock()
+
+    asyncio.run(view._refresh_reference_async("file", _AcqImage(reference), 0))
+
+    view._viewer.set_trace_overlays.assert_called_once()
+    overlays = view._viewer.set_trace_overlays.call_args.args[0]
+    assert len(overlays) == 1
+    assert overlays[0].trace_id == 'scan_path'

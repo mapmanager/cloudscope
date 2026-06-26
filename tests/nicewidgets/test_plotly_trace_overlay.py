@@ -70,6 +70,28 @@ def test_trace_overlay_plotly_trace_has_metadata_and_optional_style() -> None:
     }
 
 
+def test_trace_overlay_lines_mode_emits_line_style() -> None:
+    """Line modes should emit Plotly line styling alongside marker color."""
+    layer = PlotlyTraceOverlayLayer()
+    layer.add_overlay(
+        PlotlyTraceOverlay(
+            trace_id='scan_path',
+            x=[0.0, 1.0],
+            y=[2.0, 3.0],
+            color='cyan',
+            line_width=2.0,
+            mode='lines+markers',
+            plotly_type='scattergl',
+        )
+    )
+
+    trace = layer.to_traces()[0]
+
+    assert trace['mode'] == 'lines+markers'
+    assert trace['marker'] == {'color': 'cyan'}
+    assert trace['line'] == {'color': 'cyan', 'width': 2.0}
+
+
 def test_trace_overlay_add_replaces_duplicate_and_delete_removes() -> None:
     """Adding duplicate trace ids should replace and delete should remove."""
     layer = PlotlyTraceOverlayLayer()

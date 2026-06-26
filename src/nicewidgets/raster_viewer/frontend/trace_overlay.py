@@ -19,8 +19,10 @@ class PlotlyTraceOverlay:
         trace_id: Stable overlay identifier.
         x: Plotly x coordinates in physical units.
         y: Plotly y coordinates in physical units.
-        color: Optional marker color.
-        line_width: Reserved for future line modes; not emitted for marker-only traces.
+        color: Optional marker and line color when the trace mode includes
+            markers and/or lines.
+        line_width: Optional line width in pixels when the trace mode includes
+            lines.
         name: Optional Plotly trace display name.
         visible: Whether the trace is visible.
         plotly_type: Plotly trace type used for rendering. Defaults to ``scattergl``
@@ -136,4 +138,12 @@ class PlotlyTraceOverlayLayer:
         }
         if overlay.color is not None:
             trace['marker'] = {'color': overlay.color}
+        if 'line' in overlay.mode:
+            line_style: dict[str, object] = {}
+            if overlay.color is not None:
+                line_style['color'] = overlay.color
+            if overlay.line_width is not None:
+                line_style['width'] = overlay.line_width
+            if line_style:
+                trace['line'] = line_style
         return trace
