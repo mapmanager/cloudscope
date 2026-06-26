@@ -59,3 +59,25 @@ def test_plot_preset_store_rejects_empty_name(tmp_path):
         assert "cannot be empty" in str(exc)
     else:
         raise AssertionError("Expected ValueError")
+
+
+def test_plot_preset_store_delete_existing_preset(tmp_path):
+    store = PlotPresetStore(path=tmp_path / "nicepoolplots.json")
+    store.upsert("plot a", {"layout": "1x1"})
+    store.upsert("plot b", {"layout": "1x2"})
+
+    deleted = store.delete(" plot a ")
+
+    assert deleted is True
+    assert store.names() == ["plot b"]
+    assert store.get("plot a") is None
+
+
+def test_plot_preset_store_delete_missing_preset_is_noop(tmp_path):
+    store = PlotPresetStore(path=tmp_path / "nicepoolplots.json")
+    store.upsert("plot a", {"layout": "1x1"})
+
+    deleted = store.delete("missing")
+
+    assert deleted is False
+    assert store.names() == ["plot a"]

@@ -318,6 +318,34 @@ class PlotPoolController:
         ui.notify(f"Saved plot preset {normalized!r}", type="positive")
         return True
 
+    def delete_plot_preset(self, name: str) -> bool:
+        """Delete a named plot preset from memory and disk.
+
+        The current toolbar and plot state are intentionally left unchanged.
+
+        Args:
+            name: Preset name selected in the control panel.
+
+        Returns:
+            True when a preset was removed and the JSON file was saved.
+        """
+        normalized = PlotPresetStore.normalize_name(name)
+        if not normalized:
+            ui.notify("No saved plot selected", type="warning")
+            return False
+        try:
+            deleted = self._plot_preset_store.delete(normalized)
+            if not deleted:
+                ui.notify(f"Plot preset {normalized!r} was not found", type="warning")
+                return False
+            self._plot_preset_store.save()
+        except Exception as exc:
+            logger.exception("Failed to delete NicePool plot preset %r: %s", normalized, exc)
+            ui.notify(f"Could not delete plot preset {normalized!r}", type="negative")
+            return False
+        ui.notify(f"Deleted plot preset {normalized!r}", type="positive")
+        return True
+
     def load_plot_preset(self, name: str) -> bool:
         """Load and apply a named plot preset from the in-memory store.
 
@@ -484,6 +512,7 @@ class PlotPoolController:
             get_plot_preset_names=self.get_plot_preset_names,
             on_plot_preset_selected=self.load_plot_preset,
             on_save_plot_preset=self.save_current_plot_preset,
+            on_delete_plot_preset=self.delete_plot_preset,
         )
         with self._control_panel_container:
             self._control_panel.build(pre_filter_options=pre_filter_options)
@@ -608,6 +637,7 @@ class PlotPoolController:
                             get_plot_preset_names=self.get_plot_preset_names,
                             on_plot_preset_selected=self.load_plot_preset,
                             on_save_plot_preset=self.save_current_plot_preset,
+            on_delete_plot_preset=self.delete_plot_preset,
                         )
                         self._control_panel.build(pre_filter_options=pre_filter_options)
                 with self._mainSplitter.after:

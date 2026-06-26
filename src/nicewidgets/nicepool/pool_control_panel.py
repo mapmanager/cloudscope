@@ -51,6 +51,7 @@ class PoolControlPanel:
         get_plot_preset_names: Callable[[], list[str]] | None = None,
         on_plot_preset_selected: Callable[[str], bool] | None = None,
         on_save_plot_preset: Callable[[str], bool] | None = None,
+        on_delete_plot_preset: Callable[[str], bool] | None = None,
     ) -> None:
         self.df = df
         self.layout = layout
@@ -72,6 +73,8 @@ class PoolControlPanel:
         self._get_plot_preset_names = get_plot_preset_names
         self._on_plot_preset_selected = on_plot_preset_selected
         self._on_save_plot_preset = on_save_plot_preset
+        self._on_delete_plot_preset = on_delete_plot_preset
+        self._suppress_preset_select_event = False
 
         # Widget refs (set in build())
         self._layout_select: ui.select | None = None
@@ -297,6 +300,7 @@ class PoolControlPanel:
             or self._get_plot_preset_names is None
             or self._on_plot_preset_selected is None
             or self._on_save_plot_preset is None
+            or self._on_delete_plot_preset is None
         ):
             return
 
@@ -308,13 +312,29 @@ class PoolControlPanel:
                 label="Plot",
                 on_change=self._handle_plot_preset_selected,
             ).classes("w-full")
-            ui.button("Save Plot", on_click=self._open_save_plot_dialog).classes("w-full")
+            with ui.row().classes("w-full gap-2 items-center"):
+                ui.button("Save Plot", on_click=self._open_save_plot_dialog).classes("flex-1")
+                ui.button("-", on_click=self._delete_selected_plot_preset).props('title="Delete selected plot"')
 
     def _handle_plot_preset_selected(self, event: GenericEventArguments) -> None:
         """Load a named preset selected by the user."""
+        if self._suppress_preset_select_event:
+            return
         if self._on_plot_preset_selected is None or event.value in (None, ""):
             return
         self._on_plot_preset_selected(str(event.value))
+
+    def _delete_selected_plot_preset(self) -> None:
+        """Delete the currently selected named preset without changing the plot."""
+        if self._preset_select is None or self._on_delete_plot_preset is None:
+            return
+        name = str(self._preset_select.value or "").strip()
+        if not name:
+            ui.notify("No saved plot selected", type="warning")
+            return
+        deleted = self._on_delete_plot_preset(name)
+        if deleted:
+            self.refresh_plot_preset_options(selected_name=name)
 
     def _open_save_plot_dialog(self) -> None:
         """Open a small dialog for naming and saving the current plot preset."""
@@ -346,12 +366,14 @@ class PoolControlPanel:
         if self._preset_select is None or self._get_plot_preset_names is None:
             return
         names = self._get_plot_preset_names()
-        self._preset_select.set_options(names)
-        if selected_name in names:
-            self._preset_select.value = selected_name
-        elif self._preset_select.value not in names:
-            self._preset_select.value = None
-        self._preset_select.update()
+        self._suppress_preset_select_event = True
+        try:
+            self._preset_select.set_options(names)
+            if selected_name in names:
+                self._preset_select.value = selected_name
+            self._preset_select.update()
+        finally:
+            self._suppress_preset_select_event = False
 
     def _build_plot_options(self) -> None:
         with ui.card().classes("w-full mt-4"):
