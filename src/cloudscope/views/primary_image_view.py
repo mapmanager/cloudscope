@@ -227,6 +227,7 @@ class PrimaryImageView(BaseView):
         self._viewer = PlotlyRasterViewer(
             display_options=PlotlyRasterViewerDisplayOptions(
                 theme='dark' if dark_mode else 'light',
+                show_trace_overlays=False,
             ),
             on_x_range_changed=self._on_viewer_x_range_changed,
             on_roi_bounds_preview=self._on_viewer_roi_bounds_preview,

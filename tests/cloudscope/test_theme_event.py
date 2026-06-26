@@ -43,6 +43,13 @@ def test_primary_image_view_initializes_plotly_theme_from_dark_mode() -> None:
     assert view._viewer._display_options.theme == 'dark'
 
 
+def test_primary_image_view_hides_trace_overlays_by_default() -> None:
+    """Primary image should default trace overlays off; reference keeps them on."""
+    view = PrimaryImageView(EventBus())
+
+    assert view._viewer.display_options.show_trace_overlays is False
+
+
 def test_reference_image_view_initializes_plotly_theme_from_dark_mode() -> None:
     """Reference image view should pass initial dark-mode state into the raster viewer."""
     view = ReferenceImageView(EventBus(), dark_mode=True)

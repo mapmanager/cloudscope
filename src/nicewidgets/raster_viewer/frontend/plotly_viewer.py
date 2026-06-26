@@ -53,6 +53,8 @@ from nicewidgets.raster_viewer.frontend.trace_overlay import (
 )
 from nicewidgets.raster_viewer.frontend.plotly_protocol import (
     DEFAULT_HEATMAP_COLORSCALE,
+    PLOTLY_MARGIN_COMPACT,
+    PLOTLY_MARGIN_WITH_AXIS_LABELS,
     RASTER_VIEWER_PLOTLY_CONFIG,
     PlotlyViewportPayload,
     build_plotly_figure,
@@ -788,6 +790,7 @@ Plotly.relayout(plotDiv, {{
         """
         self._display_options.show_axis_labels = bool(visible)
         self._sync_axis_labels_to_plotly_dict()
+        self._sync_margins_to_plotly_dict()
         self._relayout_axis_labels()
 
     def set_square_plot(self, enabled: bool) -> None:
@@ -921,6 +924,7 @@ Plotly.restyle(plotDiv, {{
         self._sync_plotly_config_to_plotly_dict()
         self._sync_theme_to_plotly_dict()
         self._sync_axis_labels_to_plotly_dict()
+        self._sync_margins_to_plotly_dict()
         self._sync_square_plot_to_plotly_dict()
         self._sync_hover_info_to_plotly_dict()
         layout = self._plotly_dict.setdefault('layout', {})
@@ -979,6 +983,19 @@ Plotly.restyle(plotDiv, {{
             axis['showline'] = visible
             axis['zeroline'] = False
             axis['showgrid'] = visible
+
+    def _sync_margins_to_plotly_dict(self) -> None:
+        """Synchronize layout margins with axis-label visibility."""
+        layout = self._plotly_dict.setdefault('layout', {})
+        if not isinstance(layout, dict):
+            layout = {}
+            self._plotly_dict['layout'] = layout
+        margin = (
+            PLOTLY_MARGIN_WITH_AXIS_LABELS
+            if self._display_options.show_axis_labels
+            else PLOTLY_MARGIN_COMPACT
+        )
+        layout['margin'] = dict(margin)
 
     def _sync_theme_to_plotly_dict(self) -> None:
         """Synchronize the selected light/dark theme into the local figure dict."""
@@ -1081,6 +1098,9 @@ Plotly.restyle(plotDiv, {{
             relayout[f'{axis_name}.showline'] = axis.get('showline', False)
             relayout[f'{axis_name}.zeroline'] = axis.get('zeroline', False)
             relayout[f'{axis_name}.showgrid'] = axis.get('showgrid', True)
+        margin = layout.get('margin')
+        if isinstance(margin, dict):
+            relayout['margin'] = margin
         js = f"""
 {self._js_plotly_graph_div()}
 Plotly.relayout(plotDiv, {json.dumps(relayout)});
@@ -1878,8 +1898,7 @@ return {{
             self._plotly_dict = {
                 'data': [],
                 'layout': {
-                    # 'margin': {'l': 40, 'r': 20, 't': 20, 'b': 40},
-                    'margin': {'l': 40, 'r': 10, 't': 10, 'b': 40},
+                    'margin': dict(PLOTLY_MARGIN_WITH_AXIS_LABELS),
                     'uirevision': self._uirevision,
                     'autosize': True,
                     'xaxis': {'range': [0.0, 1.0]},

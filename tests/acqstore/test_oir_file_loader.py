@@ -1,10 +1,39 @@
-"""Tests for OIR reference-image loader helpers."""
+"""Tests for OIR file loader helpers and header axis labels."""
 
 from __future__ import annotations
 
-import numpy as np
+from pathlib import Path
+from types import MappingProxyType
+from typing import Any
 
-from acqstore.acq_image.file_loaders.oir_file_loader import _reference_snapshot_from_oir_reference
+import numpy as np
+import pytest
+from oirfile import METADATA
+
+from acqstore.acq_image.file_loaders.oir_file_loader import (
+    OirFileLoader,
+    _enabled_axes_from_lsmimage_xml,
+    _image_header_from_oir_scene,
+    _is_y_timelapse_line_scan_axis,
+    _physical_units_for_oir_header,
+    _reference_snapshot_from_oir_reference,
+)
+
+_OIR_SAMPLES = Path(__file__).resolve().parent / "data" / "oir-samples"
+_KYMOGRAPH = _OIR_SAMPLES / "20251030_A106_0002.oir"
+_ZSTACK = _OIR_SAMPLES / "20251030_A106.oir"
+
+_TIMELAPSE_AXIS_XML = """
+<root xmlns:commonparam="urn:test">
+  <commonparam:axis enable="true">
+    <commonparam:axis>TIMELAPSE</commonparam:axis>
+    <commonparam:startPosition>0.0</commonparam:startPosition>
+    <commonparam:endPosition>0.0</commonparam:endPosition>
+    <commonparam:step>0.0</commonparam:step>
+    <commonparam:maxSize>30000</commonparam:maxSize>
+  </commonparam:axis>
+</root>
+"""
 
 
 class _FakeOirReference:
@@ -22,6 +51,33 @@ class _FakeOirReference:
         return np.zeros((1, 8, 9), dtype=np.uint8)
 
 
+class _FakeOirScene:
+    """Minimal ``oirfile.OirFile``-like object for header unit tests."""
+
+    def __init__(
+        self,
+        *,
+        dims: tuple[str, ...],
+        sizes: dict[str, int],
+        coord_units: dict[str, str],
+        coord_scales: dict[str, float],
+        coords: dict[str, np.ndarray] | None = None,
+        lsmimage_xml: str | None = None,
+    ) -> None:
+        self.dims = dims
+        self.sizes = sizes
+        self.shape = tuple(sizes[d] for d in dims)
+        self.dtype = np.dtype(np.uint16)
+        self.coord_units = coord_units
+        self.coord_scales = coord_scales
+        self.coords = coords or {}
+        self.datetime = None
+        if lsmimage_xml is None:
+            self.xml_metadata = MappingProxyType({})
+        else:
+            self.xml_metadata = MappingProxyType({METADATA.LSMIMAGE: [lsmimage_xml]})
+
+
 def test_oir_reference_image_populates_scan_path_from_line_roi() -> None:
     """OIR explicit line ROI endpoints are exposed through ReferenceImage scan path."""
     reference = _reference_snapshot_from_oir_reference(_FakeOirReference())
@@ -34,3 +90,74 @@ def test_oir_reference_image_populates_scan_path_from_line_roi() -> None:
     x_pixels, y_pixels = reference.get_scan_path_plot()
     np.testing.assert_array_equal(x_pixels, np.asarray([1.0, 7.0]))
     np.testing.assert_array_equal(y_pixels, np.asarray([2.0, 6.0]))
+
+
+def test_enabled_axes_from_lsmimage_xml_parses_timelapse() -> None:
+    """LSMIMAGE XML exposes enabled TIMELAPSE axis metadata."""
+    axes = _enabled_axes_from_lsmimage_xml(_TIMELAPSE_AXIS_XML)
+    assert axes["TIMELAPSE"]["maxSize"] == 30000
+
+
+def test_physical_units_for_oir_header_uses_coord_units_by_default() -> None:
+    """Spatial OIR axes keep ``coord_units`` labels."""
+    scene = _FakeOirScene(
+        dims=("Z", "Y", "X"),
+        sizes={"Z": 10, "Y": 512, "X": 512},
+        coord_units={"Z": "µm", "Y": "µm", "X": "µm"},
+        coord_scales={"Z": 1.7, "Y": 0.002, "X": 0.002},
+    )
+
+    units, labels = _physical_units_for_oir_header(scene)
+
+    assert labels == ("µm", "µm", "µm")
+    assert units == (1.7, 0.002, 0.002)
+
+
+def test_physical_units_for_oir_header_relabels_y_for_line_scan_kymograph() -> None:
+    """TIMELAPSE-on-Y line scans label ``Y`` as seconds and keep ``X`` units."""
+    scene = _FakeOirScene(
+        dims=("Y", "X"),
+        sizes={"Y": 30000, "X": 24},
+        coord_units={"Y": "µm", "X": "µm"},
+        coord_scales={"Y": 0.000535, "X": 0.0114},
+        lsmimage_xml=_TIMELAPSE_AXIS_XML,
+    )
+
+    assert _is_y_timelapse_line_scan_axis(scene) is True
+    units, labels = _physical_units_for_oir_header(scene)
+
+    assert labels == ("seconds", "µm")
+    assert units == (pytest.approx(0.000535), pytest.approx(0.0114))
+
+
+@pytest.mark.skipif(not _KYMOGRAPH.is_file(), reason="kymograph OIR fixture missing")
+def test_oir_kymograph_fixture_labels_y_seconds_x_um() -> None:
+    """Real line-scan OIR labels slow scan axis as seconds."""
+    header = OirFileLoader(str(_KYMOGRAPH)).header
+
+    assert header.dims == ("Y", "X")
+    assert header.physical_units_labels == ("seconds", "µm")
+    assert header.physical_units[0] == pytest.approx(0.0005350211513449023)
+    assert header.physical_units[1] == pytest.approx(0.011413784562024583)
+
+
+@pytest.mark.skipif(not _ZSTACK.is_file(), reason="Z-stack OIR fixture missing")
+def test_oir_zstack_fixture_keeps_spatial_um_labels() -> None:
+    """Z-stack OIR files keep spatial micrometer labels on all axes."""
+    header = OirFileLoader(str(_ZSTACK)).header
+
+    assert header.dims == ("Z", "Y", "X")
+    assert header.physical_units_labels == ("µm", "µm", "µm")
+
+
+@pytest.mark.skipif(not _KYMOGRAPH.is_file(), reason="kymograph OIR fixture missing")
+def test_image_header_from_oir_scene_aligns_labels_with_dims() -> None:
+    """OIR header builder aligns label tuple length with ``dims``."""
+    import oirfile
+
+    with oirfile.OirFile(_KYMOGRAPH) as oir:
+        header = _image_header_from_oir_scene(str(_KYMOGRAPH), oir, num_scenes=1)
+
+    assert len(header.physical_units_labels) == len(header.dims)
+    assert header._physical_label_for_dim("Y") == "seconds"
+    assert header._physical_label_for_dim("X") == "µm"

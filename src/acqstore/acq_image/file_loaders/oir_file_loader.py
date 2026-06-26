@@ -2,9 +2,11 @@ from contextlib import contextmanager
 from collections.abc import Iterator
 from typing import Any
 from datetime import datetime
+import xml.etree.ElementTree as ET
 
 import numpy as np
 import oirfile
+from oirfile import METADATA
 
 from .base_file_loader import BaseFileLoader, ImageHeader, ReferenceImage
 from acqstore.utils.logging import get_logger
@@ -74,6 +76,136 @@ def _iso8601_datetime_str_to_yyyymmdd_hhmmss(s: str) -> tuple[str, str]:
         return ("", "")
     return (dt.strftime("%Y%m%d"), dt.strftime("%H:%M:%S"))
 
+def _strip_xml_tag(tag: str) -> str:
+    """Return an XML element tag without an ElementTree namespace prefix."""
+    return tag.rsplit("}", 1)[-1] if "}" in tag else tag
+
+
+def _enabled_axes_from_lsmimage_xml(xml: str) -> dict[str, dict[str, Any]]:
+    """Parse enabled axis definitions from OIR LSMIMAGE metadata XML.
+
+    Args:
+        xml: Raw LSMIMAGE metadata XML string from ``oirfile``.
+
+    Returns:
+        Mapping of axis type (for example ``TIMELAPSE``) to parsed axis fields.
+    """
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return {}
+
+    axes: dict[str, dict[str, Any]] = {}
+    for elem in root.iter():
+        if _strip_xml_tag(str(elem.tag)) != "axis":
+            continue
+        enable_attr = elem.get("enable")
+        if enable_attr is None:
+            continue
+
+        axis_type = ""
+        info: dict[str, Any] = {"enable": enable_attr == "true"}
+        for child in elem:
+            ctag = _strip_xml_tag(str(child.tag))
+            text = (child.text or "").strip()
+            if not text:
+                continue
+            if ctag == "axis":
+                axis_type = text
+            elif ctag == "startPosition":
+                info["start"] = float(text)
+            elif ctag == "endPosition":
+                info["end"] = float(text)
+            elif ctag == "step":
+                info["step"] = float(text)
+            elif ctag == "maxSize":
+                info["maxSize"] = int(text)
+
+        if axis_type and info.get("enable", False):
+            axes[axis_type] = info
+    return axes
+
+
+def _timelapse_axis_from_scene(scene: Any) -> dict[str, Any] | None:
+    """Return enabled TIMELAPSE axis metadata from an open ``oirfile.OirFile``.
+
+    Args:
+        scene: Open ``oirfile.OirFile`` instance.
+
+    Returns:
+        Parsed TIMELAPSE axis info, or ``None`` when absent or disabled.
+    """
+    xml_metadata = scene.xml_metadata
+    lsm_xmls = xml_metadata.get(METADATA.LSMIMAGE, [])
+    if not lsm_xmls:
+        return None
+    axes = _enabled_axes_from_lsmimage_xml(lsm_xmls[0])
+    return axes.get("TIMELAPSE")
+
+
+def _is_y_timelapse_line_scan_axis(scene: Any) -> bool:
+    """Return whether ``Y`` is the slow scan time axis for a line-scan kymograph.
+
+    Line-scan OIR files can expose timelapse acquisition on ``Y`` without a
+    separate ``T`` dimension. ``oirfile.coord_units`` still reports ``Y`` as
+    micrometers; LSMIMAGE axis metadata is the source of truth for relabeling.
+
+    Args:
+        scene: Open ``oirfile.OirFile`` instance.
+
+    Returns:
+        ``True`` when TIMELAPSE is enabled and its ``maxSize`` matches ``Y``.
+    """
+    dims = tuple(str(d) for d in scene.dims)
+    if "T" in dims or "Y" not in dims:
+        return False
+    timelapse = _timelapse_axis_from_scene(scene)
+    if timelapse is None:
+        return False
+    max_size = timelapse.get("maxSize")
+    y_size = scene.sizes.get("Y")
+    if max_size is None or y_size is None:
+        return False
+    return int(max_size) == int(y_size)
+
+
+def _physical_units_for_oir_header(scene: Any) -> tuple[tuple[Any, ...], tuple[str, ...]]:
+    """Return per-axis calibration for an open ``oirfile.OirFile``.
+
+    Labels default to ``coord_units`` from ``oirfile``. Line-scan kymographs
+    whose ``Y`` size matches an enabled TIMELAPSE axis are labeled ``seconds``.
+
+    Args:
+        scene: Open ``oirfile.OirFile`` instance.
+
+    Returns:
+        Tuple of ``(physical_units, physical_units_labels)`` aligned to
+        ``scene.dims``.
+    """
+    dims = tuple(str(d) for d in scene.dims)
+    coord_units: dict[str, str] = dict(scene.coord_units)
+    coord_scales: dict[str, float] = dict(scene.coord_scales)
+    coords = scene.coords
+    y_is_timelapse_line_scan = _is_y_timelapse_line_scan_axis(scene)
+
+    physical_units: list[Any] = []
+    physical_units_labels: list[str] = []
+    for dim in dims:
+        step = coord_scales.get(dim)
+        if step is None:
+            step = _step_from_coord(coords.get(dim))
+        physical_units.append(step)
+
+        if dim == "Y" and y_is_timelapse_line_scan:
+            label = "seconds"
+        else:
+            label = coord_units.get(dim, "")
+            # TODO: possibly map to more meaningful display names
+        physical_units_labels.append(label)
+
+    return tuple(physical_units), tuple(physical_units_labels)
+
+
 def _physical_units_for_header(scene: Any) -> tuple[tuple[Any, ...], tuple[str, ...]]:
     oir = scene
     coords = oir.coords
@@ -128,6 +260,44 @@ def _date_time_for_header(scene: Any) -> tuple[str, str]:
         return ("", "")
     return _iso8601_datetime_str_to_yyyymmdd_hhmmss(str(raw))
 
+
+def _image_header_from_oir_scene(
+    path: str,
+    scene: Any,
+    num_scenes: int,
+) -> ImageHeader:
+    """Build an :class:`ImageHeader` from an open ``oirfile.OirFile``.
+
+    Args:
+        path: Absolute or resolved path stored on the header.
+        scene: Open ``oirfile.OirFile`` instance.
+        num_scenes: Total scene count for the file (OIR uses ``1``).
+
+    Returns:
+        Frozen :class:`ImageHeader` instance.
+    """
+    shape = tuple(int(v) for v in scene.shape)
+    dims = tuple(str(d) for d in scene.dims)
+    sizes = {str(k): int(v) for k, v in scene.sizes.items()}
+    dtype = np.dtype(scene.dtype)
+    num_channels = int(sizes["C"]) if "C" in sizes else 1
+    physical_units, physical_units_labels = _physical_units_for_oir_header(scene)
+    date_s, time_s = _date_time_for_header(scene)
+    return ImageHeader(
+        path=path,
+        shape=shape,
+        dims=dims,
+        sizes=sizes,
+        dtype=dtype,
+        num_channels=num_channels,
+        num_scenes=num_scenes,
+        physical_units=physical_units,
+        physical_units_labels=physical_units_labels,
+        date=date_s,
+        time=time_s,
+    )
+
+
 class OirFileLoader(BaseFileLoader):
     """Lazy-loading OIR reader aligned with :class:`MyCziImage`.
 
@@ -176,7 +346,7 @@ class OirFileLoader(BaseFileLoader):
     def _read_oir_header(self) -> ImageHeader:
         logical = self.path
         with self._open_oir() as oir_file:
-            return _image_header_from_scene(logical, oir_file, num_scenes=1)
+            return _image_header_from_oir_scene(logical, oir_file, num_scenes=1)
 
     def _load_full_image_array(self) -> np.ndarray:
         # logger.info('')

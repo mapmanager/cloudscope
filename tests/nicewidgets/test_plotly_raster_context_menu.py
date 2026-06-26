@@ -66,6 +66,7 @@ def test_viewer_accepts_caller_supplied_display_options() -> None:
     assert viewer.figure['config']['displayModeBar'] is True
     assert layout['xaxis']['title']['text'] == 's'
     assert layout['yaxis']['title']['text'] == 'um'
+    assert layout['margin'] == {'l': 40, 'r': 10, 't': 10, 'b': 40}
     assert layout['paper_bgcolor'] == '#111827'
 
 
@@ -76,11 +77,26 @@ def test_axis_labels_are_hidden_by_default_but_preserved_for_toggle() -> None:
 
     assert layout['xaxis']['title']['text'] == ''
     assert layout['yaxis']['title']['text'] == ''
+    assert layout['margin'] == {'l': 8, 'r': 8, 't': 8, 'b': 8}
 
     viewer.set_axis_labels_visible(True)
 
     assert viewer.figure['layout']['xaxis']['title']['text'] == 's'
     assert viewer.figure['layout']['yaxis']['title']['text'] == 'um'
+    assert viewer.figure['layout']['margin'] == {'l': 40, 'r': 10, 't': 10, 'b': 40}
+
+
+def test_axis_label_margin_toggle_swaps_between_compact_and_labeled() -> None:
+    """Margins should shrink when axis labels are hidden and expand when shown."""
+    viewer = _viewer_with_data()
+
+    assert viewer.figure['layout']['margin'] == {'l': 8, 'r': 8, 't': 8, 'b': 8}
+
+    viewer.set_axis_labels_visible(True)
+    assert viewer.figure['layout']['margin'] == {'l': 40, 'r': 10, 't': 10, 'b': 40}
+
+    viewer.set_axis_labels_visible(False)
+    assert viewer.figure['layout']['margin'] == {'l': 8, 'r': 8, 't': 8, 'b': 8}
 
 
 def test_axis_toggle_controls_titles_ticks_lines_and_grid() -> None:

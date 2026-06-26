@@ -26,6 +26,22 @@ RASTER_VIEWER_PLOTLY_CONFIG: dict[str, object] = {
     'responsive': True,
 }
 
+# Plotly layout margins when axis decorations are visible (titles, ticks, grid).
+PLOTLY_MARGIN_WITH_AXIS_LABELS: dict[str, int] = {
+    'l': 40,
+    'r': 10,
+    't': 10,
+    'b': 40,
+}
+
+# Compact margins when axis decorations are hidden to maximize raster plot area.
+PLOTLY_MARGIN_COMPACT: dict[str, int] = {
+    'l': 8,
+    'r': 8,
+    't': 8,
+    'b': 8,
+}
+
 
 @dataclass(frozen=True)
 class PlotlyViewportPayload:
@@ -74,8 +90,7 @@ def build_plotly_figure(
     }
 
     layout: dict[str, object] = {
-        # 'margin': {'l': 40, 'r': 20, 't': 20, 'b': 40},
-        'margin': {'l': 40, 'r': 10, 't': 10, 'b': 40},
+        'margin': dict(PLOTLY_MARGIN_WITH_AXIS_LABELS),
         'uirevision': uirevision,
         'autosize': True,
         'dragmode': 'zoom',
