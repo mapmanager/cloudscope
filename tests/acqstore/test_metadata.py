@@ -77,6 +77,38 @@ def test_experiment_metadata_from_dict_coerces_str_none() -> None:
     assert m.depth == 2.0
 
 
+def test_experiment_metadata_from_dict_coerces_string_numbers() -> None:
+    m = ExperimentMetadata.from_dict({'depth': '75', 'branch_order': '2'})
+    assert m.depth == 75.0
+    assert m.branch_order == 2
+    assert isinstance(m.depth, float)
+    assert isinstance(m.branch_order, int)
+
+
+def test_experiment_metadata_from_dict_coerces_empty_string_to_none_for_numeric() -> None:
+    m = ExperimentMetadata.from_dict({'depth': '', 'branch_order': ''})
+    assert m.depth is None
+    assert m.branch_order is None
+
+
+def test_experiment_metadata_from_dict_rejects_invalid_depth() -> None:
+    with pytest.raises(ValueError, match="depth"):
+        ExperimentMetadata.from_dict({'depth': 'unknown'})
+
+
+def test_experiment_metadata_from_dict_rejects_non_integer_branch_order() -> None:
+    with pytest.raises(ValueError, match="branch_order"):
+        ExperimentMetadata.from_dict({'branch_order': '2.5'})
+
+
+def test_experiment_metadata_to_dict_excludes_internal_dirty_flag() -> None:
+    m = ExperimentMetadata(species='mouse')
+    m.update_values({'species': 'rat'})
+    payload = m.to_dict()
+    assert '_is_dirty' not in payload
+    assert payload['species'] == 'rat'
+
+
 def test_acq_file_list_schema_core_contract_and_unique_names() -> None:
     """Guard stable consumer expectations without freezing the full field list."""
     names_tuple = ACQ_FILE_LIST_SCHEMA.field_names()

@@ -7,10 +7,10 @@ underlying plot-pool configuration fields from the reference implementation.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from collections.abc import Callable
+from typing import Any
 
 import pandas as pd
 
@@ -34,7 +34,9 @@ class NicePoolConfig(PlotPoolConfig):
             persistence.
         config_path: Optional explicit configuration path used when persistence
             is enabled.
-        plot_state: Optional initial plot state.
+        plot_state: Optional fallback plot state when no startup config applies.
+        initial_plot_config: Optional inline plot config dict (layout + plot_states).
+            Takes precedence over session persistence when set.
         on_table_row_selected: Optional row-selection callback used by the
             underlying table view.
         on_refresh_requested: Optional callback used by the refresh button.
@@ -56,6 +58,7 @@ class NicePoolConfig(PlotPoolConfig):
     app_name: str | None = None
     config_path: Path | None = None
     plot_state: PlotState | None = None
+    initial_plot_config: dict[str, Any] | None = None
     on_table_row_selected: Callable[[str, dict[str, object]], None] | None = None
     on_refresh_requested: Callable[[], pd.DataFrame] | None = None
     show_save_button: bool = False

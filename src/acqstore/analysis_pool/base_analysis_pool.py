@@ -16,7 +16,8 @@ from typing import TYPE_CHECKING, ClassVar
 import pandas as pd
 
 from acqstore.acq_image.analysis.model import AnalysisKey, BaseAnalysis
-from acqstore.acq_image.metadata import ExperimentMetadata
+from acqstore.acq_image.metadata import EXPERIMENT_METADATA_SCHEMA, ExperimentMetadata
+from acqstore.schema import ValueType
 
 if TYPE_CHECKING:
     from acqstore.acq_image.acq_image import AcqImage
@@ -181,6 +182,7 @@ class AnalysisPool:
             for channel, roi_id in self._iter_selection_keys(acq_image):
                 rows.append(self._build_row(acq_image, channel=channel, roi_id=roi_id))
         self._df = pd.DataFrame(rows, columns=self.columns)
+        self._apply_experiment_metadata_column_dtypes(self._df)
         self._reset_display_row_numbers()
 
     def refresh_row(self, file_id: str, *, channel: int, roi_id: int) -> None:
@@ -207,6 +209,7 @@ class AnalysisPool:
                 ignore_index=True,
             )
         self._sort_rows()
+        self._apply_experiment_metadata_column_dtypes(self._df)
         self._reset_display_row_numbers()
 
     def remove_row(self, file_id: str, *, channel: int, roi_id: int) -> None:
@@ -379,6 +382,29 @@ class AnalysisPool:
         if value is None:
             return pd.NA
         return value
+
+    def _apply_experiment_metadata_column_dtypes(self, df: pd.DataFrame) -> None:
+        """Cast experiment-metadata pool columns to nullable pandas numeric dtypes.
+
+        Args:
+            df: Live pool DataFrame to update in place.
+
+        Returns:
+            None.
+        """
+        if df.empty:
+            return
+        fields_by_name = {fs.name: fs for fs in EXPERIMENT_METADATA_SCHEMA.fields}
+        for column in self.experiment_metadata_columns:
+            if column not in df.columns:
+                continue
+            field_schema = fields_by_name.get(column)
+            if field_schema is None:
+                continue
+            if field_schema.value_type is ValueType.INT:
+                df[column] = df[column].astype("Int64")
+            elif field_schema.value_type is ValueType.FLOAT:
+                df[column] = df[column].astype("Float64")
 
     def _safe_physical_units(self, acq_image: AcqImage) -> tuple[object, object]:
         getter = getattr(acq_image, "get_image_physical_units", None)

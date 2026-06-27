@@ -42,6 +42,49 @@ def test_prepare_categorical_column_raises_when_all_missing() -> None:
         )
 
 
+def test_swarm_plot_with_color_grouping_does_not_crash_on_nullable_int_column(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Swarm color grouping on nullable Int64 roi_id should not fail sorting colors."""
+    df = pd.DataFrame(
+        {
+            "pool_row_id": ["r0", "r1", "r2"],
+            "parent": ["g1", "g1", "g2"],
+            "branch_order": pd.array([2, 2, 3], dtype="Int64"),
+            "roi_id": pd.array([1, 2, 1], dtype="Int64"),
+            "velocity_mean": [1.0, 2.0, 3.0],
+        }
+    )
+    controller = PlotPoolController(
+        df,
+        config=PlotPoolConfig(
+            unique_row_id_col="pool_row_id",
+            pre_filter_columns=[],
+            enable_config_persistence=False,
+            plot_state=PlotState(
+                pre_filter={},
+                xcol="parent",
+                ycol="velocity_mean",
+                plot_type=PlotType.SWARM,
+                group_col="branch_order",
+                color_grouping="roi_id",
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        "nicewidgets.nicepool.plot_pool_controller.ui.notify",
+        MagicMock(),
+    )
+    monkeypatch.setattr(
+        "nicewidgets.nicepool.plot_pool_controller.ui.plotly",
+        MagicMock(from_dict=lambda *_args, **_kwargs: MagicMock(update=MagicMock())),
+    )
+
+    figure_dict = controller._make_figure_dict(controller.plot_states[0])
+
+    assert figure_dict["data"]
+
+
 def test_swarm_plot_notifies_on_mixed_branch_order(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

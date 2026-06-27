@@ -55,6 +55,7 @@ class PoolControlPanel:
         on_replot_current: Callable[[], None],
         on_reset_to_default: Callable[[], None],
         on_copy_stats: Callable[[], None],
+        on_copy_full_table: Callable[[], None],
         on_clear_selection: Callable[[], None] | None = None,
         on_x_column_selected: Callable[[dict[str, Any]], None],
         on_y_column_selected: Callable[[dict[str, Any]], None],
@@ -77,6 +78,7 @@ class PoolControlPanel:
         self._on_replot_current = on_replot_current
         self._on_reset_to_default = on_reset_to_default
         self._on_copy_stats = on_copy_stats
+        self._on_copy_full_table = on_copy_full_table
         self._on_clear_selection = on_clear_selection
         self._on_x_column_selected = on_x_column_selected
         self._on_y_column_selected = on_y_column_selected
@@ -162,6 +164,9 @@ class PoolControlPanel:
                 ui.button("Apply to Other", on_click=self._on_apply_current_to_others).classes("flex-1")
                 ui.button("Replot", on_click=self._on_replot_current).classes("flex-1")
                 ui.button("Reset Plots", on_click=self._on_reset_to_default).classes("flex-1")
+
+            with ui.row().classes("w-full gap-2"):
+                ui.button("Copy full table", on_click=self._on_copy_full_table).classes("flex-1")
                 ui.button("Copy stats", on_click=self._on_copy_stats).classes("flex-1")
 
             self._build_saved_plots_section()

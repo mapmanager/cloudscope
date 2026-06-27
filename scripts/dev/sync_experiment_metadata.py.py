@@ -8,7 +8,7 @@ from typing import Any
 FOLDER_3_OUTPUT = "/Users/cudmore/Sites/cloudscope-data/data/manning_velocity_oir_20260625"
 MASTER_CSV = "/Users/cudmore/Sites/cloudscope-data/data/Baseline_Bloodflow_Master.csv"
 
-DRY_RUN: bool = True
+DRY_RUN: bool = False
 NORMALIZE_EXISTING_TYPES: bool = True
 
 CSV_TO_METADATA = {

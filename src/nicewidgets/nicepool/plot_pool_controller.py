@@ -71,7 +71,13 @@ class PlotPoolConfig:
             When None, "kymflow" is used so existing behavior is unchanged.
         config_path: Optional full path to config file. When set, load/save use this path and
             ignore db_type/app_name. Used mainly for tests to avoid touching user config.
-        plot_state: Optional initial PlotState. If None, defaults are used (first pre-filter value, first numeric x/y).
+        plot_state: Optional fallback PlotState when no other startup config applies. If None,
+            defaults are used (first pre-filter value, first numeric x/y).
+        initial_plot_config: Optional inline plot configuration dict with the same shape as a
+            named preset or session file: ``layout``, ``plot_states``, and optional
+            ``control_panel_splitter_value``. Host apps (e.g. CloudScope) use this for
+            deterministic first-run plots without depending on user disk state. Takes precedence
+            over ``enable_config_persistence`` when set.
         on_table_row_selected: Optional callback invoked when the user selects a row in the data table.
             Signature: (row_id: str, row_dict: dict[str, Any]) -> None.
             - row_id: The value in the selected row for unique_row_id_col (as string).
@@ -100,6 +106,7 @@ class PlotPoolConfig:
     app_name: str | None = None
     config_path: Path | None = None
     plot_state: PlotState | None = None
+    initial_plot_config: dict[str, Any] | None = None
     on_table_row_selected: Callable[[str, dict[str, Any]], None] | None = None
     on_refresh_requested: Callable[[], pd.DataFrame] | None = None
     show_save_button: bool = False
@@ -207,9 +214,34 @@ class PlotPoolController:
         
         # Store default plot state for reset functionality
         self.default_plot_state: PlotState = PlotState.from_dict(default_state.to_dict())
-        
-        # Try to load saved config, otherwise use provided/default plot_state.
-        if self._enable_config_persistence:
+
+        loaded_plot_states: list[PlotState] = []
+        loaded_layout = "1x1"
+        self._control_panel_splitter_value = 30.0
+        use_inline_initial_config = False
+
+        if cfg.initial_plot_config is not None:
+            try:
+                loaded_layout, loaded_plot_states = sanitize_preset_payload(
+                    cfg.initial_plot_config,
+                    df=self.df,
+                    data_processor=self.data_processor,
+                    pre_filter_columns=list(self.pre_filter_columns),
+                    default_state=self.default_plot_state,
+                )
+                use_inline_initial_config = True
+                splitter_raw = cfg.initial_plot_config.get("control_panel_splitter_value")
+                if splitter_raw is not None:
+                    try:
+                        splitter_value = float(splitter_raw)
+                        self._control_panel_splitter_value = max(0.0, min(50.0, splitter_value))
+                    except (TypeError, ValueError):
+                        pass
+            except Exception as exc:
+                logger.exception("Failed to apply initial_plot_config: %s", exc)
+                loaded_plot_states = []
+                use_inline_initial_config = False
+        elif self._enable_config_persistence:
             from nicewidgets.nicepool.pool_plot_config import PoolPlotConfig
 
             if self._config_path is not None:
@@ -221,34 +253,34 @@ class PlotPoolController:
                 )
             loaded_plot_states = config.get_plot_states()
             loaded_layout = sanitize_layout(config.get_layout())
-            self._control_panel_splitter_value: float = config.get_control_panel_splitter_value()
-        else:
-            loaded_plot_states = []
-            loaded_layout = "1x1"
-            self._control_panel_splitter_value = 30.0
+            self._control_panel_splitter_value = config.get_control_panel_splitter_value()
+
         self._splitter_save_timer: Any | None = None
 
         if loaded_plot_states:
-            str(self._config_path) if self._config_path is not None else self._config_filename()
-            # logger.info(f"Loaded {len(loaded_plot_states)} plot state(s) and layout '{loaded_layout}' from {config_name}")
-            # Validate loaded states against current df columns and apply fallbacks
-            validated = [self._validate_plot_state_columns(ps) for ps in loaded_plot_states]
-            # Use loaded layout
-            self.layout = loaded_layout
-            # Use validated plot states, pad with default_state if needed
-            num_plots_needed = self._get_num_plots_for_layout(loaded_layout)
-            self.plot_states = []
-            for i in range(num_plots_needed):
-                if i < len(validated):
-                    self.plot_states.append(validated[i])
-                else:
-                    self.plot_states.append(PlotState.from_dict(default_state.to_dict()))
-            # Update stored default to match first loaded state
-            self.default_plot_state = PlotState.from_dict(self.plot_states[0].to_dict())
+            if use_inline_initial_config:
+                self.layout = loaded_layout
+                self.plot_states = list(loaded_plot_states)
+                while len(self.plot_states) < 4:
+                    self.plot_states.append(
+                        PlotState.from_dict(self.default_plot_state.to_dict())
+                    )
+                self.default_plot_state = PlotState.from_dict(self.plot_states[0].to_dict())
+            else:
+                validated = [self._validate_plot_state_columns(ps) for ps in loaded_plot_states]
+                self.layout = loaded_layout
+                num_plots_needed = self._get_num_plots_for_layout(loaded_layout)
+                self.plot_states = []
+                for i in range(num_plots_needed):
+                    if i < len(validated):
+                        self.plot_states.append(validated[i])
+                    else:
+                        self.plot_states.append(PlotState.from_dict(default_state.to_dict()))
+                self.default_plot_state = PlotState.from_dict(self.plot_states[0].to_dict())
         else:
-            logger.warning("No saved plot config found, using provided/default plot state")
+            if cfg.initial_plot_config is None:
+                logger.warning("No saved plot config found, using provided/default plot state")
             self.layout = "1x1"
-            # Initialize with 4 plot states to support 2x2 layout
             self.plot_states = [
                 PlotState.from_dict(default_state.to_dict()),
                 PlotState.from_dict(default_state.to_dict()),
@@ -511,6 +543,7 @@ class PlotPoolController:
             on_replot_current=self._replot_current,
             on_reset_to_default=self._reset_to_default,
             on_copy_stats=lambda: self._copy_report_for_plot(self.current_plot_index),
+            on_copy_full_table=self._copy_full_table,
             on_clear_selection=self._clear_selection,
             on_x_column_selected=self._on_x_column_selected,
             on_y_column_selected=self._on_y_column_selected,
@@ -636,6 +669,7 @@ class PlotPoolController:
                             on_replot_current=self._replot_current,
                             on_reset_to_default=self._reset_to_default,
                             on_copy_stats=lambda: self._copy_report_for_plot(self.current_plot_index),
+                            on_copy_full_table=self._copy_full_table,
                             on_clear_selection=self._clear_selection,
                             on_x_column_selected=self._on_x_column_selected,
                             on_y_column_selected=self._on_y_column_selected,
@@ -644,7 +678,7 @@ class PlotPoolController:
                             get_plot_preset_names=self.get_plot_preset_names,
                             on_plot_preset_selected=self.load_plot_preset,
                             on_save_plot_preset=self.save_current_plot_preset,
-            on_delete_plot_preset=self.delete_plot_preset,
+                            on_delete_plot_preset=self.delete_plot_preset,
                         )
                         self._control_panel.build(pre_filter_options=pre_filter_options)
                 with self._mainSplitter.after:
@@ -866,6 +900,24 @@ class PlotPoolController:
         except Exception as ex:
             logger.exception("Failed to copy plot summary")
             ui.notify(f"Could not format summary: {ex}", type="negative")
+
+    def _copy_full_table(self) -> None:
+        """Copy the full source DataFrame to the clipboard as tab-separated text."""
+        if self.df.empty:
+            ui.notify("Table is empty; nothing to copy", type="warning")
+            return
+        text = self.df.to_csv(sep="\t", index=False)
+        logger.info(
+            "NicePool full table (%d rows, %d columns):\n%s",
+            len(self.df),
+            len(self.df.columns),
+            text,
+        )
+        copy_to_clipboard(text)
+        ui.notify(
+            f"Copied full table ({len(self.df)} rows, {len(self.df.columns)} columns) to clipboard",
+            type="positive",
+        )
 
     def _on_splitter_change(self, e=None) -> None:
         """Restore plot panel after splitter resize (avoids 1x2/2x1 collapsing to single plot). Persist splitter value."""

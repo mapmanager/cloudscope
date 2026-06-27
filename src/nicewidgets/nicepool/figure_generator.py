@@ -858,6 +858,7 @@ class FigureGenerator:
         
         # Build tmp dataframe with x, y, row_id, and optionally color_grouping and file_stem for hover
         tmp_data = {"x": x_cat, "y": y, "row_id": row_ids}
+        unique_colors: list[str] = []
         if "path" in df_f.columns:
             tmp_data["file_stem"] = df_f["path"].map(
                 lambda p: Path(p).stem if p and pd.notna(p) else ""
@@ -867,7 +868,7 @@ class FigureGenerator:
         else:
             tmp_data["file_stem"] = pd.Series("", index=df_f.index)
         if state.color_grouping and state.color_grouping in df_f.columns:
-            color_labels, _unique_colors = prepare_categorical_column(
+            color_labels, unique_colors = prepare_categorical_column(
                 df_f[state.color_grouping],
                 column_name=state.color_grouping,
                 role="color grouping",
@@ -885,7 +886,6 @@ class FigureGenerator:
         # Group by color_grouping if set, otherwise single trace
         if state.color_grouping and "color" in tmp.columns:
             # Get all unique color values to calculate offset per group
-            unique_colors = sorted(tmp["color"].unique())
             num_colors = len(unique_colors)
             # Offset amount: spread groups around center position (user-controllable)
             group_offset_amount = state.swarm_group_offset

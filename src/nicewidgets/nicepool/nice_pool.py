@@ -47,6 +47,7 @@ class NicePool(PlotPoolController):
             app_name=cfg.app_name,
             config_path=cfg.config_path,
             plot_state=cfg.plot_state,
+            initial_plot_config=cfg.initial_plot_config,
             on_table_row_selected=table_callback,
             on_refresh_requested=refresh_callback,
             show_save_button=cfg.show_save_button,

@@ -270,3 +270,36 @@ def test_velocity_analysis_pool_to_csv(tmp_path: Path) -> None:
     loaded = pd.read_csv(out_path)
     assert list(loaded.columns) == list(images.velocity_analysis_pool.get_dataframe().columns)
     assert loaded.loc[0, "roi_id"] == 1
+
+
+class _StringlyMetadataFakeAcqImage(_PoolFakeAcqImage):
+    """AcqImage-like object whose metadata mimics stringly typed sidecar JSON."""
+
+    def __init__(self, path: str) -> None:
+        super().__init__(path)
+        self._experimental_metadata = ExperimentMetadata.from_dict(
+            {
+                "genotype": "wt",
+                "age": "P30",
+                "sex": "F",
+                "branch_order": "2",
+                "direction": "upstream",
+                "depth": "45",
+                "note": "good quality",
+            }
+        )
+
+
+def test_velocity_analysis_pool_coerces_stringly_experiment_metadata_dtypes(
+    tmp_path: Path,
+) -> None:
+    """Pool rebuild should expose nullable numeric dtypes for coerced metadata."""
+    file_path = tmp_path / "sample.tif"
+    file_path.write_text("")
+    images = AcqImageList(str(file_path), file_factory=_StringlyMetadataFakeAcqImage)
+    df = images.velocity_analysis_pool.get_dataframe()
+
+    assert str(df["branch_order"].dtype) == "Int64"
+    assert str(df["depth"].dtype) == "Float64"
+    assert df.loc[0, "branch_order"] == 2
+    assert df.loc[0, "depth"] == 45.0

@@ -17,9 +17,8 @@ from cloudscope.events.velocity_pool import VelocityPoolChanged
 from cloudscope.utils.logging import get_logger
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
+from cloudscope.views.velocity_pool_plot_config import VELOCITY_POOL_INITIAL_PLOT_CONFIG
 from nicewidgets.nicepool import NicePool, NicePoolConfig
-from nicewidgets.nicepool.plot_state import PlotState, PlotType
-from nicewidgets.nicepool.pre_filter_conventions import PRE_FILTER_NONE
 
 logger = get_logger(__name__)
 
@@ -75,18 +74,7 @@ class VelocityPoolView(BaseView):
             config=NicePoolConfig(
                 unique_row_id_col="pool_row_id",
                 table_font_size_px=self._table_font_size_px,
-                plot_state=PlotState(
-                    pre_filter={
-                        "accept": PRE_FILTER_NONE,
-                        "channel": PRE_FILTER_NONE,
-                        "roi_id": PRE_FILTER_NONE,
-                    },
-                    xcol="parent",
-                    ycol="velocity_mean",
-                    plot_type=PlotType.SWARM,
-                    group_col="parent",
-                    color_grouping="roi_id",
-                ),
+                initial_plot_config=VELOCITY_POOL_INITIAL_PLOT_CONFIG,
                 show_table_widget=False,
                 enable_config_persistence=False,
                 dark_mode=self._dark_mode,

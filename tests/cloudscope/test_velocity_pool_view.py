@@ -14,9 +14,9 @@ from cloudscope.events.selection import SelectFileIntent
 from cloudscope.events.theme import ThemeChanged
 from cloudscope.events.velocity_pool import VelocityPoolChanged, VelocityPoolChangeKind
 from cloudscope.views import velocity_pool_view as velocity_pool_view_module
+from cloudscope.views.velocity_pool_plot_config import VELOCITY_POOL_INITIAL_PLOT_CONFIG
 from cloudscope.views.velocity_pool_view import VelocityPoolView
 from nicewidgets.nicepool.config import NicePoolConfig
-from nicewidgets.nicepool.plot_state import PlotType
 from nicewidgets.nicepool.pre_filter_conventions import PRE_FILTER_NONE
 
 
@@ -154,8 +154,8 @@ def test_refresh_from_state_skipped_once_after_build(monkeypatch: pytest.MonkeyP
     assert len(FakeNicePool.instances[0].set_dataframe_calls) == 1
 
 
-def test_velocity_pool_view_configures_default_plot_state(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Velocity pool should pass CloudScope-specific plot defaults to NicePool."""
+def test_velocity_pool_view_configures_initial_plot_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Velocity pool should pass CloudScope-owned inline plot config to NicePool."""
     FakeNicePool.instances.clear()
     monkeypatch.setattr(velocity_pool_view_module, "NicePool", FakeNicePool)
     view = VelocityPoolView(event_bus=EventBus(), app_state=None, initially_visible=False)
@@ -164,19 +164,19 @@ def test_velocity_pool_view_configures_default_plot_state(monkeypatch: pytest.Mo
 
     assert len(FakeNicePool.instances) == 1
     config = FakeNicePool.instances[0].config
-    state = config.plot_state
-    assert state is not None
-    assert state.pre_filter == {
+    assert config.initial_plot_config is VELOCITY_POOL_INITIAL_PLOT_CONFIG
+    first_state = config.initial_plot_config["plot_states"][0]
+    assert first_state["pre_filter"] == {
         "accept": PRE_FILTER_NONE,
         "channel": PRE_FILTER_NONE,
         "roi_id": PRE_FILTER_NONE,
     }
-    assert state.xcol == "parent"
-    assert state.ycol == "velocity_mean"
-    assert state.plot_type is PlotType.SWARM
-    assert state.group_col == "parent"
-    assert state.color_grouping == "roi_id"
-    assert config.show_table_widget is False
+    assert first_state["xcol"] == "parent"
+    assert first_state["ycol"] == "velocity_mean"
+    assert first_state["plot_type"] == "swarm"
+    assert first_state["group_col"] == "parent"
+    assert first_state["color_grouping"] == "roi_id"
+    assert config.show_table_widget is True
     assert config.enable_config_persistence is False
 
 

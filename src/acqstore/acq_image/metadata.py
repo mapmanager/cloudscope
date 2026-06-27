@@ -391,7 +391,11 @@ class ExperimentMetadata:
     def from_dict(cls, payload: dict[str, Any] | None) -> ExperimentMetadata:
         """Create instance from dictionary, ignoring unknown keys.
 
+        All fields are coerced according to ``EXPERIMENT_METADATA_SCHEMA``.
         String fields accept ``None`` in the payload and coerce to ``""``.
+        Numeric fields accept JSON strings such as ``"75"`` and coerce to
+        ``float``/``int``. Empty strings coerce to ``None`` for nullable
+        numeric fields.
 
         Args:
             payload: Dictionary containing metadata fields. Can be None or empty.
@@ -399,35 +403,31 @@ class ExperimentMetadata:
         Returns:
             ``ExperimentMetadata`` instance with values from payload, or defaults
             if payload is None or empty.
+
+        Raises:
+            ValueError: If a field value cannot be coerced to its schema type.
         """
         payload = payload or {}
         valid = {f.name for f in fields(cls) if f.init}
+        fields_by_name = {fs.name: fs for fs in EXPERIMENT_METADATA_SCHEMA.fields}
         known: dict[str, Any] = {}
         for k in payload.keys() & valid:
-            v = payload[k]
-            if k in {
-                'species',
-                'region',
-                'cell_type',
-                'direction',
-                'sex',
-                'genotype',
-                'age',
-                'condition',
-                'condition2',
-                'treatment',
-                'treatment2',
-                'date',
-                'note',
-            }:
-                known[k] = '' if v is None else str(v)
-            else:
-                known[k] = v
+            field_schema = fields_by_name[k]
+            try:
+                known[k] = cls._coerce_schema_value(field_schema, payload[k])
+            except ValueError as exc:
+                raise ValueError(
+                    f"Invalid experiment_metadata field {k!r}: {exc}"
+                ) from exc
         return cls(**known)
 
     def to_dict(self) -> dict[str, Any]:
-        """Return all field values as a plain dictionary (not schema-validated)."""
-        return asdict(self)
+        """Return init field values as a plain dictionary (not schema-validated).
+
+        Internal state such as ``_is_dirty`` is excluded so sidecar JSON stays
+        limited to experiment-metadata fields.
+        """
+        return {f.name: getattr(self, f.name) for f in fields(self) if f.init}
 
     def is_dirty(self) -> bool:
         """Return whether metadata was edited since last ``set_clean``."""
@@ -454,19 +454,49 @@ class ExperimentMetadata:
         return values
 
     @staticmethod
+    def _coerce_schema_value(fs: FieldSchema, value: object) -> object:
+        """Coerce one value to the type declared by ``fs``.
+
+        Args:
+            fs: Schema field describing the target type.
+            value: Raw input value from a dict payload or edit patch.
+
+        Returns:
+            Coerced value suitable for ``setattr`` on ``ExperimentMetadata``.
+
+        Raises:
+            ValueError: If ``value`` cannot be coerced to ``fs.value_type``.
+        """
+        if fs.value_type is ValueType.STR:
+            return '' if value is None else str(value).strip()
+        if fs.value_type is ValueType.INT:
+            if value is None:
+                return None
+            if isinstance(value, str) and value.strip() == '':
+                return None
+            try:
+                float_value = float(value)  # type: ignore[arg-type]
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"expected integer-compatible value, got {value!r}") from exc
+            int_value = int(float_value)
+            if float_value != int_value:
+                raise ValueError(f"expected integer-compatible value, got {value!r}")
+            return int_value
+        if fs.value_type is ValueType.FLOAT:
+            if value is None:
+                return None
+            if isinstance(value, str) and value.strip() == '':
+                return None
+            try:
+                return float(value)  # type: ignore[arg-type]
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"expected float-compatible value, got {value!r}") from exc
+        return value
+
+    @staticmethod
     def _coerce_patch_value(fs: FieldSchema, value: object) -> object:
         """Coerce a single patch value to a type suitable for ``setattr``."""
-        if fs.value_type is ValueType.STR:
-            return '' if value is None else str(value)
-        if fs.value_type is ValueType.INT:
-            if value is None or value == '':
-                return None
-            return int(value)  # type: ignore[arg-type]
-        if fs.value_type is ValueType.FLOAT:
-            if value is None or value == '':
-                return None
-            return float(value)  # type: ignore[arg-type]
-        return value
+        return ExperimentMetadata._coerce_schema_value(fs, value)
 
     def update_values(self, patch: dict[str, object]) -> None:
         """Apply an edit patch to editable fields only.
