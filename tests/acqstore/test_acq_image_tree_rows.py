@@ -44,6 +44,11 @@ class _FakeImages:
             physical_units_labels=('Pixels', 'Pixels', 'Pixels'),
         )
 
+    @property
+    def has_reference_image(self) -> bool:
+        """Match :class:`BaseFileLoader.has_reference_image` contract."""
+        return self.reference_image is not None
+
 
 class _FakeRois:
     """Small ROI-set test double for schema-row generation."""

@@ -125,6 +125,22 @@ Rules:
 - Tests must be deterministic.
 - Test results must be recorded in the ticket report file.
 
+### Test purpose and iteration
+
+Unit tests verify intended API and module behavior; they are not written simply
+to pass. Use this loop when tests fail:
+
+1. Write a test that asserts intended behavior.
+2. Run with `uv run pytest` (or a focused test file).
+3. On failure, ask: **Is the API/source wrong, or is the test wrong?**
+   - If the **API/source is wrong**: warn in chat, then fix the source.
+   - If the **test is wrong**: fix the test while still asserting real behavior.
+4. Repeat until tests pass for the right reasons.
+
+Do not weaken assertions to match buggy code without flagging the API error. Do
+not change production code to satisfy a bad test without confirming intended
+behavior. See also `.cursor/rules/unit-test-discipline.mdc`.
+
 ---
 
 ## Structure

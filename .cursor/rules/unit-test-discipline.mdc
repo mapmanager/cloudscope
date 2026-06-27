@@ -1,0 +1,47 @@
+---
+description: Unit tests verify real behavior; iterate test → run → fix API or test
+alwaysApply: true
+---
+
+# Unit test discipline
+
+Unit tests exist to verify that source code and public APIs behave correctly
+and to catch real bugs. They are **not** written simply to pass, and they must
+not be weakened to match incorrect implementation by default.
+
+## Purpose
+
+- Assert **intended** behavior of APIs and modules under test.
+- Fail when the implementation or contract is wrong.
+- Stay deterministic and meaningful (see `AGENTS.md` Testing section for commands).
+
+## Iterative workflow
+
+When adding or fixing tests:
+
+1. **Write** a test that states the intended behavior.
+2. **Run** with `uv run pytest` (focused file or full suite).
+3. **If it fails**, inspect the failure and ask: **Is the API/source wrong, or
+   is the test wrong?**
+   - **API/source wrong:** warn the user in chat with what you found, then fix
+     the source to match the correct behavior.
+   - **Test wrong** (bad assumption, stale expected value, testing private
+     detail): fix the test so it still asserts real behavior.
+4. **Repeat** edit → run → diagnose until tests pass for the right reasons.
+
+## Constraints
+
+- Do not change production code solely to satisfy a bad test without confirming
+  intended behavior.
+- Do not change a test solely to match a buggy API without flagging that the
+  API was wrong.
+- Prefer asserting through public APIs and stable contracts; derive expected
+  values from source-of-truth constants when possible instead of duplicating
+  magic numbers that drift from config.
+- Passing tests must mean behavior is actually correct, not that assertions
+  were lowered to match a mistake.
+
+## Relationship to AGENTS.md
+
+This rule expands the **Testing (STRICT)** section in `AGENTS.md`. When they
+conflict, `AGENTS.md` wins.

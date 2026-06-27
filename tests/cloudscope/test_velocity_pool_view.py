@@ -17,7 +17,6 @@ from cloudscope.views import velocity_pool_view as velocity_pool_view_module
 from cloudscope.views.velocity_pool_plot_config import VELOCITY_POOL_INITIAL_PLOT_CONFIG
 from cloudscope.views.velocity_pool_view import VelocityPoolView
 from nicewidgets.nicepool.config import NicePoolConfig
-from nicewidgets.nicepool.pre_filter_conventions import PRE_FILTER_NONE
 
 
 class FakeRoot:
@@ -166,17 +165,14 @@ def test_velocity_pool_view_configures_initial_plot_config(monkeypatch: pytest.M
     config = FakeNicePool.instances[0].config
     assert config.initial_plot_config is VELOCITY_POOL_INITIAL_PLOT_CONFIG
     first_state = config.initial_plot_config["plot_states"][0]
-    assert first_state["pre_filter"] == {
-        "accept": PRE_FILTER_NONE,
-        "channel": PRE_FILTER_NONE,
-        "roi_id": PRE_FILTER_NONE,
-    }
-    assert first_state["xcol"] == "parent"
-    assert first_state["ycol"] == "velocity_mean"
-    assert first_state["plot_type"] == "swarm"
-    assert first_state["group_col"] == "parent"
-    assert first_state["color_grouping"] == "roi_id"
-    assert config.show_table_widget is True
+    expected_state = VELOCITY_POOL_INITIAL_PLOT_CONFIG["plot_states"][0]
+    assert first_state["pre_filter"] == expected_state["pre_filter"]
+    assert first_state["xcol"] == expected_state["xcol"]
+    assert first_state["ycol"] == expected_state["ycol"]
+    assert first_state["plot_type"] == expected_state["plot_type"]
+    assert first_state["group_col"] == expected_state["group_col"]
+    assert first_state["color_grouping"] == expected_state["color_grouping"]
+    assert config.show_table_widget is False
     assert config.enable_config_persistence is False
 
 

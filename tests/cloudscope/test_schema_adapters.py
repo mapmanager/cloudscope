@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from acqstore.schema import ACQ_FILE_LIST_SCHEMA, FieldSchema, SchemaDefinition, ValueType
 from cloudscope.schema_adapters import (
+    _TREE_FONT_SCALED_COLUMN_MULTIPLIERS,
     field_schema_to_column_def,
     schema_to_column_defs,
 )
+from nicewidgets.tree_widget.config import font_scaled_column_width_px
 
 
 def test_field_schema_to_column_def_maps_basic_fields() -> None:
@@ -83,17 +85,30 @@ def test_schema_to_column_defs_preserves_schema_order() -> None:
 
 
 def test_schema_to_column_defs_tree_font_scaled_marker_columns() -> None:
+    font_px = 12
     columns = schema_to_column_defs(
         ACQ_FILE_LIST_SCHEMA,
         tree_group_display_field='name',
-        cell_font_size_px=12,
+        cell_font_size_px=font_px,
     )
     by_field = {column.field: column for column in columns}
 
-    assert by_field['loaded'].extra['width'] == 72
-    assert by_field['loaded'].extra['minWidth'] == 72
-    assert by_field['reference_image'].extra['width'] == 72
-    assert by_field['file_size'].extra['width'] == 120
+    loaded_w = font_scaled_column_width_px(
+        font_px,
+        multiplier=_TREE_FONT_SCALED_COLUMN_MULTIPLIERS['loaded'],
+    )
+    ref_w = font_scaled_column_width_px(
+        font_px,
+        multiplier=_TREE_FONT_SCALED_COLUMN_MULTIPLIERS['reference_image'],
+    )
+    size_w = font_scaled_column_width_px(
+        font_px,
+        multiplier=_TREE_FONT_SCALED_COLUMN_MULTIPLIERS['file_size'],
+    )
+    assert by_field['loaded'].extra['width'] == loaded_w
+    assert by_field['loaded'].extra['minWidth'] == loaded_w
+    assert by_field['reference_image'].extra['width'] == ref_w
+    assert by_field['file_size'].extra['width'] == size_w
 
 
 def test_schema_to_column_defs_tree_name_column_gets_width_and_flex() -> None:
