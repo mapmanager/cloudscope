@@ -139,7 +139,7 @@ class PoolControlPanel:
         Args:
             pre_filter_options: Map column name -> list of option strings (e.g. ["(none)", "1", "2"]).
         """
-        with ui.column().classes("w-full h-full p-4 gap-4 overflow-y-auto"):
+        with ui.column().classes("w-full flex flex-col gap-4 p-4"):
             with ui.row().classes("w-full gap-2"):
                 self._layout_select = ui.select(
                     options={"1x1": "1x1", "1x2": "1x2", "2x1": "2x1", "2x2": "2x2"},

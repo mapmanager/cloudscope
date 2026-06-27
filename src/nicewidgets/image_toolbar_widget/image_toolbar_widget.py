@@ -9,6 +9,11 @@ from enum import Enum, auto
 from nicegui import ui
 from nicegui.events import ValueChangeEventArguments
 
+from nicewidgets.compact_select_styles import (
+    COMPACT_SELECT_CLASS,
+    COMPACT_SELECT_PROPS,
+    ensure_compact_select_styles,
+)
 from nicewidgets.image_toolbar_widget.intent import (
     ImageToolbarIntent,
     ImageToolbarRoiAddRequestIntent,
@@ -78,19 +83,23 @@ class ImageToolbarWidget:
         self._channel: int | None = None
         self._roi_id: int | None = None
 
-        self._channel_select = ui.select(
-            options=[],
-            label='Channel',
-            value=None,
-            on_change=self._on_channel_change,
-        ).props('name=channel outlined').classes('min-w-28')
+        ensure_compact_select_styles()
 
-        self._roi_select = ui.select(
-            options=[],
-            label='ROI',
-            value=None,
-            on_change=self._on_roi_change,
-        ).props('name=roi outlined').classes('min-w-28')
+        with ui.row().classes('items-center gap-1'):
+            ui.label('Channel')
+            self._channel_select = ui.select(
+                options=[],
+                value=None,
+                on_change=self._on_channel_change,
+            ).props(f'name=channel {COMPACT_SELECT_PROPS}').classes(f'w-28 {COMPACT_SELECT_CLASS}')
+
+        with ui.row().classes('items-center gap-1'):
+            ui.label('ROI')
+            self._roi_select = ui.select(
+                options=[],
+                value=None,
+                on_change=self._on_roi_change,
+            ).props(f'name=roi {COMPACT_SELECT_PROPS}').classes(f'w-28 {COMPACT_SELECT_CLASS}')
 
         self._add_btn = ui.button(icon='add', on_click=self._on_add_click).props('flat round')
         self._add_btn.tooltip('Add ROI')

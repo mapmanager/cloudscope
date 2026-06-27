@@ -13,14 +13,14 @@ from nicegui import ui
 # logger = get_logger(__name__)
 
 
-def setUpGuiDefaults(text_size: str = 'text-sm'):
+def setUpGuiDefaults(text_size: str = 'text-xs'):
     """Set up default classes and props for all ui elements.
     
     Must be called before any nicegui ui.x are created.
     
     Args:
         text_size: Tailwind CSS text size class (e.g., 'text-xs', 'text-sm', 
-                   'text-base', 'text-lg'). Defaults to 'text-base'.
+                   'text-base', 'text-lg'). Defaults to 'text-xs'.
     """
     
     # logger.info('setting default_classes() and default_props()to specify style of all ui elements')

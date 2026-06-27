@@ -8,7 +8,7 @@ import pandas as pd
 from nicegui import ui
 
 from nicewidgets.nicepool.config import NicePoolConfig, resolve_pre_filter_columns
-from nicewidgets.nicepool.plot_pool_controller import PlotPoolConfig, PlotPoolController
+from nicewidgets.nicepool.plot_pool_controller import PlotPoolConfig, PlotPoolController, NICEPOOL_ROOT_CLASSES
 
 
 class NicePool(PlotPoolController):
@@ -74,10 +74,10 @@ class NicePool(PlotPoolController):
         """
         target = container if container is not None else parent
         if target is None:
-            root = ui.column().classes("w-full h-full")
+            root = ui.column().classes(NICEPOOL_ROOT_CLASSES)
         else:
             with target:
-                root = ui.column().classes("w-full h-full")
+                root = ui.column().classes(NICEPOOL_ROOT_CLASSES)
         super().build(container=root)
         return root
 

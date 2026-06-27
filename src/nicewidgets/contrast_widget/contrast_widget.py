@@ -19,6 +19,11 @@ import numpy as np
 from nicegui import ui
 from nicegui.events import ValueChangeEventArguments
 
+from nicewidgets.compact_select_styles import (
+    COMPACT_SELECT_CLASS,
+    COMPACT_SELECT_PROPS,
+    ensure_compact_select_styles,
+)
 from nicewidgets.contrast_widget.colorscales import (
     COLORSCALE_OPTIONS,
     colorscale_option_value_to_label,
@@ -48,7 +53,7 @@ class ContrastWidget:
     layout (same composition pattern used by :class:`EChartWidget` and
     :class:`PlotlyRasterViewer`).
 
-    The range slider is bounded by ``min-w-32 max-w-64`` and grows with
+    The range slider is bounded by ``min-w-32 max-w-48`` and grows with
     ``flex-1`` so it uses available space without dominating its row.
 
     Args:
@@ -84,24 +89,27 @@ class ContrastWidget:
         self._img_max: int = DEFAULT_RANGE_MAX
         self._image: np.ndarray | None = None
 
-        with ui.row().classes('items-center gap-2 flex-nowrap'):
-            self._lut_select = ui.select(
-                options=colorscale_option_value_to_label(),
-                value=self._color_lut,
-                label='Color LUT',
-                on_change=self._on_lut_change,
-            ).classes('w-32').props('outlined')
+        ensure_compact_select_styles()
+
+        with ui.row().classes('items-center gap-1 flex-nowrap'):
+            with ui.row().classes('items-center gap-1'):
+                ui.label('Color LUT')
+                self._lut_select = ui.select(
+                    options=colorscale_option_value_to_label(),
+                    value=self._color_lut,
+                    on_change=self._on_lut_change,
+                ).props(COMPACT_SELECT_PROPS).classes(f'w-28 {COMPACT_SELECT_CLASS}')
             self._auto_btn = ui.button('Auto', on_click=self._on_auto_click)
             self._auto_btn.tooltip('Auto contrast (percentile clip)')
-            self._min_label = ui.label(str(self._value_min)).classes('w-10 text-right')
+            self._min_label = ui.label(str(self._value_min)).classes('w-8 text-right')
             self._range = ui.range(
                 min=self._img_min,
                 max=self._img_max,
                 value={'min': self._value_min, 'max': self._value_max},
                 step=1,
                 on_change=self._on_range_change,
-            ).classes('flex-1 min-w-32 max-w-64').props('debounce=200')
-            self._max_label = ui.label(str(self._value_max)).classes('w-10 text-left')
+            ).classes('flex-1 min-w-32 max-w-48').props('debounce=200')
+            self._max_label = ui.label(str(self._value_max)).classes('w-8 text-left')
 
             self._min_label.bind_text_from(
                 self._range, 'value', backward=lambda v: str(int(v['min']))

@@ -7,6 +7,7 @@ from datetime import datetime
 from nicegui import ui
 
 from cloudscope.devtools.mvc_telemetry import is_mvc_telemetry_enabled, mvc_telemetry
+from nicewidgets.gui_defaults import setUpGuiDefaults
 
 
 def register_mvc_diagnostics_page() -> None:
@@ -14,6 +15,7 @@ def register_mvc_diagnostics_page() -> None:
 
     @ui.page('/dev/mvc')
     def mvc_diagnostics_page() -> None:
+        setUpGuiDefaults('text-xs')
         ui.page_title('CloudScope MVC Telemetry')
         render_mvc_diagnostics_view()
 

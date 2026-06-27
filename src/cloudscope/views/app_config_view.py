@@ -31,7 +31,7 @@ APP_CONFIG_UI_SCHEMA = SchemaDefinition(
             display_name='Text size',
             value_type=ValueType.ENUM,
             description='Default Tailwind text size class for NiceGUI widgets.',
-            default_value='text-sm',
+            default_value='text-xs',
             choices=_TEXT_SIZE_CHOICES,
             editable=True,
             visible=True,
@@ -51,15 +51,6 @@ APP_CONFIG_UI_SCHEMA = SchemaDefinition(
             value_type=ValueType.INT,
             description='Font size for file-list table cells and headers (clamped on save).',
             default_value=DEFAULT_TABLE_FONT_SIZE_PX,
-            editable=True,
-            visible=True,
-        ),
-        FieldSchema(
-            name='dark_mode',
-            display_name='Dark mode',
-            value_type=ValueType.BOOL,
-            description='Use dark UI theme (reload header toggle if you change this here).',
-            default_value=False,
             editable=True,
             visible=True,
         ),
@@ -100,7 +91,6 @@ class AppConfigView(BaseView):
             'text_size': data.text_size,
             'folder_depth': data.folder_depth,
             'table_font_size_px': data.table_font_size_px,
-            'dark_mode': data.dark_mode,
         }
 
     def _on_apply(self, patch: Mapping[str, object]) -> None:
@@ -129,8 +119,6 @@ class AppConfigView(BaseView):
                 self._app_config.data.table_font_size_px = int(raw_tf)  # type: ignore[arg-type]
             except (TypeError, ValueError):
                 pass
-        if 'dark_mode' in patch:
-            self._app_config.data.dark_mode = bool(patch['dark_mode'])
 
         self._app_config.normalize_and_persist()
         ui.notify('App settings saved', type='positive')

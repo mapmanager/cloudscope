@@ -49,6 +49,15 @@ from nicewidgets.nicepool.plot_preset_validation import (
 
 logger = get_logger(__name__)
 
+NICEPOOL_ROOT_CLASSES = "nicepool-root w-full h-full min-h-0 overflow-hidden flex flex-col"
+_CONTROL_PANEL_CONTAINER_CLASSES = "w-full h-full min-h-0 overflow-y-auto"
+_NICEPOOL_LAYOUT_CSS = """
+.nicepool-root .q-splitter__panel {
+    overflow: hidden !important;
+    min-height: 0;
+}
+"""
+
 
 @dataclass
 class PlotPoolConfig:
@@ -132,6 +141,16 @@ class PlotPoolController:
     - **build_lazy(title, ...)** — Build the same UI inside a LazySection (renders when expansion is opened).
     - **select_points_by_row_id(row_id)** — Programmatically select points in the plots that match the given row_id.
     """
+
+    _layout_css_injected: bool = False
+
+    @classmethod
+    def _ensure_nicepool_layout_css(cls) -> None:
+        """Inject scoped splitter-panel CSS once so only the toolbar scrolls."""
+        if cls._layout_css_injected:
+            return
+        ui.add_head_html(f"<style>{_NICEPOOL_LAYOUT_CSS}</style>")
+        cls._layout_css_injected = True
 
     def __init__(
         self,
@@ -625,6 +644,7 @@ class PlotPoolController:
         """
         # Helper to conditionally use container context or top-level
         def _build_content():
+            self._ensure_nicepool_layout_css()
             # Header area at the top
             # with ui.column().classes("w-full"):
             #     with ui.row().classes("w-full items-center gap-3 flex-wrap"):
@@ -653,7 +673,7 @@ class PlotPoolController:
                 }
                 with self._mainSplitter.before:
                     self._control_panel_container = ui.column().classes(
-                        "w-full h-full min-h-0 overflow-hidden"
+                        _CONTROL_PANEL_CONTAINER_CLASSES
                     )
                     with self._control_panel_container:
                         self._control_panel = PoolControlPanel(
@@ -717,7 +737,7 @@ class PlotPoolController:
                 self._verticalSplitter = None
                 self._table_container = None
                 self._table_view = None
-                with ui.column().classes("w-full h-full min-h-0"):
+                with ui.column().classes("w-full h-full min-h-0 overflow-hidden"):
                     _build_controls_and_plots()
 
             self._control_panel.sync_controls(

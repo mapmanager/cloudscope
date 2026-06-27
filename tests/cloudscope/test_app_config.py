@@ -10,8 +10,10 @@ import pytest
 from cloudscope import app_config as app_config_module
 from cloudscope.app_config import (
     AppConfig,
+    AppConfigData,
     DEFAULT_FOLDER_DEPTH,
     DEFAULT_TABLE_FONT_SIZE_PX,
+    DEFAULT_TEXT_SIZE,
     MAX_RECENTS,
     MAX_TABLE_FONT_SIZE_PX,
     MIN_TABLE_FONT_SIZE_PX,
@@ -30,9 +32,25 @@ def test_load_missing_returns_defaults(tmp_path) -> None:
     assert cfg.get_pool_window_rect() is None
     assert cfg.get_attribute('folder_depth') == DEFAULT_FOLDER_DEPTH
     assert cfg.get_attribute('table_font_size_px') == DEFAULT_TABLE_FONT_SIZE_PX
+    assert cfg.get_attribute('text_size') == DEFAULT_TEXT_SIZE
     assert cfg.get_attribute('dark_mode') is False
 
 
+def test_default_text_size_is_text_xs() -> None:
+    """Fresh installs should default NiceGUI widget text to text-xs."""
+    assert DEFAULT_TEXT_SIZE == 'text-xs'
+    assert AppConfigData().text_size == 'text-xs'
+
+
+def test_load_preserves_saved_text_size_without_migration(tmp_path) -> None:
+    """Existing app_config.json text_size values are not migrated on load."""
+    cfg_path = tmp_path / 'app_config.json'
+    cfg_path.write_text(
+        json.dumps({'schema_version': SCHEMA_VERSION, 'text_size': 'text-sm'}),
+        encoding='utf-8',
+    )
+    cfg = AppConfig.load(config_path=cfg_path, create_if_missing=False)
+    assert cfg.get_attribute('text_size') == 'text-sm'
 def test_roundtrip_save_and_load(tmp_path) -> None:
     cfg_path = tmp_path / 'app_config.json'
     cfg = AppConfig.load(config_path=cfg_path, create_if_missing=False)

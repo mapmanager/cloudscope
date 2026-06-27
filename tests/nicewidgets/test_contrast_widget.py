@@ -195,10 +195,10 @@ def test_range_slider_uses_bounded_flex_classes(widget: ContrastWidget) -> None:
     classes = widget._range.classes
     assert 'flex-1' in classes
     assert 'min-w-32' in classes
-    assert 'max-w-64' in classes
+    assert 'max-w-48' in classes
 
 
 def test_range_companion_labels_keep_fixed_width(widget: ContrastWidget) -> None:
     """Min/max labels keep their narrow fixed width so the group stays compact."""
-    assert 'w-10' in widget._min_label.classes
-    assert 'w-10' in widget._max_label.classes
+    assert 'w-8' in widget._min_label.classes
+    assert 'w-8' in widget._max_label.classes

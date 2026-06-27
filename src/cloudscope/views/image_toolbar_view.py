@@ -135,11 +135,11 @@ class ImageToolbarView(BaseView):
             Root element for this view.
         """
         if parent is None:
-            with ui.row().classes("w-full items-center flex-wrap gap-2 p-1") as self.root:
+            with ui.row().classes("w-full items-center flex-wrap gap-1 py-0 px-1") as self.root:
                 self._build_children()
         else:
             with parent:
-                with ui.row().classes("w-full items-center flex-wrap gap-2 p-1") as self.root:
+                with ui.row().classes("w-full items-center flex-wrap gap-1 py-0 px-1") as self.root:
                     self._build_children()
         self.after_build()
         return self.root
