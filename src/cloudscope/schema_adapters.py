@@ -11,6 +11,7 @@ from typing import Any
 
 from acqstore.schema import FieldSchema, SchemaDefinition, ValueType
 from nicewidgets.table_widget.column_def import ColumnDef
+from nicewidgets.tree_widget.config import font_scaled_column_width_px
 
 _TREE_NAME_COLUMN_MIN_WIDTH_PX = 260
 _TREE_COLUMN_WIDTHS: dict[str, dict[str, object]] = {
@@ -20,6 +21,12 @@ _TREE_COLUMN_WIDTHS: dict[str, dict[str, object]] = {
     'dims': {'width': 140},
     'num_rois': {'width': 72},
     'accept': {'width': 72},
+}
+# Font-scaled tree column widths (multiplier * cell_font_size_px, min 36px).
+_TREE_FONT_SCALED_COLUMN_MULTIPLIERS: dict[str, int] = {
+    'loaded': 12,
+    'reference_image': 12,
+    'file_size': 10,
 }
 
 
@@ -64,6 +71,7 @@ def schema_to_column_defs(
     schema: SchemaDefinition,
     *,
     tree_group_display_field: str | None = None,
+    cell_font_size_px: int | None = None,
 ) -> list[ColumnDef]:
     """Convert an AcqStore schema into NiceWidgets table columns.
 
@@ -75,6 +83,9 @@ def schema_to_column_defs(
             and ``cellRendererParams: {'suppressCount': True}`` injected
             into its ``extra`` dict. When ``None`` (default), no chevron
             wiring is applied — appropriate for flat table views.
+        cell_font_size_px: When set with ``tree_group_display_field``, apply
+            font-scaled widths to compact marker/size columns (``loaded``,
+            ``reference_image``, ``file_size``).
 
     Returns:
         Column definitions in schema field order.
@@ -100,5 +111,9 @@ def schema_to_column_defs(
             width_extra = _TREE_COLUMN_WIDTHS.get(col.field)
             if width_extra is not None:
                 col.extra.update(width_extra)
+            multiplier = _TREE_FONT_SCALED_COLUMN_MULTIPLIERS.get(col.field)
+            if multiplier is not None and cell_font_size_px is not None:
+                width = font_scaled_column_width_px(cell_font_size_px, multiplier=multiplier)
+                col.extra.update({'width': width, 'minWidth': width})
 
     return columns

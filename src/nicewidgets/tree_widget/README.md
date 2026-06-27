@@ -45,6 +45,14 @@ tree = TreeWidget(
 - `row_height`, `header_height`: optional fixed pixel sizes
 - `extra_grid_options`: merged before `grid_options`
 - `enterprise_module_url`: default AG Grid Enterprise CDN ESM URL
+- `show_index_column`: when true, prepend a synthetic 1-based Index column for
+  top-level tree rows only (`node.level === 0`); child rows are blank
+- `index_field`: column field name for the index column (default `file_row_index`)
+- `index_header`: column header label (default `''`, blank header)
+- `index_menu_label`: context-menu label when header is blank (default `Index`)
+- Index values are computed in AG Grid via `valueGetter` (`forEachNode` + level 0),
+  not stored in row data; column is non-sortable and width uses
+  `font_scaled_column_width_px(cell_font_size_px)` (default `6 * font`, min 36px)
 
 ## Row identity and path rules
 

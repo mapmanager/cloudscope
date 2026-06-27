@@ -17,9 +17,7 @@ class TreeWidgetConfig:
     """Grid-level options for ``TreeWidget``.
 
     Mirrors the relevant fields of
-    :class:`nicewidgets.table_widget.config.TableWidgetConfig`. Cell editing
-    and the synthetic index column are intentionally omitted -- a tree's
-    depth-first row order has no useful 1-based "row number", and inline cell
+    :class:`nicewidgets.table_widget.config.TableWidgetConfig`. Inline cell
     editing is not part of the v1 surface.
 
     Attributes:
@@ -46,6 +44,16 @@ class TreeWidgetConfig:
             ``ui.aggrid.set_module_source``. ``set_module_source`` is invoked
             once at widget construction time. When ``None``, no override is
             applied (caller is assumed to have configured the bundle).
+        show_index_column: When true, prepend a synthetic 1-based Index column
+            for top-level tree rows only (``node.level === 0`` in AG Grid).
+            Child rows are blank. Indices follow row-model load order via a
+            client-side ``valueGetter`` (not stored in row data).
+        index_field: AG Grid column field name for the index column (must not
+            collide with application row keys).
+        index_header: Column header label for the index column. Use ``''`` for
+            a blank header (column remains visible).
+        index_menu_label: Label used in the column visibility context menu
+            when ``index_header`` is blank (default ``Index``).
     """
 
     selection_mode: SelectionMode = 'single'
@@ -59,6 +67,10 @@ class TreeWidgetConfig:
     header_height: int | None = None
     extra_grid_options: dict[str, Any] = field(default_factory=dict)
     enterprise_module_url: str | None = DEFAULT_AG_GRID_ENTERPRISE_MODULE_URL
+    show_index_column: bool = False
+    index_field: str = 'file_row_index'
+    index_header: str = ''
+    index_menu_label: str = 'Index'
 
 
 def scaled_row_header_heights_px(cell_font_size_px: int) -> tuple[int, int]:
@@ -79,3 +91,23 @@ def scaled_row_header_heights_px(cell_font_size_px: int) -> tuple[int, int]:
     row_h = max(28, min(64, fp * 2 + 12))
     header_h = max(28, min(56, fp + 24))
     return (row_h, header_h)
+
+
+def font_scaled_column_width_px(
+    cell_font_size_px: int | None,
+    *,
+    multiplier: int = 6,
+    minimum: int = 36,
+) -> int:
+    """Return AG Grid column width from body font size.
+
+    Args:
+        cell_font_size_px: Body cell font size in pixels, or ``None`` for 13px.
+        multiplier: Width multiplier applied to font size.
+        minimum: Minimum column width in pixels.
+
+    Returns:
+        Column width in pixels suitable for AG Grid ``width`` / ``minWidth``.
+    """
+    fp = max(1, int(cell_font_size_px if cell_font_size_px is not None else 13))
+    return max(minimum, int(fp * multiplier))

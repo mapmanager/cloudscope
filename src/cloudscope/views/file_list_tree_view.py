@@ -121,6 +121,7 @@ class AcqImageListTreeView(BaseView):
             columns=schema_to_column_defs(
                 ACQ_FILE_LIST_SCHEMA,
                 tree_group_display_field=_TREE_CHEVRON_COLUMN_FIELD,
+                cell_font_size_px=font_px,
             ),
             row_id_field=ACQ_TREE_ROW_ID_FIELD,
             rows=rows,
@@ -131,6 +132,7 @@ class AcqImageListTreeView(BaseView):
                 auto_size_columns=False,
                 fit_columns_on_grid_resize=False,
                 suppress_movable_columns=True,
+                show_index_column=True,
                 cell_font_size_px=font_px,
                 row_height=row_h,
                 header_height=header_h,
@@ -353,9 +355,22 @@ class AcqImageListTreeView(BaseView):
     def on_primary_selection_changed(self) -> None:
         """Reflect cached primary selection in the tree selection.
 
+        When image pixels are loaded, refresh that file's subtree so schema
+        columns such as ``loaded`` match backend state.
+
         Returns:
             None.
         """
+        if self._tree is None:
+            return
+        file_id = self.current_selection.file_id
+        if file_id is None:
+            self._tree.clear_selection()
+            return
+        acq_image = self.get_acq_image_by_file_id(file_id)
+        if acq_image is not None and acq_image.images_loaded:
+            self._replace_group_rows_from_acq_image(file_id)
+            return
         self._sync_table_selection()
 
     def _sync_table_selection(self) -> None:

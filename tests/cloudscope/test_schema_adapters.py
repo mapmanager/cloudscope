@@ -82,6 +82,20 @@ def test_schema_to_column_defs_preserves_schema_order() -> None:
     assert [column.field for column in columns] == ["a", "b"]
 
 
+def test_schema_to_column_defs_tree_font_scaled_marker_columns() -> None:
+    columns = schema_to_column_defs(
+        ACQ_FILE_LIST_SCHEMA,
+        tree_group_display_field='name',
+        cell_font_size_px=12,
+    )
+    by_field = {column.field: column for column in columns}
+
+    assert by_field['loaded'].extra['width'] == 72
+    assert by_field['loaded'].extra['minWidth'] == 72
+    assert by_field['reference_image'].extra['width'] == 72
+    assert by_field['file_size'].extra['width'] == 120
+
+
 def test_schema_to_column_defs_tree_name_column_gets_width_and_flex() -> None:
     columns = schema_to_column_defs(ACQ_FILE_LIST_SCHEMA, tree_group_display_field='name')
     by_field = {column.field: column for column in columns}

@@ -542,18 +542,27 @@ class AcqAnalysisSet:
         self.set_clean()
 
     def results_csv_loaded(self) -> bool:
-        """Return whether every known analysis has a loaded result table.
+        """Return whether required analysis CSV tables are loaded.
 
         Returns:
-            True when there is at least one analysis and all analyses have a
-            non-None ``result.table``. Empty analysis sets return ``True``
-            because there are no CSV tables required to be fully loaded.
+            True when there are no analyses, when lazy CSV loading has not been
+            attempted yet (``_results_csv_loaded`` is false), or when every
+            analysis whose sidecar CSV file exists on disk has a loaded result
+            table. Analyses without a CSV sidecar (for example ``heart_rate``)
+            do not block the loaded state.
         """
         if not self._analyses:
             return True
-        return self._results_csv_loaded and all(
-            analysis.result.table is not None for analysis in self._analyses.values()
-        )
+        if not self._results_csv_loaded:
+            return False
+        source = Path(self.source_path)
+        for analysis in self._analyses.values():
+            csv_path = self.analysis_csv_path(source, analysis.key.analysis_name)
+            if not csv_path.exists():
+                continue
+            if analysis.result.table is None:
+                return False
+        return True
 
     def unload_results_dfs(self) -> None:
         """Drop loaded result DataFrames from every child analysis.

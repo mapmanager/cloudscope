@@ -35,6 +35,7 @@ class FakeTree:
     def __init__(self) -> None:
         self.rows: list[dict[str, Any]] = []
         self.group_replacements: list[tuple[str, list[dict[str, Any]]]] = []
+        self.row_updates: list[tuple[str, dict[str, Any]]] = []
         self.selected: list[str] = []
         self.clear_count = 0
         self.enabled: bool | None = None
@@ -45,6 +46,9 @@ class FakeTree:
 
     def replace_group_rows(self, group_id: str, rows: list[dict[str, Any]]) -> None:
         self.group_replacements.append((group_id, [dict(r) for r in rows]))
+
+    def update_row(self, row_id: str, row: dict[str, Any]) -> None:
+        self.row_updates.append((row_id, dict(row)))
 
     def clear_selection(self) -> None:
         self.clear_count += 1
@@ -96,13 +100,36 @@ def _analysis_row(file_id: str, analysis_name: str, channel: int, roi_id: int) -
 class FakeAcqImage:
     """Fake AcqImage exposing the tree-row API."""
 
-    def __init__(self, file_id: str, *, dirty: bool = False, analyses: list[dict[str, Any]] | None = None) -> None:
+    def __init__(
+        self,
+        file_id: str,
+        *,
+        dirty: bool = False,
+        analyses: list[dict[str, Any]] | None = None,
+        fully_loaded: bool = False,
+        loaded_marker: str = '',
+    ) -> None:
         self.file_id = file_id
         self.dirty = dirty
         self._analyses = list(analyses or [])
+        self._fully_loaded = bool(fully_loaded)
+        self._loaded_marker = str(loaded_marker)
+
+    @property
+    def is_fully_loaded(self) -> bool:
+        """Return whether lazy image/analysis data are loaded."""
+        return self._fully_loaded
+
+    @property
+    def images_loaded(self) -> bool:
+        """Return whether primary image pixels are loaded."""
+        return self._fully_loaded
 
     def get_tree_rows(self) -> list[dict[str, Any]]:
-        return [_file_row(self.file_id, dirty=self.dirty), *self._analyses]
+        file_row = _file_row(self.file_id, dirty=self.dirty)
+        if self._loaded_marker:
+            file_row['loaded'] = self._loaded_marker
+        return [file_row, *self._analyses]
 
 
 class FakeAcqImageList:
@@ -372,6 +399,40 @@ def test_sync_table_selection_clears_when_no_file_id() -> None:
     assert view._tree is not None
     assert view._tree.clear_count == 1
     assert view._tree.selected == []
+
+
+def test_on_primary_selection_changed_refreshes_when_images_loaded() -> None:
+    """After lazy load, rebuild the file subtree so the loaded column refreshes."""
+    image = FakeAcqImage(
+        '/tmp/a.oir',
+        fully_loaded=True,
+        loaded_marker='✅',
+    )
+    state = FakeState(acq_image_list=FakeAcqImageList([image]))
+    view = _make_view(state)
+    view.current_selection = PrimarySelection(file_id='/tmp/a.oir', channel=0, roi_id=1)
+
+    view.on_primary_selection_changed()
+
+    assert view._tree is not None
+    assert len(view._tree.group_replacements) == 1
+    group_id, rows = view._tree.group_replacements[0]
+    assert group_id == '/tmp/a.oir'
+    assert rows[0]['loaded'] == '✅'
+    assert view._tree.selected == ['/tmp/a.oir']
+
+
+def test_on_primary_selection_changed_syncs_only_when_images_not_loaded() -> None:
+    image = FakeAcqImage('/tmp/a.oir', fully_loaded=False)
+    state = FakeState(acq_image_list=FakeAcqImageList([image]))
+    view = _make_view(state)
+    view.current_selection = PrimarySelection(file_id='/tmp/a.oir', channel=0, roi_id=1)
+
+    view.on_primary_selection_changed()
+
+    assert view._tree is not None
+    assert view._tree.group_replacements == []
+    assert view._tree.selected == ['/tmp/a.oir']
 
 
 def test_get_displayed_file_ids_filters_to_file_rows_only() -> None:

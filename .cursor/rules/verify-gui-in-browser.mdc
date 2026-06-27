@@ -1,0 +1,26 @@
+---
+description: Run CloudScope in browser and inspect AG Grid/DOM before asking the user to verify GUI bugs
+alwaysApply: true
+---
+
+# Verify GUI bugs in the browser (do not delegate to the user)
+
+When investigating NiceGUI / AG Grid / CloudScope GUI display bugs (wrong cell values,
+stale row state, selection visuals, tree index columns, loaded indicators, etc.):
+
+1. **Run the app yourself** as a web server before asking the user to inspect DOM or
+   DevTools:
+   ```bash
+   CLOUDSCOPE_NATIVE=0 CLOUDSCOPE_PORT=8766 CLOUDSCOPE_SHOW=0 uv run python src/cloudscope/app.py
+   ```
+2. **Use Cursor browser MCP** (`browser_navigate`, `browser_cdp` / `Runtime.evaluate`,
+   `browser_snapshot`) to inspect live state. For AG Grid trees, compare:
+   - `grid.options.rowData[i]` (NiceGUI/Python payload)
+   - `node.data` via `api.forEachNode` / `getDisplayedRowAtIndex`
+   - visible DOM cell text (`.ag-cell`)
+3. **Reproduce the user path** (e.g. empty grid → first folder load → select cold file)
+   instead of only reading code or unit tests.
+4. **Report findings** from your own inspection. Only ask the user to verify manually
+   when browser automation is blocked or after you have a candidate fix to confirm.
+
+Unit tests alone are insufficient for AG Grid tree rendering / refresh bugs.

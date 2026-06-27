@@ -15,7 +15,7 @@ from typing import Any
 from nicegui import app, events, ui
 
 from nicewidgets.aggrid_common.column_def import ColumnDef
-from nicewidgets.tree_widget.config import TreeWidgetConfig
+from nicewidgets.tree_widget.config import TreeWidgetConfig, font_scaled_column_width_px
 from nicewidgets.tree_widget.js_hooks import (
     js_on_cell_key_down_select_prev_next,
     js_on_row_clicked,
@@ -73,6 +73,24 @@ def _get_row_id_js_expression(row_id_field: str) -> str:
     """Build JS arrow function string for AG Grid ``getRowId`` dynamic key."""
     key_literal = json.dumps(row_id_field)
     return f'(params) => String(params.data != null ? params.data[{key_literal}] : "")'
+
+
+def _index_column_value_getter_js() -> str:
+    """Return AG Grid ``valueGetter`` for 1-based root-only row indices.
+
+    Uses ``node.level === 0`` so child rows stay blank, and ``forEachNode`` so
+    indices follow row-model (load) order rather than visible render order.
+    """
+    return (
+        '(params) => {'
+        'const node = params.node;'
+        'if (!node || node.level !== 0) return "";'
+        'const roots = [];'
+        'params.api.forEachNode(n => { if (n.level === 0) roots.push(n); });'
+        'const i = roots.indexOf(node);'
+        'return i === -1 ? "" : i + 1;'
+        '}'
+    )
 
 
 def _auto_inject_show_row_group(column_defs: list[dict[str, Any]]) -> None:
@@ -145,7 +163,37 @@ class TreeWidget:
 
         self._evt_select = f'tree_widget_select_{id(self)}'
 
-        self._column_defs: list[dict[str, Any]] = [c.as_aggrid_column_def() for c in columns]
+        self._index_field: str | None = None
+        if self._config.show_index_column:
+            idx_f = str(self._config.index_field).strip()
+            if not idx_f:
+                raise ValueError('index_field must be non-empty when show_index_column is true')
+            for c in columns:
+                if c.field == idx_f:
+                    raise ValueError(
+                        f'Column field {idx_f!r} conflicts with TreeWidgetConfig.index_field; '
+                        'rename the column or set a different index_field'
+                    )
+            self._index_field = idx_f
+            idx_width = font_scaled_column_width_px(self._config.cell_font_size_px)
+            index_col = ColumnDef(
+                field=idx_f,
+                headerName=str(self._config.index_header),
+                extra={
+                    'editable': False,
+                    'sortable': False,
+                    'filter': False,
+                    'resizable': True,
+                    'width': idx_width,
+                    'minWidth': idx_width,
+                    ':valueGetter': _index_column_value_getter_js(),
+                },
+            )
+            built_columns = (index_col, *columns)
+        else:
+            built_columns = tuple(columns)
+
+        self._column_defs: list[dict[str, Any]] = [c.as_aggrid_column_def() for c in built_columns]
         self._rows: list[dict[str, Any]] = [dict(r) for r in (rows or ())]
         validate_rows_for_row_id_field(self._rows, self._row_id_field)
 
@@ -327,25 +375,42 @@ class TreeWidget:
 
         rows_to_add: list[dict[str, Any]] = []
         rows_to_update: list[dict[str, Any]] = []
+        add_ids: list[str] = []
+        update_ids: list[str] = []
         for row in rows_list:
-            if str(row[self._row_id_field]) in old_ids:
+            rid = str(row[self._row_id_field])
+            if rid in old_ids:
                 rows_to_update.append(row)
+                update_ids.append(rid)
             else:
                 rows_to_add.append(row)
+                add_ids.append(rid)
         ids_to_remove = old_ids - new_ids
 
-        new_all_rows = [r for r in self._rows if str(r.get(self._row_id_field)) not in old_ids] + rows_list
+        new_all_rows: list[dict[str, Any]] = []
+        replaced = False
+        for row in self._rows:
+            rid = str(row.get(self._row_id_field))
+            if rid in old_ids:
+                if not replaced:
+                    new_all_rows.extend(rows_list)
+                    replaced = True
+                continue
+            new_all_rows.append(row)
+        if not replaced:
+            new_all_rows.extend(rows_list)
         self._rows = new_all_rows
         self._known_ids_by_group[group_id] = new_ids
 
         if self._grid is None:
             return
 
+        rows_by_id = {str(r[self._row_id_field]): r for r in self._rows}
         transaction: dict[str, Any] = {}
-        if rows_to_add:
-            transaction['add'] = rows_to_add
-        if rows_to_update:
-            transaction['update'] = rows_to_update
+        if add_ids:
+            transaction['add'] = [rows_by_id[rid] for rid in add_ids]
+        if update_ids:
+            transaction['update'] = [rows_by_id[rid] for rid in update_ids]
         if ids_to_remove:
             transaction['remove'] = [{self._row_id_field: rid} for rid in ids_to_remove]
         if not transaction:
@@ -525,7 +590,10 @@ class TreeWidget:
         check = '✓'
         for c in self._column_defs:
             field = str(c['field'])
-            header = str(c.get('headerName', field))
+            if self._index_field is not None and field == self._index_field:
+                header = str(self._config.index_menu_label)
+            else:
+                header = str(c.get('headerName') or field)
             visible = not bool(c.get('hide', False))
             label = f'{check} {header}' if visible else f'  {header}'
             ui.menu_item(label, on_click=lambda f=field, v=visible: self._set_column_visible(f, not v))

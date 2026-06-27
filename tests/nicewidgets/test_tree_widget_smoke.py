@@ -9,11 +9,12 @@ from typing import Any
 import pytest
 
 from nicewidgets.aggrid_common.column_def import ColumnDef
-from nicewidgets.tree_widget.config import TreeWidgetConfig, scaled_row_header_heights_px
+from nicewidgets.tree_widget.config import TreeWidgetConfig, font_scaled_column_width_px, scaled_row_header_heights_px
 from nicewidgets.tree_widget.tree_widget import (
     TreeWidget,
     _auto_inject_show_row_group,
     _get_row_id_js_expression,
+    _index_column_value_getter_js,
     validate_row_id_field,
     validate_rows_for_row_id_field,
 )
@@ -64,6 +65,9 @@ def test_tree_widget_config_defaults() -> None:
     assert cfg.enable_keyboard_row_nav is True
     assert cfg.auto_size_columns is True
     assert cfg.suppress_movable_columns is False
+    assert cfg.show_index_column is False
+    assert cfg.index_field == 'file_row_index'
+    assert cfg.index_header == ''
 
 
 def test_build_aggrid_options_suppress_movable_columns() -> None:
@@ -81,6 +85,12 @@ def test_build_aggrid_options_suppress_movable_columns() -> None:
 def test_scaled_row_header_heights_px_clamped() -> None:
     r, h = scaled_row_header_heights_px(13)
     assert r == 38 and h == 37
+
+
+def test_font_scaled_column_width_px_scales_with_font() -> None:
+    assert font_scaled_column_width_px(11) == 66
+    assert font_scaled_column_width_px(None) == font_scaled_column_width_px(13)
+    assert font_scaled_column_width_px(13) == 78
 
 
 def test_get_row_id_js_expression_escapes_field_name() -> None:
@@ -304,3 +314,98 @@ def test_get_displayed_rows_uses_run_javascript_for_grid_state(monkeypatch: Any)
     assert rows == [{'row_id': '/b'}, {'row_id': '/a'}]
     assert len(scripts) == 1
     assert 'getElement(77)' in scripts[0]
+
+
+def test_index_column_value_getter_uses_level_and_for_each_node() -> None:
+    js = _index_column_value_getter_js()
+    assert 'node.level !== 0' in js
+    assert 'forEachNode' in js
+
+
+def test_show_index_column_prepends_synthetic_column() -> None:
+    """Index column uses AG Grid valueGetter; row data is not mutated."""
+    tw = TreeWidget(
+        columns=_sample_columns(),
+        row_id_field='row_id',
+        rows=_sample_rows(),
+        config=TreeWidgetConfig(show_index_column=True),
+    )
+    assert tw._column_defs[0]['field'] == 'file_row_index'
+    assert tw._column_defs[0]['headerName'] == ''
+    assert tw._column_defs[0]['sortable'] is False
+    assert ':valueGetter' in tw._column_defs[0]
+    assert tw._column_defs[0][':valueGetter'] == _index_column_value_getter_js()
+    assert tw._column_defs[0]['width'] == font_scaled_column_width_px(None)
+    assert 'file_row_index' not in tw._rows[0]
+
+
+def test_set_data_does_not_write_index_into_rows() -> None:
+    tw = TreeWidget(
+        columns=_sample_columns(),
+        row_id_field='row_id',
+        rows=_sample_rows(),
+        config=TreeWidgetConfig(show_index_column=True),
+    )
+    tw.set_data(
+        [
+            {'row_id': '/z', 'hierarchy_path': ['/z'], 'name': 'Z'},
+            {'row_id': '/z::1', 'hierarchy_path': ['/z', '/z::1'], 'name': 'Z1'},
+        ]
+    )
+    for row in tw._rows:
+        assert 'file_row_index' not in row
+
+
+def test_set_data_updates_grid_row_data_only(monkeypatch) -> None:
+    tw = TreeWidget(
+        columns=_sample_columns(),
+        row_id_field='row_id',
+        rows=_sample_rows(),
+        config=TreeWidgetConfig(show_index_column=True, clear_selection_on_set_data=False),
+    )
+    scripts: list[str] = []
+
+    def _fake_run_javascript(script: str) -> None:
+        scripts.append(script)
+
+    monkeypatch.setattr(tree_widget.ui, 'run_javascript', _fake_run_javascript)
+    tw._grid = SimpleNamespace(id=77, options={'rowData': []})  # type: ignore[assignment]
+    tw._grid.update = lambda: None  # type: ignore[attr-defined]
+    tw.set_data([{'row_id': '/z', 'hierarchy_path': ['/z'], 'name': 'Z'}])
+    assert scripts == []
+    assert tw._grid.options['rowData'] == [{'row_id': '/z', 'hierarchy_path': ['/z'], 'name': 'Z'}]
+
+
+def test_replace_group_rows_preserves_top_level_order() -> None:
+    """Subtree replace keeps the group at its original rowData position."""
+    tw = TreeWidget(
+        columns=_sample_columns(),
+        row_id_field='row_id',
+        rows=_sample_rows(),
+        config=TreeWidgetConfig(show_index_column=True),
+    )
+    tw.replace_group_rows('/a', [{'row_id': '/a', 'hierarchy_path': ['/a'], 'name': 'A-updated'}])
+    top_level = [r for r in tw._rows if len(r['hierarchy_path']) == 1]
+    assert [r['row_id'] for r in top_level] == ['/a', '/b']
+
+
+def test_show_index_column_false_omits_synthetic_column() -> None:
+    tw = TreeWidget(
+        columns=_sample_columns(),
+        row_id_field='row_id',
+        rows=_sample_rows(),
+        config=TreeWidgetConfig(show_index_column=False),
+    )
+    fields = [c['field'] for c in tw._column_defs]
+    assert 'file_row_index' not in fields
+    assert 'file_row_index' not in tw._rows[0]
+
+
+def test_show_index_column_rejects_conflicting_field() -> None:
+    with pytest.raises(ValueError, match='conflicts with TreeWidgetConfig.index_field'):
+        TreeWidget(
+            columns=[ColumnDef(field='file_row_index', headerName='Dup'), *_sample_columns()],
+            row_id_field='row_id',
+            rows=_sample_rows(),
+            config=TreeWidgetConfig(show_index_column=True),
+        )
