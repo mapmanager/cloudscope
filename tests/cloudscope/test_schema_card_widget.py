@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from acqstore.schema import FieldSchema, SchemaDefinition, ValueType
 from cloudscope.views.metadata_widget.schema_card_widget import SchemaCardWidget
 
@@ -205,3 +207,60 @@ def test_update_values_updates_existing_controls_only() -> None:
     assert card._controls["x"].updates == 1
     assert card._controls["y"].value == 2
     assert card._controls["y"].updates == 0
+
+
+def test_update_values_refreshes_readonly_value_labels() -> None:
+    """``update_values`` should refresh read-only value labels after build-once cards."""
+    schema = _schema(
+        (
+            FieldSchema(name="shape", display_name="Shape", visible=True, editable=False),
+            FieldSchema(name="x", display_name="X", visible=True, editable=True),
+        )
+    )
+    card = SchemaCardWidget(title="t", schema=schema, values={})
+
+    class _RecordLabel:
+        def __init__(self, text: str) -> None:
+            self.text = text
+            self.updates = 0
+
+        def update(self) -> None:
+            self.updates += 1
+
+    shape_label = _RecordLabel('')
+    card._readonly_value_labels['shape'] = shape_label  # type: ignore[assignment]
+
+    card.update_values({'shape': '(128, 256, 3)'})
+
+    assert shape_label.text == '(128, 256, 3)'
+    assert shape_label.updates == 1
+
+
+def test_readonly_columns_must_be_at_least_one() -> None:
+    """``readonly_columns`` must be a positive integer."""
+    with pytest.raises(ValueError, match='readonly_columns'):
+        SchemaCardWidget(title='t', schema=_schema(()), values={}, readonly_columns=0)
+
+
+def test_editable_columns_must_be_at_least_one() -> None:
+    """``editable_columns`` must be a positive integer."""
+    with pytest.raises(ValueError, match='editable_columns'):
+        SchemaCardWidget(title='t', schema=_schema(()), values={}, editable_columns=0)
+
+
+def test_image_header_schema_excludes_num_scenes_from_visible_fields() -> None:
+    """``num_scenes`` should remain in the schema but be hidden from schema-driven UIs."""
+    from acqstore.acq_image.metadata import IMAGE_HEADER_METADATA_SCHEMA
+
+    fields_by_name = {field.name: field for field in IMAGE_HEADER_METADATA_SCHEMA.fields}
+    assert fields_by_name['num_scenes'].visible is False
+
+    card = SchemaCardWidget(title='t', schema=IMAGE_HEADER_METADATA_SCHEMA, values={})
+    header_field_names = [
+        field.name
+        for group_name, group_fields in card._group_visible_fields()
+        if group_name == 'Header'
+        for field in group_fields
+    ]
+    assert 'num_scenes' not in header_field_names
+    assert 'shape' in header_field_names

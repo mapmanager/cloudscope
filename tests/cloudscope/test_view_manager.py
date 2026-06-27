@@ -23,7 +23,7 @@ class FakeRoot:
 class FakeView(BaseView):
     """Fake managed view."""
 
-    view_id = ViewId.METADATA
+    view_id = ViewId.EXPERIMENT_METADATA
 
     def build(self, parent=None):
         """Build fake root."""
@@ -60,7 +60,7 @@ def test_show_only_supports_no_active_view() -> None:
     manager.register(first)
     manager.register(second)
 
-    manager.show_only(None, [ViewId.METADATA, ViewId.APP_CONFIG])
+    manager.show_only(None, [ViewId.EXPERIMENT_METADATA, ViewId.APP_CONFIG])
 
     assert not first.is_visible
     assert not second.is_visible
@@ -77,7 +77,7 @@ def test_show_only_selects_one_candidate() -> None:
     manager.register(first)
     manager.register(second)
 
-    manager.show_only(ViewId.APP_CONFIG, [ViewId.METADATA, ViewId.APP_CONFIG])
+    manager.show_only(ViewId.APP_CONFIG, [ViewId.EXPERIMENT_METADATA, ViewId.APP_CONFIG])
 
     assert not first.is_visible
     assert second.is_visible

@@ -30,7 +30,7 @@ class FakeRoot:
 class FakeView(BaseView):
     """Fake view that subscribes while visible."""
 
-    view_id = ViewId.METADATA
+    view_id = ViewId.EXPERIMENT_METADATA
 
     def __init__(self, event_bus: EventBus, *, initially_visible: bool = True) -> None:
         super().__init__(event_bus=event_bus, initially_visible=initially_visible)

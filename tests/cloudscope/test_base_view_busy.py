@@ -27,7 +27,7 @@ class FakeRoot:
 class FakeView(BaseView):
     """Concrete test view."""
 
-    view_id = ViewId.METADATA
+    view_id = ViewId.EXPERIMENT_METADATA
 
     def build(self, parent=None):
         """Build fake root."""

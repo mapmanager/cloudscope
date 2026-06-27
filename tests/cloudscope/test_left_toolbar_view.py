@@ -6,7 +6,8 @@ from cloudscope.app_config import AppConfig
 from cloudscope.event_bus import EventBus
 from cloudscope.views.app_config_view import AppConfigView
 from cloudscope.views.left_toolbar_view import LeftToolbarView
-from cloudscope.views.metadata_widget.metadata_view import MetadataView
+from cloudscope.views.metadata_widget.experiment_metadata_view import ExperimentMetadataView
+from cloudscope.views.metadata_widget.image_header_metadata_view import ImageHeaderMetadataView
 from cloudscope.views.diameter_analysis_view import DiameterAnalysisView
 from cloudscope.views.velocity_analysis_view import VelocityAnalysisView
 from cloudscope.views.view_ids import ViewId
@@ -27,12 +28,14 @@ def test_left_toolbar_constructs_panel_views(tmp_path) -> None:
     )
 
     assert view.view_id is ViewId.LEFT_TOOLBAR
-    assert isinstance(view.metadata_view, MetadataView)
+    assert isinstance(view.experiment_metadata_view, ExperimentMetadataView)
+    assert isinstance(view.image_header_metadata_view, ImageHeaderMetadataView)
     assert isinstance(view.velocity_analysis_view, VelocityAnalysisView)
     assert isinstance(view.diameter_analysis_view, DiameterAnalysisView)
     assert isinstance(view.app_config_view, AppConfigView)
     assert view.panel_view_ids == (
-        ViewId.METADATA,
+        ViewId.EXPERIMENT_METADATA,
+        ViewId.IMAGE_HEADER_METADATA,
         ViewId.VELOCITY_ANALYSIS,
         ViewId.DIAMETER_ANALYSIS,
         ViewId.APP_CONFIG,

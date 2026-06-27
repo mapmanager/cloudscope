@@ -551,6 +551,7 @@ IMAGE_HEADER_METADATA_SCHEMA = SchemaDefinition(
             value_type=ValueType.INT,
             default_value=0,
             editable=False,
+            visible=False,
             group='Header',
         ),
         FieldSchema(

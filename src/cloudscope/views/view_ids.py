@@ -9,7 +9,8 @@ class ViewId(StrEnum):
     """Stable identifiers for views managed by ``ViewManager``."""
 
     LEFT_TOOLBAR = "left_toolbar"
-    METADATA = "metadata"
+    EXPERIMENT_METADATA = "experiment_metadata"
+    IMAGE_HEADER_METADATA = "image_header_metadata"
     APP_CONFIG = "app_config"
     APP_INFO = "app_info"
     VELOCITY_ANALYSIS = "velocity_analysis"

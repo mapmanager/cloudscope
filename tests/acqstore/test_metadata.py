@@ -184,6 +184,12 @@ def test_image_header_metadata_get_values_and_patch_updates_yx() -> None:
     assert seen[-1].physical_units_labels[1] == 'px'
 
 
+def test_image_header_metadata_schema_hides_num_scenes_in_ui() -> None:
+    """``num_scenes`` is stored on the header but not shown in schema-driven forms."""
+    fields_by_name = {field.name: field for field in IMAGE_HEADER_METADATA_SCHEMA.fields}
+    assert fields_by_name['num_scenes'].visible is False
+
+
 def test_metadata_section_objects_expose_expected_methods_and_attributes() -> None:
     exp = ExperimentMetadata()
     header = ImageHeader(

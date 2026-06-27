@@ -13,7 +13,8 @@ from cloudscope.event_bus import EventBus
 from cloudscope.views.app_config_view import AppConfigView
 from cloudscope.views.app_info_view import AppInfoView
 from cloudscope.views.base_view import BaseView
-from cloudscope.views.metadata_widget.metadata_view import MetadataView
+from cloudscope.views.metadata_widget.experiment_metadata_view import ExperimentMetadataView
+from cloudscope.views.metadata_widget.image_header_metadata_view import ImageHeaderMetadataView
 from cloudscope.views.diameter_analysis_view import DiameterAnalysisView
 from cloudscope.views.velocity_analysis_view import VelocityAnalysisView
 from cloudscope.views.view_ids import ViewId
@@ -36,7 +37,8 @@ class LeftToolbarTab:
 
 
 _LEFT_TOOLBAR_TABS: tuple[LeftToolbarTab, ...] = (
-    LeftToolbarTab(ViewId.METADATA, "Metadata", "description"),
+    LeftToolbarTab(ViewId.EXPERIMENT_METADATA, "Experimental Metadata", "description"),
+    LeftToolbarTab(ViewId.IMAGE_HEADER_METADATA, "Image Header", "biotech"),
     LeftToolbarTab(ViewId.VELOCITY_ANALYSIS, "Velocity", "speed"),
     LeftToolbarTab(ViewId.DIAMETER_ANALYSIS, "Diameter", "straighten"),
     LeftToolbarTab(ViewId.APP_CONFIG, "Config", "settings"),
@@ -81,7 +83,12 @@ class LeftToolbarView(BaseView):
         self._active_view_id: ViewId | None = None
         self._buttons: dict[ViewId, ui.button] = {}
         self._left_panel_root: ui.element | None = None
-        self.metadata_view = MetadataView(
+        self.experiment_metadata_view = ExperimentMetadataView(
+            event_bus=event_bus,
+            app_state=app_state,
+            initially_visible=False,
+        )
+        self.image_header_metadata_view = ImageHeaderMetadataView(
             event_bus=event_bus,
             app_state=app_state,
             initially_visible=False,
@@ -140,7 +147,8 @@ class LeftToolbarView(BaseView):
                     self._build_buttons()
                 with ui.column().classes("h-full min-h-0 w-full flex-1 gap-3 p-3 overflow-hidden") as panel_root:
                     self._left_panel_root = panel_root
-                    self.metadata_view.build()
+                    self.experiment_metadata_view.build()
+                    self.image_header_metadata_view.build()
                     self.velocity_analysis_view.build()
                     self.diameter_analysis_view.build()
                     self.app_config_view.build()
@@ -173,7 +181,8 @@ class LeftToolbarView(BaseView):
             None.
         """
         for view in (
-            self.metadata_view,
+            self.experiment_metadata_view,
+            self.image_header_metadata_view,
             self.velocity_analysis_view,
             self.diameter_analysis_view,
             self.app_config_view,

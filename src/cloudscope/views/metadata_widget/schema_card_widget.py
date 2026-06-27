@@ -21,18 +21,28 @@ class SchemaCardWidget:
         *,
         on_apply: Callable[[dict[str, object]], None] | None = None,
         show_apply_button: bool = True,
+        readonly_columns: int = 1,
+        editable_columns: int = 1,
     ) -> None:
         self._title = title
         self._schema = schema
         self._values = dict(values)
         self._on_apply = on_apply
         self._show_apply_button = show_apply_button
+        if readonly_columns < 1:
+            raise ValueError(f'readonly_columns must be >= 1, got {readonly_columns}')
+        if editable_columns < 1:
+            raise ValueError(f'editable_columns must be >= 1, got {editable_columns}')
+        self._readonly_columns = readonly_columns
+        self._editable_columns = editable_columns
         self._card: ui.card | None = None
         self._controls: dict[str, Any] = {}
+        self._readonly_value_labels: dict[str, ui.label] = {}
 
     def build(self, parent: ui.element | None = None) -> ui.card:
         """Build and return the card (optionally inside ``parent``)."""
         self._controls.clear()
+        self._readonly_value_labels.clear()
         if parent is not None:
             with parent:
                 return self._build_inner()
@@ -46,9 +56,10 @@ class SchemaCardWidget:
                 if group_name is not None:
                     ui.separator()
                     ui.label(str(group_name)).classes('font-semibold opacity-70')
-                for field in field_list:
-                    raw = self._values.get(field.name, field.default_value)
-                    self._build_field(field, raw)
+                readonly_fields = [field for field in field_list if not field.editable]
+                editable_fields = [field for field in field_list if field.editable]
+                self._build_readonly_fields(readonly_fields)
+                self._build_editable_fields(editable_fields)
             if self._show_apply_button and self._has_editable_fields() and self._on_apply is not None:
                 ui.button('Apply', on_click=self._apply).props('color=primary')
         return card
@@ -66,12 +77,16 @@ class SchemaCardWidget:
         return patch
 
     def update_values(self, values: Mapping[str, object]) -> None:
-        """Update bound values and refresh editable controls."""
+        """Update bound values and refresh editable and read-only controls."""
         self._values = dict(values)
         for name, control in self._controls.items():
             if name in self._values:
                 control.value = self._values[name]
                 control.update()
+        for name, label in self._readonly_value_labels.items():
+            if name in self._values:
+                label.text = self._stringify_readonly(self._values[name])
+                label.update()
 
     def _apply(self) -> None:
         if self._on_apply is not None:
@@ -104,12 +119,44 @@ class SchemaCardWidget:
             return ''
         return str(value)
 
-    def _build_field(self, field: FieldSchema, value: object) -> None:
-        if not field.editable:
-            ui.label(self._label_for_field(field)).classes('text-xs text-gray-500')
-            ui.label(self._stringify_readonly(value)).classes('text-sm')
+    def _build_readonly_fields(self, fields: list[FieldSchema]) -> None:
+        """Lay out read-only fields in one or more grid columns."""
+        if not fields:
             return
+        if self._readonly_columns <= 1:
+            for field in fields:
+                raw = self._values.get(field.name, field.default_value)
+                self._build_readonly_field(field, raw)
+            return
+        with ui.grid(columns=self._readonly_columns).classes('w-full gap-2'):
+            for field in fields:
+                raw = self._values.get(field.name, field.default_value)
+                with ui.column().classes('gap-0 min-w-0'):
+                    self._build_readonly_field(field, raw)
 
+    def _build_readonly_field(self, field: FieldSchema, value: object) -> None:
+        """Build one read-only name/value label pair."""
+        ui.label(self._label_for_field(field)).classes('text-xs text-gray-500')
+        value_label = ui.label(self._stringify_readonly(value)).classes('text-sm')
+        self._readonly_value_labels[field.name] = value_label
+
+    def _build_editable_fields(self, fields: list[FieldSchema]) -> None:
+        """Lay out editable fields in one or more grid columns."""
+        if not fields:
+            return
+        if self._editable_columns <= 1:
+            for field in fields:
+                raw = self._values.get(field.name, field.default_value)
+                self._build_editable_field(field, raw)
+            return
+        with ui.grid(columns=self._editable_columns).classes('w-full gap-2'):
+            for field in fields:
+                raw = self._values.get(field.name, field.default_value)
+                with ui.column().classes('gap-0 min-w-0 w-full'):
+                    self._build_editable_field(field, raw)
+
+    def _build_editable_field(self, field: FieldSchema, value: object) -> None:
+        """Build one editable control for a schema field."""
         if field.choices is not None:
             opts = list(field.choices)
             control = ui.select(

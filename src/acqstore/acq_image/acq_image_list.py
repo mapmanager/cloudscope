@@ -24,8 +24,11 @@ from typing import TYPE_CHECKING
 from acqstore.schema import (
     ACQ_FILE_LIST_SCHEMA,
     SchemaDefinition,
+    ValueType,
     validate_values_for_schema,
 )
+
+from .metadata import EXPERIMENT_METADATA_SCHEMA, ExperimentMetadata
 
 from .supported_import_extensions import (
     get_allowed_import_extensions,
@@ -598,6 +601,44 @@ class AcqImageList:
                 unload_images=unload_images,
                 unload_analysis_csv=unload_analysis_csv,
             )
+
+    def get_unique_metadata_values(self, field_name: str) -> list[str]:
+        """Return sorted unique non-empty values for one experiment metadata field.
+
+        Values are collected from every loaded :class:`AcqImage` in this list.
+        Only string fields declared by ``EXPERIMENT_METADATA_SCHEMA`` are
+        supported.
+
+        Args:
+            field_name: Experiment metadata schema field name (e.g. ``species``).
+
+        Returns:
+            Sorted list of unique non-empty string values.
+
+        Raises:
+            ValueError: If ``field_name`` is unknown or not a string field.
+        """
+        fields_by_name = {field.name: field for field in EXPERIMENT_METADATA_SCHEMA.fields}
+        if field_name not in fields_by_name:
+            raise ValueError(f'Unknown experiment_metadata field: {field_name!r}')
+        field_schema = fields_by_name[field_name]
+        if field_schema.value_type is not ValueType.STR:
+            raise ValueError(
+                f'Field {field_name!r} is not a string field; '
+                f'got value_type={field_schema.value_type!r}'
+            )
+
+        values: set[str] = set()
+        section_id = ExperimentMetadata.metadata_section_id
+        for acq_file in self._files:
+            section = acq_file.get_metadata_section(section_id)
+            raw = section.get_values().get(field_name)
+            if raw is None:
+                continue
+            text = str(raw).strip()
+            if text:
+                values.add(text)
+        return sorted(values)
 
     def get_schema(self) -> SchemaDefinition:
         """Return schema definition for rows in this list."""
