@@ -33,6 +33,7 @@ from cloudscope.views.left_toolbar_view import LeftToolbarView
 from cloudscope.views.load_save_view import LoadSaveView
 from cloudscope.views.primary_image_view import PrimaryImageView
 from cloudscope.views.reference_image_view import ReferenceImageView
+from cloudscope.views.sum_intensity_plot_view import SumIntensityPlotView
 from cloudscope.views.task_progress_dialog_view import TaskProgressDialogView
 from cloudscope.views.velocity_pool_view import VelocityPoolView
 from cloudscope.views.view_manager import ViewManager
@@ -145,6 +146,12 @@ class HomePage:
             self.event_bus,
             app_state=app_state,
             title='Analysis plot',
+            initially_visible=False,
+        )
+        sum_intensity_plot = SumIntensityPlotView(
+            self.event_bus,
+            app_state=app_state,
+            title='Sum intensity plot',
             initially_visible=False,
         )
         reference_image = ReferenceImageView(
@@ -566,8 +573,11 @@ class HomePage:
                                             with ui.column().classes(_fill_column_classes()):
                                                 acq_analysis_plot.show()
                                                 acq_analysis_plot.build()
-
                                                 view_manager.register(acq_analysis_plot)
+
+                                                sum_intensity_plot.show()
+                                                sum_intensity_plot.build()
+                                                view_manager.register(sum_intensity_plot)
 
                                         with analysis_reference_splitter.after:
                                             with ui.column().classes(_fill_column_classes()):

@@ -1,0 +1,359 @@
+"""Tests for SumIntensityPlotView non-UI behavior."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+import numpy as np
+
+from acqstore.acq_image.analysis.model import AnalysisKey
+from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_analysis import (
+    SumIntensityAnalysis,
+)
+from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_core import (
+    ResultPoints,
+    ResultTrace,
+    SumIntensityEventPointKey,
+    SumIntensityTraceKey,
+)
+from cloudscope.event_bus import EventBus
+from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind
+from cloudscope.events.roi import RoiChangeKind, RoiChanged
+from cloudscope.events.x_range import PrimaryXRangeChanged, SetPrimaryXRangeIntent
+from cloudscope.state import PrimarySelection
+from cloudscope.views.base_view import BaseView
+from cloudscope.views.sum_intensity_plot_view import SumIntensityPlotView
+from cloudscope.views.view_ids import ViewId
+from nicewidgets.plotly_plot.models import MeasurementChangeEvent
+
+
+class _FakePlot:
+    """Small stand-in for PlotlyPlotWidget used by view unit tests."""
+
+    def __init__(self) -> None:
+        """Create an empty fake plot."""
+        self.traces: list[dict[str, object]] = []
+        self.scatters: list[dict[str, object]] = []
+        self.clear_traces_calls = 0
+        self.clear_scatters_calls = 0
+        self.x_limits: tuple[float | None, float | None] | None = None
+        self.x_reset_calls = 0
+
+    def clear_traces(self) -> None:
+        """Record trace clears."""
+        self.clear_traces_calls += 1
+        self.traces.clear()
+
+    def clear_scatters(self) -> None:
+        """Record scatter clears."""
+        self.clear_scatters_calls += 1
+        self.scatters.clear()
+
+    def add_trace(self, **kwargs: object) -> None:
+        """Record a trace add call."""
+        self.traces.append(dict(kwargs))
+
+    def plot_scatter(self, **kwargs: object) -> None:
+        """Record a scatter add call."""
+        self.scatters.append(dict(kwargs))
+
+    def set_x_axis_limits(self, x_min: float | None, x_max: float | None) -> None:
+        """Record finite axis limits."""
+        self.x_limits = (x_min, x_max)
+
+    def reset_x_axis_limits(self) -> None:
+        """Record an axis reset."""
+        self.x_reset_calls += 1
+        self.x_limits = (None, None)
+
+
+@dataclass
+class _FakeLabel:
+    """Small label stand-in."""
+
+    text: str = ""
+
+
+class _FakeAnalysisSet:
+    """Fake analysis set with key-based lookup."""
+
+    def __init__(self) -> None:
+        """Create an empty analysis set."""
+        self._items: dict[AnalysisKey, object] = {}
+
+    def set(self, key: AnalysisKey, analysis: object) -> None:
+        """Register an analysis by key."""
+        self._items[key] = analysis
+
+    def get(self, key: AnalysisKey) -> object | None:
+        """Return an analysis by key."""
+        return self._items.get(key)
+
+
+class _FakeAcqImage:
+    """Fake AcqImage with an analysis set."""
+
+    def __init__(self) -> None:
+        """Create fake acquisition image."""
+        self.analysis_set = _FakeAnalysisSet()
+
+
+class _FakeSumIntensityAnalysis(SumIntensityAnalysis):
+    """Concrete SumIntensityAnalysis with deterministic public API values."""
+
+    def __init__(self) -> None:
+        """Create fake analysis without running backend computation."""
+        super().__init__(channel=0, roi_id=1)
+
+    def get_trace(self, key: SumIntensityTraceKey) -> ResultTrace:
+        """Return deterministic continuous traces."""
+        names = {
+            SumIntensityTraceKey.DF_F_SIGNAL: "Delta F/F0",
+            SumIntensityTraceKey.D_DF_F_SIGNAL: "Derivative",
+        }
+        if key not in names:
+            raise KeyError(key)
+        return ResultTrace(
+            key=key,
+            name=names[key],
+            x=np.asarray([0.0, 1.0, 2.0], dtype=float),
+            y=np.asarray([0.0, 0.5, 0.25], dtype=float),
+            x_label="Time (s)",
+            y_label="Signal",
+            metadata={},
+        )
+
+    def get_event_points(self, key: SumIntensityEventPointKey) -> ResultPoints:
+        """Return deterministic event points."""
+        if key is SumIntensityEventPointKey.ONSETS:
+            return ResultPoints(
+                key=key,
+                name="Onsets",
+                x=np.asarray([0.5], dtype=float),
+                y=np.asarray([0.2], dtype=float),
+                x_label="Time (s)",
+                y_label="Signal",
+                metadata={},
+            )
+        if key is SumIntensityEventPointKey.PEAKS:
+            return ResultPoints(
+                key=key,
+                name="Peaks",
+                x=np.asarray([1.0], dtype=float),
+                y=np.asarray([0.5], dtype=float),
+                x_label="Time (s)",
+                y_label="Signal",
+                metadata={},
+            )
+        raise KeyError(key)
+
+    def get_width_trace(self, peak_width_level=None):
+        """Return one width trace in a tuple."""
+        _ = peak_width_level
+        return (
+            ResultTrace(
+                key="p50",
+                name="Peak p50",
+                x=np.asarray([0.75, 1.25, np.nan], dtype=float),
+                y=np.asarray([0.3, 0.3, np.nan], dtype=float),
+                x_label="Time (s)",
+                y_label="Signal",
+                metadata={},
+            ),
+        )
+
+    def get_summary_values(self) -> dict[str, object]:
+        """Return deterministic summary values."""
+        return {"num_peaks": 1, "f0_baseline": 1.2345}
+
+
+class _BadSumIntensityAnalysis(_FakeSumIntensityAnalysis):
+    """Fake analysis that raises while building traces."""
+
+    def get_trace(self, key: SumIntensityTraceKey) -> ResultTrace:
+        """Raise a missing-column error."""
+        _ = key
+        raise KeyError("missing trace")
+
+
+def _view_with_fake_plot() -> SumIntensityPlotView:
+    """Create a view with fake child plot and status label."""
+    view = SumIntensityPlotView(event_bus=EventBus())
+    view._plot = _FakePlot()  # type: ignore[assignment]
+    view._status_label = _FakeLabel()  # type: ignore[assignment]
+    return view
+
+
+def test_sum_intensity_plot_view_identity() -> None:
+    """SumIntensityPlotView should expose its stable view id."""
+    view = SumIntensityPlotView(event_bus=EventBus())
+
+    assert isinstance(view, BaseView)
+    assert view.view_id is ViewId.SUM_INTENSITY_PLOT
+    assert view.disable_when_busy is False
+
+
+def test_get_selected_sum_intensity_analysis_returns_matching_analysis() -> None:
+    """The view should look up sum-intensity analysis by selected channel/ROI."""
+    view = SumIntensityPlotView(event_bus=EventBus())
+    acq_image = _FakeAcqImage()
+    analysis = _FakeSumIntensityAnalysis()
+    acq_image.analysis_set.set(AnalysisKey("sum_intensity", 0, 1), analysis)
+    view.current_acq_image = acq_image
+    view.current_selection = PrimarySelection(file_id="file", channel=0, roi_id=1)
+
+    assert view._get_selected_sum_intensity_analysis() is analysis
+
+
+def test_get_selected_sum_intensity_analysis_returns_none_for_incomplete_selection() -> None:
+    """Missing channel/ROI should yield no analysis."""
+    view = SumIntensityPlotView(event_bus=EventBus())
+    view.current_acq_image = _FakeAcqImage()
+    view.current_selection = PrimarySelection(file_id="file", channel=0, roi_id=None)
+
+    assert view._get_selected_sum_intensity_analysis() is None
+
+
+def test_refresh_plot_clears_when_no_analysis() -> None:
+    """No selected analysis should clear traces and show an empty state."""
+    view = _view_with_fake_plot()
+    view.current_acq_image = _FakeAcqImage()
+    view.current_selection = PrimarySelection(file_id="file", channel=0, roi_id=1)
+
+    view._refresh_plot()
+
+    assert view._plot.clear_traces_calls == 1
+    assert view._plot.clear_scatters_calls == 1
+    assert "No sum-intensity analysis" in view._status_label.text
+
+
+def test_refresh_plot_pushes_traces_scatters_and_widths() -> None:
+    """A valid analysis should update continuous traces and sparse overlays."""
+    view = _view_with_fake_plot()
+    acq_image = _FakeAcqImage()
+    acq_image.analysis_set.set(AnalysisKey("sum_intensity", 0, 1), _FakeSumIntensityAnalysis())
+    view.current_acq_image = acq_image
+    view.current_selection = PrimarySelection(file_id="file", channel=0, roi_id=1)
+
+    view._refresh_plot()
+
+    trace_names = [call["name"] for call in view._plot.traces]
+    scatter_names = [call["name"] for call in view._plot.scatters]
+    assert trace_names == ["Delta F/F0", "Derivative", "Peak p50"]
+    assert scatter_names == ["Onsets", "Peaks"]
+    assert view._status_label.text == "Sum-intensity peaks: 1; F0: 1.234"
+
+
+def test_refresh_plot_reports_backend_plot_error() -> None:
+    """Backend trace errors should clear plot and surface a status message."""
+    view = _view_with_fake_plot()
+    acq_image = _FakeAcqImage()
+    acq_image.analysis_set.set(AnalysisKey("sum_intensity", 0, 1), _BadSumIntensityAnalysis())
+    view.current_acq_image = acq_image
+    view.current_selection = PrimarySelection(file_id="file", channel=0, roi_id=1)
+
+    view._refresh_plot()
+
+    assert view._plot.traces == []
+    assert "Sum-intensity plot unavailable" in view._status_label.text
+
+
+def test_matching_sum_intensity_completion_refreshes_plot() -> None:
+    """Only matching SUM_INTENSITY completions should refresh the plot."""
+    view = SumIntensityPlotView(event_bus=EventBus())
+    view.current_selection = PrimarySelection(file_id="file", channel=0, roi_id=1)
+    calls: list[str] = []
+    view._refresh_plot = lambda: calls.append("refresh")  # type: ignore[method-assign]
+
+    view._on_analysis_completed(
+        AnalysisCompleted(
+            analysis_kind=AnalysisKind.SUM_INTENSITY,
+            selection=PrimarySelection(file_id="file", channel=0, roi_id=1),
+            success=True,
+        )
+    )
+    view._on_analysis_completed(
+        AnalysisCompleted(
+            analysis_kind=AnalysisKind.DIAMETER,
+            selection=PrimarySelection(file_id="file", channel=0, roi_id=1),
+            success=True,
+        )
+    )
+    view._on_analysis_completed(
+        AnalysisCompleted(
+            analysis_kind=AnalysisKind.SUM_INTENSITY,
+            selection=PrimarySelection(file_id="other", channel=0, roi_id=1),
+            success=True,
+        )
+    )
+
+    assert calls == ["refresh"]
+
+
+def test_roi_changed_refreshes_for_current_file_only() -> None:
+    """ROI changes for the selected file should refresh the plot."""
+    view = SumIntensityPlotView(event_bus=EventBus())
+    view.current_selection = PrimarySelection(file_id="file", channel=0, roi_id=1)
+    calls: list[str] = []
+    view._refresh_plot = lambda: calls.append("refresh")  # type: ignore[method-assign]
+
+    view._on_roi_changed(
+        RoiChanged(
+            operation=RoiChangeKind.DELETE,
+            selection=PrimarySelection(file_id="file", channel=0, roi_id=1),
+        )
+    )
+    view._on_roi_changed(
+        RoiChanged(
+            operation=RoiChangeKind.DELETE,
+            selection=PrimarySelection(file_id="other", channel=0, roi_id=1),
+        )
+    )
+
+    assert calls == ["refresh"]
+
+
+def test_plot_x_range_callback_publishes_set_primary_x_range_intent() -> None:
+    """User Plotly x-range changes should become app-level x-range intents."""
+    bus = EventBus()
+    intents: list[SetPrimaryXRangeIntent] = []
+    bus.subscribe(SetPrimaryXRangeIntent, intents.append)
+    view = SumIntensityPlotView(event_bus=bus)
+
+    view._on_plot_x_range_changed(2.0, 4.0)
+
+    assert intents == [SetPrimaryXRangeIntent(x_min=2.0, x_max=4.0)]
+
+
+def test_primary_x_range_changed_applies_to_plot() -> None:
+    """PrimaryXRangeChanged should push finite limits to the child plot."""
+    view = _view_with_fake_plot()
+
+    view._on_primary_x_range_changed(PrimaryXRangeChanged(x_min=1.0, x_max=5.0))
+
+    assert view._plot.x_limits == (1.0, 5.0)
+
+
+def test_primary_x_range_changed_resets_plot_for_auto_range() -> None:
+    """Auto range state should reset the child plot."""
+    view = _view_with_fake_plot()
+
+    view._on_primary_x_range_changed(PrimaryXRangeChanged(x_min=None, x_max=None))
+
+    assert view._plot.x_reset_calls == 1
+
+
+def test_measurement_callback_stores_event_for_future_intent_wiring() -> None:
+    """Measurement callbacks should be captured without mutating app state yet."""
+    view = SumIntensityPlotView(event_bus=EventBus())
+    event = MeasurementChangeEvent(
+        name="threshold",
+        kind="line",
+        orientation="horizontal",
+        position=1.5,
+    )
+
+    view._on_measurement_changed(event)
+
+    assert view.last_measurement_event is event
