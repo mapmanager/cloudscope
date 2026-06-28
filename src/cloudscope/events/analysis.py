@@ -26,6 +26,7 @@ class AnalysisKind(StrEnum):
     RADON_VELOCITY = 'radon_velocity'
     DIAMETER = 'diameter'
     EVENT = 'event'
+    SUM_INTENSITY = 'sum_intensity'
 
 
 class TaskStatus(StrEnum):

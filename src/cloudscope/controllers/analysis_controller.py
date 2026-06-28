@@ -19,6 +19,9 @@ from acqstore.acq_image.analysis.event_analysis.event_analysis import EventAnaly
 from acqstore.acq_image.analysis.velocity_analysis.radon_velocity_analysis import (
     RadonVelocityAnalysis,
 )
+from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_analysis import (
+    SumIntensityAnalysis,
+)
 
 from cloudscope.controllers.home_page_controller import HomePageController
 from cloudscope.event_bus import EventBus
@@ -186,6 +189,7 @@ class AnalysisController:
             AnalysisKind.RADON_VELOCITY,
             AnalysisKind.DIAMETER,
             AnalysisKind.EVENT,
+            AnalysisKind.SUM_INTENSITY,
         ):
             raise NotImplementedError(f"Unsupported analysis kind: {event.analysis_kind}")
         if event.analysis_kind is not AnalysisKind.EVENT:
@@ -328,6 +332,8 @@ class AnalysisController:
             analysis.set_execution_options(use_multiprocessing=True)
         elif isinstance(analysis, DiameterAnalysis):
             analysis.set_execution_options(use_threads=True)
+        elif isinstance(analysis, SumIntensityAnalysis):
+            pass
 
         run_context = AnalysisRunContext(
             progress_callback=context.report_progress,

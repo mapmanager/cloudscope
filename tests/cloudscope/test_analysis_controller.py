@@ -186,6 +186,12 @@ class FakeAnalysisSet:
             from acqstore.acq_image.analysis.event_analysis.event_analysis import EventAnalysis
 
             analysis = EventAnalysis(channel=channel, roi_id=roi_id)
+        elif analysis_name == "sum_intensity":
+            from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_analysis import (
+                SumIntensityAnalysis,
+            )
+
+            analysis = SumIntensityAnalysis(channel=channel, roi_id=roi_id, detection_params=params)
         else:
             key = AnalysisKey(analysis_name, channel, roi_id)
             analysis = FakeAnalysis(key=key, detection_params=params)
@@ -403,6 +409,47 @@ def test_analysis_controller_starts_task_with_expected_label_and_kind() -> None:
     assert callable(runner.captured.on_failed)
     assert callable(runner.captured.on_cancelled)
 
+
+
+
+def test_analysis_controller_accepts_sum_intensity_kind() -> None:
+    """A valid sum-intensity intent should start a single-analysis task."""
+    controller, bus, runner, home, _, _ = _make_controller()
+    home.state.acq_image_list = FakeAcqImageList(FakeAcqImage())
+
+    bus.publish(
+        RunAnalysisIntent(
+            analysis_kind=AnalysisKind.SUM_INTENSITY,
+            selection=PrimarySelection(file_id="f", channel=0, roi_id=1),
+            detection_params={},
+        )
+    )
+
+    assert runner.started
+    assert runner.captured is not None
+    assert runner.captured.task_kind is TaskKind.ANALYSIS
+    assert "sum_intensity" in runner.captured.task_label
+
+
+def test_worker_creates_and_runs_sum_intensity_analysis() -> None:
+    """SUM_INTENSITY should create then run an AcqStore SumIntensityAnalysis."""
+    controller, bus, runner, home, _, _ = _make_controller()
+    aset = FakeAnalysisSet()
+    home.state.acq_image_list = FakeAcqImageList(FakeAcqImage(aset))
+
+    bus.publish(
+        RunAnalysisIntent(
+            analysis_kind=AnalysisKind.SUM_INTENSITY,
+            selection=PrimarySelection(file_id="f", channel=2, roi_id=3),
+            detection_params={"baseline_method": "percentile"},
+        )
+    )
+    runner.captured.worker(FakeTaskContext())
+
+    assert aset.removed and aset.removed[0].analysis_name == "sum_intensity"
+    assert aset.created and aset.created[0][:3] == ("sum_intensity", 2, 3)
+    assert len(aset.runs) == 1
+    assert aset.runs[0][0].analysis_name == "sum_intensity"
 
 # ---- _run_analysis_worker tests ----
 
