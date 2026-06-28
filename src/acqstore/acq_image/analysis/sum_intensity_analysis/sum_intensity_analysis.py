@@ -25,6 +25,13 @@ from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_core impor
     WIDTH_LEVEL_FRACTIONS,
     run_sum_intensity,
 )
+from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_presets import (
+    SumIntensityDetectionPreset,
+    SumIntensityPresetName,
+    get_sum_intensity_detection_preset,
+    get_sum_intensity_detection_preset_params,
+    list_sum_intensity_detection_presets,
+)
 
 
 @register_analysis_class
@@ -220,6 +227,54 @@ class SumIntensityAnalysis(BaseAnalysis):
             description="Comma-separated peak-amplitude fractions for width measurements.",
         ),
     )
+
+    @classmethod
+    def get_detection_presets(cls) -> tuple[SumIntensityDetectionPreset, ...]:
+        """Return built-in detection presets for this analysis type.
+
+        Returns:
+            Tuple of immutable preset descriptors in stable UI order.
+        """
+        return list_sum_intensity_detection_presets()
+
+    @classmethod
+    def get_detection_preset(
+        cls,
+        name: SumIntensityPresetName | str,
+    ) -> SumIntensityDetectionPreset:
+        """Return one built-in detection preset.
+
+        Args:
+            name: Preset enum value or its string value.
+
+        Returns:
+            Matching preset descriptor.
+
+        Raises:
+            KeyError: If ``name`` is not a built-in preset.
+        """
+        return get_sum_intensity_detection_preset(name)
+
+    @classmethod
+    def get_detection_preset_params(
+        cls,
+        name: SumIntensityPresetName | str,
+    ) -> dict[str, object]:
+        """Return a copied detection-parameter mapping for one preset.
+
+        Args:
+            name: Preset enum value or its string value.
+
+        Returns:
+            Complete detection-parameter dictionary suitable for constructing or
+            updating a ``SumIntensityAnalysis`` instance.
+
+        Raises:
+            KeyError: If ``name`` is not a built-in preset.
+        """
+        params = get_sum_intensity_detection_preset_params(name)
+        cls.validate_detection_params(params)
+        return params
 
     def __init__(
         self,

@@ -21,6 +21,9 @@ from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_core impor
     SumIntensityEventPointKey,
     SumIntensityTraceKey,
 )
+from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_presets import (
+    SumIntensityPresetName,
+)
 from acqstore.acq_image.analysis.model import AnalysisRunContext, BaseAnalysis
 from acqstore.utils.logging import get_logger, setup_logging
 
@@ -37,46 +40,16 @@ SOURCE_PATH = Path("/Users/cudmore/Dropbox/data/rabbit-ca-variance/raw-data/jan-
 SOURCE_PATH = Path("/Users/cudmore/Dropbox/data/rabbit-ca-variance/raw-data/jan-12-2022/Thapsigargin/220110n_0055.tif.frames/220110n_0055.tif")
 SOURCE_PATH = Path("/Users/cudmore/Dropbox/data/rabbit-ca-variance/raw-data/jan-12-2022/Thapsigargin/220110n_0056.tif.frames/220110n_0056.tif")
 
-SUM_INTENSITY_PRESETS: dict[str, dict[str, object]] = {
-    "fast": {
-        "window_radius_points": 0,
-        "filter_method": "median",
-        "median_filter_kernel_points": 3,
-        "detrend_method": "single_exponential",
-        "baseline_method": "percentile",
-        "baseline_percentile": 20.0,
-        "baseline_min_value": 1e-12,
-        "detection_method": "derivative_threshold",
-        "detection_source": "df_f_signal",
-        "derivative_threshold_per_sec": 1.0,
-        "refractory_period_ms": 10.0,
-        "peak_search_window_ms": 50.0,
-        "width_search_window_ms": 150.0,
-    },
-    "slow": {
-        "window_radius_points": 8,
-        "filter_method": "median",
-        "median_filter_kernel_points": 3,
-        "detrend_method": "single_exponential",
-        "baseline_method": "percentile",
-        "baseline_percentile": 20.0,
-        "baseline_min_value": 1e-12,
-        "detection_method": "derivative_threshold",
-        "detection_source": "df_f_signal",
-        "derivative_threshold_per_sec": 1.0,
-        "refractory_period_ms": 500.0,
-        "peak_search_window_ms": 250.0,
-        "width_search_window_ms": 750.0,
-    },
-}
+# Built-in presets now live in AcqStore. Edit this value locally while trying data.
+PRESET_NAME = SumIntensityPresetName.SLOW
 
 
-def run_sum_intensity_analysis(acq_image: AcqImage, preset_name: str) -> SumIntensityAnalysis:
+def run_sum_intensity_analysis(acq_image: AcqImage, preset_name: SumIntensityPresetName) -> SumIntensityAnalysis:
     """Create and run sum-intensity analysis on one file.
 
     Args:
         acq_image: Acquisition image.
-        preset_name: Key in :data:`SUM_INTENSITY_PRESETS`.
+        preset_name: Built-in sum-intensity preset name.
 
     Returns:
         Completed sum-intensity analysis.
@@ -93,7 +66,7 @@ def run_sum_intensity_analysis(acq_image: AcqImage, preset_name: str) -> SumInte
         SumIntensityAnalysis,
         channel=channel,
         roi_id=roi.roi_id,
-        detection_params=SUM_INTENSITY_PRESETS[preset_name],
+        detection_params=SumIntensityAnalysis.get_detection_preset_params(preset_name),
         replace_existing=True,
         context=context,
     )
@@ -230,7 +203,7 @@ def main() -> None:
         )
 
     acq_image = AcqImage(SOURCE_PATH)
-    analysis = run_sum_intensity_analysis(acq_image, preset_name="slow")
+    analysis = run_sum_intensity_analysis(acq_image, preset_name=PRESET_NAME)
     print("Analysis key:", analysis.key)
     
     print("Summary:")

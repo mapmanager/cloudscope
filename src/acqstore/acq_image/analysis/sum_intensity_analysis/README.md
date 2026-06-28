@@ -175,6 +175,48 @@ level crossings, event-local warnings, and event status. The name means
 "detected peak-like events", not merely peak coordinate arrays.
 
 
+
+## Detection presets
+
+Sum-intensity detection presets are first-class AcqStore API, not CloudScope GUI
+state. They provide complete detection-parameter dictionaries that callers may
+copy into an analysis and then edit before running. Manual F0 is intentionally
+not a preset; it remains a normal detection-parameter workflow using
+`baseline_method="manual"` and `manual_f0_baseline`.
+
+Built-in preset names are:
+
+- `SumIntensityPresetName.FAST`
+- `SumIntensityPresetName.MEDIUM`
+- `SumIntensityPresetName.SLOW`
+
+Typical usage:
+
+```python
+from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_analysis import (
+    SumIntensityAnalysis,
+)
+from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_presets import (
+    SumIntensityPresetName,
+)
+
+params = SumIntensityAnalysis.get_detection_preset_params(
+    SumIntensityPresetName.MEDIUM
+)
+analysis = SumIntensityAnalysis(channel=0, roi_id=roi_id, detection_params=params)
+```
+
+GUI code can list preset descriptors for a select widget:
+
+```python
+presets = SumIntensityAnalysis.get_detection_presets()
+options = {preset.name.value: preset.display_name for preset in presets}
+```
+
+Each preset descriptor contains `name`, `display_name`, `description`, and a
+complete copied `params` mapping. Preset parameter dictionaries are independent
+copies, so editing GUI controls does not mutate the built-in preset registry.
+
 ## CloudScope GUI integration examples
 
 These examples show the intended public API for future CloudScope views. The
