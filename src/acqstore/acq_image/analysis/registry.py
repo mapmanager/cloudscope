@@ -57,11 +57,20 @@ def register_builtin_analyses() -> None:
     from acqstore.acq_image.analysis.heart_rate_analysis.heart_rate_analysis import (
         HeartRateAnalysis,
     )
+    from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_analysis import (
+        SumIntensityAnalysis,
+    )
     from acqstore.acq_image.analysis.velocity_analysis.radon_velocity_analysis import (
         RadonVelocityAnalysis,
     )
 
-    for cls in (RadonVelocityAnalysis, DiameterAnalysis, HeartRateAnalysis, EventAnalysis):
+    for cls in (
+        RadonVelocityAnalysis,
+        DiameterAnalysis,
+        HeartRateAnalysis,
+        EventAnalysis,
+        SumIntensityAnalysis,
+    ):
         _ANALYSIS_REGISTRY.setdefault(str(cls.analysis_name), cls)
 
     _BUILTINS_REGISTERED = True
