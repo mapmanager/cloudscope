@@ -17,6 +17,10 @@ from acqstore.acq_image import AcqImage
 from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_analysis import (
     SumIntensityAnalysis,
 )
+from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_core import (
+    SumIntensityEventPointKey,
+    SumIntensityTraceKey,
+)
 from acqstore.acq_image.analysis.model import AnalysisRunContext, BaseAnalysis
 from acqstore.utils.logging import get_logger, setup_logging
 
@@ -24,7 +28,11 @@ logger = get_logger(__name__)
 setup_logging()
 
 # Edit this path locally. The ROI defaults to the full image.
-SOURCE_PATH = Path("/Users/cudmore/Dropbox/data/rabbit-ca-variance/raw-data/jan-12-2022/Control/220110n_0003.tif.frames/220110n_0003.tif")
+# SOURCE_PATH = Path("/Users/cudmore/Dropbox/data/rabbit-ca-variance/raw-data/jan-12-2022/Control/220110n_0003.tif.frames/220110n_0003.tif")
+# SOURCE_PATH = Path("/Users/cudmore/Dropbox/data/rabbit-ca-variance/raw-data/jan-12-2022/Control/220110n_0005.tif.frames/220110n_0005.tif")
+SOURCE_PATH = Path("/Users/cudmore/Dropbox/data/rabbit-ca-variance/raw-data/jan-12-2022/Control/220110n_0009.tif.frames/220110n_0009.tif")
+SOURCE_PATH = Path("/Users/cudmore/Dropbox/data/rabbit-ca-variance/raw-data/jan-12-2022/Thapsigargin/220110n_0055.tif.frames/220110n_0055.tif")
+SOURCE_PATH = Path("/Users/cudmore/Dropbox/data/rabbit-ca-variance/raw-data/jan-12-2022/Thapsigargin/220110n_0056.tif.frames/220110n_0056.tif")
 
 SUM_INTENSITY_PRESETS: dict[str, dict[str, object]] = {
     "fast": {
@@ -36,9 +44,11 @@ SUM_INTENSITY_PRESETS: dict[str, dict[str, object]] = {
         "baseline_percentile": 20.0,
         "baseline_min_value": 1e-12,
         "detection_method": "derivative_threshold",
-        "derivative_threshold": 1.0,
+        "detection_source": "df_f_signal",
+        "derivative_threshold_per_sec": 1.0,
         "refractory_period_ms": 10.0,
         "peak_search_window_ms": 50.0,
+        "width_search_window_ms": 150.0,
     },
     "slow": {
         "window_radius_points": 8,
@@ -49,9 +59,11 @@ SUM_INTENSITY_PRESETS: dict[str, dict[str, object]] = {
         "baseline_percentile": 20.0,
         "baseline_min_value": 1e-12,
         "detection_method": "derivative_threshold",
-        "derivative_threshold": 1.0,
+        "detection_source": "df_f_signal",
+        "derivative_threshold_per_sec": 1.0,
         "refractory_period_ms": 500.0,
         "peak_search_window_ms": 250.0,
+        "width_search_window_ms": 750.0,
     },
 }
 
@@ -104,61 +116,70 @@ def plot_sum_intensity_results(analysis: BaseAnalysis) -> None:
 
     fig = go.Figure()
 
+    norm_trace = analysis.get_trace(SumIntensityTraceKey.NORM_SUM_INTENSITY)
     fig.add_trace(
         go.Scatter(
-            x=table["time_sec"],
-            y=table["norm_sum_intensity"],
+            x=norm_trace.x,
+            y=norm_trace.y,
             mode="lines",
-            name="norm_sum_intensity",
+            name=norm_trace.name,
             visible="legendonly",
         )
     )
-    if "dff_signal" in table.columns:
-        fig.add_trace(
-            go.Scatter(
-                x=table["time_sec"],
-                y=table["dff_signal"],
-                mode="lines",
-                name="dff_signal",
-                visible="legendonly",
-            )
-        )
+
+    df_f_trace = analysis.get_trace(SumIntensityTraceKey.DF_F_SIGNAL)
     fig.add_trace(
         go.Scatter(
-            x=table["time_sec"],
-            y=table["detection_signal"],
+            x=df_f_trace.x,
+            y=df_f_trace.y,
             mode="lines",
-            name="detection_signal",
+            name=df_f_trace.name,
         )
     )
+
+    derivative_trace = analysis.get_trace(SumIntensityTraceKey.D_DF_F_SIGNAL)
     fig.add_trace(
         go.Scatter(
-            x=table["time_sec"],
-            y=table["d_detection_signal"],
+            x=derivative_trace.x,
+            y=derivative_trace.y,
             mode="lines",
-            name="d_detection_signal",
+            name=derivative_trace.name,
             yaxis="y2",
         )
     )
 
-    onset_rows = table[table["is_onset"]]
-    peak_rows = table[table["is_peak"]]
+    onset_points = analysis.get_event_points(SumIntensityEventPointKey.ONSETS)
+    peak_points = analysis.get_event_points(SumIntensityEventPointKey.PEAKS)
     fig.add_trace(
         go.Scatter(
-            x=onset_rows["time_sec"],
-            y=onset_rows["detection_signal"],
+            x=onset_points.x,
+            y=onset_points.y,
             mode="markers",
-            name="onsets",
+            name=onset_points.name,
         )
     )
     fig.add_trace(
         go.Scatter(
-            x=peak_rows["time_sec"],
-            y=peak_rows["detection_signal"],
+            x=peak_points.x,
+            y=peak_points.y,
             mode="markers",
-            name="peaks",
+            name=peak_points.name,
         )
     )
+
+    for width_trace in analysis.get_width_trace():
+        visible = True if width_trace.metadata.get("fraction") == 0.5 else "legendonly"
+        fig.add_trace(
+            go.Scatter(
+                x=width_trace.x,
+                y=width_trace.y,
+                mode="lines",
+                name=width_trace.name,
+                visible=visible,
+                connectgaps=False,
+            )
+        )
+
     f0_baseline = analysis.result.summary.get("f0_baseline")
     baseline_method = analysis.result.summary.get("baseline_method")
     baseline_percentile = analysis.result.summary.get("baseline_percentile")
@@ -171,8 +192,8 @@ def plot_sum_intensity_results(analysis: BaseAnalysis) -> None:
     fig.update_layout(
         title="CloudScope sum intensity analysis",
         xaxis_title="Time (s)",
-        yaxis_title="dF/F0",
-        yaxis2={"title": "dF/F0/s", "overlaying": "y", "side": "right"},
+        yaxis_title="df/f0",
+        yaxis2={"title": "1/s", "overlaying": "y", "side": "right"},
         annotations=[
             {
                 "text": annotation,

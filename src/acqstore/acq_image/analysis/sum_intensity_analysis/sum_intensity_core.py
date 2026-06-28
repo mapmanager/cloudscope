@@ -13,6 +13,7 @@ Axis convention for line-scan kymographs:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Any, Literal
 
 import numpy as np
@@ -26,6 +27,156 @@ FilterMethod = Literal["none", "median"]
 DetrendMethod = Literal["none", "single_exponential"]
 BaselineMethod = Literal["percentile"]
 
+
+class SumIntensityTraceKey(StrEnum):
+    """Named continuous traces produced by sum-intensity analysis.
+
+    The enum is the public API for trace lookup. It intentionally hides raw
+    DataFrame column strings from callers such as GUI views, scripts, and
+    downstream analysis code.
+
+    Members:
+        SUM_INTENSITY: Spatial row sum after optional rolling row averaging.
+        NORM_SUM_INTENSITY: Mean line intensity, ``sum_intensity / n_space``.
+        FILTERED_NORM_SUM_INTENSITY: Normalized trace after optional filtering.
+        DETRENDED_NORM_SUM_INTENSITY: Filtered normalized trace after optional
+            bleaching detrend.
+        DF_F_SIGNAL: Delta-F over F0 signal calculated from the detrended or
+            filtered normalized trace.
+        D_DF_F_SIGNAL: Time derivative of ``DF_F_SIGNAL`` in ``1 / second``.
+    """
+
+    SUM_INTENSITY = "sum_intensity"
+    NORM_SUM_INTENSITY = "norm_sum_intensity"
+    FILTERED_NORM_SUM_INTENSITY = "filtered_norm_sum_intensity"
+    DETRENDED_NORM_SUM_INTENSITY = "detrended_norm_sum_intensity"
+    DF_F_SIGNAL = "df_f_signal"
+    D_DF_F_SIGNAL = "d_df_f_signal"
+
+
+class SumIntensityEventPointKey(StrEnum):
+    """Named sparse event-point collections.
+
+    Event points are one point per detected peak event. They are primarily used
+    for plotting markers on top of continuous traces without exposing the JSON
+    representation of ``PeakEvent``.
+
+    Members:
+        ONSETS: Accepted onset locations, plotted at onset time and value.
+        PEAKS: Refined peak locations, plotted at peak time and value.
+    """
+
+    ONSETS = "onsets"
+    PEAKS = "peaks"
+
+
+class PeakWidthLevel(StrEnum):
+    """Named fractional peak-width measurements.
+
+    Width levels are restricted to the standard CloudScope fractions so callers
+    do not pass unvalidated arbitrary floats. The stored measurement represents
+    the left and right crossings of the requested fraction of peak amplitude.
+
+    Members:
+        WIDTH_10: Width at 10 percent of peak amplitude.
+        WIDTH_20: Width at 20 percent of peak amplitude.
+        WIDTH_50: Width at 50 percent of peak amplitude.
+        WIDTH_80: Width at 80 percent of peak amplitude.
+        WIDTH_90: Width at 90 percent of peak amplitude.
+    """
+
+    WIDTH_10 = "width_10"
+    WIDTH_20 = "width_20"
+    WIDTH_50 = "width_50"
+    WIDTH_80 = "width_80"
+    WIDTH_90 = "width_90"
+
+
+class SumIntensitySummaryKey(StrEnum):
+    """Named scalar values stored in the sum-intensity summary.
+
+    Summary values are compact run-level measurements or metadata. Full traces
+    live in the result table, and per-peak measurements live in
+    ``peak_events``.
+
+    Members:
+        NUM_PEAKS: Number of accepted peak events.
+        F0_BASELINE: Scalar F0 value used to calculate ``df_f_signal``.
+        BASELINE_METHOD: F0 calculation method.
+        BASELINE_PERCENTILE: Percentile used when ``baseline_method`` is
+            ``"percentile"``.
+        DETECTION_SOURCE: Trace key selected for onset detection.
+        SECONDS_PER_LINE: Time spacing in seconds.
+        WARNINGS: Analysis-level non-fatal warnings.
+        ERRORS: Analysis-level non-fatal algorithm errors.
+    """
+
+    NUM_PEAKS = "num_peaks"
+    F0_BASELINE = "f0_baseline"
+    BASELINE_METHOD = "baseline_method"
+    BASELINE_PERCENTILE = "baseline_percentile"
+    DETECTION_SOURCE = "detection_source"
+    SECONDS_PER_LINE = "seconds_per_line"
+    WARNINGS = "warnings"
+    ERRORS = "errors"
+
+
+WIDTH_LEVEL_FRACTIONS: dict[PeakWidthLevel, float] = {
+    PeakWidthLevel.WIDTH_10: 0.1,
+    PeakWidthLevel.WIDTH_20: 0.2,
+    PeakWidthLevel.WIDTH_50: 0.5,
+    PeakWidthLevel.WIDTH_80: 0.8,
+    PeakWidthLevel.WIDTH_90: 0.9,
+}
+
+
+@dataclass(frozen=True, slots=True)
+class ResultTrace:
+    """Continuous trace ready for plotting or downstream analysis.
+
+    Args:
+        key: Trace key identifying the source column.
+        name: Human-readable trace name.
+        x: X-axis values, usually time in seconds.
+        y: Trace values.
+        x_label: X-axis label.
+        y_label: Y-axis label.
+        metadata: Optional extra plotting hints. Backend code does not assume a
+            specific plotting library.
+    """
+
+    key: SumIntensityTraceKey | str
+    name: str
+    x: np.ndarray
+    y: np.ndarray
+    x_label: str
+    y_label: str
+    metadata: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class ResultPoints:
+    """Sparse event points ready for plotting as markers.
+
+    Args:
+        key: Event point key identifying the point collection.
+        name: Human-readable point collection name.
+        x: Point x-axis values.
+        y: Point y-axis values.
+        x_label: X-axis label.
+        y_label: Y-axis label.
+        metadata: Optional extra plotting hints.
+    """
+
+    key: SumIntensityEventPointKey
+    name: str
+    x: np.ndarray
+    y: np.ndarray
+    x_label: str
+    y_label: str
+    metadata: dict[str, object] = field(default_factory=dict)
+
+
 SUM_INTENSITY_TABLE_COLUMNS: tuple[str, ...] = (
     "time_index",
     "time_sec",
@@ -34,10 +185,8 @@ SUM_INTENSITY_TABLE_COLUMNS: tuple[str, ...] = (
     "filtered_norm_sum_intensity",
     "detrended_norm_sum_intensity",
     "f0_baseline",
-    "dff_signal",
-    "detection_signal",
-    "d_detection_signal",
-    "d_norm_sum_intensity",
+    "df_f_signal",
+    "d_df_f_signal",
     "is_onset",
     "is_peak",
     "onset_index",
@@ -286,7 +435,7 @@ def run_sum_intensity(
         warnings=warnings,
         errors=errors,
     )
-    f0_baseline, dff_signal = _calculate_dff_signal(
+    f0_baseline, df_f_signal = _calculate_df_f_signal(
         detrended_norm,
         baseline_method=str(params["baseline_method"]),
         baseline_percentile=float(params["baseline_percentile"]),
@@ -294,7 +443,16 @@ def run_sum_intensity(
         warnings=warnings,
         errors=errors,
     )
-    detection_signal = dff_signal
+    trace_map = {
+        SumIntensityTraceKey.SUM_INTENSITY.value: sum_intensity,
+        SumIntensityTraceKey.NORM_SUM_INTENSITY.value: norm_sum_intensity,
+        SumIntensityTraceKey.FILTERED_NORM_SUM_INTENSITY.value: filtered_norm,
+        SumIntensityTraceKey.DETRENDED_NORM_SUM_INTENSITY.value: detrended_norm,
+        SumIntensityTraceKey.DF_F_SIGNAL.value: df_f_signal,
+    }
+    detection_source = str(params["detection_source"])
+    detection_signal = np.asarray(trace_map[detection_source], dtype=float)
+    d_df_f_signal = np.gradient(df_f_signal, time_sec)
     d_detection_signal = np.gradient(detection_signal, time_sec)
 
     onset_indices = _detect_onsets(
@@ -303,7 +461,7 @@ def run_sum_intensity(
         method=str(params["detection_method"]),
         polarity=str(params["polarity"]),
         absolute_threshold=float(params["absolute_threshold"]),
-        derivative_threshold=float(params["derivative_threshold"]),
+        derivative_threshold_per_sec=float(params["derivative_threshold_per_sec"]),
     )
     refractory_points = _duration_ms_to_points(
         float(params["refractory_period_ms"]), seconds_per_line
@@ -313,6 +471,9 @@ def run_sum_intensity(
     peak_search_window_points = _duration_ms_to_points(
         float(params["peak_search_window_ms"]), seconds_per_line
     )
+    width_search_window_points = _duration_ms_to_points(
+        float(params["width_search_window_ms"]), seconds_per_line
+    )
     level_fractions = _parse_level_fractions(str(params["level_fractions"]))
     events = _build_events(
         detection_signal=detection_signal,
@@ -321,6 +482,7 @@ def run_sum_intensity(
         detection_method=str(params["detection_method"]),
         polarity=str(params["polarity"]),
         peak_search_window_points=peak_search_window_points,
+        width_search_window_points=width_search_window_points,
         level_fractions=level_fractions,
     )
 
@@ -332,9 +494,8 @@ def run_sum_intensity(
         filtered_norm_sum_intensity=filtered_norm,
         detrended_norm_sum_intensity=detrended_norm,
         f0_baseline=f0_baseline,
-        dff_signal=dff_signal,
-        detection_signal=detection_signal,
-        d_detection_signal=d_detection_signal,
+        df_f_signal=df_f_signal,
+        d_df_f_signal=d_df_f_signal,
         events=events,
     )
     summary = _build_summary(
@@ -383,10 +544,26 @@ def _validated_detection_params(params: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("detection_method must be 'derivative_threshold' or 'absolute_threshold'")
     if normalized["polarity"] not in {"positive", "negative"}:
         raise ValueError("polarity must be 'positive' or 'negative'")
+    detection_source = str(normalized.get("detection_source", SumIntensityTraceKey.DF_F_SIGNAL.value))
+    allowed_detection_sources = {
+        SumIntensityTraceKey.SUM_INTENSITY.value,
+        SumIntensityTraceKey.NORM_SUM_INTENSITY.value,
+        SumIntensityTraceKey.FILTERED_NORM_SUM_INTENSITY.value,
+        SumIntensityTraceKey.DETRENDED_NORM_SUM_INTENSITY.value,
+        SumIntensityTraceKey.DF_F_SIGNAL.value,
+    }
+    if detection_source not in allowed_detection_sources:
+        raise ValueError(
+            "detection_source must be one of "
+            f"{tuple(sorted(allowed_detection_sources))!r}"
+        )
+    normalized["detection_source"] = detection_source
     if float(normalized["refractory_period_ms"]) < 0:
         raise ValueError("refractory_period_ms must be >= 0")
     if float(normalized["peak_search_window_ms"]) <= 0:
         raise ValueError("peak_search_window_ms must be > 0")
+    if float(normalized["width_search_window_ms"]) <= 0:
+        raise ValueError("width_search_window_ms must be > 0")
     _parse_level_fractions(str(normalized["level_fractions"]))
     return normalized
 
@@ -516,7 +693,7 @@ def _detrend_trace(
 
 
 
-def _calculate_dff_signal(
+def _calculate_df_f_signal(
     values: np.ndarray,
     *,
     baseline_method: str,
@@ -538,7 +715,7 @@ def _calculate_dff_signal(
         errors: Mutable list receiving algorithm-step failures.
 
     Returns:
-        Tuple of ``(f0_baseline, dff_signal)`` where ``dff_signal`` has the
+        Tuple of ``(f0_baseline, df_f_signal)`` where ``df_f_signal`` has the
         same shape as ``values``.
     """
     trace = np.asarray(values, dtype=float)
@@ -550,19 +727,19 @@ def _calculate_dff_signal(
     finite = trace[np.isfinite(trace)]
     if finite.size == 0:
         errors.append(
-            "dff_baseline failed; trace has no finite values, using zeros for dff_signal"
+            "df_f_baseline failed; trace has no finite values, using zeros for df_f_signal"
         )
         return float(baseline_min_value), np.zeros_like(trace, dtype=float)
 
     f0 = float(np.percentile(finite, baseline_percentile))
     if not np.isfinite(f0):
         errors.append(
-            "dff_baseline failed; percentile baseline was not finite, using baseline_min_value"
+            "df_f_baseline failed; percentile baseline was not finite, using baseline_min_value"
         )
         f0 = float(baseline_min_value)
     elif abs(f0) < float(baseline_min_value):
         warnings.append(
-            "dff_baseline was close to zero; using baseline_min_value to avoid division by zero"
+            "df_f_baseline was close to zero; using baseline_min_value to avoid division by zero"
         )
         f0 = float(baseline_min_value) if f0 >= 0 else -float(baseline_min_value)
 
@@ -576,7 +753,7 @@ def _detect_onsets(
     method: str,
     polarity: str,
     absolute_threshold: float,
-    derivative_threshold: float,
+    derivative_threshold_per_sec: float,
 ) -> list[int]:
     """Detect candidate onset indices before refractory filtering.
 
@@ -587,13 +764,13 @@ def _detect_onsets(
         method: Detection method name.
         polarity: ``"positive"`` or ``"negative"``.
         absolute_threshold: Absolute signal threshold.
-        derivative_threshold: Derivative threshold in signal units per second.
+        derivative_threshold_per_sec: Derivative threshold in signal units per second.
 
     Returns:
         Candidate onset indices.
     """
     trace = derivative_signal if method == "derivative_threshold" else detection_signal
-    threshold = derivative_threshold if method == "derivative_threshold" else absolute_threshold
+    threshold = derivative_threshold_per_sec if method == "derivative_threshold" else absolute_threshold
     if polarity == "negative":
         above = trace <= -abs(float(threshold))
     else:
@@ -671,6 +848,7 @@ def _build_events(
     detection_method: str,
     polarity: str,
     peak_search_window_points: int,
+    width_search_window_points: int,
     level_fractions: tuple[float, ...],
 ) -> tuple[PeakEvent, ...]:
     """Build event records from accepted onsets.
@@ -682,6 +860,7 @@ def _build_events(
         detection_method: Detection method used for onset detection.
         polarity: Peak polarity.
         peak_search_window_points: Forward peak search window in points.
+        width_search_window_points: Forward width-crossing search window in points.
         level_fractions: Requested amplitude fractions for width measures.
 
     Returns:
@@ -701,6 +880,7 @@ def _build_events(
             detection_method=detection_method,
             polarity=polarity,
             peak_search_window_points=peak_search_window_points,
+            width_search_window_points=width_search_window_points,
             level_fractions=level_fractions,
             previous_onset_time=previous_onset_time,
             previous_peak_time=previous_peak_time,
@@ -722,6 +902,7 @@ def _build_one_event(
     detection_method: str,
     polarity: str,
     peak_search_window_points: int,
+    width_search_window_points: int,
     level_fractions: tuple[float, ...],
     previous_onset_time: float | None,
     previous_peak_time: float | None,
@@ -737,6 +918,7 @@ def _build_one_event(
         detection_method: Detection method name.
         polarity: Peak polarity.
         peak_search_window_points: Forward peak search window in points.
+        width_search_window_points: Forward width-crossing search window in points.
         level_fractions: Requested amplitude fractions.
         previous_onset_time: Previous event onset time for interval stats.
         previous_peak_time: Previous event peak time for interval stats.
@@ -786,6 +968,7 @@ def _build_one_event(
                 onset_index=onset_index,
                 peak_index=peak_index,
                 next_onset_index=next_onset_index,
+                width_search_window_points=width_search_window_points,
                 fraction=fraction,
                 onset_value=onset_value,
                 peak_value=peak_value,
@@ -824,6 +1007,7 @@ def _measure_level_crossing(
     onset_index: int,
     peak_index: int,
     next_onset_index: int | None,
+    width_search_window_points: int,
     fraction: float,
     onset_value: float,
     peak_value: float,
@@ -836,6 +1020,7 @@ def _measure_level_crossing(
         onset_index: Event onset index.
         peak_index: Event peak index.
         next_onset_index: Next event onset index, if available.
+        width_search_window_points: Maximum forward search window for the falling-side crossing.
         fraction: Requested amplitude fraction.
         onset_value: Signal value at onset.
         peak_value: Signal value at peak.
@@ -853,7 +1038,9 @@ def _measure_level_crossing(
         polarity=polarity,
         direction="rising",
     )
-    right_stop = next_onset_index if next_onset_index is not None else detection_signal.size - 1
+    right_stop = min(detection_signal.size - 1, peak_index + max(1, int(width_search_window_points)))
+    if next_onset_index is not None:
+        right_stop = min(right_stop, next_onset_index)
     right = _find_crossing(
         detection_signal,
         start=peak_index,
@@ -876,7 +1063,7 @@ def _measure_level_crossing(
     elif left is None:
         status = "left_not_found"
     else:
-        status = "right_not_found"
+        status = "right_not_found_within_width_search_window"
     return LevelCrossing(
         fraction=float(fraction),
         value=float(level_value),
@@ -960,9 +1147,8 @@ def _build_table(
     filtered_norm_sum_intensity: np.ndarray,
     detrended_norm_sum_intensity: np.ndarray,
     f0_baseline: float,
-    dff_signal: np.ndarray,
-    detection_signal: np.ndarray,
-    d_detection_signal: np.ndarray,
+    df_f_signal: np.ndarray,
+    d_df_f_signal: np.ndarray,
     events: tuple[PeakEvent, ...],
 ) -> pd.DataFrame:
     """Build the per-timepoint result table.
@@ -973,11 +1159,10 @@ def _build_table(
         sum_intensity: Raw or windowed row-sum intensity.
         norm_sum_intensity: Sum intensity divided by spatial pixel count.
         filtered_norm_sum_intensity: Filtered normalized trace.
-        detrended_norm_sum_intensity: Detrended normalized trace used for dF/F0.
-        f0_baseline: Scalar F0 baseline used for dF/F0.
-        dff_signal: Delta-F over F0 trace.
-        detection_signal: Final trace used for detection.
-        d_detection_signal: Derivative of ``detection_signal`` in signal units per second.
+        detrended_norm_sum_intensity: Detrended normalized trace used for df/f0.
+        f0_baseline: Scalar F0 baseline used for df/f0.
+        df_f_signal: Delta-F over F0 trace.
+        d_df_f_signal: Derivative of ``df_f_signal`` in ``1 / second``.
         events: Detected peak events.
 
     Returns:
@@ -992,10 +1177,8 @@ def _build_table(
             "filtered_norm_sum_intensity": filtered_norm_sum_intensity.astype(float),
             "detrended_norm_sum_intensity": detrended_norm_sum_intensity.astype(float),
             "f0_baseline": np.full(time_index.size, float(f0_baseline)),
-            "dff_signal": dff_signal.astype(float),
-            "detection_signal": detection_signal.astype(float),
-            "d_detection_signal": d_detection_signal.astype(float),
-            "d_norm_sum_intensity": d_detection_signal.astype(float),
+            "df_f_signal": df_f_signal.astype(float),
+            "d_df_f_signal": d_df_f_signal.astype(float),
             "is_onset": np.zeros(time_index.size, dtype=bool),
             "is_peak": np.zeros(time_index.size, dtype=bool),
             "onset_index": np.full(time_index.size, np.nan),
@@ -1012,7 +1195,6 @@ def _build_table(
             table.loc[event.peak_index, "onset_index"] = int(event.onset_index)
             table.loc[event.peak_index, "peak_id"] = int(event.peak_id)
     return table
-
 
 def _build_summary(
     *,
@@ -1035,7 +1217,7 @@ def _build_summary(
         params: Validated detection parameters.
         seconds_per_line: Time spacing in seconds.
         n_space: Number of spatial pixels in the ROI image.
-        f0_baseline: Scalar F0 baseline used to calculate dF/F0.
+        f0_baseline: Scalar F0 baseline used to calculate df/f0.
 
     Returns:
         JSON-serializable summary dictionary.
@@ -1061,7 +1243,10 @@ def _build_summary(
         "errors": list(errors),
         "detrend_method": str(params["detrend_method"]),
         "detection_method": str(params["detection_method"]),
-        "events": [event.to_json_dict() for event in events],
+        "detection_source": str(params["detection_source"]),
+        "peak_search_window_ms": float(params["peak_search_window_ms"]),
+        "width_search_window_ms": float(params["width_search_window_ms"]),
+        "peak_events": [event.to_json_dict() for event in events],
     }
 
 
