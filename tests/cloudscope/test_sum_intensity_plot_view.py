@@ -20,12 +20,13 @@ from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_core impor
 from cloudscope.event_bus import EventBus
 from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind
 from cloudscope.events.roi import RoiChangeKind, RoiChanged
+from cloudscope.events.theme import ThemeChanged
 from cloudscope.events.x_range import PrimaryXRangeChanged, SetPrimaryXRangeIntent
 from cloudscope.state import PrimarySelection
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.sum_intensity_plot_view import SumIntensityPlotView
 from cloudscope.views.view_ids import ViewId
-from nicewidgets.plotly_plot.models import MeasurementChangeEvent
+from nicewidgets.plotly_plot.models import MeasurementChangeEvent, PlotlyScatterData, PlotlySeriesMenuItem, PlotlyTraceData
 
 
 class _FakePlot:
@@ -33,30 +34,36 @@ class _FakePlot:
 
     def __init__(self) -> None:
         """Create an empty fake plot."""
-        self.traces: list[dict[str, object]] = []
-        self.scatters: list[dict[str, object]] = []
-        self.clear_traces_calls = 0
-        self.clear_scatters_calls = 0
+        self.traces: list[PlotlyTraceData] = []
+        self.scatters: list[PlotlyScatterData] = []
+        self.set_series_calls = 0
         self.x_limits: tuple[float | None, float | None] | None = None
         self.x_reset_calls = 0
+        self.dark_mode: bool | None = None
+        self._series_visibility: dict[str, bool] = {}
 
-    def clear_traces(self) -> None:
-        """Record trace clears."""
-        self.clear_traces_calls += 1
-        self.traces.clear()
+    def register_series_menu_items(self, items: list[PlotlySeriesMenuItem]) -> None:
+        """Record menu defaults while preserving existing visibility choices."""
+        for item in items:
+            if item.series_name not in self._series_visibility:
+                self._series_visibility[item.series_name] = bool(item.default_visible)
 
-    def clear_scatters(self) -> None:
-        """Record scatter clears."""
-        self.clear_scatters_calls += 1
-        self.scatters.clear()
+    def is_series_visible(self, series_name: str) -> bool:
+        """Return stored visibility for one series."""
+        if series_name in self._series_visibility:
+            return self._series_visibility[series_name]
+        return True
 
-    def add_trace(self, **kwargs: object) -> None:
-        """Record a trace add call."""
-        self.traces.append(dict(kwargs))
-
-    def plot_scatter(self, **kwargs: object) -> None:
-        """Record a scatter add call."""
-        self.scatters.append(dict(kwargs))
+    def set_series(
+        self,
+        *,
+        traces: list[PlotlyTraceData] | tuple[PlotlyTraceData, ...] = (),
+        scatters: list[PlotlyScatterData] | tuple[PlotlyScatterData, ...] = (),
+    ) -> None:
+        """Record one batched series replacement."""
+        self.set_series_calls += 1
+        self.traces = list(traces)
+        self.scatters = list(scatters)
 
     def set_x_axis_limits(self, x_min: float | None, x_max: float | None) -> None:
         """Record finite axis limits."""
@@ -66,6 +73,10 @@ class _FakePlot:
         """Record an axis reset."""
         self.x_reset_calls += 1
         self.x_limits = (None, None)
+
+    def set_dark_mode(self, enabled: bool) -> None:
+        """Record dark-mode theme updates."""
+        self.dark_mode = bool(enabled)
 
 
 @dataclass
@@ -109,8 +120,8 @@ class _FakeSumIntensityAnalysis(SumIntensityAnalysis):
     def get_trace(self, key: SumIntensityTraceKey) -> ResultTrace:
         """Return deterministic continuous traces."""
         names = {
-            SumIntensityTraceKey.DF_F_SIGNAL: "Delta F/F0",
-            SumIntensityTraceKey.D_DF_F_SIGNAL: "Derivative",
+            SumIntensityTraceKey.DF_F_SIGNAL: "df/f0 signal",
+            SumIntensityTraceKey.D_DF_F_SIGNAL: "Derivative of df/f0",
         }
         if key not in names:
             raise KeyError(key)
@@ -154,7 +165,7 @@ class _FakeSumIntensityAnalysis(SumIntensityAnalysis):
         return (
             ResultTrace(
                 key="p50",
-                name="Peak p50",
+                name="Peak width 50",
                 x=np.asarray([0.75, 1.25, np.nan], dtype=float),
                 y=np.asarray([0.3, 0.3, np.nan], dtype=float),
                 x_label="Time (s)",
@@ -181,6 +192,7 @@ def _view_with_fake_plot() -> SumIntensityPlotView:
     """Create a view with fake child plot and status label."""
     view = SumIntensityPlotView(event_bus=EventBus())
     view._plot = _FakePlot()  # type: ignore[assignment]
+    view._plot.register_series_menu_items(SumIntensityPlotView._sum_intensity_series_menu_items())  # type: ignore[attr-defined]
     view._status_label = _FakeLabel()  # type: ignore[assignment]
     return view
 
@@ -223,8 +235,9 @@ def test_refresh_plot_clears_when_no_analysis() -> None:
 
     view._refresh_plot()
 
-    assert view._plot.clear_traces_calls == 1
-    assert view._plot.clear_scatters_calls == 1
+    assert view._plot.set_series_calls == 1
+    assert view._plot.traces == []
+    assert view._plot.scatters == []
     assert "No sum-intensity analysis" in view._status_label.text
 
 
@@ -238,11 +251,34 @@ def test_refresh_plot_pushes_traces_scatters_and_widths() -> None:
 
     view._refresh_plot()
 
-    trace_names = [call["name"] for call in view._plot.traces]
-    scatter_names = [call["name"] for call in view._plot.scatters]
-    assert trace_names == ["Delta F/F0", "Derivative", "Peak p50"]
+    trace_names = [trace.name for trace in view._plot.traces]
+    scatter_names = [scatter.name for scatter in view._plot.scatters]
+    assert view._plot.set_series_calls == 1
+    assert trace_names == ["df/f0 signal", "Derivative of df/f0", "Peak width 50"]
     assert scatter_names == ["Onsets", "Peaks"]
+    assert view._plot.traces[1].visible is False
+    assert view._plot.traces[2].visible is True
+    assert all(scatter.visible for scatter in view._plot.scatters)
     assert view._status_label.text == "Sum-intensity peaks: 1; F0: 1.234"
+
+
+def test_refresh_plot_preserves_series_visibility_across_selection() -> None:
+    """Trace toggle choices should survive file/channel/ROI refresh until reload."""
+    view = _view_with_fake_plot()
+    acq_image = _FakeAcqImage()
+    acq_image.analysis_set.set(AnalysisKey("sum_intensity", 0, 1), _FakeSumIntensityAnalysis())
+    view.current_acq_image = acq_image
+    view.current_selection = PrimarySelection(file_id="file", channel=0, roi_id=1)
+
+    view._refresh_plot()
+    view._plot._series_visibility["Onsets"] = False  # type: ignore[attr-defined]
+
+    view.current_selection = PrimarySelection(file_id="other", channel=0, roi_id=1)
+    view._refresh_plot()
+
+    onsets = next(scatter for scatter in view._plot.scatters if scatter.name == "Onsets")
+    assert onsets.visible is False
+    assert view._plot.is_series_visible("Derivative of df/f0") is False
 
 
 def test_refresh_plot_reports_backend_plot_error() -> None:
@@ -357,3 +393,26 @@ def test_measurement_callback_stores_event_for_future_intent_wiring() -> None:
     view._on_measurement_changed(event)
 
     assert view.last_measurement_event is event
+
+
+def test_theme_changed_applies_dark_mode_to_plot() -> None:
+    """ThemeChanged should push dark-mode state to the child plot."""
+    view = _view_with_fake_plot()
+
+    view._on_theme_changed(ThemeChanged(dark_mode=True))
+
+    assert view._plot.dark_mode is True
+
+
+def test_sync_theme_from_provider_uses_current_app_theme() -> None:
+    """refresh_from_state should resync theme when a provider is available."""
+    view = SumIntensityPlotView(
+        event_bus=EventBus(),
+        dark_mode=False,
+        dark_mode_provider=lambda: True,
+    )
+    view._plot = _FakePlot()  # type: ignore[assignment]
+
+    view._sync_theme_from_provider()
+
+    assert view._plot.dark_mode is True

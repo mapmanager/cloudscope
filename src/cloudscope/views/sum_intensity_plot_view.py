@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from nicegui import ui
@@ -11,6 +12,7 @@ from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_analysis i
     SumIntensityAnalysis,
 )
 from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_core import (
+    PeakWidthLevel,
     ResultPoints,
     ResultTrace,
     SumIntensityEventPointKey,
@@ -19,10 +21,16 @@ from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_core impor
 from cloudscope.event_bus import EventBus
 from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind
 from cloudscope.events.roi import RoiChanged
+from cloudscope.events.theme import ThemeChanged
 from cloudscope.events.x_range import PrimaryXRangeChanged, SetPrimaryXRangeIntent
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
-from nicewidgets.plotly_plot.models import MeasurementChangeEvent
+from nicewidgets.plotly_plot.models import (
+    MeasurementChangeEvent,
+    PlotlyScatterData,
+    PlotlySeriesMenuItem,
+    PlotlyTraceData,
+)
 from nicewidgets.plotly_plot.widget import PlotlyPlotWidget
 
 
@@ -38,6 +46,9 @@ class SumIntensityPlotView(BaseView):
         app_state: Optional page/controller state object.
         title: View title.
         initially_visible: Whether this view starts visible.
+        dark_mode: Initial Plotly layout theme state.
+        dark_mode_provider: Optional callable returning the current application
+            dark-mode state when the view is shown after being hidden.
     """
 
     view_id = ViewId.SUM_INTENSITY_PLOT
@@ -50,9 +61,13 @@ class SumIntensityPlotView(BaseView):
         *,
         title: str = "Sum intensity plot",
         initially_visible: bool = True,
+        dark_mode: bool = False,
+        dark_mode_provider: Callable[[], bool] | None = None,
     ) -> None:
         super().__init__(event_bus=event_bus, app_state=app_state, initially_visible=initially_visible)
         self.title = title
+        self._dark_mode_provider = dark_mode_provider
+        self._initial_dark_mode = bool(dark_mode)
         self._plot: PlotlyPlotWidget | None = None
         self._status_label: ui.label | None = None
         self._primary_x_range: tuple[float | None, float | None] = (None, None)
@@ -91,6 +106,7 @@ class SumIntensityPlotView(BaseView):
         self.add_subscription(self.event_bus.subscribe(AnalysisCompleted, self._on_analysis_completed))
         self.add_subscription(self.event_bus.subscribe(RoiChanged, self._on_roi_changed))
         self.add_subscription(self.event_bus.subscribe(PrimaryXRangeChanged, self._on_primary_x_range_changed))
+        self.add_subscription(self.event_bus.subscribe(ThemeChanged, self._on_theme_changed))
 
     def refresh_from_state(self) -> None:
         """Refresh the plot from current application state.
@@ -98,6 +114,7 @@ class SumIntensityPlotView(BaseView):
         Returns:
             None.
         """
+        self._sync_theme_from_provider()
         self._refresh_plot()
 
     def on_primary_selection_changed(self) -> None:
@@ -136,12 +153,13 @@ class SumIntensityPlotView(BaseView):
             None.
         """
         self._plot = PlotlyPlotWidget(
-            title=self.title,
             x_label="Time (s)",
             y_label="Signal",
+            theme="dark" if self._initial_dark_mode else "light",
             on_x_range_changed=self._on_plot_x_range_changed,
             on_measurement_changed=self._on_measurement_changed,
         )
+        self._plot.register_series_menu_items(self._sum_intensity_series_menu_items())
         self._plot.container.classes("w-full h-full min-h-0 flex-1")
         self._status_label = ui.label("No sum-intensity analysis selected").classes("text-xs opacity-70 shrink-0")
 
@@ -216,6 +234,29 @@ class SumIntensityPlotView(BaseView):
         """
         self._last_measurement_event = event
 
+    def _on_theme_changed(self, event: ThemeChanged) -> None:
+        """Apply an application theme change to the child Plotly widget.
+
+        Args:
+            event: Theme state event published by the page header.
+
+        Returns:
+            None.
+        """
+        if self._plot is None:
+            return
+        self._plot.set_dark_mode(event.dark_mode)
+
+    def _sync_theme_from_provider(self) -> None:
+        """Apply the current application theme when a provider is available.
+
+        Returns:
+            None.
+        """
+        if self._plot is None or self._dark_mode_provider is None:
+            return
+        self._plot.set_dark_mode(bool(self._dark_mode_provider()))
+
     def _apply_primary_x_range_to_plot(self) -> None:
         """Push cached x-range state into the child Plotly widget.
 
@@ -243,19 +284,129 @@ class SumIntensityPlotView(BaseView):
             self._clear_plot(self._empty_message())
             return
         try:
-            self._plot.clear_traces()
-            self._plot.clear_scatters()
-            self._add_trace(analysis.get_trace(SumIntensityTraceKey.DF_F_SIGNAL))
-            self._add_trace(analysis.get_trace(SumIntensityTraceKey.D_DF_F_SIGNAL))
-            self._add_event_points(analysis.get_event_points(SumIntensityEventPointKey.ONSETS))
-            self._add_event_points(analysis.get_event_points(SumIntensityEventPointKey.PEAKS))
-            self._add_width_traces(analysis.get_width_trace())
+            traces, scatters = self._build_series_from_analysis(analysis)
+            self._plot.set_series(traces=traces, scatters=scatters)
         except (KeyError, ValueError) as exc:
             self._clear_plot(f"Sum-intensity plot unavailable: {exc}")
             return
         self._apply_primary_x_range_to_plot()
         if self._status_label is not None:
             self._status_label.text = self._summary_status_text(analysis)
+
+    def _build_series_from_analysis(
+        self,
+        analysis: SumIntensityAnalysis,
+    ) -> tuple[list[PlotlyTraceData], list[PlotlyScatterData]]:
+        """Build Plotly trace and scatter models from a sum-intensity analysis.
+
+        Args:
+            analysis: Selected sum-intensity analysis.
+
+        Returns:
+            Tuple of continuous traces and scatter overlays for ``set_series``.
+        """
+        traces = [
+            self._trace_data(analysis.get_trace(SumIntensityTraceKey.DF_F_SIGNAL)),
+            self._trace_data(analysis.get_trace(SumIntensityTraceKey.D_DF_F_SIGNAL)),
+        ]
+        width_traces = analysis.get_width_trace()
+        if isinstance(width_traces, tuple):
+            for trace in width_traces:
+                if len(trace.x) > 0:
+                    traces.append(self._trace_data(trace))
+        elif len(width_traces.x) > 0:
+            traces.append(self._trace_data(width_traces))
+
+        scatters: list[PlotlyScatterData] = []
+        for points in (
+            analysis.get_event_points(SumIntensityEventPointKey.ONSETS),
+            analysis.get_event_points(SumIntensityEventPointKey.PEAKS),
+        ):
+            if len(points.x) > 0:
+                scatters.append(self._scatter_data(points))
+        return traces, scatters
+
+    @staticmethod
+    def _sum_intensity_series_menu_items() -> list[PlotlySeriesMenuItem]:
+        """Return context-menu toggles for optional sum-intensity overlays.
+
+        Returns:
+            Menu item definitions keyed by AcqStore ``ResultTrace`` /
+            ``ResultPoints`` names.
+        """
+        items = [
+            PlotlySeriesMenuItem(
+                series_name="Derivative of df/f0",
+                label="Derivative of df/f0",
+                default_visible=False,
+                kind="trace",
+            ),
+        ]
+        for level in PeakWidthLevel:
+            name = f"Peak {level.value.replace('_', ' ')}"
+            items.append(
+                PlotlySeriesMenuItem(
+                    series_name=name,
+                    label=name,
+                    default_visible=level is PeakWidthLevel.WIDTH_50,
+                    kind="trace",
+                )
+            )
+        items.extend(
+            [
+                PlotlySeriesMenuItem(
+                    series_name="Onsets",
+                    label="Onsets",
+                    default_visible=True,
+                    kind="scatter",
+                ),
+                PlotlySeriesMenuItem(
+                    series_name="Peaks",
+                    label="Peaks",
+                    default_visible=True,
+                    kind="scatter",
+                ),
+            ]
+        )
+        return items
+
+    def _trace_data(self, trace: ResultTrace) -> PlotlyTraceData:
+        """Convert one AcqStore result trace to Plotly trace data.
+
+        Args:
+            trace: Public AcqStore result trace.
+
+        Returns:
+            Immutable Plotly trace data.
+        """
+        visible = True
+        if self._plot is not None:
+            visible = self._plot.is_series_visible(str(trace.name))
+        return PlotlyTraceData.from_sequences(
+            name=str(trace.name),
+            x=trace.x,
+            y=trace.y,
+            visible=visible,
+        )
+
+    def _scatter_data(self, points: ResultPoints) -> PlotlyScatterData:
+        """Convert one AcqStore point collection to Plotly scatter data.
+
+        Args:
+            points: Public AcqStore event points.
+
+        Returns:
+            Immutable Plotly scatter overlay data.
+        """
+        visible = True
+        if self._plot is not None:
+            visible = self._plot.is_series_visible(str(points.name))
+        return PlotlyScatterData.from_sequences(
+            name=str(points.name),
+            x=points.x,
+            y=points.y,
+            visible=visible,
+        )
 
     def _clear_plot(self, message: str) -> None:
         """Clear plot contents and set empty-state text.
@@ -267,53 +418,9 @@ class SumIntensityPlotView(BaseView):
             None.
         """
         if self._plot is not None:
-            self._plot.clear_traces()
-            self._plot.clear_scatters()
+            self._plot.set_series()
         if self._status_label is not None:
             self._status_label.text = message
-
-    def _add_trace(self, trace: ResultTrace) -> None:
-        """Add one continuous result trace to the child plot.
-
-        Args:
-            trace: Public AcqStore result trace.
-
-        Returns:
-            None.
-        """
-        if self._plot is None:
-            return
-        self._plot.add_trace(name=str(trace.name), x=trace.x, y=trace.y)
-
-    def _add_event_points(self, points: ResultPoints) -> None:
-        """Add sparse event markers when the point collection is non-empty.
-
-        Args:
-            points: Public AcqStore event points.
-
-        Returns:
-            None.
-        """
-        if self._plot is None or len(points.x) == 0:
-            return
-        self._plot.plot_scatter(name=str(points.name), x=points.x, y=points.y)
-
-    def _add_width_traces(self, traces: ResultTrace | tuple[ResultTrace, ...]) -> None:
-        """Add NaN-separated peak-width segment traces.
-
-        Args:
-            traces: One result trace or a tuple of result traces from AcqStore.
-
-        Returns:
-            None.
-        """
-        if isinstance(traces, tuple):
-            for trace in traces:
-                if len(trace.x) > 0:
-                    self._add_trace(trace)
-            return
-        if len(traces.x) > 0:
-            self._add_trace(traces)
 
     def _get_selected_sum_intensity_analysis(self) -> SumIntensityAnalysis | None:
         """Return sum-intensity analysis for the active file/channel/ROI selection.

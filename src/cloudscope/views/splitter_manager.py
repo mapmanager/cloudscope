@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from cloudscope.app_config import (
     DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT,
+    DEFAULT_HOME_ANALYSIS_SUM_INTENSITY_SPLITTER_PCT,
     DEFAULT_HOME_FILE_LIST_SPLITTER_PCT,
     DEFAULT_HOME_LEFT_TOOLBAR_OPEN_SPLITTER_PCT,
     DEFAULT_HOME_PRIMARY_IMAGE_SPLITTER_PCT,
@@ -28,6 +29,7 @@ class SplitterId(StrEnum):
     FILE_LIST = 'file_list'
     PRIMARY_IMAGE = 'primary_image'
     ANALYSIS_REFERENCE = 'analysis_reference'
+    ANALYSIS_SUM_INTENSITY = 'analysis_sum_intensity'
     RIGHT_POOL = 'right_pool'
 
 
@@ -70,6 +72,11 @@ HOME_SPLITTER_PRESETS: dict[SplitterId, SplitterPreset] = {
         SplitterId.ANALYSIS_REFERENCE,
         DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT,
         (0.0, 90.0),
+    ),
+    SplitterId.ANALYSIS_SUM_INTENSITY: SplitterPreset(
+        SplitterId.ANALYSIS_SUM_INTENSITY,
+        DEFAULT_HOME_ANALYSIS_SUM_INTENSITY_SPLITTER_PCT,
+        (15.0, 85.0),
     ),
     SplitterId.RIGHT_POOL: SplitterPreset(
         SplitterId.RIGHT_POOL,

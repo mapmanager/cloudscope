@@ -8,6 +8,7 @@ import pytest
 
 from cloudscope.app_config import (
     DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT,
+    DEFAULT_HOME_ANALYSIS_SUM_INTENSITY_SPLITTER_PCT,
     DEFAULT_HOME_FILE_LIST_SPLITTER_PCT,
     DEFAULT_HOME_LEFT_TOOLBAR_OPEN_SPLITTER_PCT,
     DEFAULT_HOME_PRIMARY_IMAGE_SPLITTER_PCT,
@@ -26,6 +27,7 @@ def test_app_config_defaults_include_home_splitters(tmp_path: Path) -> None:
     assert cfg.get_home_splitter_value('file_list') == DEFAULT_HOME_FILE_LIST_SPLITTER_PCT
     assert cfg.get_home_splitter_value('primary_image') == DEFAULT_HOME_PRIMARY_IMAGE_SPLITTER_PCT
     assert cfg.get_home_splitter_value('analysis_reference') == DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT
+    assert cfg.get_home_splitter_value('analysis_sum_intensity') == DEFAULT_HOME_ANALYSIS_SUM_INTENSITY_SPLITTER_PCT
     assert cfg.get_home_splitter_value('right_pool') == DEFAULT_HOME_RIGHT_POOL_OPEN_SPLITTER_PCT
 
 
@@ -84,11 +86,13 @@ def test_app_config_reset_home_splitters(tmp_path: Path) -> None:
     cfg = AppConfig(path=tmp_path / 'app_config.json')
     cfg.set_home_splitter_value('file_list', 33.0)
     cfg.set_home_splitter_value('analysis_reference', 66.0)
+    cfg.set_home_splitter_value('analysis_sum_intensity', 40.0)
 
     cfg.reset_home_splitters()
 
     assert cfg.get_home_splitter_value('file_list') == DEFAULT_HOME_FILE_LIST_SPLITTER_PCT
     assert cfg.get_home_splitter_value('analysis_reference') == DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT
+    assert cfg.get_home_splitter_value('analysis_sum_intensity') == DEFAULT_HOME_ANALYSIS_SUM_INTENSITY_SPLITTER_PCT
 
 
 def test_app_config_unknown_home_splitter_key_raises(tmp_path: Path) -> None:
@@ -107,3 +111,4 @@ def test_app_config_data_from_json_accepts_missing_splitter_fields() -> None:
     data = AppConfigData.from_json_dict({'schema_version': 1})
 
     assert data.home_file_list_splitter_pct == DEFAULT_HOME_FILE_LIST_SPLITTER_PCT
+    assert data.home_analysis_sum_intensity_splitter_pct == DEFAULT_HOME_ANALYSIS_SUM_INTENSITY_SPLITTER_PCT

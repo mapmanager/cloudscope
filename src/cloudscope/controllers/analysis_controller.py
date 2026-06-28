@@ -192,7 +192,7 @@ class AnalysisController:
             AnalysisKind.SUM_INTENSITY,
         ):
             raise NotImplementedError(f"Unsupported analysis kind: {event.analysis_kind}")
-        if event.analysis_kind is not AnalysisKind.EVENT:
+        if event.analysis_kind in (AnalysisKind.RADON_VELOCITY, AnalysisKind.DIAMETER):
             self._raise_if_exclusive_conflict(event)
 
     def _validate_batch_intent(self, event: RunBatchAnalysisIntent) -> None:

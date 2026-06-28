@@ -115,7 +115,6 @@ def main() -> None:
         )
 
     plot = PlotlyPlotWidget(
-        title="Synthetic sum-intensity style trace",
         x_label="Time (s)",
         y_label="Normalized intensity",
         on_x_range_changed=on_x_range_changed,

@@ -309,6 +309,58 @@ def test_analysis_controller_rejects_exclusive_conflict() -> None:
     assert "primary_kymograph" in statuses[0].message or "already" in statuses[0].message.lower()
 
 
+def test_analysis_controller_allows_sum_intensity_when_diameter_exists() -> None:
+    """Sum intensity should run even when a primary-kymograph analysis exists."""
+    import numpy as np
+
+    from acqstore.acq_image.acq_analysis_set import AcqAnalysisSet
+
+    class _Provider:
+        def get_roi_image(self, channel: int, roi_id: int) -> np.ndarray:
+            _ = channel, roi_id
+            image = np.zeros((48, 64), dtype=np.float32)
+            image[:, 20:40] = 180.0
+            return image
+
+        def get_image_physical_units(self) -> tuple[float, float]:
+            return (0.001, 0.25)
+
+    class _Image:
+        def __init__(self) -> None:
+            self.analysis_set = AcqAnalysisSet("fake.tif", data_provider=_Provider())
+
+    class _List:
+        def __init__(self, acq_image: _Image) -> None:
+            self._image = acq_image
+
+        def get_file_by_id(self, file_id: str) -> _Image:
+            _ = file_id
+            return self._image
+
+    acq_image = _Image()
+    acq_image.analysis_set.create("diameter", channel=0, roi_id=1)
+
+    bus = EventBus()
+    statuses: list[AppStatusChanged] = []
+    bus.subscribe(AppStatusChanged, statuses.append)
+    task_runner = FakeTaskRunner()
+    home_controller = FakeHomeController()
+    home_controller.state.acq_image_list = _List(acq_image)
+    controller = AnalysisController(bus, home_controller, task_runner)  # type: ignore[arg-type]
+    controller.bind()
+
+    bus.publish(
+        RunAnalysisIntent(
+            analysis_kind=AnalysisKind.SUM_INTENSITY,
+            selection=PrimarySelection(file_id="file", channel=0, roi_id=1),
+            detection_params={},
+        )
+    )
+
+    assert task_runner.started
+    assert not statuses
+
+
 def test_analysis_controller_cancel_intent_reaches_task_runner() -> None:
     """Controller should route analysis cancellation to TaskRunner."""
     bus = EventBus()

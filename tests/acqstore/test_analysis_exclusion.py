@@ -64,6 +64,13 @@ def test_diameter_blocks_radon_for_same_roi() -> None:
         analysis_set.create("radon_velocity", channel=0, roi_id=1)
 
 
+def test_sum_intensity_coexists_with_diameter_for_same_roi() -> None:
+    """Sum intensity is not in primary_kymograph and should coexist with diameter."""
+    analysis_set = AcqAnalysisSet("fake.tif", data_provider=FakeProvider())
+    analysis_set.create("diameter", channel=0, roi_id=1)
+    analysis_set.create("sum_intensity", channel=0, roi_id=1)
+
+
 def test_primary_group_does_not_block_other_channel_or_roi() -> None:
     """Different (channel, roi_id) should not conflict."""
     analysis_set = AcqAnalysisSet("fake.tif", data_provider=FakeProvider())

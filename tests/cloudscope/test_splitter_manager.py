@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from cloudscope.app_config import (
+    DEFAULT_HOME_ANALYSIS_SUM_INTENSITY_SPLITTER_PCT,
     DEFAULT_HOME_LEFT_TOOLBAR_OPEN_SPLITTER_PCT,
     DEFAULT_HOME_RIGHT_POOL_OPEN_SPLITTER_PCT,
     HOME_LEFT_TOOLBAR_CLOSED_SPLITTER_PCT,
@@ -195,3 +196,14 @@ def test_splitter_manager_capture_ignores_collapsed_content_values(tmp_path: Pat
     manager.capture_current_value(SplitterId.FILE_LIST)
 
     assert cfg.get_home_splitter_value('file_list') == original
+
+
+def test_splitter_manager_analysis_sum_intensity_default(tmp_path: Path) -> None:
+    """Analysis/sum-intensity splitter should use the configured default."""
+    cfg = AppConfig(path=tmp_path / 'app_config.json')
+    manager = SplitterManager(cfg)
+
+    value = manager.value_for(SplitterId.ANALYSIS_SUM_INTENSITY)
+
+    assert value == DEFAULT_HOME_ANALYSIS_SUM_INTENSITY_SPLITTER_PCT
+    assert cfg.get_home_splitter_value('analysis_sum_intensity') == DEFAULT_HOME_ANALYSIS_SUM_INTENSITY_SPLITTER_PCT

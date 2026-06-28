@@ -153,6 +153,8 @@ class HomePage:
             app_state=app_state,
             title='Sum intensity plot',
             initially_visible=False,
+            dark_mode=dark_mode,
+            dark_mode_provider=_dark_mode,
         )
         reference_image = ReferenceImageView(
             self.event_bus,
@@ -466,6 +468,7 @@ class HomePage:
             splitter_manager.restore_open_value(SplitterId.FILE_LIST)
             splitter_manager.restore_open_value(SplitterId.PRIMARY_IMAGE)
             splitter_manager.restore_open_value(SplitterId.ANALYSIS_REFERENCE)
+            splitter_manager.restore_open_value(SplitterId.ANALYSIS_SUM_INTENSITY)
             ui.notify('View layout reset', type='positive')
 
         self.event_bus.subscribe(ResetHomeLayoutIntent, _reset_home_layout)
@@ -570,14 +573,40 @@ class HomePage:
                                         )
 
                                         with analysis_reference_splitter.before:
-                                            with ui.column().classes(_fill_column_classes()):
-                                                acq_analysis_plot.show()
-                                                acq_analysis_plot.build()
-                                                view_manager.register(acq_analysis_plot)
+                                            analysis_sum_intensity_preset = HOME_SPLITTER_PRESETS[
+                                                SplitterId.ANALYSIS_SUM_INTENSITY
+                                            ]
+                                            with ui.splitter(
+                                                value=splitter_manager.value_for(SplitterId.ANALYSIS_SUM_INTENSITY),
+                                                limits=analysis_sum_intensity_preset.limits,
+                                                horizontal=True,
+                                            ).classes('w-full h-full min-h-0') as analysis_sum_intensity_splitter:
+                                                splitter_manager.register(
+                                                    SplitterId.ANALYSIS_SUM_INTENSITY,
+                                                    analysis_sum_intensity_splitter,
+                                                )
 
-                                                sum_intensity_plot.show()
-                                                sum_intensity_plot.build()
-                                                view_manager.register(sum_intensity_plot)
+                                                with analysis_sum_intensity_splitter.before:
+                                                    with ui.column().classes(_fill_column_classes()):
+                                                        acq_analysis_plot.show()
+                                                        acq_analysis_plot.build()
+                                                        view_manager.register(acq_analysis_plot)
+
+                                                with analysis_sum_intensity_splitter.after:
+                                                    with ui.column().classes(_fill_column_classes()):
+                                                        sum_intensity_plot.show()
+                                                        sum_intensity_plot.build()
+                                                        view_manager.register(sum_intensity_plot)
+
+                                                add_splitter_handle(
+                                                    analysis_sum_intensity_splitter,
+                                                    orientation='horizontal',
+                                                )
+                                                analysis_sum_intensity_splitter.on(
+                                                    'update:model-value',
+                                                    lambda _event=None: _capture(SplitterId.ANALYSIS_SUM_INTENSITY),
+                                                    throttle=0.2,
+                                                )
 
                                         with analysis_reference_splitter.after:
                                             with ui.column().classes(_fill_column_classes()):

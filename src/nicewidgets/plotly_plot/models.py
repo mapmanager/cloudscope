@@ -8,6 +8,25 @@ from typing import Literal
 
 PlotlyLineOrientation = Literal["horizontal", "vertical"]
 PlotlyMeasurementKind = Literal["line", "pair"]
+PlotlySeriesKind = Literal["trace", "scatter"]
+
+
+@dataclass(frozen=True, slots=True)
+class PlotlySeriesMenuItem:
+    """One trace or scatter overlay entry in the Plotly plot context menu.
+
+    Args:
+        series_name: Stable series name matching ``PlotlyTraceData.name`` or
+            ``PlotlyScatterData.name``.
+        label: Human-readable menu label.
+        default_visible: Initial visibility when the series is first registered.
+        kind: Whether the series is a continuous trace or scatter overlay.
+    """
+
+    series_name: str
+    label: str
+    default_visible: bool = True
+    kind: PlotlySeriesKind = "trace"
 
 
 def _as_float_tuple(values: Sequence[float], *, name: str) -> tuple[float, ...]:

@@ -10,6 +10,7 @@ from nicewidgets.plotly_plot.models import (
     MeasurementChangeEvent,
     PlotlyAxisRange,
     PlotlyScatterData,
+    PlotlySeriesMenuItem,
     PlotlyTraceData,
 )
 from nicewidgets.plotly_plot.widget import PlotlyPlotWidget, build_plotly_figure_dict
@@ -105,24 +106,35 @@ def test_axis_range_validates_bounds() -> None:
 def test_build_plotly_figure_dict_includes_config_and_shapes() -> None:
     """Figure dict should include NiceGUI-compatible Plotly config."""
     figure = build_plotly_figure_dict(
-        title="demo",
         x_label="time",
         y_label="df/f0",
         x_range=PlotlyAxisRange(0.0, 1.0),
         shapes=[{"type": "line"}],
     )
 
-    assert figure["layout"]["title"]["text"] == "demo"
+    assert "title" not in figure["layout"]
     assert figure["layout"]["xaxis"]["range"] == [0.0, 1.0]
     assert figure["layout"]["xaxis"]["autorange"] is False
     assert figure["layout"]["shapes"] == [{"type": "line"}]
+    assert figure["layout"]["legend"]["orientation"] == "h"
+    assert figure["layout"]["margin"]["b"] == 72
+    assert figure["layout"]["paper_bgcolor"] == "white"
     assert figure["config"]["editable"] is True
     assert figure["config"]["scrollZoom"] is True
+    assert figure["config"]["edits"]["titleText"] is False
+
+
+def test_build_plotly_figure_dict_applies_dark_theme() -> None:
+    """Dark theme should set Plotly layout colors."""
+    figure = build_plotly_figure_dict(theme="dark")
+
+    assert figure["layout"]["paper_bgcolor"] == "#111827"
+    assert figure["layout"]["font"]["color"] == "#f9fafb"
 
 
 def test_widget_add_update_remove_trace(fake_plotly: list[_FakePlotlyElement]) -> None:
     """Named continuous trace API should keep the figure dict synchronized."""
-    widget = PlotlyPlotWidget(title="Trace test")
+    widget = PlotlyPlotWidget()
 
     widget.add_trace(name="df/f0", x=[0.0, 1.0], y=[2.0, 3.0])
     assert widget.figure["data"][0]["name"] == "df/f0"
@@ -139,7 +151,7 @@ def test_widget_add_update_remove_trace(fake_plotly: list[_FakePlotlyElement]) -
 
 def test_widget_add_update_remove_scatter(fake_plotly: list[_FakePlotlyElement]) -> None:
     """Named scatter overlay API should keep the figure dict synchronized."""
-    widget = PlotlyPlotWidget(title="Scatter test")
+    widget = PlotlyPlotWidget()
 
     widget.plot_scatter(name="peaks", x=[0.5], y=[1.5])
     assert widget.figure["data"][0]["name"] == "peaks"
@@ -217,3 +229,90 @@ def test_measurement_pair_drag_updates_delta(fake_plotly: list[_FakePlotlyElemen
     assert events[-1].position1 == 1.0
     assert events[-1].position2 == 6.0
     assert events[-1].delta == 5.0
+
+
+def test_widget_set_series_replaces_data_in_one_update(fake_plotly: list[_FakePlotlyElement]) -> None:
+    """Batch series replacement should use one browser update."""
+    widget = PlotlyPlotWidget()
+    widget.add_trace(name="old", x=[0.0], y=[1.0])
+
+    traces = [
+        PlotlyTraceData.from_sequences(name="df/f0", x=[0.0, 1.0], y=[2.0, 3.0]),
+        PlotlyTraceData.from_sequences(name="derivative", x=[0.0, 1.0], y=[0.1, 0.2]),
+    ]
+    scatters = [
+        PlotlyScatterData.from_sequences(name="peaks", x=[0.5], y=[1.5]),
+    ]
+    calls_before = len(fake_plotly[0].client.calls)
+    widget.set_series(traces=traces, scatters=scatters)
+
+    assert [trace["name"] for trace in widget.figure["data"]] == ["df/f0", "derivative", "peaks"]
+    assert len(fake_plotly[0].client.calls) - calls_before == 1
+    assert "Plotly.deleteTraces" in fake_plotly[0].client.calls[-1]
+    assert "Plotly.addTraces" in fake_plotly[0].client.calls[-1]
+
+
+def test_widget_set_series_preserves_measurement_shapes(fake_plotly: list[_FakePlotlyElement]) -> None:
+    """Replacing series data should not remove measurement layout shapes."""
+    widget = PlotlyPlotWidget()
+    widget.add_measurement_line(name="f0", orientation="horizontal", value=1.0)
+    widget.set_series(
+        traces=[PlotlyTraceData.from_sequences(name="signal", x=[0.0, 1.0], y=[1.0, 2.0])],
+    )
+
+    assert len(widget.figure["layout"]["shapes"]) == 1
+    assert widget.figure["data"][0]["name"] == "signal"
+
+
+def test_widget_set_dark_mode_updates_layout_and_relayouts(fake_plotly: list[_FakePlotlyElement]) -> None:
+    """Dark-mode toggles should update layout colors and relayout once."""
+    widget = PlotlyPlotWidget(theme="light")
+
+    widget.set_dark_mode(True)
+
+    assert widget.figure["layout"]["paper_bgcolor"] == "#111827"
+    assert "Plotly.relayout" in fake_plotly[0].client.calls[-1]
+    assert '"paper_bgcolor": "#111827"' in fake_plotly[0].client.calls[-1]
+
+
+def test_register_series_menu_items_preserves_visibility_across_refresh(
+    fake_plotly: list[_FakePlotlyElement],
+) -> None:
+    """Registered series visibility should persist until page reload."""
+    widget = PlotlyPlotWidget()
+    widget.register_series_menu_items(
+        [
+            PlotlySeriesMenuItem("Derivative of df/f0", "Derivative of df/f0", default_visible=False),
+            PlotlySeriesMenuItem("Peak width 50", "Peak width 50", default_visible=True),
+        ]
+    )
+    traces = [
+        PlotlyTraceData.from_sequences(name="df/f0 signal", x=[0.0, 1.0], y=[1.0, 2.0]),
+        PlotlyTraceData.from_sequences(name="Derivative of df/f0", x=[0.0, 1.0], y=[0.1, 0.2]),
+        PlotlyTraceData.from_sequences(name="Peak width 50", x=[0.5, 1.0], y=[0.3, 0.3]),
+    ]
+    widget.set_series(traces=traces)
+    assert widget.figure["data"][1]["visible"] is False
+    assert widget.figure["data"][2]["visible"] is True
+
+    widget.toggle_series_visible("Derivative of df/f0")
+    widget.set_series(traces=traces)
+    assert widget.is_series_visible("Derivative of df/f0") is True
+    assert widget.figure["data"][1]["visible"] is True
+
+
+def test_toggle_series_visible_updates_existing_scatter(fake_plotly: list[_FakePlotlyElement]) -> None:
+    """Scatter menu toggles should restyle an existing overlay trace."""
+    widget = PlotlyPlotWidget()
+    widget.register_series_menu_items(
+        [PlotlySeriesMenuItem("Onsets", "Onsets", default_visible=True, kind="scatter")]
+    )
+    widget.set_series(
+        scatters=[PlotlyScatterData.from_sequences(name="Onsets", x=[0.5], y=[1.0])],
+    )
+
+    widget.toggle_series_visible("Onsets")
+
+    assert widget.is_series_visible("Onsets") is False
+    assert widget.figure["data"][0]["visible"] is False
+    assert "Plotly.restyle" in fake_plotly[0].client.calls[-1]

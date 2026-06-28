@@ -9,6 +9,9 @@ from typing import Any, Literal
 
 from nicegui import core, ui
 
+from nicewidgets.plotly_plot.context_menu import PlotlyPlotContextMenu
+from nicewidgets.plotly_plot.context_menu_guards import pywebview_plotly_plot_context_menu_guard_js
+from nicewidgets.plotly_plot.display_options import PlotlyPlotDisplayOptions
 from nicewidgets.plotly_plot.models import (
     MeasurementChangeEvent,
     MeasurementLine,
@@ -16,7 +19,20 @@ from nicewidgets.plotly_plot.models import (
     PlotlyAxisRange,
     PlotlyLineOrientation,
     PlotlyScatterData,
+    PlotlySeriesMenuItem,
     PlotlyTraceData,
+)
+from nicewidgets.raster_viewer.frontend.plotly_clipboard import (
+    copy_plotly_png_to_browser_clipboard,
+    get_plotly_png_bytes,
+)
+from nicewidgets.utils.clipboard import copy_png_bytes_to_native_clipboard
+from nicewidgets.utils.desktop import is_pywebview_desktop
+from nicewidgets.plotly_theme import (
+    PlotlyThemeName,
+    apply_plotly_theme_to_layout,
+    normalize_plotly_theme,
+    theme_for_name,
 )
 from nicewidgets.utils.logging import get_logger
 
@@ -89,46 +105,98 @@ def _validate_unique_name(name: str, existing: object | None, *, label: str) -> 
     return clean
 
 
+_PLOTLY_PLOT_LEGEND: dict[str, Any] = {
+    "orientation": "h",
+    "xanchor": "center",
+    "x": 0.5,
+    "yanchor": "top",
+    "y": -0.15,
+}
+
+_PLOTLY_PLOT_MARGIN_WITH_AXIS_LABELS: dict[str, int] = {
+    "l": 60,
+    "r": 24,
+    "t": 10,
+    "b": 72,
+}
+
+_PLOTLY_PLOT_MARGIN_COMPACT: dict[str, int] = {
+    "l": 8,
+    "r": 8,
+    "t": 8,
+    "b": 72,
+}
+
+
 def build_plotly_figure_dict(
     *,
     data: list[dict[str, Any]] | None = None,
-    title: str | None = None,
     x_label: str = "x",
     y_label: str = "y",
     x_range: PlotlyAxisRange | None = None,
     shapes: list[dict[str, Any]] | None = None,
+    theme: PlotlyThemeName = "light",
+    show_axis_labels: bool = False,
+    show_plotly_toolbar: bool = False,
 ) -> dict[str, Any]:
     """Build a NiceGUI-compatible Plotly figure dictionary.
 
     Args:
         data: Plotly trace dictionaries.
-        title: Optional plot title.
         x_label: X-axis label.
         y_label: Y-axis label.
         x_range: Optional explicit x-axis range.
         shapes: Optional Plotly layout shapes.
+        theme: Plotly light/dark layout theme name.
+        show_axis_labels: Whether axis decorations are visible.
+        show_plotly_toolbar: Whether Plotly's modebar is visible.
 
     Returns:
         Dictionary with Plotly ``data``, ``layout``, and ``config`` keys.
     """
     range_model = x_range or PlotlyAxisRange()
-    xaxis: dict[str, Any] = {"title": {"text": x_label}}
+    axis_label_visible = bool(show_axis_labels)
+    xaxis: dict[str, Any] = {
+        "title": {"text": x_label if axis_label_visible else ""},
+        "showticklabels": axis_label_visible,
+        "ticks": "outside" if axis_label_visible else "",
+        "showline": axis_label_visible,
+        "zeroline": False,
+        "showgrid": axis_label_visible,
+    }
     if range_model.x_min is not None and range_model.x_max is not None:
         xaxis["range"] = [range_model.x_min, range_model.x_max]
         xaxis["autorange"] = False
     else:
         xaxis["autorange"] = True
 
+    yaxis: dict[str, Any] = {
+        "title": {"text": y_label if axis_label_visible else ""},
+        "autorange": True,
+        "showticklabels": axis_label_visible,
+        "ticks": "outside" if axis_label_visible else "",
+        "showline": axis_label_visible,
+        "zeroline": False,
+        "showgrid": axis_label_visible,
+    }
+
+    margin = (
+        dict(_PLOTLY_PLOT_MARGIN_WITH_AXIS_LABELS)
+        if axis_label_visible
+        else dict(_PLOTLY_PLOT_MARGIN_COMPACT)
+    )
+
     layout: dict[str, Any] = {
-        "title": {"text": title or ""},
         "xaxis": xaxis,
-        "yaxis": {"title": {"text": y_label}, "autorange": True},
+        "yaxis": yaxis,
         "shapes": list(shapes or []),
         "dragmode": "zoom",
-        "margin": {"l": 60, "r": 24, "t": 48, "b": 52},
+        "margin": margin,
         "showlegend": True,
+        "legend": dict(_PLOTLY_PLOT_LEGEND),
         "uirevision": "nicewidgets-plotly-plot",
     }
+    apply_plotly_theme_to_layout(layout, normalize_plotly_theme(theme))
     return {
         "data": list(data or []),
         "layout": layout,
@@ -137,6 +205,14 @@ def build_plotly_figure_dict(
             "scrollZoom": True,
             "displaylogo": False,
             "responsive": True,
+            "displayModeBar": bool(show_plotly_toolbar),
+            "edits": {
+                "shapePosition": True,
+                "titleText": False,
+                "axisTitleText": False,
+                "legendText": False,
+                "legendPosition": False,
+            },
         },
     }
 
@@ -153,35 +229,40 @@ class PlotlyPlotWidget:
     def __init__(
         self,
         *,
-        title: str | None = None,
         x_label: str = "x",
         y_label: str = "y",
+        theme: PlotlyThemeName = "light",
         on_x_range_changed: OnPlotlyXRangeChanged | None = None,
         on_measurement_changed: OnMeasurementChanged | None = None,
     ) -> None:
         """Create an empty Plotly widget.
 
         Args:
-            title: Optional plot title.
             x_label: X-axis label.
             y_label: Y-axis label.
+            theme: Initial Plotly light/dark layout theme.
             on_x_range_changed: Optional callback invoked after the user changes
                 the x-axis range by zooming, panning, or autoranging. ``(None,
                 None)`` means Plotly returned to autorange.
             on_measurement_changed: Optional callback invoked after the user
                 drags a measurement line.
         """
-        self._title = title
         self._x_label = str(x_label)
         self._y_label = str(y_label)
+        self._theme = normalize_plotly_theme(theme)
+        self._display_options = PlotlyPlotDisplayOptions(theme=self._theme)
         self._on_x_range_changed = on_x_range_changed
         self._on_measurement_changed = on_measurement_changed
         self._x_range = PlotlyAxisRange()
+        self._series_menu_items: list[PlotlySeriesMenuItem] = []
+        self._series_visibility: dict[str, bool] = {}
         self._figure = build_plotly_figure_dict(
-            title=title,
             x_label=self._x_label,
             y_label=self._y_label,
             x_range=self._x_range,
+            theme=self._theme,
+            show_axis_labels=self._display_options.show_axis_labels,
+            show_plotly_toolbar=self._display_options.show_plotly_toolbar,
         )
         self._series_order: list[_SeriesRef] = []
         self._traces: dict[str, PlotlyTraceData] = {}
@@ -191,9 +272,197 @@ class PlotlyPlotWidget:
         self._measurement_callbacks: dict[str, OnMeasurementChanged] = {}
         self._last_applied_x_range: tuple[float | None, float | None] | None = None
         self._ignore_relayout = False
+        self._ctx_menu: ui.context_menu | None = None
+        self._context_menu_builder: PlotlyPlotContextMenu | None = None
 
         self.container = ui.plotly(self._figure)
         self.container.on("plotly_relayout", self._on_plotly_relayout)
+        self._ctx_menu = ui.context_menu()
+        self._context_menu_builder = PlotlyPlotContextMenu(get_widget=lambda: self)
+        self.container.on("contextmenu", self._on_context_menu_event)
+        if is_pywebview_desktop():
+            ui.timer(0.05, self._install_pywebview_context_menu_guards, once=True)
+
+    @property
+    def display_options(self) -> PlotlyPlotDisplayOptions:
+        """Return mutable display options used by context-menu actions."""
+        return self._display_options
+
+    @property
+    def series_menu_items(self) -> tuple[PlotlySeriesMenuItem, ...]:
+        """Return registered trace/scatter context-menu items."""
+        return tuple(self._series_menu_items)
+
+    def register_series_menu_items(self, items: Sequence[PlotlySeriesMenuItem]) -> None:
+        """Register trace/scatter items shown in the right-click context menu.
+
+        Existing visibility choices are preserved for series names that were
+        registered previously in this widget instance.
+
+        Args:
+            items: Menu item definitions keyed by stable series names.
+
+        Returns:
+            None.
+        """
+        self._series_menu_items = list(items)
+        for item in items:
+            if item.series_name not in self._series_visibility:
+                self._series_visibility[item.series_name] = bool(item.default_visible)
+
+    def is_series_visible(self, series_name: str) -> bool:
+        """Return whether one registered or loaded series is visible.
+
+        Args:
+            series_name: Stable trace or scatter overlay name.
+
+        Returns:
+            True when the series should render in the plot.
+        """
+        clean = str(series_name).strip()
+        if clean in self._series_visibility:
+            return bool(self._series_visibility[clean])
+        return True
+
+    def set_series_visible(self, series_name: str, visible: bool) -> None:
+        """Set visibility for one loaded trace or scatter overlay.
+
+        Args:
+            series_name: Existing trace or scatter overlay name.
+            visible: Whether the series should be visible.
+
+        Raises:
+            KeyError: If the series does not exist in the current figure.
+        """
+        clean = str(series_name).strip()
+        self._series_visibility[clean] = bool(visible)
+        if clean in self._traces:
+            current = self._traces[clean]
+            data = PlotlyTraceData.from_sequences(
+                name=clean,
+                x=current.x,
+                y=current.y,
+                visible=bool(visible),
+            )
+            self._traces[clean] = data
+            index = self._series_index(clean, "trace")
+            trace = self._trace_to_plotly(data)
+            self._figure["data"][index] = trace
+            self._restyle_plotly_trace(index, trace)
+            return
+        if clean in self._scatters:
+            current = self._scatters[clean]
+            data = PlotlyScatterData.from_sequences(
+                name=clean,
+                x=current.x,
+                y=current.y,
+                visible=bool(visible),
+            )
+            self._scatters[clean] = data
+            index = self._series_index(clean, "scatter")
+            trace = self._scatter_to_plotly(data)
+            self._figure["data"][index] = trace
+            self._restyle_plotly_trace(index, trace)
+            return
+        raise KeyError(f"series {clean!r} does not exist")
+
+    def toggle_series_visible(self, series_name: str) -> bool:
+        """Toggle visibility for one registered trace or scatter overlay.
+
+        Args:
+            series_name: Stable trace or scatter overlay name.
+
+        Returns:
+            Visibility after the toggle.
+
+        Raises:
+            KeyError: If ``series_name`` is not a registered menu item.
+        """
+        clean = str(series_name).strip()
+        if not any(item.series_name == clean for item in self._series_menu_items):
+            raise KeyError(f"series {clean!r} is not registered in the context menu")
+        new_visible = not self.is_series_visible(clean)
+        if clean in self._traces or clean in self._scatters:
+            self.set_series_visible(clean, new_visible)
+        else:
+            self._series_visibility[clean] = new_visible
+        return new_visible
+
+    def set_axis_labels_visible(self, visible: bool) -> None:
+        """Show or hide axis title text, ticks, lines, and grid lines.
+
+        Args:
+            visible: Whether axis decorations should be visible.
+
+        Returns:
+            None.
+        """
+        self._display_options.show_axis_labels = bool(visible)
+        self._sync_axis_labels_to_plotly_dict()
+        self._sync_margins_to_plotly_dict()
+        self._relayout_axis_labels_and_margins()
+
+    def set_plotly_toolbar_visible(self, visible: bool) -> None:
+        """Set Plotly modebar visibility.
+
+        Args:
+            visible: Whether Plotly's modebar should be visible.
+
+        Returns:
+            None.
+        """
+        self._display_options.show_plotly_toolbar = bool(visible)
+        self._sync_plotly_config_to_plotly_dict()
+        self._react_plotly_config()
+
+    def set_hover_info_visible(self, visible: bool) -> None:
+        """Set Plotly hover-info visibility for all plot traces.
+
+        Args:
+            visible: Whether hover info should be visible.
+
+        Returns:
+            None.
+        """
+        self._display_options.show_hover_info = bool(visible)
+        self._sync_hover_info_to_plotly_dict()
+        self._restyle_hover_info()
+
+    async def copy_plot_to_clipboard(self) -> None:
+        """Copy the current Plotly plot image to the active clipboard.
+
+        Native desktop mode uses ``pyperclipimg``. Browser mode uses the
+        Clipboard API with a Plotly PNG export.
+
+        Returns:
+            None.
+        """
+        try:
+            if is_pywebview_desktop():
+                png_bytes = await get_plotly_png_bytes(self.container)
+                copy_png_bytes_to_native_clipboard(png_bytes)
+            else:
+                await copy_plotly_png_to_browser_clipboard(self.container)
+            ui.notify("Plot copied to clipboard.", type="positive")
+        except Exception as exc:
+            logger.exception("Failed to copy Plotly plot to clipboard.")
+            ui.notify(f"Copy failed: {exc}", type="negative")
+
+    def _on_context_menu_event(self, _event: Any) -> None:
+        """Rebuild and open the Plotly plot context menu."""
+        if self._ctx_menu is None or self._context_menu_builder is None:
+            return
+        with self._ctx_menu.clear():
+            self._context_menu_builder.build()
+        self._ctx_menu.open()
+
+    def _install_pywebview_context_menu_guards(self) -> None:
+        """Install desktop-only capture listeners so secondary taps open the menu."""
+        js = pywebview_plotly_plot_context_menu_guard_js(plot_id=self.container.id)
+        try:
+            self.container.client.run_javascript(js, timeout=2.0)
+        except RuntimeError:
+            logger.debug("Could not install pywebview context-menu guards; client unavailable.")
 
     @property
     def figure(self) -> dict[str, Any]:
@@ -374,6 +643,80 @@ class PlotlyPlotWidget:
         for name in list(self._scatters):
             self.remove_scatter(name)
 
+    def set_series(
+        self,
+        *,
+        traces: Sequence[PlotlyTraceData] = (),
+        scatters: Sequence[PlotlyScatterData] = (),
+    ) -> None:
+        """Replace all continuous traces and scatter overlays in one browser update.
+
+        Measurement lines and layout shapes are preserved. Existing incremental
+        ``add_trace`` / ``plot_scatter`` callers remain available; prefer this
+        method when rebuilding the full plot contents at once.
+
+        Args:
+            traces: Replacement continuous traces.
+            scatters: Replacement scatter overlays.
+
+        Returns:
+            None.
+        """
+        self._traces = {}
+        self._scatters = {}
+        self._series_order = []
+        plotly_data: list[dict[str, Any]] = []
+        for data in traces:
+            visible = self.is_series_visible(data.name)
+            stored = PlotlyTraceData(
+                name=data.name,
+                x=data.x,
+                y=data.y,
+                visible=visible,
+            )
+            self._traces[stored.name] = stored
+            self._series_order.append(_SeriesRef(name=stored.name, kind="trace"))
+            plotly_data.append(self._trace_to_plotly(stored))
+        for data in scatters:
+            visible = self.is_series_visible(data.name)
+            stored = PlotlyScatterData(
+                name=data.name,
+                x=data.x,
+                y=data.y,
+                visible=visible,
+            )
+            self._scatters[stored.name] = stored
+            self._series_order.append(_SeriesRef(name=stored.name, kind="scatter"))
+            plotly_data.append(self._scatter_to_plotly(stored))
+        self._figure["data"] = plotly_data
+        self._sync_hover_info_to_plotly_dict()
+        self._push_series_data()
+
+    def set_theme(self, theme: PlotlyThemeName) -> None:
+        """Set the Plotly light/dark layout theme.
+
+        Args:
+            theme: Theme name, either ``'light'`` or ``'dark'``.
+
+        Returns:
+            None.
+        """
+        self._theme = normalize_plotly_theme(theme)
+        self._display_options.theme = self._theme
+        self._sync_theme_to_plotly_dict()
+        self._relayout_theme()
+
+    def set_dark_mode(self, enabled: bool) -> None:
+        """Set the Plotly layout theme from a dark-mode flag.
+
+        Args:
+            enabled: Whether dark mode is enabled.
+
+        Returns:
+            None.
+        """
+        self.set_theme("dark" if enabled else "light")
+
     def set_x_axis_limits(self, x_min: float | None, x_max: float | None) -> None:
         """Set x-axis limits programmatically.
 
@@ -547,24 +890,28 @@ class PlotlyPlotWidget:
 
     def _trace_to_plotly(self, data: PlotlyTraceData) -> dict[str, Any]:
         """Return a Plotly ``scattergl`` line trace dictionary."""
+        hoverinfo = "all" if self._display_options.show_hover_info else "skip"
         return {
             "type": "scattergl",
             "mode": "lines",
             "name": data.name,
             "x": list(data.x),
             "y": list(data.y),
-            "visible": True if data.visible else "legendonly",
+            "visible": True if data.visible else False,
+            "hoverinfo": hoverinfo,
         }
 
     def _scatter_to_plotly(self, data: PlotlyScatterData) -> dict[str, Any]:
         """Return a Plotly ``scattergl`` marker trace dictionary."""
+        hoverinfo = "all" if self._display_options.show_hover_info else "skip"
         return {
             "type": "scattergl",
             "mode": "markers",
             "name": data.name,
             "x": list(data.x),
             "y": list(data.y),
-            "visible": True if data.visible else "legendonly",
+            "visible": True if data.visible else False,
+            "hoverinfo": hoverinfo,
             "marker": {"size": 8},
         }
 
@@ -804,6 +1151,144 @@ Plotly.relayout(plotDiv, {json.dumps(payload)});
     def _push_shapes(self) -> None:
         """Push the current layout shapes to the browser."""
         self._relayout({"shapes": self._shapes()})
+
+    def _sync_theme_to_plotly_dict(self) -> None:
+        """Synchronize the selected light/dark theme into the local figure dict."""
+        layout = self._figure.setdefault("layout", {})
+        if not isinstance(layout, dict):
+            layout = {}
+            self._figure["layout"] = layout
+        apply_plotly_theme_to_layout(layout, self._theme)
+
+    def _sync_axis_labels_to_plotly_dict(self) -> None:
+        """Synchronize axis decoration visibility into the local figure dict."""
+        layout = self._figure.setdefault("layout", {})
+        visible = bool(self._display_options.show_axis_labels)
+        for axis_name, label_text in (("xaxis", self._x_label), ("yaxis", self._y_label)):
+            axis = layout.setdefault(axis_name, {})
+            if not isinstance(axis, dict):
+                axis = {}
+                layout[axis_name] = axis
+            title = axis.setdefault("title", {})
+            if not isinstance(title, dict):
+                title = {}
+                axis["title"] = title
+            title["text"] = label_text if visible else ""
+            axis["showticklabels"] = visible
+            axis["ticks"] = "outside" if visible else ""
+            axis["showline"] = visible
+            axis["zeroline"] = False
+            axis["showgrid"] = visible
+
+    def _sync_margins_to_plotly_dict(self) -> None:
+        """Synchronize layout margins with axis-label visibility."""
+        layout = self._figure.setdefault("layout", {})
+        margin = (
+            dict(_PLOTLY_PLOT_MARGIN_WITH_AXIS_LABELS)
+            if self._display_options.show_axis_labels
+            else dict(_PLOTLY_PLOT_MARGIN_COMPACT)
+        )
+        layout["margin"] = margin
+
+    def _sync_plotly_config_to_plotly_dict(self) -> None:
+        """Synchronize Plotly config options into the local figure dict."""
+        config = self._figure.setdefault("config", {})
+        if not isinstance(config, dict):
+            config = {}
+            self._figure["config"] = config
+        config["displayModeBar"] = bool(self._display_options.show_plotly_toolbar)
+        config["editable"] = True
+        config["edits"] = {
+            "shapePosition": True,
+            "titleText": False,
+            "axisTitleText": False,
+            "legendText": False,
+            "legendPosition": False,
+        }
+
+    def _sync_hover_info_to_plotly_dict(self) -> None:
+        """Synchronize hover-info visibility into all trace dictionaries."""
+        hoverinfo = "all" if self._display_options.show_hover_info else "skip"
+        for trace in self._figure.get("data", []):
+            if isinstance(trace, dict):
+                trace["hoverinfo"] = hoverinfo
+
+    def _restyle_hover_info(self) -> None:
+        """Push hover-info changes to the browser via ``Plotly.restyle``."""
+        if not self._figure.get("data"):
+            return
+        hoverinfo = "all" if self._display_options.show_hover_info else "skip"
+        indices = list(range(len(self._figure["data"])))
+        js = f"""
+{self._js_plotly_graph_div()}
+Plotly.restyle(plotDiv, {{hoverinfo: {json.dumps(hoverinfo)}}}, {json.dumps(indices)});
+"""
+        self._run_plotly_javascript(js)
+
+    def _react_plotly_config(self) -> None:
+        """Push Plotly config changes to the browser."""
+        config = self._figure.get("config", {})
+        js = f"""
+{self._js_plotly_graph_div()}
+Plotly.react(plotDiv, plotDiv.data, plotDiv.layout, {json.dumps(config)});
+"""
+        self._run_plotly_javascript(js)
+
+    def _relayout_axis_labels_and_margins(self) -> None:
+        """Push axis-label and margin layout changes to the browser."""
+        layout = self._figure.get("layout", {})
+        relayout: dict[str, Any] = {"margin": layout.get("margin", {})}
+        for axis_name in ("xaxis", "yaxis"):
+            axis = layout.get(axis_name, {})
+            if not isinstance(axis, dict):
+                continue
+            title = axis.get("title", {})
+            if isinstance(title, dict):
+                relayout[f"{axis_name}.title.text"] = title.get("text", "")
+            relayout[f"{axis_name}.showticklabels"] = axis.get("showticklabels", False)
+            relayout[f"{axis_name}.ticks"] = axis.get("ticks", "")
+            relayout[f"{axis_name}.showline"] = axis.get("showline", False)
+            relayout[f"{axis_name}.zeroline"] = axis.get("zeroline", False)
+            relayout[f"{axis_name}.showgrid"] = axis.get("showgrid", False)
+        self._relayout(relayout)
+
+    def _relayout_theme(self) -> None:
+        """Push light/dark theme layout properties to the browser."""
+        layout = self._figure.setdefault("layout", {})
+        if not isinstance(layout, dict):
+            return
+        theme = theme_for_name(self._theme)
+        relayout: dict[str, Any] = {
+            "paper_bgcolor": theme.paper_bgcolor,
+            "plot_bgcolor": theme.plot_bgcolor,
+            "font.color": theme.font_color,
+        }
+        for axis_name in ("xaxis", "yaxis"):
+            axis = layout.get(axis_name, {})
+            if not isinstance(axis, dict):
+                continue
+            relayout[f"{axis_name}.color"] = axis.get("color", theme.axis_color)
+            relayout[f"{axis_name}.linecolor"] = axis.get("linecolor", theme.axis_color)
+            relayout[f"{axis_name}.tickcolor"] = axis.get("tickcolor", theme.axis_color)
+            relayout[f"{axis_name}.gridcolor"] = axis.get("gridcolor", theme.grid_color)
+            relayout[f"{axis_name}.zerolinecolor"] = axis.get("zerolinecolor", theme.zero_line_color)
+        self._relayout(relayout)
+
+    def _push_series_data(self) -> None:
+        """Push the full trace/scatter data array to the browser in one update."""
+        data_json = json.dumps(self._figure["data"])
+        js = f"""
+{self._js_plotly_graph_div()}
+const newData = {data_json};
+const oldCount = plotDiv.data ? plotDiv.data.length : 0;
+if (oldCount > 0) {{
+  Plotly.deleteTraces(plotDiv, [...Array(oldCount).keys()]);
+}}
+if (newData.length > 0) {{
+  Plotly.addTraces(plotDiv, newData);
+}}
+"""
+        self._run_plotly_javascript(js)
 
     def _run_plotly_javascript(self, js: str) -> None:
         """Run Plotly JavaScript while suppressing programmatic relayout echo.
