@@ -10,6 +10,7 @@ from acqstore.acq_image.analysis.model import (
     AnalysisResult,
     AnalysisRunContext,
     BaseAnalysis,
+    DetectionParamCategory,
     DetectionParamSchema,
     DetectionValueType,
 )
@@ -80,6 +81,7 @@ class SumIntensityAnalysis(BaseAnalysis):
             default=0,
             unit="points",
             description="Radius around each time row used for rolling row-sum averaging.",
+            category=DetectionParamCategory.PREPROCESSING,
         ),
         DetectionParamSchema(
             name="filter_method",
@@ -88,6 +90,7 @@ class SumIntensityAnalysis(BaseAnalysis):
             default="median",
             choices=("none", "median"),
             description="Optional pre-detection trace filter applied to normalized intensity.",
+            category=DetectionParamCategory.PREPROCESSING,
         ),
         DetectionParamSchema(
             name="median_filter_kernel_points",
@@ -97,6 +100,7 @@ class SumIntensityAnalysis(BaseAnalysis):
             unit="points",
             description="Median filter kernel size in time points. Even values are rounded up.",
             methods=("median",),
+            category=DetectionParamCategory.PREPROCESSING,
         ),
         DetectionParamSchema(
             name="detrend_method",
@@ -105,6 +109,7 @@ class SumIntensityAnalysis(BaseAnalysis):
             default="single_exponential",
             choices=("none", "single_exponential"),
             description="Optional bleach-trend removal before detection.",
+            category=DetectionParamCategory.PREPROCESSING,
         ),
         DetectionParamSchema(
             name="baseline_method",
@@ -113,6 +118,7 @@ class SumIntensityAnalysis(BaseAnalysis):
             default="percentile",
             choices=("percentile", "manual"),
             description="Method used to estimate scalar F0 for delta-F over F0.",
+            category=DetectionParamCategory.PREPROCESSING,
         ),
         DetectionParamSchema(
             name="baseline_percentile",
@@ -122,6 +128,7 @@ class SumIntensityAnalysis(BaseAnalysis):
             unit="percentile",
             description="Percentile of the filtered and detrended trace used as F0.",
             methods=("percentile",),
+            category=DetectionParamCategory.PREPROCESSING,
         ),
         DetectionParamSchema(
             name="manual_f0_baseline",
@@ -133,6 +140,7 @@ class SumIntensityAnalysis(BaseAnalysis):
                 "Units are the same as the filtered/detrended normalized intensity trace."
             ),
             methods=("manual",),
+            category=DetectionParamCategory.PREPROCESSING,
         ),
         DetectionParamSchema(
             name="baseline_min_value",
@@ -140,6 +148,8 @@ class SumIntensityAnalysis(BaseAnalysis):
             value_type=DetectionValueType.FLOAT,
             default=1e-12,
             description="Small positive floor used to avoid division by zero in df/f0.",
+            visible=False,
+            category=DetectionParamCategory.PREPROCESSING,
         ),
         DetectionParamSchema(
             name="detection_method",
@@ -148,6 +158,7 @@ class SumIntensityAnalysis(BaseAnalysis):
             default="derivative_threshold",
             choices=("derivative_threshold", "absolute_threshold"),
             description="Peak onset detector.",
+            category=DetectionParamCategory.PEAK_DETECTION,
         ),
         DetectionParamSchema(
             name="polarity",
@@ -156,6 +167,7 @@ class SumIntensityAnalysis(BaseAnalysis):
             default="positive",
             choices=("positive", "negative"),
             description="Expected peak polarity in the detection signal.",
+            category=DetectionParamCategory.PEAK_DETECTION,
         ),
         DetectionParamSchema(
             name="detection_source",
@@ -173,6 +185,7 @@ class SumIntensityAnalysis(BaseAnalysis):
                 "Continuous trace used for onset detection. Derivative-threshold "
                 "detection uses the time derivative of this selected trace."
             ),
+            category=DetectionParamCategory.PEAK_DETECTION,
         ),
         DetectionParamSchema(
             name="absolute_threshold",
@@ -181,6 +194,7 @@ class SumIntensityAnalysis(BaseAnalysis):
             default=0.0,
             description="Detection-signal threshold used by absolute_threshold detection.",
             methods=("absolute_threshold",),
+            category=DetectionParamCategory.PEAK_DETECTION,
         ),
         DetectionParamSchema(
             name="derivative_threshold_per_sec",
@@ -190,6 +204,7 @@ class SumIntensityAnalysis(BaseAnalysis):
             unit="1/s",
             description="Derivative threshold in selected detection-source units per second.",
             methods=("derivative_threshold",),
+            category=DetectionParamCategory.PEAK_DETECTION,
         ),
         DetectionParamSchema(
             name="refractory_period_ms",
@@ -198,6 +213,7 @@ class SumIntensityAnalysis(BaseAnalysis):
             default=10.0,
             unit="ms",
             description="Minimum accepted onset-to-onset interval.",
+            category=DetectionParamCategory.PEAK_DETECTION,
         ),
         DetectionParamSchema(
             name="peak_search_window_ms",
@@ -206,6 +222,7 @@ class SumIntensityAnalysis(BaseAnalysis):
             default=50.0,
             unit="ms",
             description="Forward search window used to refine peak index after onset.",
+            category=DetectionParamCategory.PEAK_DETECTION,
         ),
         DetectionParamSchema(
             name="width_search_window_ms",
@@ -218,6 +235,7 @@ class SumIntensityAnalysis(BaseAnalysis):
                 "fractional width crossings. Missing crossings within this window "
                 "are stored as level-crossing failures."
             ),
+            category=DetectionParamCategory.PEAK_DETECTION,
         ),
         DetectionParamSchema(
             name="level_fractions",
@@ -225,6 +243,8 @@ class SumIntensityAnalysis(BaseAnalysis):
             value_type=DetectionValueType.STR,
             default="0.1,0.2,0.5,0.8,0.9",
             description="Comma-separated peak-amplitude fractions for width measurements.",
+            visible=False,
+            category=DetectionParamCategory.PEAK_DETECTION,
         ),
     )
 

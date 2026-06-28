@@ -438,3 +438,30 @@ A longer developer-oriented design document lives at
 `docs-dev/acqstore/analysis/sum_intensity_architecture.md`. It documents the
 backend API, F0 baseline model, plotting primitives, GUI design intent, failure
 model, and event-feature roadmap.
+
+## Detection schema presentation metadata
+
+Sum-intensity detection parameters include backend-owned presentation metadata so
+frontends can build organized editors without hardcoding parameter names.
+
+Each `DetectionParamSchema` entry has:
+
+- `category`: scientific grouping for the parameter.
+- `visible`: whether the parameter should be shown by default.
+
+Current categories are:
+
+- `DetectionParamCategory.PREPROCESSING` / `"Preprocessing"`
+- `DetectionParamCategory.PEAK_DETECTION` / `"Peak Detection"`
+
+The schema order remains the canonical linear order. GUI code can keep that order
+and insert headings whenever `category` changes. Hidden parameters remain part of
+the schema and detection params; they are hidden only from basic editors.
+
+The currently hidden advanced fields are:
+
+- `baseline_min_value`
+- `level_fractions`
+
+These fields are still validated by AcqStore and remain available for scripts,
+advanced editors, and future expert-mode GUI controls.

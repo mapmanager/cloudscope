@@ -56,6 +56,19 @@ class DetectionValueType(StrEnum):
     ENUM = "enum"
 
 
+class DetectionParamCategory(StrEnum):
+    """Scientific category for grouping detection parameters in frontends.
+
+    Categories describe where a parameter belongs in the analysis pipeline.
+    GUI code may use this metadata to add headings while preserving schema
+    order. The category is intentionally scientific metadata, not layout
+    metadata.
+    """
+
+    PREPROCESSING = "Preprocessing"
+    PEAK_DETECTION = "Peak Detection"
+
+
 @dataclass(frozen=True, slots=True)
 class DetectionParamSchema:
     """Schema entry describing one detection parameter.
@@ -68,6 +81,7 @@ class DetectionParamSchema:
         description: Optional help text for UI rendering.
         visible: Whether parameter should be shown in UI.
         editable: Whether parameter should be editable in UI.
+        category: Optional scientific grouping for frontend organization.
         choices: Allowed choices for enum-like parameters.
         unit: Optional unit string (for example, ``"px"``).
         methods: Optional tuple of detection-method names that use this
@@ -85,6 +99,7 @@ class DetectionParamSchema:
     choices: tuple[object, ...] | None = None
     unit: str | None = None
     methods: tuple[str, ...] | None = None
+    category: DetectionParamCategory | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -365,8 +380,8 @@ class BaseAnalysis(ABC):
         Returns:
             DataFrame indexed by parameter ``name`` with one row per detection
             parameter. Columns are ``display_name``, ``type``, ``default``,
-            ``choices``, ``unit``, ``editable``, ``visible``, ``methods``, and
-            ``description``. The DataFrame is empty (columns only) when the
+            ``choices``, ``unit``, ``editable``, ``visible``, ``methods``,
+            ``category``, and ``description``. The DataFrame is empty (columns only) when the
             analysis declares no detection parameters.
 
         Raises:
@@ -383,6 +398,7 @@ class BaseAnalysis(ABC):
             "editable",
             "visible",
             "methods",
+            "category",
             "description",
         ]
         rows = [
@@ -396,6 +412,7 @@ class BaseAnalysis(ABC):
                 "editable": entry.editable,
                 "visible": entry.visible,
                 "methods": entry.methods,
+                "category": entry.category.value if entry.category is not None else None,
                 "description": entry.description,
             }
             for entry in cls.get_detection_schema()

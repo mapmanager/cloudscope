@@ -121,12 +121,14 @@ def test_get_detection_schema_dataframe_velocity() -> None:
         "editable",
         "visible",
         "methods",
+        "category",
         "description",
     ):
         assert column in df.columns
     assert df.loc["window_width", "type"] == "int"
     assert df.loc["window_width", "default"] == 64
     assert df.loc["window_width", "choices"] == (16, 64, 128)
+    assert df.loc["window_width", "category"] is None
 
 
 def test_get_detection_schema_dataframe_empty_schema() -> None:
