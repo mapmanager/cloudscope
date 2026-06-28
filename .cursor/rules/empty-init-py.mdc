@@ -1,0 +1,77 @@
+---
+description: __init__.py must be empty by default; frozen allowlist for curated public APIs
+alwaysApply: true
+---
+
+# Empty `__init__.py` by default
+
+When you **create or update** an `__init__.py` file, the default is an **empty
+file** (zero content, or a single trailing newline only).
+
+## Forbidden in `__init__.py` (unless ticket + allowlist)
+
+Do **not** add:
+
+- module or package docstrings
+- `import` / `from … import …`
+- `__all__`
+- comments (including commented-out re-exports)
+- compatibility aliases
+- import side effects
+
+Put documentation on the primary implementation module (e.g. `foo.py`), not on
+`__init__.py`.
+
+## Import style
+
+Use explicit module paths:
+
+```python
+from acqstore.acq_image.acq_image import AcqImage
+from acqstore.acq_image.analysis.velocity_analysis.radon_velocity_analysis import (
+    RadonVelocityAnalysis,
+)
+```
+
+Do not add new barrel imports such as `from acqstore.acq_image import AcqImage`
+unless the ticket explicitly extends a **frozen allowlisted** `__init__.py`.
+
+## Frozen curated public API allowlist
+
+**Do not modify these files** unless the ticket explicitly names the file and
+the symbols to add or remove. Do not empty them to “follow the empty init rule”.
+
+| File | Purpose |
+|---|---|
+| `src/acqstore/acq_image/__init__.py` | `AcqImage`, `AcqImageList`, `AcqPixels` |
+| `src/acqstore/acq_image/analysis/__init__.py` | analysis class re-exports |
+| `src/acqstore/acq_image/analysis/batch/__init__.py` | batch analysis API |
+| `src/nicewidgets/nicepool/__init__.py` | NicePool widget API |
+| `src/nicewidgets/upload_widget/__init__.py` | `CancelToken`, `UploadWidget` |
+
+Contract tests: `tests/acqstore/test_public_imports.py`.
+
+## Wrong vs right
+
+```python
+# WRONG — do not write this in a new __init__.py
+"""Sum-intensity analysis package."""
+from .sum_intensity_analysis import SumIntensityAnalysis
+__all__ = ["SumIntensityAnalysis"]
+```
+
+```python
+# RIGHT — new package directory
+#
+# (empty file)
+```
+
+## New package directories
+
+When a ticket adds `src/.../my_package/`, create `my_package/__init__.py` as an
+empty file. Import from submodules with full paths in callers and tests.
+
+## Relationship to AGENTS.md
+
+Full policy: `AGENTS.md` → **`__init__.py` (STRICT)**. When they conflict,
+`AGENTS.md` wins.

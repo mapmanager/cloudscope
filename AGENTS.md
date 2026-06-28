@@ -38,9 +38,9 @@ CloudScope currently has three source packages in this repository:
 - No hidden defaults.
 - Prefer fail-fast behavior over silent coercion.
 - Backend APIs must use backend-native values and must not leak GUI assumptions.
-- Keep package APIs explicit; avoid hiding imports or behavior in `__init__.py`
-  except for intentionally curated public re-export surfaces documented with
-  `__all__`.
+- Keep package APIs explicit; do not add imports or behavior in `__init__.py`
+  except for the **frozen curated public API allowlist** (see **`__init__.py`
+  (STRICT)** under Coding Rules).
 
 ---
 
@@ -54,10 +54,46 @@ CloudScope currently has three source packages in this repository:
 - Avoid backward compatibility unless explicitly required by the ticket.
 - Fail fast on invalid input with clear exceptions.
 - Do not invent APIs, behaviors, file locations, or naming conventions that are not specified by the ticket or existing source of truth.
-- Keep `__init__.py` files minimal. Do not add re-export lists or import side
-  effects unless the ticket explicitly asks for them. Curated public re-export
-  surfaces are allowed when they are explicit, documented with `__all__`, and
-  limited to stable public APIs.
+
+### `__init__.py` (STRICT)
+
+**Default: empty.** New or updated `__init__.py` files MUST be empty (no
+docstring, imports, `__all__`, comments, compatibility aliases, or import side
+effects) unless the ticket **explicitly** adds or modifies a curated public API
+surface.
+
+When creating a new package directory, add an empty `__init__.py` only to mark
+the directory as a package. Put module and package documentation on the primary
+`.py` module, not on `__init__.py`.
+
+**Import style:** use explicit module paths everywhere else, for example
+`from acqstore.acq_image.acq_image import AcqImage`. Do not add barrel imports
+“for convenience” or “discoverability”.
+
+**Do not** “clean up”, empty, or rewrite allowlisted curated API files to match
+the default-empty rule unless the ticket **explicitly names the file** and the
+symbols to add or remove.
+
+**Frozen curated public API allowlist** (do not modify without an explicit
+ticket request that names the file and symbols):
+
+| File | Re-exported symbols |
+|---|---|
+| `src/acqstore/acq_image/__init__.py` | `AcqImage`, `AcqImageList`, `AcqPixels` |
+| `src/acqstore/acq_image/analysis/__init__.py` | `RadonVelocityAnalysis`, `DiameterAnalysis`, `HeartRateAnalysis`, `EventAnalysis` |
+| `src/acqstore/acq_image/analysis/batch/__init__.py` | batch types and strategies (see file `__all__`) |
+| `src/nicewidgets/nicepool/__init__.py` | NicePool public widget API (see file `__all__`) |
+| `src/nicewidgets/upload_widget/__init__.py` | `CancelToken`, `UploadWidget` |
+
+The acqstore curated import contract is tested in
+`tests/acqstore/test_public_imports.py`. Keep those tests passing when changing
+allowlisted files.
+
+Top-level package roots stay empty unless a future ticket explicitly promotes
+symbols (for example `src/acqstore/__init__.py` and `src/cloudscope/__init__.py`
+are empty today).
+
+See also `.cursor/rules/empty-init-py.mdc`.
 
 ---
 
