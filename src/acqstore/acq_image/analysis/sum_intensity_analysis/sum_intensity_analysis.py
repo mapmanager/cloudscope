@@ -58,6 +58,7 @@ class SumIntensityAnalysis(BaseAnalysis):
         "f0_baseline",
         "baseline_method",
         "baseline_percentile",
+        "manual_f0_baseline",
         "detection_source",
         "peak_search_window_ms",
         "width_search_window_ms",
@@ -103,7 +104,7 @@ class SumIntensityAnalysis(BaseAnalysis):
             display_name="F0 Baseline Method",
             value_type=DetectionValueType.ENUM,
             default="percentile",
-            choices=("percentile",),
+            choices=("percentile", "manual"),
             description="Method used to estimate scalar F0 for delta-F over F0.",
         ),
         DetectionParamSchema(
@@ -114,6 +115,17 @@ class SumIntensityAnalysis(BaseAnalysis):
             unit="percentile",
             description="Percentile of the filtered and detrended trace used as F0.",
             methods=("percentile",),
+        ),
+        DetectionParamSchema(
+            name="manual_f0_baseline",
+            display_name="Manual F0 Baseline",
+            value_type=DetectionValueType.FLOAT,
+            default=1.0,
+            description=(
+                "User-supplied scalar F0 used when baseline_method is manual. "
+                "Units are the same as the filtered/detrended normalized intensity trace."
+            ),
+            methods=("manual",),
         ),
         DetectionParamSchema(
             name="baseline_min_value",

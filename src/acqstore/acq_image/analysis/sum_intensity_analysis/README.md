@@ -26,8 +26,7 @@ physical spacing from `AnalysisDataProvider.get_image_physical_units()`.
 6. If detrending fails, record an analysis-level error and continue with the
    filtered normalized trace.
 7. Estimate a scalar `F0` baseline from the filtered/detrended trace. The first
-   pass uses a configurable percentile baseline, defaulting to the 20th
-   percentile.
+   pass supports percentile and manual F0 modes.
 8. Compute `df_f_signal = (signal - F0) / F0`. Detection uses this trace by
    default, but `detection_source` may select another continuous trace.
 9. Compute `d_df_f_signal = np.gradient(df_f_signal, time_sec)`, preserving one
@@ -46,20 +45,25 @@ physical spacing from `AnalysisDataProvider.get_image_physical_units()`.
 
 Delta-F over F0 is useful because raw mean-line intensity still depends on
 absolute fluorescence brightness, microscope settings, and image dtype. The
-critical choice is how to estimate `F0`. This first pass uses a scalar
-percentile baseline:
+critical choice is how to estimate `F0`. This first pass supports a scalar
+percentile baseline and a manual scalar baseline:
 
 ```python
 F0 = percentile(filtered_or_detrended_norm_sum_intensity, baseline_percentile)
+# or, when baseline_method == "manual":
+F0 = manual_f0_baseline
 df_f_signal = (filtered_or_detrended_norm_sum_intensity - F0) / F0
 ```
 
 The default `baseline_percentile` is 20.0. This is not intended to be the final
 scientific answer for all recordings; it is a simple starting point that is
-easy to plot, inspect, and tune. The result table stores `f0_baseline` and
-`df_f_signal`, and the summary stores the baseline method and percentile. If F0
-is zero or too close to zero, the algorithm records a warning and uses
-`baseline_min_value` to avoid division by zero.
+easy to plot, inspect, and tune. For difficult traces, callers may set
+`baseline_method="manual"` and provide `manual_f0_baseline`, for example from a
+user-dragged horizontal measurement line in a future CloudScope view. The result
+table stores `f0_baseline` and `df_f_signal`; the summary stores the baseline
+method, percentile, manual F0 value, and actual F0 used. If F0 is zero or too
+close to zero, the algorithm records a warning and uses `baseline_min_value` to
+avoid division by zero.
 
 ## Vectorized row-sum performance
 
@@ -155,6 +159,7 @@ does not store full traces; those live in the result table. It includes:
 - `f0_baseline`
 - `baseline_method`
 - `baseline_percentile`
+- `manual_f0_baseline`
 - `detection_source`
 - `peak_search_window_ms`
 - `width_search_window_ms`
@@ -166,7 +171,8 @@ does not store full traces; those live in the result table. It includes:
 
 `peak_events` is a list of one record per detected event. Each event contains
 onset measurements, refined peak measurements, interval measurements, width
-level crossings, event-local warnings, and event status.
+level crossings, event-local warnings, and event status. The name means
+"detected peak-like events", not merely peak coordinate arrays.
 
 ## References
 
@@ -209,3 +215,11 @@ amplitude.
 The synthetic utilities deliberately live in `src/acqstore` rather than only in
 `tests/` because they are useful as public development fixtures for validating
 new detection parameters, plotting primitives, and CloudScope views.
+
+
+## Architecture document
+
+A longer developer-oriented design document lives at
+`docs-dev/acqstore/analysis/sum_intensity_architecture.md`. It documents the
+backend API, F0 baseline model, plotting primitives, GUI design intent, failure
+model, and event-feature roadmap.

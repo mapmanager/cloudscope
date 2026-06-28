@@ -3,18 +3,21 @@
 This script intentionally runs the NumPy-only core algorithm, not the
 ``AcqImage`` wrapper. It is a development tool for validating the backend API
 that CloudScope views will later consume: traces, event points, width traces,
-and summary values.
+summary values, and F0 baseline information.
 
 The Plotly figure uses a two-pane layout:
 
 * left pane: the synthetic 2D ``(time, space)`` image analyzed by the core
   algorithm.
-* right pane: the sum-intensity traces and event overlays that a future
-  CloudScope plot view should reproduce with ``PlotlyPlotWidget``.
+* right pane: stacked analysis plots. The upper plot shows df/f0, derivative,
+  event markers, and width overlays. The lower plot shows the filtered and
+  detrended normalized intensity traces plus the scalar F0 baseline used to
+  calculate df/f0.
 """
 
 from __future__ import annotations
 
+import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
@@ -59,6 +62,7 @@ def main() -> None:
         "detrend_method": "single_exponential",
         "baseline_method": "percentile",
         "baseline_percentile": 20.0,
+        "manual_f0_baseline": 1.0,
         "baseline_min_value": 1e-12,
         "detection_method": "derivative_threshold",
         "polarity": "positive",
@@ -78,10 +82,13 @@ def main() -> None:
 
     df_f = result.get_trace(SumIntensityTraceKey.DF_F_SIGNAL)
     derivative = result.get_trace(SumIntensityTraceKey.D_DF_F_SIGNAL)
+    filtered = result.get_trace(SumIntensityTraceKey.FILTERED_NORM_SUM_INTENSITY)
+    detrended = result.get_trace(SumIntensityTraceKey.DETRENDED_NORM_SUM_INTENSITY)
     onsets = result.get_event_points(SumIntensityEventPointKey.ONSETS)
     peaks = result.get_event_points(SumIntensityEventPointKey.PEAKS)
     width_50 = result.get_width_trace(PeakWidthLevel.WIDTH_50)
     all_widths = result.get_width_trace()
+    f0 = float(result.get_summary_value(SumIntensitySummaryKey.F0_BASELINE))
 
     print("Synthetic events:")
     print(synthetic.ground_truth_events)
@@ -89,26 +96,30 @@ def main() -> None:
     for key in (
         SumIntensitySummaryKey.NUM_PEAKS,
         SumIntensitySummaryKey.F0_BASELINE,
+        SumIntensitySummaryKey.BASELINE_METHOD,
+        SumIntensitySummaryKey.BASELINE_PERCENTILE,
+        SumIntensitySummaryKey.MANUAL_F0_BASELINE,
         SumIntensitySummaryKey.DETECTION_SOURCE,
         SumIntensitySummaryKey.WARNINGS,
         SumIntensitySummaryKey.ERRORS,
     ):
         print(f"  {key.value}: {result.get_summary_value(key)}")
 
-    space_um = [
-        i * synthetic.um_per_pixel for i in range(synthetic.image.shape[1])
-    ]
+    space_um = np.arange(synthetic.image.shape[1], dtype=float) * synthetic.um_per_pixel
 
     fig = make_subplots(
-        rows=1,
+        rows=2,
         cols=2,
         column_widths=[0.42, 0.58],
-        specs=[[{"type": "heatmap"}, {"type": "xy"}]],
+        row_heights=[0.68, 0.32],
+        specs=[[{"type": "heatmap", "rowspan": 2}, {"type": "xy"}], [None, {"type": "xy"}]],
         subplot_titles=(
             "Synthetic image (time × space)",
-            "Sum-intensity traces and event overlays",
+            "df/f0, derivative, peaks, and width overlays",
+            "F0 baseline on normalized intensity trace",
         ),
         horizontal_spacing=0.08,
+        vertical_spacing=0.10,
     )
 
     fig.add_trace(
@@ -133,39 +144,18 @@ def main() -> None:
         row=1,
         col=2,
     )
-    fig.add_scatter(
-        x=df_f.x,
-        y=df_f.y,
-        mode="lines",
-        name=df_f.name,
-        row=1,
-        col=2,
-    )
+    fig.add_scatter(x=df_f.x, y=df_f.y, mode="lines", name=df_f.name, row=1, col=2)
     fig.add_scatter(
         x=derivative.x,
         y=derivative.y,
         mode="lines",
         name=derivative.name,
-        yaxis="y2",
+        yaxis="y3",
         row=1,
         col=2,
     )
-    fig.add_scatter(
-        x=onsets.x,
-        y=onsets.y,
-        mode="markers",
-        name=onsets.name,
-        row=1,
-        col=2,
-    )
-    fig.add_scatter(
-        x=peaks.x,
-        y=peaks.y,
-        mode="markers",
-        name=peaks.name,
-        row=1,
-        col=2,
-    )
+    fig.add_scatter(x=onsets.x, y=onsets.y, mode="markers", name=onsets.name, row=1, col=2)
+    fig.add_scatter(x=peaks.x, y=peaks.y, mode="markers", name=peaks.name, row=1, col=2)
     fig.add_scatter(
         x=width_50.x,
         y=width_50.y,
@@ -189,25 +179,47 @@ def main() -> None:
             col=2,
         )
 
-    fig.update_xaxes(title_text="Space (µm)", row=1, col=1)
-    fig.update_yaxes(
-        title_text="Time (s)",
-        autorange="reversed",
-        row=1,
-        col=1,
+    fig.add_scatter(
+        x=filtered.x,
+        y=filtered.y,
+        mode="lines",
+        name=filtered.name,
+        row=2,
+        col=2,
     )
+    fig.add_scatter(
+        x=detrended.x,
+        y=detrended.y,
+        mode="lines",
+        name=detrended.name,
+        row=2,
+        col=2,
+    )
+    fig.add_scatter(
+        x=[float(detrended.x[0]), float(detrended.x[-1])],
+        y=[f0, f0],
+        mode="lines",
+        name=f"F0 baseline = {f0:.3g}",
+        row=2,
+        col=2,
+    )
+
+    fig.update_xaxes(title_text="Space (µm)", row=1, col=1)
+    fig.update_yaxes(title_text="Time (s)", autorange="reversed", row=1, col=1)
     fig.update_xaxes(title_text="Time (s)", row=1, col=2)
     fig.update_yaxes(title_text="df/f0", row=1, col=2)
+    fig.update_xaxes(title_text="Time (s)", row=2, col=2)
+    fig.update_yaxes(title_text="Mean line intensity", row=2, col=2)
     fig.update_layout(
         title="Synthetic sum-intensity analysis",
-        yaxis2={
+        yaxis3={
             "title": "d(df/f0)/dt (1/s)",
             "overlaying": "y2",
             "side": "right",
             "showgrid": False,
         },
-        legend={"orientation": "h", "yanchor": "bottom", "y": -0.22},
-        margin={"l": 70, "r": 70, "t": 80, "b": 110},
+        legend={"orientation": "h", "yanchor": "bottom", "y": -0.23},
+        margin={"l": 70, "r": 80, "t": 85, "b": 120},
     )
     fig.show()
 

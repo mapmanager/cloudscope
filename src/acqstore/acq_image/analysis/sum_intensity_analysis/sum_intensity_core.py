@@ -25,7 +25,7 @@ Polarity = Literal["positive", "negative"]
 DetectionMethod = Literal["derivative_threshold", "absolute_threshold"]
 FilterMethod = Literal["none", "median"]
 DetrendMethod = Literal["none", "single_exponential"]
-BaselineMethod = Literal["percentile"]
+BaselineMethod = Literal["percentile", "manual"]
 
 
 class SumIntensityTraceKey(StrEnum):
@@ -105,6 +105,8 @@ class SumIntensitySummaryKey(StrEnum):
         BASELINE_METHOD: F0 calculation method.
         BASELINE_PERCENTILE: Percentile used when ``baseline_method`` is
             ``"percentile"``.
+        MANUAL_F0_BASELINE: User-supplied F0 value used when ``baseline_method``
+            is ``"manual"``.
         DETECTION_SOURCE: Trace key selected for onset detection.
         SECONDS_PER_LINE: Time spacing in seconds.
         WARNINGS: Analysis-level non-fatal warnings.
@@ -115,6 +117,7 @@ class SumIntensitySummaryKey(StrEnum):
     F0_BASELINE = "f0_baseline"
     BASELINE_METHOD = "baseline_method"
     BASELINE_PERCENTILE = "baseline_percentile"
+    MANUAL_F0_BASELINE = "manual_f0_baseline"
     DETECTION_SOURCE = "detection_source"
     SECONDS_PER_LINE = "seconds_per_line"
     WARNINGS = "warnings"
@@ -620,6 +623,7 @@ def run_sum_intensity(
         detrended_norm,
         baseline_method=str(params["baseline_method"]),
         baseline_percentile=float(params["baseline_percentile"]),
+        manual_f0_baseline=float(params["manual_f0_baseline"]),
         baseline_min_value=float(params["baseline_min_value"]),
         warnings=warnings,
         errors=errors,
@@ -714,13 +718,17 @@ def _validated_detection_params(params: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("median_filter_kernel_points must be >= 1")
     if normalized["detrend_method"] not in {"none", "single_exponential"}:
         raise ValueError("detrend_method must be 'none' or 'single_exponential'")
-    if normalized["baseline_method"] not in {"percentile"}:
-        raise ValueError("baseline_method must be 'percentile'")
+    if normalized["baseline_method"] not in {"percentile", "manual"}:
+        raise ValueError("baseline_method must be 'percentile' or 'manual'")
     baseline_percentile = float(normalized["baseline_percentile"])
     if baseline_percentile < 0.0 or baseline_percentile > 100.0:
         raise ValueError("baseline_percentile must be between 0 and 100")
     if float(normalized["baseline_min_value"]) <= 0.0:
         raise ValueError("baseline_min_value must be > 0")
+    manual_f0 = float(normalized.get("manual_f0_baseline", 1.0))
+    if normalized["baseline_method"] == "manual" and manual_f0 == 0.0:
+        raise ValueError("manual_f0_baseline must be non-zero when baseline_method is manual")
+    normalized["manual_f0_baseline"] = manual_f0
     if normalized["detection_method"] not in {"derivative_threshold", "absolute_threshold"}:
         raise ValueError("detection_method must be 'derivative_threshold' or 'absolute_threshold'")
     if normalized["polarity"] not in {"positive", "negative"}:
@@ -879,6 +887,7 @@ def _calculate_df_f_signal(
     *,
     baseline_method: str,
     baseline_percentile: float,
+    manual_f0_baseline: float,
     baseline_min_value: float,
     warnings: list[str],
     errors: list[str],
@@ -887,9 +896,12 @@ def _calculate_df_f_signal(
 
     Args:
         values: Input trace after filtering and optional detrending.
-        baseline_method: Baseline estimator name. The first pass supports
-            ``"percentile"`` only.
-        baseline_percentile: Percentile used to estimate scalar ``F0``.
+        baseline_method: Baseline estimator name. Supports ``"percentile"``
+            and ``"manual"``.
+        baseline_percentile: Percentile used to estimate scalar ``F0`` when
+            ``baseline_method`` is ``"percentile"``.
+        manual_f0_baseline: User-supplied scalar F0 when ``baseline_method`` is
+            ``"manual"``.
         baseline_min_value: Small positive floor used when the estimated
             baseline is zero or too close to zero.
         warnings: Mutable list receiving non-fatal warnings.
@@ -902,8 +914,8 @@ def _calculate_df_f_signal(
     trace = np.asarray(values, dtype=float)
     if trace.size == 0:
         raise ValueError("values must be non-empty")
-    if baseline_method != "percentile":
-        raise ValueError("baseline_method must be 'percentile'")
+    if baseline_method not in {"percentile", "manual"}:
+        raise ValueError("baseline_method must be 'percentile' or 'manual'")
 
     finite = trace[np.isfinite(trace)]
     if finite.size == 0:
@@ -912,7 +924,10 @@ def _calculate_df_f_signal(
         )
         return float(baseline_min_value), np.zeros_like(trace, dtype=float)
 
-    f0 = float(np.percentile(finite, baseline_percentile))
+    if baseline_method == "manual":
+        f0 = float(manual_f0_baseline)
+    else:
+        f0 = float(np.percentile(finite, baseline_percentile))
     if not np.isfinite(f0):
         errors.append(
             "df_f_baseline failed; percentile baseline was not finite, using baseline_min_value"
@@ -1418,6 +1433,7 @@ def _build_summary(
         "f0_baseline": float(f0_baseline),
         "baseline_method": str(params["baseline_method"]),
         "baseline_percentile": float(params["baseline_percentile"]),
+        "manual_f0_baseline": float(params["manual_f0_baseline"]),
         "peak_amplitude_mean": _nanmean_or_none(amplitudes),
         "peak_amplitude_median": _nanmedian_or_none(amplitudes),
         "warnings": list(warnings),
