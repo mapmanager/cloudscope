@@ -174,6 +174,179 @@ onset measurements, refined peak measurements, interval measurements, width
 level crossings, event-local warnings, and event status. The name means
 "detected peak-like events", not merely peak coordinate arrays.
 
+
+## CloudScope GUI integration examples
+
+These examples show the intended public API for future CloudScope views. The
+views should remain thin adapters: they edit detection parameters, trigger the
+backend analysis, and map backend result primitives to plotting widgets. They
+should not parse raw result JSON, inspect private fields, or reimplement
+scientific logic.
+
+### Detection parameter view
+
+A future `SumIntensityParametersView` should read the analysis detection schema,
+render editable controls, and dispatch analysis from a user action such as a
+**Detect** button. The analysis must run away from the NiceGUI event loop so the
+websocket and desktop UI remain responsive.
+
+Pseudo-code:
+
+```python
+class SumIntensityParametersView:
+    """Thin GUI adapter for editing sum-intensity detection parameters."""
+
+    def __init__(self, controller: CloudScopeController) -> None:
+        self._controller = controller
+        self._params = {}
+
+    def render(self, analysis: SumIntensityAnalysis) -> None:
+        schema = analysis.get_detection_param_schema()
+        self._params = analysis.get_detection_params()
+
+        for field in schema.fields:
+            # Render one GUI control per field using field.display_name,
+            # field.description, field.value_type, default/current value,
+            # and units when available.
+            self._render_param_control(field, self._params[field.name])
+
+        # Button callback should not run CPU-heavy analysis directly in the
+        # NiceGUI event loop.
+        ui.button("Detect", on_click=lambda: self._run_detection(analysis))
+
+    async def _run_detection(self, analysis: SumIntensityAnalysis) -> None:
+        params = self._collect_current_params()
+
+        # Use the project-standard CPU-bound helper/wrapper used elsewhere in
+        # CloudScope. Exact helper name belongs to CloudScope controller code;
+        # the key requirement is that analysis.run() does not block the event
+        # loop or websocket.
+        await run_cpu_bound(lambda: analysis.set_detection_params(params))
+        await run_cpu_bound(analysis.run)
+
+        self._controller.emit_sum_intensity_detection_finished(analysis)
+```
+
+The exact controller/event names are CloudScope-level details. The stable
+backend contract is:
+
+```python
+schema = analysis.get_detection_param_schema()
+params = analysis.get_detection_params()
+analysis.set_detection_params(params)
+analysis.run()
+```
+
+### Detection parameters and units
+
+The first-pass GUI should expose these detection parameters directly:
+
+| Parameter | Units | Meaning |
+| --- | --- | --- |
+| `detection_source` | enum | Continuous trace used by the detector. Default is `df_f_signal`. |
+| `detection_method` | enum | `derivative_threshold` or `absolute_threshold`. |
+| `derivative_threshold_per_sec` | `1/s` for `df_f_signal` | Threshold applied to derivative of the selected detection source. |
+| `absolute_threshold` | selected source units | Threshold applied directly to the selected detection source. |
+| `refractory_period_ms` | ms | Minimum onset-to-onset interval for accepted events. |
+| `peak_search_window_ms` | ms | Forward search window from onset to refined peak. |
+| `width_search_window_ms` | ms | Forward search window from peak to falling-side width crossing. |
+| `baseline_method` | enum | `percentile` or `manual`. |
+| `baseline_percentile` | percent | Percentile used when `baseline_method='percentile'`. |
+| `manual_f0_baseline` | normalized-intensity units | User-specified F0 value when `baseline_method='manual'`. |
+| `baseline_min_value` | normalized-intensity units | Floor used to avoid division by zero. |
+
+### Manual F0 workflow
+
+Manual F0 is a detection-parameter workflow, not a plot-only annotation.
+
+Recommended GUI flow:
+
+1. Plot `filtered_norm_sum_intensity` or `detrended_norm_sum_intensity`.
+2. Draw a draggable horizontal measurement line initialized to the current
+   summary F0 value from `SumIntensitySummaryKey.F0_BASELINE`.
+3. Let the user drag the line and click **Use as F0**.
+4. Set detection params:
+
+```python
+params = analysis.get_detection_params()
+params["baseline_method"] = "manual"
+params["manual_f0_baseline"] = measurement_line.position
+analysis.set_detection_params(params)
+analysis.run()
+```
+
+5. Refresh the plot from backend result primitives.
+
+The summary stores the actual F0 used:
+
+```python
+f0 = analysis.get_summary_value(SumIntensitySummaryKey.F0_BASELINE)
+method = analysis.get_summary_value(SumIntensitySummaryKey.BASELINE_METHOD)
+```
+
+### Plot view
+
+A future `SumIntensityPlotView` should consume backend primitives and map them
+to a child plotting widget such as `PlotlyPlotWidget`. The backend primitives are
+plotting-library independent.
+
+Pseudo-code:
+
+```python
+class SumIntensityPlotView:
+    """Thin GUI adapter that displays sum-intensity traces and events."""
+
+    def __init__(self) -> None:
+        self._plot = PlotlyPlotWidget()
+
+    def update_from_analysis(self, analysis: SumIntensityAnalysis) -> None:
+        self._plot.clear_traces()
+
+        df_f = analysis.get_trace(SumIntensityTraceKey.DF_F_SIGNAL)
+        deriv = analysis.get_trace(SumIntensityTraceKey.D_DF_F_SIGNAL)
+        onsets = analysis.get_event_points(SumIntensityEventPointKey.ONSETS)
+        peaks = analysis.get_event_points(SumIntensityEventPointKey.PEAKS)
+        widths = analysis.get_width_trace()
+
+        self._plot.add_trace(
+            name=df_f.display_name,
+            x=df_f.x,
+            y=df_f.y,
+        )
+        self._plot.add_trace(
+            name=deriv.display_name,
+            x=deriv.x,
+            y=deriv.y,
+        )
+        self._plot.plot_scatter(
+            name=onsets.display_name,
+            x=onsets.x,
+            y=onsets.y,
+        )
+        self._plot.plot_scatter(
+            name=peaks.display_name,
+            x=peaks.x,
+            y=peaks.y,
+        )
+        self._plot.add_trace(
+            name=widths.display_name,
+            x=widths.x,
+            y=widths.y,
+            connectgaps=False,
+        )
+```
+
+Recommended first plot contents:
+
+- `df_f_signal` line trace.
+- `d_df_f_signal` line trace, ideally on a secondary y-axis or separate panel.
+- onset markers from `get_event_points(SumIntensityEventPointKey.ONSETS)`.
+- peak markers from `get_event_points(SumIntensityEventPointKey.PEAKS)`.
+- width overlays from `get_width_trace()`, drawn on top of `df_f_signal` with
+  gaps not connected.
+
+Event markers should be drawn after line traces so they remain visible.
+
 ## References
 
 This implementation is designed to be compatible with CloudScope analysis
