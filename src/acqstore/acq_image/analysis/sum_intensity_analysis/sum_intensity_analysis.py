@@ -46,6 +46,9 @@ class SumIntensityAnalysis(BaseAnalysis):
         "num_peaks",
         "num_space_pixels",
         "seconds_per_line",
+        "f0_baseline",
+        "baseline_method",
+        "baseline_percentile",
         "peak_amplitude_mean",
         "peak_amplitude_median",
     )
@@ -84,6 +87,30 @@ class SumIntensityAnalysis(BaseAnalysis):
             description="Optional bleach-trend removal before detection.",
         ),
         DetectionParamSchema(
+            name="baseline_method",
+            display_name="F0 Baseline Method",
+            value_type=DetectionValueType.ENUM,
+            default="percentile",
+            choices=("percentile",),
+            description="Method used to estimate scalar F0 for delta-F over F0.",
+        ),
+        DetectionParamSchema(
+            name="baseline_percentile",
+            display_name="F0 Baseline Percentile",
+            value_type=DetectionValueType.FLOAT,
+            default=20.0,
+            unit="percentile",
+            description="Percentile of the filtered and detrended trace used as F0.",
+            methods=("percentile",),
+        ),
+        DetectionParamSchema(
+            name="baseline_min_value",
+            display_name="F0 Minimum Value",
+            value_type=DetectionValueType.FLOAT,
+            default=1e-12,
+            description="Small positive floor used to avoid division by zero in dF/F0.",
+        ),
+        DetectionParamSchema(
             name="detection_method",
             display_name="Detection Method",
             value_type=DetectionValueType.ENUM,
@@ -112,8 +139,8 @@ class SumIntensityAnalysis(BaseAnalysis):
             display_name="Derivative Threshold",
             value_type=DetectionValueType.FLOAT,
             default=1.0,
-            unit="signal/s",
-            description="Derivative threshold used by derivative_threshold detection.",
+            unit="dF/F0/s",
+            description="Delta-F over F0 derivative threshold used by derivative_threshold detection.",
             methods=("derivative_threshold",),
         ),
         DetectionParamSchema(
@@ -210,8 +237,9 @@ class SumIntensityAnalysis(BaseAnalysis):
 
         Returns:
             Plot data using ``time_sec`` for the x axis and
-            ``detection_signal`` for the y axis, or None when the analysis has
-            no table output yet.
+            ``detection_signal`` for the y axis. The detection signal is delta-F
+            over F0 in the current first-pass algorithm. Returns None when the
+            analysis has no table output yet.
 
         Raises:
             KeyError: If the table is present but missing required columns.
@@ -227,6 +255,6 @@ class SumIntensityAnalysis(BaseAnalysis):
             x=tuple(float(value) for value in table["time_sec"].tolist()),
             y=tuple(float(value) for value in table["detection_signal"].tolist()),
             x_label="Time (s)",
-            y_label="Normalized intensity",
-            series_name="Sum intensity",
+            y_label="dF/F0",
+            series_name="Sum intensity dF/F0",
         )

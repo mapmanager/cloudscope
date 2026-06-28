@@ -32,6 +32,9 @@ SUM_INTENSITY_PRESETS: dict[str, dict[str, object]] = {
         "filter_method": "median",
         "median_filter_kernel_points": 3,
         "detrend_method": "single_exponential",
+        "baseline_method": "percentile",
+        "baseline_percentile": 20.0,
+        "baseline_min_value": 1e-12,
         "detection_method": "derivative_threshold",
         "derivative_threshold": 1.0,
         "refractory_period_ms": 10.0,
@@ -42,8 +45,11 @@ SUM_INTENSITY_PRESETS: dict[str, dict[str, object]] = {
         "filter_method": "median",
         "median_filter_kernel_points": 3,
         "detrend_method": "single_exponential",
+        "baseline_method": "percentile",
+        "baseline_percentile": 20.0,
+        "baseline_min_value": 1e-12,
         "detection_method": "derivative_threshold",
-        "derivative_threshold": 2000,  # 0.25,
+        "derivative_threshold": 1.0,
         "refractory_period_ms": 500.0,
         "peak_search_window_ms": 250.0,
     },
@@ -98,14 +104,25 @@ def plot_sum_intensity_results(analysis: BaseAnalysis) -> None:
 
     fig = go.Figure()
 
-    # fig.add_trace(
-    #     go.Scatter(
-    #         x=table["time_sec"],
-    #         y=table["norm_sum_intensity"],
-    #         mode="lines",
-    #         name="norm_sum_intensity",
-    #     )
-    # )
+    fig.add_trace(
+        go.Scatter(
+            x=table["time_sec"],
+            y=table["norm_sum_intensity"],
+            mode="lines",
+            name="norm_sum_intensity",
+            visible="legendonly",
+        )
+    )
+    if "dff_signal" in table.columns:
+        fig.add_trace(
+            go.Scatter(
+                x=table["time_sec"],
+                y=table["dff_signal"],
+                mode="lines",
+                name="dff_signal",
+                visible="legendonly",
+            )
+        )
     fig.add_trace(
         go.Scatter(
             x=table["time_sec"],
@@ -117,9 +134,9 @@ def plot_sum_intensity_results(analysis: BaseAnalysis) -> None:
     fig.add_trace(
         go.Scatter(
             x=table["time_sec"],
-            y=table["d_norm_sum_intensity"],
+            y=table["d_detection_signal"],
             mode="lines",
-            name="d_norm_sum_intensity",
+            name="d_detection_signal",
             yaxis="y2",
         )
     )
@@ -142,11 +159,32 @@ def plot_sum_intensity_results(analysis: BaseAnalysis) -> None:
             name="peaks",
         )
     )
+    f0_baseline = analysis.result.summary.get("f0_baseline")
+    baseline_method = analysis.result.summary.get("baseline_method")
+    baseline_percentile = analysis.result.summary.get("baseline_percentile")
+    annotation = (
+        f"F0={float(f0_baseline):.6g} "
+        f"({baseline_method}, p={float(baseline_percentile):.1f})"
+        if f0_baseline is not None and baseline_percentile is not None
+        else "F0 unavailable"
+    )
     fig.update_layout(
         title="CloudScope sum intensity analysis",
         xaxis_title="Time (s)",
-        yaxis_title="Normalized intensity",
-        yaxis2={"title": "Derivative", "overlaying": "y", "side": "right"},
+        yaxis_title="dF/F0",
+        yaxis2={"title": "dF/F0/s", "overlaying": "y", "side": "right"},
+        annotations=[
+            {
+                "text": annotation,
+                "xref": "paper",
+                "yref": "paper",
+                "x": 0.01,
+                "y": 0.99,
+                "showarrow": False,
+                "align": "left",
+                "bgcolor": "rgba(255,255,255,0.7)",
+            }
+        ],
     )
 
     # fig.write_html(output_html)

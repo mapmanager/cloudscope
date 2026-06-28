@@ -24,6 +24,7 @@ Polarity = Literal["positive", "negative"]
 DetectionMethod = Literal["derivative_threshold", "absolute_threshold"]
 FilterMethod = Literal["none", "median"]
 DetrendMethod = Literal["none", "single_exponential"]
+BaselineMethod = Literal["percentile"]
 
 SUM_INTENSITY_TABLE_COLUMNS: tuple[str, ...] = (
     "time_index",
@@ -31,7 +32,11 @@ SUM_INTENSITY_TABLE_COLUMNS: tuple[str, ...] = (
     "sum_intensity",
     "norm_sum_intensity",
     "filtered_norm_sum_intensity",
+    "detrended_norm_sum_intensity",
+    "f0_baseline",
+    "dff_signal",
     "detection_signal",
+    "d_detection_signal",
     "d_norm_sum_intensity",
     "is_onset",
     "is_peak",
@@ -274,18 +279,27 @@ def run_sum_intensity(
         median_kernel_points=int(params["median_filter_kernel_points"]),
         warnings=warnings,
     )
-    detection_signal = _detrend_trace(
+    detrended_norm = _detrend_trace(
         filtered_norm,
         time_sec=time_sec,
         detrend_method=str(params["detrend_method"]),
         warnings=warnings,
         errors=errors,
     )
-    d_norm_sum_intensity = np.gradient(detection_signal, time_sec)
+    f0_baseline, dff_signal = _calculate_dff_signal(
+        detrended_norm,
+        baseline_method=str(params["baseline_method"]),
+        baseline_percentile=float(params["baseline_percentile"]),
+        baseline_min_value=float(params["baseline_min_value"]),
+        warnings=warnings,
+        errors=errors,
+    )
+    detection_signal = dff_signal
+    d_detection_signal = np.gradient(detection_signal, time_sec)
 
     onset_indices = _detect_onsets(
         detection_signal=detection_signal,
-        derivative_signal=d_norm_sum_intensity,
+        derivative_signal=d_detection_signal,
         method=str(params["detection_method"]),
         polarity=str(params["polarity"]),
         absolute_threshold=float(params["absolute_threshold"]),
@@ -316,8 +330,11 @@ def run_sum_intensity(
         sum_intensity=sum_intensity,
         norm_sum_intensity=norm_sum_intensity,
         filtered_norm_sum_intensity=filtered_norm,
+        detrended_norm_sum_intensity=detrended_norm,
+        f0_baseline=f0_baseline,
+        dff_signal=dff_signal,
         detection_signal=detection_signal,
-        d_norm_sum_intensity=d_norm_sum_intensity,
+        d_detection_signal=d_detection_signal,
         events=events,
     )
     summary = _build_summary(
@@ -328,6 +345,7 @@ def run_sum_intensity(
         params=params,
         seconds_per_line=seconds_per_line,
         n_space=n_space,
+        f0_baseline=f0_baseline,
     )
     return SumIntensityCoreResult(summary=summary, table=table, events=events)
 
@@ -354,6 +372,13 @@ def _validated_detection_params(params: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("median_filter_kernel_points must be >= 1")
     if normalized["detrend_method"] not in {"none", "single_exponential"}:
         raise ValueError("detrend_method must be 'none' or 'single_exponential'")
+    if normalized["baseline_method"] not in {"percentile"}:
+        raise ValueError("baseline_method must be 'percentile'")
+    baseline_percentile = float(normalized["baseline_percentile"])
+    if baseline_percentile < 0.0 or baseline_percentile > 100.0:
+        raise ValueError("baseline_percentile must be between 0 and 100")
+    if float(normalized["baseline_min_value"]) <= 0.0:
+        raise ValueError("baseline_min_value must be > 0")
     if normalized["detection_method"] not in {"derivative_threshold", "absolute_threshold"}:
         raise ValueError("detection_method must be 'derivative_threshold' or 'absolute_threshold'")
     if normalized["polarity"] not in {"positive", "negative"}:
@@ -488,6 +513,60 @@ def _detrend_trace(
         )
         errors.append(message)
         return trace.copy()
+
+
+
+def _calculate_dff_signal(
+    values: np.ndarray,
+    *,
+    baseline_method: str,
+    baseline_percentile: float,
+    baseline_min_value: float,
+    warnings: list[str],
+    errors: list[str],
+) -> tuple[float, np.ndarray]:
+    """Calculate a delta-F over F0 trace from a one-dimensional signal.
+
+    Args:
+        values: Input trace after filtering and optional detrending.
+        baseline_method: Baseline estimator name. The first pass supports
+            ``"percentile"`` only.
+        baseline_percentile: Percentile used to estimate scalar ``F0``.
+        baseline_min_value: Small positive floor used when the estimated
+            baseline is zero or too close to zero.
+        warnings: Mutable list receiving non-fatal warnings.
+        errors: Mutable list receiving algorithm-step failures.
+
+    Returns:
+        Tuple of ``(f0_baseline, dff_signal)`` where ``dff_signal`` has the
+        same shape as ``values``.
+    """
+    trace = np.asarray(values, dtype=float)
+    if trace.size == 0:
+        raise ValueError("values must be non-empty")
+    if baseline_method != "percentile":
+        raise ValueError("baseline_method must be 'percentile'")
+
+    finite = trace[np.isfinite(trace)]
+    if finite.size == 0:
+        errors.append(
+            "dff_baseline failed; trace has no finite values, using zeros for dff_signal"
+        )
+        return float(baseline_min_value), np.zeros_like(trace, dtype=float)
+
+    f0 = float(np.percentile(finite, baseline_percentile))
+    if not np.isfinite(f0):
+        errors.append(
+            "dff_baseline failed; percentile baseline was not finite, using baseline_min_value"
+        )
+        f0 = float(baseline_min_value)
+    elif abs(f0) < float(baseline_min_value):
+        warnings.append(
+            "dff_baseline was close to zero; using baseline_min_value to avoid division by zero"
+        )
+        f0 = float(baseline_min_value) if f0 >= 0 else -float(baseline_min_value)
+
+    return f0, (trace - f0) / f0
 
 
 def _detect_onsets(
@@ -879,8 +958,11 @@ def _build_table(
     sum_intensity: np.ndarray,
     norm_sum_intensity: np.ndarray,
     filtered_norm_sum_intensity: np.ndarray,
+    detrended_norm_sum_intensity: np.ndarray,
+    f0_baseline: float,
+    dff_signal: np.ndarray,
     detection_signal: np.ndarray,
-    d_norm_sum_intensity: np.ndarray,
+    d_detection_signal: np.ndarray,
     events: tuple[PeakEvent, ...],
 ) -> pd.DataFrame:
     """Build the per-timepoint result table.
@@ -891,8 +973,11 @@ def _build_table(
         sum_intensity: Raw or windowed row-sum intensity.
         norm_sum_intensity: Sum intensity divided by spatial pixel count.
         filtered_norm_sum_intensity: Filtered normalized trace.
+        detrended_norm_sum_intensity: Detrended normalized trace used for dF/F0.
+        f0_baseline: Scalar F0 baseline used for dF/F0.
+        dff_signal: Delta-F over F0 trace.
         detection_signal: Final trace used for detection.
-        d_norm_sum_intensity: Derivative of ``detection_signal``.
+        d_detection_signal: Derivative of ``detection_signal`` in signal units per second.
         events: Detected peak events.
 
     Returns:
@@ -905,8 +990,12 @@ def _build_table(
             "sum_intensity": sum_intensity.astype(float),
             "norm_sum_intensity": norm_sum_intensity.astype(float),
             "filtered_norm_sum_intensity": filtered_norm_sum_intensity.astype(float),
+            "detrended_norm_sum_intensity": detrended_norm_sum_intensity.astype(float),
+            "f0_baseline": np.full(time_index.size, float(f0_baseline)),
+            "dff_signal": dff_signal.astype(float),
             "detection_signal": detection_signal.astype(float),
-            "d_norm_sum_intensity": d_norm_sum_intensity.astype(float),
+            "d_detection_signal": d_detection_signal.astype(float),
+            "d_norm_sum_intensity": d_detection_signal.astype(float),
             "is_onset": np.zeros(time_index.size, dtype=bool),
             "is_peak": np.zeros(time_index.size, dtype=bool),
             "onset_index": np.full(time_index.size, np.nan),
@@ -934,6 +1023,7 @@ def _build_summary(
     params: dict[str, Any],
     seconds_per_line: float,
     n_space: int,
+    f0_baseline: float,
 ) -> dict[str, Any]:
     """Build the JSON summary for one analysis run.
 
@@ -945,6 +1035,7 @@ def _build_summary(
         params: Validated detection parameters.
         seconds_per_line: Time spacing in seconds.
         n_space: Number of spatial pixels in the ROI image.
+        f0_baseline: Scalar F0 baseline used to calculate dF/F0.
 
     Returns:
         JSON-serializable summary dictionary.
@@ -961,6 +1052,9 @@ def _build_summary(
         "num_peaks": int(len(events)),
         "num_space_pixels": int(n_space),
         "seconds_per_line": float(seconds_per_line),
+        "f0_baseline": float(f0_baseline),
+        "baseline_method": str(params["baseline_method"]),
+        "baseline_percentile": float(params["baseline_percentile"]),
         "peak_amplitude_mean": _nanmean_or_none(amplitudes),
         "peak_amplitude_median": _nanmedian_or_none(amplitudes),
         "warnings": list(warnings),

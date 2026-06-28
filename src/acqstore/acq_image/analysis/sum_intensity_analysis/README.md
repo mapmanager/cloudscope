@@ -25,13 +25,39 @@ physical spacing from `AnalysisDataProvider.get_image_physical_units()`.
    `a * exp(-b * t) + c`.
 6. If detrending fails, record an analysis-level error and continue with the
    filtered normalized trace.
-7. Compute derivative using `np.gradient(detection_signal, time_sec)`, preserving
-   one derivative value per original time point.
-8. Detect onsets using derivative threshold by default.
-9. Enforce onset-to-onset refractory period.
-10. Search forward from each accepted onset within `peak_search_window_ms` to
+7. Estimate a scalar `F0` baseline from the filtered/detrended trace. The first
+   pass uses a configurable percentile baseline, defaulting to the 20th
+   percentile. This is intentionally simple and inspectable.
+8. Compute `dff_signal = (signal - F0) / F0`. Detection uses this delta-F over
+   F0 trace by default.
+9. Compute derivative using `np.gradient(detection_signal, time_sec)`, preserving
+   one derivative value per original time point and expressing the derivative in
+   `dF/F0 per second`.
+10. Detect onsets using derivative threshold by default.
+11. Enforce onset-to-onset refractory period.
+12. Search forward from each accepted onset within `peak_search_window_ms` to
     refine the peak.
-11. Measure requested fractional widths such as 0.1, 0.2, 0.5, 0.8, and 0.9.
+13. Measure requested fractional widths such as 0.1, 0.2, 0.5, 0.8, and 0.9.
+
+
+## Delta-F over F0 baseline
+
+Delta-F over F0 is useful because raw mean-line intensity still depends on
+absolute fluorescence brightness, microscope settings, and image dtype. The
+critical choice is how to estimate `F0`. This first pass uses a scalar
+percentile baseline:
+
+```python
+F0 = percentile(filtered_or_detrended_norm_sum_intensity, baseline_percentile)
+dff_signal = (filtered_or_detrended_norm_sum_intensity - F0) / F0
+```
+
+The default `baseline_percentile` is 20.0. This is not intended to be the final
+scientific answer for all recordings; it is a simple starting point that is
+easy to plot, inspect, and tune. The result table stores `f0_baseline` and
+`dff_signal`, and the summary stores the baseline method and percentile. If F0
+is zero or too close to zero, the algorithm records a warning and uses
+`baseline_min_value` to avoid division by zero.
 
 ## Vectorized row-sum performance
 
@@ -75,8 +101,12 @@ The analysis table has one row per time point and includes:
 - `sum_intensity`
 - `norm_sum_intensity`
 - `filtered_norm_sum_intensity`
+- `detrended_norm_sum_intensity`
+- `f0_baseline`
+- `dff_signal`
 - `detection_signal`
-- `d_norm_sum_intensity`
+- `d_detection_signal`
+- `d_norm_sum_intensity` (temporary compatibility alias for `d_detection_signal`)
 - `is_onset`
 - `is_peak`
 - `onset_index`
