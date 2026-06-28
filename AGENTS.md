@@ -26,6 +26,8 @@ CloudScope currently has three source packages in this repository:
 - `nicewidgets` MUST NOT import from `cloudscope`.
 - Do NOT modify GUI code unless the ticket explicitly asks for GUI work.
 - Do NOT modify files outside the scope of the current ticket.
+- Do NOT modify repo root **`README.md`** as part of other work (see **`README.md`
+  (STRICT)** under Coding Rules).
 - If a required change appears to require cross-cutting refactors, STOP and report instead of guessing.
 
 ---
@@ -95,6 +97,31 @@ are empty today).
 
 See also `.cursor/rules/empty-init-py.mdc`.
 
+### `README.md` (STRICT)
+
+Repo root **`README.md`** is the public project overview on GitHub. It is **not**
+maintained in real time as `src/`, `tests/`, or other code changes land.
+
+**Do not** edit `README.md` when implementing feature, refactor, test, or docs
+tickets unless the ticket **explicitly** asks for a README update.
+
+Instead, during normal development:
+
+- Put API and module detail in **Google-style docstrings** on the code.
+- Put user-facing guides in **`docs/`** (MkDocs) when the ticket includes docs work.
+- Put developer notes, architecture, and ticket reports in **`docs-dev/`**.
+- Record follow-ups for a future README pass in the ticket report if needed.
+
+**When to update `README.md`:** only in a **dedicated README ticket** after the
+relevant API and `src/` changes are finalized — a deliberate rewrite pass, not
+drive-by edits at the end of unrelated tickets.
+
+This rule applies to repo root **`README.md`** only. It does not restrict
+`README-DEV.md`, package-local readmes under `src/`, or **`docs/`** when those
+files are in explicit ticket scope.
+
+See also `.cursor/rules/no-readme-driveby.mdc`.
+
 ---
 
 ## Ticket Discipline (VERY IMPORTANT)
@@ -104,6 +131,7 @@ See also `.cursor/rules/empty-init-py.mdc`.
 - Do not anticipate future tickets.
 - Do not add unrelated helpers, abstractions, or refactors.
 - Do not modify contracts unless explicitly instructed.
+- Do not update repo root **`README.md`** unless the ticket explicitly requests it.
 - If something is unclear or underspecified, STOP and report instead of guessing.
 - Do not consider a ticket complete unless its required report artifact exists.
 

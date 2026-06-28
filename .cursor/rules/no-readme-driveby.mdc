@@ -1,0 +1,47 @@
+---
+description: Do not update repo root README.md unless the ticket explicitly requests it
+alwaysApply: true
+---
+
+# Do not drive-by edit README.md
+
+Repo root **`README.md`** is updated in a **dedicated explicit pass**, not while
+you work on code in `src/`, `tests/`, `docs/`, or elsewhere.
+
+## Default rule
+
+**Do not** open, edit, or “sync” `README.md` unless the current ticket
+**explicitly** says to update the README.
+
+This includes:
+
+- “while I’m here” summary updates after API changes
+- adding new features or analyses to the README bullet lists
+- refreshing links or badges “for consistency”
+- rewriting the introduction to match code you just changed
+
+## What to do instead
+
+| Need | Where |
+|---|---|
+| Public API detail | Docstrings on the implementation |
+| User guides / recipes | `docs/` (MkDocs), when the ticket includes docs |
+| Architecture / dev notes | `docs-dev/` |
+| Deferred README work | Note in `docs-dev/codex_tickets/` report |
+
+## When README.md *is* in scope
+
+Only when the ticket title or instructions **explicitly** call for a README
+update — typically after `src/` and public API work is finalized.
+
+## Scope
+
+This rule is for repo root **`README.md`** only.
+
+Other files may be in scope when the ticket says so, including `README-DEV.md`,
+`src/*/README.md`, and `docs/`.
+
+## Relationship to AGENTS.md
+
+Full policy: `AGENTS.md` → **`README.md` (STRICT)**. When they conflict,
+`AGENTS.md` wins.
