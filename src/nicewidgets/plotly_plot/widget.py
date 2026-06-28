@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -40,6 +41,26 @@ logger = get_logger(__name__)
 
 OnPlotlyXRangeChanged = Callable[[float | None, float | None], None]
 OnMeasurementChanged = Callable[[MeasurementChangeEvent], None]
+
+_X_RANGE_ECHO_EPS = 1e-9
+
+
+def _x_range_equal(
+    a: tuple[float | None, float | None],
+    b: tuple[float | None, float | None],
+) -> bool:
+    """Compare two ``(x_min, x_max)`` pairs with float tolerance and ``None`` support."""
+    for av, bv in zip(a, b, strict=True):
+        if av is None or bv is None:
+            if av is not bv:
+                return False
+            continue
+        if not (math.isfinite(av) and math.isfinite(bv)):
+            return False
+        if abs(av - bv) > _X_RANGE_ECHO_EPS:
+            return False
+    return True
+
 
 _SeriesKind = Literal["trace", "scatter"]
 _MeasurementKind = Literal["line", "pair"]
@@ -727,8 +748,12 @@ class PlotlyPlotWidget:
         Raises:
             ValueError: If both bounds are set and ``x_min >= x_max``.
         """
+        new_range = (x_min, x_max)
+        if _x_range_equal(new_range, (self._x_range.x_min, self._x_range.x_max)):
+            self._last_applied_x_range = new_range
+            return
         self._x_range = PlotlyAxisRange(x_min=x_min, x_max=x_max)
-        self._last_applied_x_range = (x_min, x_max)
+        self._last_applied_x_range = new_range
         xaxis = self._figure["layout"].setdefault("xaxis", {})
         if x_min is None or x_max is None:
             xaxis.pop("range", None)
@@ -986,10 +1011,8 @@ class PlotlyPlotWidget:
         parsed = self._parse_x_range_event(args)
         if parsed is None:
             return
-        if self._last_applied_x_range == parsed:
-            self._last_applied_x_range = None
+        if self._is_x_range_echo(parsed):
             return
-        self._last_applied_x_range = None
         xaxis = self._figure["layout"].setdefault("xaxis", {})
         x_min, x_max = parsed
         if x_min is None or x_max is None:
@@ -1000,6 +1023,24 @@ class PlotlyPlotWidget:
             xaxis["autorange"] = False
         if self._on_x_range_changed is not None:
             self._on_x_range_changed(x_min, x_max)
+        self._last_applied_x_range = parsed
+
+    def _is_x_range_echo(
+        self, new_range: tuple[float | None, float | None]
+    ) -> bool:
+        """Return whether ``new_range`` echoes the last programmatic apply.
+
+        Args:
+            new_range: Candidate ``(x_min, x_max)`` from a relayout event.
+
+        Returns:
+            ``True`` when both values match the last applied pair within
+            tolerance.
+        """
+        last = self._last_applied_x_range
+        if last is None:
+            return False
+        return _x_range_equal(last, new_range)
 
     @staticmethod
     def _parse_x_range_event(args: dict[str, Any]) -> tuple[float | None, float | None] | None:

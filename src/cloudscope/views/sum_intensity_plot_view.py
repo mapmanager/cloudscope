@@ -22,7 +22,7 @@ from cloudscope.event_bus import EventBus
 from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind
 from cloudscope.events.roi import RoiChanged
 from cloudscope.events.theme import ThemeChanged
-from cloudscope.events.x_range import PrimaryXRangeChanged, SetPrimaryXRangeIntent
+from cloudscope.events.x_range import PrimaryXRangeChanged, SetPrimaryXRangeIntent, x_ranges_equal
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
 from nicewidgets.plotly_plot.models import (
@@ -71,6 +71,7 @@ class SumIntensityPlotView(BaseView):
         self._plot: PlotlyPlotWidget | None = None
         self._status_label: ui.label | None = None
         self._primary_x_range: tuple[float | None, float | None] = (None, None)
+        self._plot_originated_x_range = False
         self._last_measurement_event: MeasurementChangeEvent | None = None
 
     @property
@@ -205,6 +206,10 @@ class SumIntensityPlotView(BaseView):
         Returns:
             None.
         """
+        candidate = (x_min, x_max)
+        if x_ranges_equal(candidate, self._primary_x_range):
+            return
+        self._plot_originated_x_range = True
         self.event_bus.publish(SetPrimaryXRangeIntent(x_min=x_min, x_max=x_max))
 
     def _on_primary_x_range_changed(self, event: PrimaryXRangeChanged) -> None:
@@ -217,6 +222,9 @@ class SumIntensityPlotView(BaseView):
             None.
         """
         self._primary_x_range = (event.x_min, event.x_max)
+        if self._plot_originated_x_range:
+            self._plot_originated_x_range = False
+            return
         self._apply_primary_x_range_to_plot()
 
     def _on_measurement_changed(self, event: MeasurementChangeEvent) -> None:

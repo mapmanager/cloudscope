@@ -192,6 +192,22 @@ def test_widget_emits_user_x_range_callback(fake_plotly: list[_FakePlotlyElement
     assert widget.figure["layout"]["xaxis"]["autorange"] is True
 
 
+def test_widget_suppresses_relayout_echo_after_programmatic_set_x_limits(
+    fake_plotly: list[_FakePlotlyElement],
+) -> None:
+    """Programmatic x limits should not re-fire ``on_x_range_changed`` on relayout echo."""
+    ranges: list[tuple[float | None, float | None]] = []
+    widget = PlotlyPlotWidget(on_x_range_changed=lambda x0, x1: ranges.append((x0, x1)))
+
+    widget.set_x_axis_limits(2.0, 8.0)
+    widget._on_plotly_relayout(_RelayoutEvent({"xaxis.range[0]": 2.0, "xaxis.range[1]": 8.0}))
+    widget._on_plotly_relayout(
+        _RelayoutEvent({"xaxis.range[0]": 2.0 + 1e-12, "xaxis.range[1]": 8.0 - 1e-12})
+    )
+
+    assert ranges == []
+
+
 def test_measurement_line_drag_updates_state_and_callbacks(
     fake_plotly: list[_FakePlotlyElement],
 ) -> None:

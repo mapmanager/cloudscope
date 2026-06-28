@@ -163,15 +163,25 @@ class EChartWidget:
             x_max: Maximum x-axis value, or None for auto.
 
         Records the applied pair so the subsequent ECharts datazoom echo does
-        not re-fire ``on_x_range_changed``.
+        not re-fire ``on_x_range_changed``. Skips ``apply()`` when the logical
+        range is already at the requested limits.
         """
+        new_range = (x_min, x_max)
+        if _x_range_equal(new_range, (self._x_range.x_min, self._x_range.x_max)):
+            self._last_applied_x_range = new_range
+            return
         self._x_range = EChartAxisRange(x_min=x_min, x_max=x_max)
-        self._last_applied_x_range = (x_min, x_max)
+        self._last_applied_x_range = new_range
         self.apply()
 
     def reset_x_axis_limits(self) -> None:
         """Reset x-axis range to automatic scaling."""
         self.set_x_axis_limits(None, None)
+
+    @property
+    def x_range_limits(self) -> tuple[float | None, float | None]:
+        """Return the widget's current logical x-axis limits."""
+        return (self._x_range.x_min, self._x_range.x_max)
 
     def begin_select_x_range(self) -> None:
         """Enter one-shot user x-range selection mode."""
@@ -424,6 +434,9 @@ class EChartWidget:
             return
         if self._is_x_range_echo(new_range):
             return
+        if _x_range_equal(new_range, (self._x_range.x_min, self._x_range.x_max)):
+            return
+        self._x_range = EChartAxisRange(x_min=new_range[0], x_max=new_range[1])
         self._last_applied_x_range = new_range
         self._on_x_range_changed(new_range[0], new_range[1])
 

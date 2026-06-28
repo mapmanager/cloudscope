@@ -36,7 +36,7 @@ from cloudscope.events.metadata import MetadataChanged
 from cloudscope.events.raster import PrimaryPlaneLoaded
 from cloudscope.events.roi import RoiChanged, RoiEditModeChanged, RoiEditPreviewChanged
 from cloudscope.events.theme import ThemeChanged
-from cloudscope.events.x_range import PrimaryXRangeChanged, SetPrimaryXRangeIntent
+from cloudscope.events.x_range import PrimaryXRangeChanged, SetPrimaryXRangeIntent, x_ranges_equal
 from cloudscope.raster_display_cache import (
     RasterDisplayCache,
     RasterDisplayCacheKey,
@@ -311,6 +311,9 @@ class PrimaryImageView(BaseView):
         Returns:
             None.
         """
+        candidate = (x_min, x_max)
+        if x_ranges_equal(candidate, self._primary_x_range):
+            return
         self._viewer_originated_x_range = True
         self.event_bus.publish(SetPrimaryXRangeIntent(x_min=x_min, x_max=x_max))
 

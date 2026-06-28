@@ -8,7 +8,7 @@ isolated from the NiceGUI layer.
 
 from __future__ import annotations
 
-from nicewidgets.echart_widget.models import EChartLineData
+from nicewidgets.echart_widget.models import EChartAxisRange, EChartLineData
 from nicewidgets.echart_widget.widget import EChartWidget
 
 
@@ -20,6 +20,7 @@ def _make_widget(
     """Build an EChartWidget without invoking ``__init__`` (no NiceGUI required)."""
     w = EChartWidget.__new__(EChartWidget)
     w._line_data = line_data
+    w._x_range = EChartAxisRange()
     w._on_x_range_changed = on_x_range_changed
     w._last_applied_x_range = None
     return w
@@ -95,6 +96,34 @@ def test_datazoom_echo_after_set_x_axis_limits_is_suppressed() -> None:
 
     w._on_datazoom(_Event2())
     assert seen == [(2.0, 5.0)]
+
+
+def test_datazoom_suppressed_when_logical_range_unchanged() -> None:
+    """Duplicate datazoom for the current logical range must not re-fire."""
+    from nicewidgets.echart_widget.models import EChartAxisRange
+
+    seen: list[tuple[float | None, float | None]] = []
+    w = _make_widget(on_x_range_changed=lambda lo, hi: seen.append((lo, hi)))
+    w._x_range = EChartAxisRange(x_min=1.0, x_max=4.0)
+
+    class _Event:
+        args = {"startValue": 1.0, "endValue": 4.0}
+
+    w._on_datazoom(_Event())
+    assert seen == []
+
+
+def test_set_x_axis_limits_skips_apply_when_range_unchanged() -> None:
+    """Programmatic limits should no-op when the logical range is already set."""
+    from nicewidgets.echart_widget.models import EChartAxisRange
+
+    w = EChartWidget.__new__(EChartWidget)
+    w._line_data = None
+    w._x_range = EChartAxisRange(x_min=2.0, x_max=6.0)
+    w._last_applied_x_range = None
+    w.apply = lambda: (_ for _ in ()).throw(AssertionError("apply should not run"))  # type: ignore[method-assign]
+
+    w.set_x_axis_limits(2.0, 6.0)
 
 
 def test_datazoom_with_no_callback_is_a_noop() -> None:

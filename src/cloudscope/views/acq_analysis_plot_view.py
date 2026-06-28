@@ -20,7 +20,7 @@ from cloudscope.events.analysis import (
     CancelPlotXRangeSelection,
 )
 from cloudscope.events.roi import RoiChanged
-from cloudscope.events.x_range import PrimaryXRangeChanged, SetPrimaryXRangeIntent
+from cloudscope.events.x_range import PrimaryXRangeChanged, SetPrimaryXRangeIntent, x_ranges_equal
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
 from nicewidgets.echart_widget.widget import EChartWidget
@@ -66,6 +66,7 @@ class AcqAnalysisPlotView(BaseView):
         # ``_refresh_plot`` so user/state range survives analysis-row clicks
         # (same file) where the controller intentionally does not reset.
         self._primary_x_range: tuple[float | None, float | None] = (None, None)
+        self._chart_originated_x_range = False
 
     def build(self, parent: ui.element | None = None) -> ui.element:
         """Build the analysis plot view.
@@ -280,6 +281,10 @@ class AcqAnalysisPlotView(BaseView):
         Returns:
             None.
         """
+        candidate = (x_min, x_max)
+        if x_ranges_equal(candidate, self._primary_x_range):
+            return
+        self._chart_originated_x_range = True
         self.event_bus.publish(SetPrimaryXRangeIntent(x_min=x_min, x_max=x_max))
 
     def _on_primary_x_range_changed(self, event: PrimaryXRangeChanged) -> None:
@@ -292,6 +297,9 @@ class AcqAnalysisPlotView(BaseView):
             None.
         """
         self._primary_x_range = (event.x_min, event.x_max)
+        if self._chart_originated_x_range:
+            self._chart_originated_x_range = False
+            return
         self._apply_primary_x_range_to_chart()
 
     def _apply_primary_x_range_to_chart(self) -> None:
@@ -307,6 +315,8 @@ class AcqAnalysisPlotView(BaseView):
         if self._chart is None:
             return
         x_min, x_max = self._primary_x_range
+        if x_ranges_equal(self._chart.x_range_limits, self._primary_x_range):
+            return
         if x_min is None or x_max is None:
             self._chart.reset_x_axis_limits()
             return

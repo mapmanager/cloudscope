@@ -16,9 +16,39 @@ or zoom in to inspect a feature and then cycle channels to compare.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from cloudscope.events.base import IntentEvent, StateEvent
+
+_X_RANGE_EPS = 1e-9
+
+
+def x_ranges_equal(
+    a: tuple[float | None, float | None],
+    b: tuple[float | None, float | None],
+) -> bool:
+    """Return whether two ``(x_min, x_max)`` pairs are equal within tolerance.
+
+    ``None`` (auto) is equal only to itself.
+
+    Args:
+        a: First range pair.
+        b: Second range pair.
+
+    Returns:
+        ``True`` when both bounds match within tolerance or are both auto.
+    """
+    for av, bv in zip(a, b, strict=True):
+        if av is None or bv is None:
+            if av is not bv:
+                return False
+            continue
+        if not (math.isfinite(av) and math.isfinite(bv)):
+            return False
+        if abs(av - bv) > _X_RANGE_EPS:
+            return False
+    return True
 
 
 @dataclass(frozen=True)

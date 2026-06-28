@@ -362,6 +362,17 @@ def test_plot_x_range_callback_publishes_set_primary_x_range_intent() -> None:
     assert intents == [SetPrimaryXRangeIntent(x_min=2.0, x_max=4.0)]
 
 
+def test_sum_intensity_plot_view_skips_self_echo_after_plot_originated_range() -> None:
+    """Plot-originated x-range should not round-trip ``set_x_axis_limits``."""
+    view = _view_with_fake_plot()
+
+    view._on_plot_x_range_changed(2.0, 8.0)
+    view._on_primary_x_range_changed(PrimaryXRangeChanged(x_min=2.0, x_max=8.0))
+
+    assert view._plot.x_limits is None
+    assert view._primary_x_range == (2.0, 8.0)
+
+
 def test_primary_x_range_changed_applies_to_plot() -> None:
     """PrimaryXRangeChanged should push finite limits to the child plot."""
     view = _view_with_fake_plot()

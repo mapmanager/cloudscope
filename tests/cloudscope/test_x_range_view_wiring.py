@@ -30,11 +30,21 @@ class _FakeChart:
     def __init__(self) -> None:
         self.set_calls: list[tuple[float | None, float | None]] = []
         self.reset_calls = 0
+        self._x_min: float | None = None
+        self._x_max: float | None = None
+
+    @property
+    def x_range_limits(self) -> tuple[float | None, float | None]:
+        return (self._x_min, self._x_max)
 
     def set_x_axis_limits(self, x_min, x_max) -> None:
+        self._x_min = x_min
+        self._x_max = x_max
         self.set_calls.append((x_min, x_max))
 
     def reset_x_axis_limits(self) -> None:
+        self._x_min = None
+        self._x_max = None
         self.reset_calls += 1
 
 
@@ -46,6 +56,7 @@ def test_primary_image_view_publishes_intent_on_viewer_x_range() -> None:
     bus.subscribe(SetPrimaryXRangeIntent, seen.append)
 
     view._on_viewer_x_range_changed(1.0, 4.0)
+    view._primary_x_range = (1.0, 4.0)
     view._on_viewer_x_range_changed(None, None)
 
     assert seen == [
@@ -190,12 +201,41 @@ def test_acq_analysis_plot_view_publishes_intent_on_chart_x_range() -> None:
     bus.subscribe(SetPrimaryXRangeIntent, seen.append)
 
     view._on_chart_x_range_changed(0.5, 9.5)
+    view._primary_x_range = (0.5, 9.5)
     view._on_chart_x_range_changed(None, None)
 
     assert seen == [
         SetPrimaryXRangeIntent(x_min=0.5, x_max=9.5),
         SetPrimaryXRangeIntent(x_min=None, x_max=None),
     ]
+
+
+def test_acq_analysis_plot_view_skips_self_echo_after_chart_originated_range() -> None:
+    """Chart-originated x-range should not round-trip ``set_x_axis_limits``."""
+    bus = EventBus()
+    view = AcqAnalysisPlotView(bus)
+    fake = _FakeChart()
+    view._chart = fake  # type: ignore[assignment]
+
+    view._on_chart_x_range_changed(2.0, 8.0)
+    view._on_primary_x_range_changed(PrimaryXRangeChanged(x_min=2.0, x_max=8.0))
+
+    assert fake.set_calls == []
+    assert fake.reset_calls == 0
+    assert view._primary_x_range == (2.0, 8.0)
+
+
+def test_acq_analysis_plot_view_does_not_republish_when_cache_matches() -> None:
+    """Duplicate chart datazoom after state sync must not publish another intent."""
+    bus = EventBus()
+    view = AcqAnalysisPlotView(bus)
+    seen: list[SetPrimaryXRangeIntent] = []
+    bus.subscribe(SetPrimaryXRangeIntent, seen.append)
+    view._primary_x_range = (2.0, 8.0)
+
+    view._on_chart_x_range_changed(2.0, 8.0)
+
+    assert seen == []
 
 
 def test_acq_analysis_plot_view_consumer_applies_to_chart() -> None:
@@ -244,9 +284,11 @@ def test_acq_analysis_plot_view_apply_helper_reset_then_finite() -> None:
 
     view._primary_x_range = (None, None)
     view._apply_primary_x_range_to_chart()
-    assert fake.reset_calls == 1
+    assert fake.reset_calls == 0
     assert fake.set_calls == []
 
+    fake._x_min = 0.0
+    fake._x_max = 10.0
     view._primary_x_range = (1.0, 9.0)
     view._apply_primary_x_range_to_chart()
     assert fake.set_calls == [(1.0, 9.0)]

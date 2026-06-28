@@ -14,44 +14,13 @@ Responsibilities:
 
 from __future__ import annotations
 
-import math
-
 from cloudscope.controllers.home_page_controller import HomePageController
 from cloudscope.event_bus import EventBus
 from cloudscope.events.selection import FileSelectionChanged
-from cloudscope.events.x_range import PrimaryXRangeChanged, SetPrimaryXRangeIntent
+from cloudscope.events.x_range import PrimaryXRangeChanged, SetPrimaryXRangeIntent, x_ranges_equal
 from cloudscope.utils.logging import get_logger
 
 logger = get_logger(__name__)
-
-_X_RANGE_EPS = 1e-9
-
-
-def _values_equal(a: float | None, b: float | None) -> bool:
-    """Return whether two optional floats are equal within a small tolerance.
-
-    ``None`` (auto) is treated as a distinct value, equal only to itself.
-
-    Args:
-        a: First value.
-        b: Second value.
-
-    Returns:
-        ``True`` when both are ``None`` or both are finite and close.
-    """
-    if a is None or b is None:
-        return a is None and b is None
-    if not (math.isfinite(a) and math.isfinite(b)):
-        return False
-    return abs(a - b) <= _X_RANGE_EPS
-
-
-def _ranges_equal(
-    current: tuple[float | None, float | None],
-    new: tuple[float | None, float | None],
-) -> bool:
-    """Compare two ``(x_min, x_max)`` tuples allowing ``None``."""
-    return _values_equal(current[0], new[0]) and _values_equal(current[1], new[1])
 
 
 class XRangeController:
@@ -119,7 +88,7 @@ class XRangeController:
             None.
         """
         state = self._home_controller.state
-        if _ranges_equal(state.primary_x_range, new_range):
+        if x_ranges_equal(state.primary_x_range, new_range):
             return
         state.primary_x_range = new_range
         self._event_bus.publish(
