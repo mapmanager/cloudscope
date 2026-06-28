@@ -28,6 +28,9 @@ logger = get_logger(__name__)
 setup_logging()
 
 # Edit this path locally. The ROI defaults to the full image.
+SOURCE_PATH = Path("/Users/cudmore/Dropbox/data/rabbit-ca-variance/raw-data/jan-12-2022/Control/220110n_0003.tif.frames/220110n_0003.tif")
+
+# Edit this path locally. The ROI defaults to the full image.
 # SOURCE_PATH = Path("/Users/cudmore/Dropbox/data/rabbit-ca-variance/raw-data/jan-12-2022/Control/220110n_0003.tif.frames/220110n_0003.tif")
 # SOURCE_PATH = Path("/Users/cudmore/Dropbox/data/rabbit-ca-variance/raw-data/jan-12-2022/Control/220110n_0005.tif.frames/220110n_0005.tif")
 SOURCE_PATH = Path("/Users/cudmore/Dropbox/data/rabbit-ca-variance/raw-data/jan-12-2022/Control/220110n_0009.tif.frames/220110n_0009.tif")

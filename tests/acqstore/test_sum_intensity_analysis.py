@@ -10,6 +10,12 @@ from acqstore.acq_image.analysis.registry import get_analysis_registry
 from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_analysis import (
     SumIntensityAnalysis,
 )
+from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_core import (
+    PeakWidthLevel,
+    SumIntensityEventPointKey,
+    SumIntensitySummaryKey,
+    SumIntensityTraceKey,
+)
 
 
 class FakeProvider:
@@ -26,7 +32,7 @@ class FakeProvider:
             Synthetic two-dimensional ROI image.
         """
         _ = channel, roi_id
-        trace = np.array([0, 0, 1, 2, 5, 2, 0, 0], dtype=float)
+        trace = np.array([1, 1, 2, 3, 6, 3, 1, 1], dtype=float)
         return np.repeat(trace[:, np.newaxis], 4, axis=1)
 
     def get_image_physical_units(self) -> tuple[float, float]:
@@ -42,13 +48,18 @@ def _params() -> dict[str, object]:
     """Return deterministic wrapper-test detection params.
 
     Returns:
-        Detection parameter mapping.
+        Detection parameter mapping using the current public API names.
     """
     return {
         "filter_method": "none",
         "detrend_method": "none",
-        "derivative_threshold": 500.0,
+        "baseline_method": "percentile",
+        "baseline_percentile": 0.0,
+        "baseline_min_value": 1e-12,
+        "detection_source": SumIntensityTraceKey.DF_F_SIGNAL.value,
+        "derivative_threshold_per_sec": 500.0,
         "peak_search_window_ms": 5.0,
+        "width_search_window_ms": 20.0,
     }
 
 
@@ -59,6 +70,10 @@ def test_sum_intensity_schema_defaults_and_detection_method() -> None:
     assert analysis.detection_params["detection_method"] == "derivative_threshold"
     assert analysis.detection_params["detrend_method"] == "single_exponential"
     assert analysis.detection_params["filter_method"] == "median"
+    assert analysis.detection_params["baseline_method"] == "percentile"
+    assert analysis.detection_params["detection_source"] == SumIntensityTraceKey.DF_F_SIGNAL.value
+    assert "derivative_threshold" not in analysis.detection_params
+    assert "derivative_threshold_per_sec" in analysis.detection_params
     assert SumIntensityAnalysis.exclusive_group is None
 
 
@@ -69,12 +84,23 @@ def test_sum_intensity_analysis_run_populates_result() -> None:
 
     assert analysis.is_dirty()
     assert "norm_sum_intensity" in analysis.get_table_columns()
+    assert "df_f_signal" in analysis.get_table_columns()
     assert analysis.result.summary["num_peaks"] == 1
+    assert analysis.get_summary_value(SumIntensitySummaryKey.NUM_PEAKS) == 1
+    assert analysis.get_summary_value(SumIntensitySummaryKey.F0_BASELINE) == 1.0
     assert len(analysis.get_peak_events()) == 1
+
+    df_f_trace = analysis.get_trace(SumIntensityTraceKey.DF_F_SIGNAL)
+    assert df_f_trace.y_label == "df/f0"
+    peak_points = analysis.get_event_points(SumIntensityEventPointKey.PEAKS)
+    assert peak_points.x.size == 1
+    width_trace = analysis.get_width_trace(PeakWidthLevel.WIDTH_50)
+    assert width_trace.metadata["connectgaps"] is False
+
     plot = analysis.get_plot_data()
     assert plot is not None
     assert plot.x_label == "Time (s)"
-    assert plot.series_name == "Sum intensity"
+    assert plot.series_name == "df/f0 signal"
 
 
 def test_analysis_set_runs_sum_intensity() -> None:
@@ -90,6 +116,7 @@ def test_analysis_set_runs_sum_intensity() -> None:
     analysis_set.run_analysis(AnalysisKey("sum_intensity", 0, 1))
     assert analysis_set.is_dirty()
     assert analysis.get_column("time_sec")
+    assert analysis.get_column("df_f_signal")
 
 
 def test_sum_intensity_is_registered_builtin() -> None:

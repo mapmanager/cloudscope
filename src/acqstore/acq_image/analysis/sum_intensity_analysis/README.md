@@ -175,3 +175,37 @@ patterns while taking conceptual cues from SanPy, IPFX, eFEL, and
 `scipy.signal.find_peaks`. The first pass does not call `find_peaks`; it keeps
 onset detection and feature extraction explicit so CloudScope can serialize and
 inspect each event.
+
+## Synthetic data utilities
+
+The package includes a public synthetic-data utility under `synthetic/`. It is
+intended for algorithm tests, interactive development scripts, and future demos.
+The generator returns an actual image, not just a one-dimensional trace, so the
+normal analysis pipeline is exercised end-to-end:
+
+```python
+synthetic = make_synthetic_sum_intensity_image(config)
+result = run_sum_intensity(
+    synthetic.image,
+    detection_params=params,
+    physical_units=(synthetic.seconds_per_line, synthetic.um_per_pixel),
+)
+```
+
+The synthetic model is:
+
+```python
+F(t) = bleach(t) * (F0 + sum(events(t))) + noise + pop_artifacts
+image[t, x] = F(t) * spatial_profile[x] + spatial_noise[t, x]
+```
+
+Events use unit-peak difference-of-exponentials kernels with configurable rise
+and decay time constants. Event times can be supplied explicitly for
+deterministic tests or generated from a Poisson process for exploratory data.
+Optional event jitter is applied after event-time generation. Ground truth is
+returned as a DataFrame with event onset time, approximate peak time, and event
+amplitude.
+
+The synthetic utilities deliberately live in `src/acqstore` rather than only in
+`tests/` because they are useful as public development fixtures for validating
+new detection parameters, plotting primitives, and CloudScope views.

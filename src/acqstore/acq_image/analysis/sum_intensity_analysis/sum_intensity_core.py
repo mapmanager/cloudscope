@@ -130,6 +130,46 @@ WIDTH_LEVEL_FRACTIONS: dict[PeakWidthLevel, float] = {
 }
 
 
+TRACE_DEFINITIONS: dict[SumIntensityTraceKey, dict[str, str]] = {
+    SumIntensityTraceKey.SUM_INTENSITY: {
+        "display_name": "Sum intensity",
+        "description": "Spatial row sum after optional rolling row averaging.",
+        "y_label": "Intensity sum",
+        "units": "image intensity",
+    },
+    SumIntensityTraceKey.NORM_SUM_INTENSITY: {
+        "display_name": "Normalized sum intensity",
+        "description": "Mean line intensity, sum_intensity divided by spatial pixel count.",
+        "y_label": "Mean line intensity",
+        "units": "image intensity",
+    },
+    SumIntensityTraceKey.FILTERED_NORM_SUM_INTENSITY: {
+        "display_name": "Filtered normalized sum intensity",
+        "description": "Normalized trace after optional median filtering.",
+        "y_label": "Mean line intensity",
+        "units": "image intensity",
+    },
+    SumIntensityTraceKey.DETRENDED_NORM_SUM_INTENSITY: {
+        "display_name": "Detrended normalized sum intensity",
+        "description": "Filtered normalized trace after optional bleaching detrend.",
+        "y_label": "Detrended mean line intensity",
+        "units": "image intensity",
+    },
+    SumIntensityTraceKey.DF_F_SIGNAL: {
+        "display_name": "df/f0 signal",
+        "description": "Delta-F over F0 signal calculated from the detrended or filtered trace.",
+        "y_label": "df/f0",
+        "units": "fraction",
+    },
+    SumIntensityTraceKey.D_DF_F_SIGNAL: {
+        "display_name": "Derivative of df/f0",
+        "description": "Time derivative of df/f0.",
+        "y_label": "d(df/f0)/dt",
+        "units": "1/s",
+    },
+}
+
+
 @dataclass(frozen=True, slots=True)
 class ResultTrace:
     """Continuous trace ready for plotting or downstream analysis.
@@ -367,8 +407,14 @@ class PeakEvent:
 class SumIntensityCoreResult:
     """Pure sum-intensity analysis output.
 
+    This object is the public result returned by the NumPy-only core algorithm.
+    It intentionally exposes plotting-friendly accessors so scripts, tests, and
+    future CloudScope views can use the scientific API without parsing raw
+    DataFrame columns or summary dictionaries.
+
     Args:
-        summary: JSON-serializable summary including events and warnings.
+        summary: JSON-serializable summary including run metadata, scalar
+            results, analysis-level warnings/errors, and peak-event records.
         table: Per-timepoint result table.
         events: Parsed event objects mirrored in ``summary``.
     """
@@ -376,6 +422,141 @@ class SumIntensityCoreResult:
     summary: dict[str, Any]
     table: pd.DataFrame
     events: tuple[PeakEvent, ...]
+
+    def get_peak_events(self) -> tuple[PeakEvent, ...]:
+        """Return parsed peak-event records.
+
+        Returns:
+            Tuple of peak events. Empty when no peaks were detected.
+        """
+        return self.events
+
+    def get_trace(self, key: SumIntensityTraceKey) -> ResultTrace:
+        """Return one named continuous trace.
+
+        Args:
+            key: Trace key to retrieve.
+
+        Returns:
+            Result trace with ``time_sec`` as x values.
+
+        Raises:
+            KeyError: If the result table is missing a required column.
+        """
+        if "time_sec" not in self.table.columns:
+            raise KeyError("Sum intensity trace requires 'time_sec' column")
+        if key.value not in self.table.columns:
+            raise KeyError(f"Sum intensity trace column is missing: {key.value!r}")
+        definition = TRACE_DEFINITIONS[key]
+        return ResultTrace(
+            key=key,
+            name=definition["display_name"],
+            x=self.table["time_sec"].to_numpy(dtype=float),
+            y=self.table[key.value].to_numpy(dtype=float),
+            x_label="Time (s)",
+            y_label=definition["y_label"],
+            metadata={
+                "description": definition["description"],
+                "units": definition["units"],
+            },
+        )
+
+    def get_event_points(self, key: SumIntensityEventPointKey) -> ResultPoints:
+        """Return sparse event marker points.
+
+        Args:
+            key: Event point collection to retrieve.
+
+        Returns:
+            Result points for plotting event markers.
+
+        Raises:
+            KeyError: If the point key is unknown.
+        """
+        events = self.get_peak_events()
+        if key == SumIntensityEventPointKey.ONSETS:
+            return ResultPoints(
+                key=key,
+                name="Onsets",
+                x=_optional_event_array(events, "onset_time_sec"),
+                y=_optional_event_array(events, "onset_value"),
+                x_label="Time (s)",
+                y_label="Detection source",
+                metadata={"description": "Accepted onset threshold crossings."},
+            )
+        if key == SumIntensityEventPointKey.PEAKS:
+            return ResultPoints(
+                key=key,
+                name="Peaks",
+                x=_optional_event_array(events, "peak_time_sec"),
+                y=_optional_event_array(events, "peak_value"),
+                x_label="Time (s)",
+                y_label="Detection source",
+                metadata={"description": "Refined peak locations."},
+            )
+        raise KeyError(f"Unknown sum-intensity event point key: {key!r}")
+
+    def get_width_trace(
+        self,
+        peak_width_level: PeakWidthLevel | None = None,
+    ) -> ResultTrace | tuple[ResultTrace, ...]:
+        """Return NaN-separated width segment traces.
+
+        Args:
+            peak_width_level: Specific width level to return. When None, traces
+                for all standard width levels are returned.
+
+        Returns:
+            One ``ResultTrace`` when ``peak_width_level`` is supplied, otherwise
+            a tuple of traces for all levels.
+        """
+        if peak_width_level is None:
+            return tuple(self.get_width_trace(level) for level in PeakWidthLevel)
+        fraction = WIDTH_LEVEL_FRACTIONS[peak_width_level]
+        x_values: list[float] = []
+        y_values: list[float] = []
+        seconds_per_line = float(
+            self.summary.get(SumIntensitySummaryKey.SECONDS_PER_LINE.value, 1.0)
+        )
+        for event in self.get_peak_events():
+            crossing = _find_event_crossing(event, fraction)
+            if crossing is None or crossing.status != "ok":
+                continue
+            if crossing.left_index is None or crossing.right_index is None or crossing.value is None:
+                continue
+            x_values.extend(
+                [
+                    float(crossing.left_index) * seconds_per_line,
+                    float(crossing.right_index) * seconds_per_line,
+                    float("nan"),
+                ]
+            )
+            y_values.extend([float(crossing.value), float(crossing.value), float("nan")])
+        return ResultTrace(
+            key=peak_width_level.value,
+            name=f"Peak {peak_width_level.value.replace('_', ' ')}",
+            x=np.asarray(x_values, dtype=float),
+            y=np.asarray(y_values, dtype=float),
+            x_label="Time (s)",
+            y_label="Detection source",
+            metadata={
+                "fraction": fraction,
+                "trace_type": "width_segments",
+                "connectgaps": False,
+            },
+        )
+
+    def get_summary_value(self, key: SumIntensitySummaryKey) -> object:
+        """Return one named summary value.
+
+        Args:
+            key: Summary key to retrieve.
+
+        Returns:
+            Stored summary value, or None when the key is absent.
+        """
+        return self.summary.get(key.value)
+
 
 
 def run_sum_intensity(
@@ -1293,3 +1474,38 @@ def _optional_float(value: object) -> float | None:
     if np.isnan(numeric):
         return None
     return numeric
+
+
+def _optional_event_array(events: tuple[PeakEvent, ...], attr: str) -> np.ndarray:
+    """Return event attribute values as a float array with missing values removed.
+
+    Args:
+        events: Peak events.
+        attr: Event attribute name.
+
+    Returns:
+        NumPy float array containing finite event values.
+    """
+    values: list[float] = []
+    for event in events:
+        value = getattr(event, attr)
+        if value is None:
+            continue
+        values.append(float(value))
+    return np.asarray(values, dtype=float)
+
+
+def _find_event_crossing(event: PeakEvent, fraction: float) -> LevelCrossing | None:
+    """Return the crossing matching a requested fraction.
+
+    Args:
+        event: Peak event to inspect.
+        fraction: Fraction to match.
+
+    Returns:
+        Matching level crossing, or None.
+    """
+    for crossing in event.level_crossings:
+        if abs(float(crossing.fraction) - float(fraction)) < 1e-12:
+            return crossing
+    return None
