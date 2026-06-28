@@ -14,9 +14,10 @@ fi
 
 APP_VERSION="$(grep -E '^version[[:space:]]*=' "$REPO_ROOT/pyproject.toml" 2>/dev/null | head -1 | sed -E 's/^version[[:space:]]*=[[:space:]]*["'\'' ]*([^"'\'' ]+)["'\'' ]*.*/\1/')"
 APP_VERSION="${APP_VERSION:-0.0.0}"
-REL_BASENAME="${APP_NAME}-${APP_VERSION}-${RELEASE_PLATFORM}"
+REL_BASENAME="${APP_NAME}-v${APP_VERSION}-${RELEASE_PLATFORM}"
 REL_ZIP="$DIST_DIR/${REL_BASENAME}.zip"
 REL_MANIFEST="$DIST_DIR/${REL_BASENAME}-manifest.json"
+REL_SHA256="$REL_ZIP.sha256"
 
 GIT_COMMIT="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
 GIT_COMMIT_SHORT="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
@@ -107,4 +108,8 @@ echo "[release] Creating final zip: $REL_ZIP"
 rm -f "$REL_ZIP"
 ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$REL_ZIP"
 ls -lh "$REL_ZIP"
+
+echo "[release] Writing SHA-256 checksum: $REL_SHA256"
+shasum -a 256 "$REL_ZIP" | awk -v f="$(basename "$REL_ZIP")" '{print $1 "  " f}' > "$REL_SHA256"
+
 echo "[release] Done."

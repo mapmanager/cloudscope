@@ -91,11 +91,21 @@ jobs:
             -DestinationPath "$artifactName.zip" `
             -Force
 
+      - name: Generate SHA-256 checksum
+        shell: pwsh
+        run: |
+          $artifactName = "${{ steps.version.outputs.artifact_name }}"
+          Get-FileHash "$artifactName.zip" -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash)  $artifactName.zip" } |
+            Set-Content -Encoding ASCII "$artifactName.zip.sha256"
+
       - name: Upload Windows app artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.version.outputs.artifact_name }}
-          path: ${{ steps.version.outputs.artifact_name }}.zip
+          path: |
+            ${{ steps.version.outputs.artifact_name }}.zip
+            ${{ steps.version.outputs.artifact_name }}.zip.sha256
           if-no-files-found: error
 
       - name: Upload Windows app to GitHub Release
@@ -104,11 +114,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
           ASSET: ${{ steps.version.outputs.artifact_name }}.zip
+          CHECKSUM: ${{ steps.version.outputs.artifact_name }}.zip.sha256
         shell: bash
         run: |
           for attempt in {1..30}; do
             if gh release view "$TAG" >/dev/null 2>&1; then
-              gh release upload "$TAG" "$ASSET" --clobber
+              gh release upload "$TAG" "$ASSET" "$CHECKSUM" --clobber
               exit 0
             fi
             echo "Waiting for GitHub Release $TAG to exist..."

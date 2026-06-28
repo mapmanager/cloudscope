@@ -171,6 +171,7 @@ jobs:
           name: CloudScope-macos-release-assets
           path: |
             packaging/macos/dist/CloudScope-*-macos.zip
+            packaging/macos/dist/CloudScope-*-macos.zip.sha256
             packaging/macos/dist/CloudScope-*-macos-manifest.json
           if-no-files-found: error
 
@@ -184,6 +185,7 @@ jobs:
           shopt -s nullglob
           ASSETS=(
             packaging/macos/dist/CloudScope-*-macos.zip
+            packaging/macos/dist/CloudScope-*-macos.zip.sha256
             packaging/macos/dist/CloudScope-*-macos-manifest.json
           )
 

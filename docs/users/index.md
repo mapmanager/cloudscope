@@ -19,9 +19,12 @@ The browser application uses the same CloudScope GUI and the same `acqstore` sci
 
 ## Install the desktop app
 
-CloudScope desktop is the same application on macOS and Windows. Choose the build for your operating system from the [CloudScope Releases](https://github.com/mapmanager/cloudscope/releases){target="_blank" rel="noopener"} page.
+CloudScope desktop is the same application on macOS and Windows. Download builds from the
+[CloudScope Releases](https://github.com/mapmanager/cloudscope/releases){target="_blank" rel="noopener"}
+page and follow the platform-specific steps in [Install the desktop app](install.md).
 
-Use official releases when you need stable, repeatable analysis results. Released desktop builds and the matching source code are archived so you can return to the same version later.
+Use official releases when you need stable, repeatable analysis results. Released desktop builds,
+checksum files, and matching source code are archived so you can return to the same version later.
 
 ## Supported file formats
 
@@ -81,6 +84,7 @@ Traditional two-dimensional image analysis workflows are not yet implemented as 
 
 ## Where to go next
 
+- [Install the desktop app](install.md)
 - [Using the GUI](gui.md)
-- [End-user recipes](recipes.md)
+- [End-user recipes](recipes/index.md)
 - [Data Scientist Guide](../scientists/index.md)

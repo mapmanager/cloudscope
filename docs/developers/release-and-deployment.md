@@ -33,11 +33,18 @@ The macOS build process includes:
 4. Upload to Apple notarization.
 5. Wait for notarization approval.
 6. Staple the notarization ticket.
-7. Publish the distributable artifact.
+7. Publish the distributable artifact and SHA-256 checksum.
+
+Release artifact names use the git-tag version prefix: `CloudScope-vX.Y.Z-macos.zip` and
+`CloudScope-vX.Y.Z-macos.zip.sha256`.
 
 ### Windows
 
-The Windows build process generates a distributable ZIP archive containing the CloudScope executable and required runtime files.
+The Windows build process generates a distributable ZIP archive containing the CloudScope
+executable and required runtime files, plus a SHA-256 checksum sidecar file.
+
+Release artifact names: `CloudScope-vX.Y.Z-windows-x64.zip` and
+`CloudScope-vX.Y.Z-windows-x64.zip.sha256`.
 
 ## Documentation deployment
 

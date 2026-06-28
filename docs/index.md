@@ -28,9 +28,9 @@ The same `acqstore` scientific backend is used by the desktop application, brows
 
     ---
 
-    CloudScope desktop is the same application on macOS and Windows. Choose the build for your operating system from GitHub Releases.
+    CloudScope desktop is the same application on macOS and Windows. Step-by-step install instructions for each platform are in the documentation.
 
-    [:material-apple: macOS](https://github.com/mapmanager/cloudscope/releases){target="_blank" rel="noopener"} · [:material-microsoft-windows: Windows](https://github.com/mapmanager/cloudscope/releases){target="_blank" rel="noopener"}
+    [:octicons-arrow-right-24: Install the desktop app](users/install.md)
 
 </div>
 

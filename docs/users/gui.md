@@ -43,7 +43,7 @@ Use this toolbar to adjust what is visible without changing the underlying acqui
 
 ## Image context menu
 
-![CloudScope image viewer context menu](../assets/gui/image-widget-context-menu.png){ .cs-screenshot width="420" align=right loading=lazy }
+![CloudScope image viewer context menu](../assets/gui/image-widget-context-menu.png){ .cs-screenshot width="150" align=right loading=lazy }
 
 Right-click the primary image viewer to open the context menu. The context menu provides quick access to display and export actions for the current image view.
 
@@ -61,7 +61,7 @@ These controls affect how the image is displayed. They do not change the origina
 
 ## Left navigation toolbar
 
-![CloudScope left navigation toolbar](../assets/gui/left-toolbar.png){ .cs-screenshot width="220" align=left loading=lazy }
+![CloudScope left navigation toolbar](../assets/gui/left-toolbar.png){ .cs-screenshot width="56" align=left loading=lazy }
 
 The left navigation toolbar switches between major CloudScope views and workflows. Each icon opens a focused panel such as home, loading, metadata, ROIs, velocity analysis, diameter analysis, or other analysis/result views.
 
@@ -82,6 +82,8 @@ A typical velocity workflow is:
 3. Run the analysis.
 4. Inspect plotted results and table output.
 5. Copy or save results for downstream use.
+
+See [Velocity analysis](recipes/velocity-analysis.md) for a step-by-step recipe.
 
 Velocity and diameter analyses use multiprocessing or multithreading where available. This can reduce analysis time in the GUI and in scripted workflows without changing the scientific API used to run the analysis.
 

@@ -95,8 +95,9 @@ fi
 "$SCRIPT_DIR/staple_and_verify.sh"
 "$SCRIPT_DIR/make_release_zip.sh"
 
-REL_ZIP="$DIST_DIR/${APP_NAME}-${RELVER}-${RELEASE_PLATFORM}.zip"
-REL_MANIFEST="$DIST_DIR/${APP_NAME}-${RELVER}-${RELEASE_PLATFORM}-manifest.json"
+REL_ZIP="$DIST_DIR/${APP_NAME}-v${RELVER}-${RELEASE_PLATFORM}.zip"
+REL_MANIFEST="$DIST_DIR/${APP_NAME}-v${RELVER}-${RELEASE_PLATFORM}-manifest.json"
+REL_SHA256="$REL_ZIP.sha256"
 
 # Push source identity after the final artifact succeeds.
 git -C "$REPO_ROOT" push origin "$RELTAG"
@@ -110,9 +111,9 @@ git -C "$REPO_ROOT" push
 if command -v gh >/dev/null 2>&1; then
   echo "[release] Uploading artifacts to GitHub Release..."
   if gh release view "$RELTAG" >/dev/null 2>&1; then
-    gh release upload "$RELTAG" "$REL_ZIP" "$REL_MANIFEST" --clobber
+    gh release upload "$RELTAG" "$REL_ZIP" "$REL_SHA256" "$REL_MANIFEST" --clobber
   else
-    gh release create "$RELTAG" "$REL_ZIP" "$REL_MANIFEST" --notes "${APP_NAME} ${RELTAG}"
+    gh release create "$RELTAG" "$REL_ZIP" "$REL_SHA256" "$REL_MANIFEST" --notes "${APP_NAME} ${RELTAG}"
   fi
 else
   echo "[release] gh not found; skipping GitHub Release upload."

@@ -14,6 +14,7 @@ theme:
     - navigation.top
     - toc.follow
     - content.code.copy
+    - content.tabs.link
     - search.highlight
     - search.suggest
   palette:
@@ -63,6 +64,8 @@ markdown_extensions:
       emoji_generator: !!python/name:material.extensions.emoji.to_svg
   - pymdownx.details
   - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
   - pymdownx.snippets:
       base_path: !relative $docs_dir
   - pymdownx.highlight
@@ -78,8 +81,16 @@ nav:
   - Home: index.md
   - End User:
       - users/index.md
+      - Install the desktop app: users/install.md
       - Using the GUI: users/gui.md
-      - Recipes: users/recipes.md
+      - Recipes:
+          - users/recipes/index.md
+          - Velocity analysis: users/recipes/velocity-analysis.md
+          - Diameter analysis: users/recipes/diameter-analysis.md
+          - Analyses from velocity:
+              - users/recipes/analyses-from-velocity/index.md
+              - Velocity event analysis: users/recipes/analyses-from-velocity/velocity-event-analysis.md
+              - Heart rate analysis: users/recipes/analyses-from-velocity/heart-rate-analysis.md
   - Data Scientist:
       - scientists/index.md
       - Velocity Analysis: scientists/velocity-analysis.md
@@ -98,6 +109,7 @@ nav:
       - developers/index.md
       - Architecture: developers/architecture.md
       - Release and Deployment: developers/release-and-deployment.md
+      - MkDocs style guide: developers/mkdocs-style.md
       - Contributing: developers/contributing.md
   - API:
       - api/index.md
