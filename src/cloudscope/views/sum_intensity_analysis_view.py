@@ -6,7 +6,11 @@ from typing import Any
 
 from nicegui import ui
 
-from acqstore.acq_image.analysis.model import AnalysisKey, DetectionParamSchema
+from acqstore.acq_image.analysis.model import (
+    AnalysisKey,
+    DetectionParamCategory,
+    DetectionParamSchema,
+)
 from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_analysis import (
     SumIntensityAnalysis,
 )
@@ -17,9 +21,31 @@ from cloudscope.event_bus import EventBus
 from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind, RunAnalysisIntent
 from cloudscope.events.roi import RoiChanged
 from cloudscope.state import PrimarySelection
-from cloudscope.views.analysis_summary_display import build_analysis_summary_expansion
+from cloudscope.views.analysis_summary_display import build_analysis_summary_expansion_for_analysis
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
+
+_DETECTION_PARAM_COLUMNS = 2
+
+
+def _category_heading_if_changed(
+    previous_category: DetectionParamCategory | None,
+    field: DetectionParamSchema,
+) -> str | None:
+    """Return a category section label when ``field`` starts a new visible group.
+
+    Args:
+        previous_category: Category of the last rendered visible field.
+        field: Current schema entry.
+
+    Returns:
+        Category display string, or ``None`` when no heading is needed.
+    """
+    if not field.visible or field.category is None:
+        return None
+    if field.category is previous_category:
+        return None
+    return field.category.value
 
 
 def _field_visible_for_current_params(
@@ -228,30 +254,47 @@ class SumIntensityAnalysisView(BaseView):
         self._param_controls.clear()
         self._schema_by_name.clear()
         with self._params_container:
-            ui.label("Detection parameters").classes("text-sm font-medium")
+            current_category: DetectionParamCategory | None = None
+            category_grid: ui.grid | None = None
             for field in SumIntensityAnalysis.get_detection_schema():
                 self._schema_by_name[field.name] = field
                 if not field.visible:
                     continue
-                label = field.display_name
-                if field.unit:
-                    label = f"{label} ({field.unit})"
-                choices = field.choices
-                value = values.get(field.name, field.default)
-                if choices is not None:
-                    control = ui.select(label=label, options=list(choices), value=value).classes("w-full")
-                    control.on_value_change(lambda _event=None: self._refresh_param_visibility())
-                elif field.value_type.value == "bool":
-                    control = ui.checkbox(text=label, value=bool(value))
-                elif field.value_type.value in {"int", "float"}:
-                    control = ui.number(label=label, value=value).classes("w-full")
-                else:
-                    control = ui.input(label=label, value=str(value if value is not None else "")).classes("w-full")
-                if not field.editable:
-                    control.props("readonly")
-                if field.description:
-                    control.tooltip(str(field.description))
-                self._param_controls[field.name] = control
+                heading = _category_heading_if_changed(current_category, field)
+                if heading is not None:
+                    ui.label(heading).classes("text-base font-semibold opacity-70")
+                    with ui.column().classes("w-full pl-5"):
+                        category_grid = ui.grid(columns=_DETECTION_PARAM_COLUMNS).classes("w-full gap-2")
+                    current_category = field.category
+                if category_grid is None:
+                    continue
+                with category_grid:
+                    with ui.column().classes("gap-0 min-w-0 w-full"):
+                        label = field.display_name
+                        if field.unit:
+                            label = f"{label} ({field.unit})"
+                        choices = field.choices
+                        value = values.get(field.name, field.default)
+                        if choices is not None:
+                            control = ui.select(
+                                label=label, options=list(choices), value=value
+                            ).classes("w-full")
+                            control.on_value_change(
+                                lambda _event=None: self._refresh_param_visibility()
+                            )
+                        elif field.value_type.value == "bool":
+                            control = ui.checkbox(text=label, value=bool(value))
+                        elif field.value_type.value in {"int", "float"}:
+                            control = ui.number(label=label, value=value).classes("w-full")
+                        else:
+                            control = ui.input(
+                                label=label, value=str(value if value is not None else "")
+                            ).classes("w-full")
+                        if not field.editable:
+                            control.props("readonly")
+                        if field.description:
+                            control.tooltip(str(field.description))
+                        self._param_controls[field.name] = control
             self._refresh_param_visibility()
 
     def _refresh_param_visibility(self) -> None:
@@ -295,7 +338,7 @@ class SumIntensityAnalysisView(BaseView):
                 else:
                     ui.label("No sum-intensity result for this channel/ROI.").classes("text-xs opacity-70")
                 return
-            build_analysis_summary_expansion(analysis.result.summary)
+            build_analysis_summary_expansion_for_analysis(analysis)
 
     def _current_detection_params(self) -> dict[str, object]:
         """Return current detection parameter values from visible controls.

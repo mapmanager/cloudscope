@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 from nicegui import ui
 
-from acqstore.acq_image.analysis.model import RUN_SUMMARY_METADATA_KEYS
+from acqstore.acq_image.analysis.model import RUN_SUMMARY_METADATA_KEYS, BaseAnalysis
 
 
 def _format_summary_value(value: Any) -> str:
@@ -59,3 +59,15 @@ def build_analysis_summary_expansion(summary: dict[str, Any]) -> None:
         ui.label(format_analysis_summary_lines(summary)).classes(
             "text-xs whitespace-pre-wrap font-mono w-full"
         )
+
+
+def build_analysis_summary_expansion_for_analysis(analysis: BaseAnalysis) -> None:
+    """Render a collapsed expansion from analysis-declared flat summary columns.
+
+    Args:
+        analysis: Completed analysis instance.
+
+    Returns:
+        None.
+    """
+    build_analysis_summary_expansion(analysis.get_summary_values())

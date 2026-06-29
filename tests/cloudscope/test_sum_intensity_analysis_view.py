@@ -5,7 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from acqstore.acq_image.analysis.model import DetectionParamSchema, DetectionValueType
+from acqstore.acq_image.analysis.model import (
+    DetectionParamCategory,
+    DetectionParamSchema,
+    DetectionValueType,
+)
+from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_analysis import (
+    SumIntensityAnalysis,
+)
 from cloudscope.event_bus import EventBus
 from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind, RunAnalysisIntent
 from cloudscope.events.roi import RoiChangeKind, RoiChanged
@@ -13,6 +20,7 @@ from cloudscope.state import PrimarySelection
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.sum_intensity_analysis_view import (
     SumIntensityAnalysisView,
+    _category_heading_if_changed,
     _field_visible_for_current_params,
 )
 from cloudscope.views.view_ids import ViewId
@@ -37,6 +45,78 @@ def test_sum_intensity_analysis_view_identity() -> None:
 
     assert isinstance(view, BaseView)
     assert view.view_id is ViewId.SUM_INTENSITY_ANALYSIS
+
+
+def test_category_heading_if_changed_returns_label_for_new_visible_category() -> None:
+    """A visible field in a new category should emit that category label."""
+    field = DetectionParamSchema(
+        name="detrend_method",
+        display_name="Detrend Method",
+        value_type=DetectionValueType.ENUM,
+        default="none",
+        category=DetectionParamCategory.PREPROCESSING,
+    )
+
+    assert _category_heading_if_changed(None, field) == DetectionParamCategory.PREPROCESSING.value
+
+
+def test_category_heading_if_changed_returns_none_for_same_category() -> None:
+    """Repeated visible fields in one category should not emit another heading."""
+    field = DetectionParamSchema(
+        name="filter_method",
+        display_name="Filter Method",
+        value_type=DetectionValueType.ENUM,
+        default="none",
+        category=DetectionParamCategory.PREPROCESSING,
+    )
+
+    assert (
+        _category_heading_if_changed(DetectionParamCategory.PREPROCESSING, field) is None
+    )
+
+
+def test_category_heading_if_changed_skips_schema_hidden_fields() -> None:
+    """Schema-hidden fields should not emit category headings."""
+    field = DetectionParamSchema(
+        name="baseline_min_value",
+        display_name="F0 Minimum Value",
+        value_type=DetectionValueType.FLOAT,
+        default=1e-12,
+        visible=False,
+        category=DetectionParamCategory.PREPROCESSING,
+    )
+
+    assert _category_heading_if_changed(None, field) is None
+
+
+def test_category_headings_follow_visible_sum_intensity_schema() -> None:
+    """Visible schema fields should produce one heading per category block."""
+    current_category: DetectionParamCategory | None = None
+    headings: list[str] = []
+    for field in SumIntensityAnalysis.get_detection_schema():
+        if not field.visible:
+            continue
+        heading = _category_heading_if_changed(current_category, field)
+        if heading is not None:
+            headings.append(heading)
+            current_category = field.category
+
+    assert headings == [
+        DetectionParamCategory.PREPROCESSING.value,
+        DetectionParamCategory.PEAK_DETECTION.value,
+    ]
+
+
+def test_sum_intensity_schema_hidden_fields_are_excluded_from_default_editor() -> None:
+    """Default editor field set should come from schema ``visible`` metadata only."""
+    visible_names = {
+        field.name for field in SumIntensityAnalysis.get_detection_schema() if field.visible
+    }
+
+    assert "baseline_min_value" not in visible_names
+    assert "level_fractions" not in visible_names
+    assert "detrend_method" in visible_names
+    assert "detection_method" in visible_names
 
 
 def test_field_visible_for_current_params_without_methods() -> None:

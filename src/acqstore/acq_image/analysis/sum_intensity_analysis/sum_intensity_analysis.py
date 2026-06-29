@@ -67,11 +67,14 @@ class SumIntensityAnalysis(BaseAnalysis):
         "baseline_method",
         "baseline_percentile",
         "manual_f0_baseline",
+        "detrend_method",
+        "detection_method",
         "detection_source",
         "peak_search_window_ms",
         "width_search_window_ms",
         "peak_amplitude_mean",
         "peak_amplitude_median",
+        "errors",
     )
     detection_schema = (
         DetectionParamSchema(

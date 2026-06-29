@@ -17,7 +17,7 @@ from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind, RunAnaly
 from cloudscope.events.roi import RoiChanged
 from cloudscope.state import PrimarySelection
 from cloudscope.views.base_view import BaseView
-from cloudscope.views.analysis_summary_display import build_analysis_summary_expansion
+from cloudscope.views.analysis_summary_display import build_analysis_summary_expansion_for_analysis
 from cloudscope.views.dialogs.batch_analysis_dialog import BatchAnalysisDialog, BatchAnalysisDialogResult
 from cloudscope.views.event_analysis_view import EventAnalysisView
 from cloudscope.views.view_ids import ViewId
@@ -293,7 +293,7 @@ class VelocityAnalysisView(BaseView):
             if analysis is None:
                 ui.label("No Radon velocity result for this channel/ROI.").classes("text-xs opacity-70")
                 return
-            build_analysis_summary_expansion(analysis.result.summary)
+            build_analysis_summary_expansion_for_analysis(analysis)
 
     def _current_detection_params(self) -> dict[str, object]:
         """Return current detection parameter values from controls.

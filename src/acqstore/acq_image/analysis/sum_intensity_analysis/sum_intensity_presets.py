@@ -159,11 +159,11 @@ _PRESETS: tuple[SumIntensityDetectionPreset, ...] = (
         name=SumIntensityPresetName.FAST,
         display_name="Fast events",
         description=(
-            "Short windows for exploratory detection of fast events. Uses df/f0 "
-            "derivative-threshold detection with minimal rolling averaging."
+            ""
+            # "Faster refractory and search windows for slower biological kinetics. "
         ),
         params=_params_with(
-            window_radius_points=0,
+            # window_radius_points=0,
             refractory_period_ms=10.0,
             peak_search_window_ms=50.0,
             width_search_window_ms=150.0,
@@ -173,11 +173,11 @@ _PRESETS: tuple[SumIntensityDetectionPreset, ...] = (
         name=SumIntensityPresetName.MEDIUM,
         display_name="Medium events",
         description=(
-            "General-purpose starting point for line-scan fluorescence events. "
-            "Uses percentile F0 and derivative-threshold detection on df/f0."
+            ""
+            # "Medium refractory and search windows for slower biological kinetics. "
         ),
         params=_params_with(
-            window_radius_points=2,
+            # window_radius_points=2,
             refractory_period_ms=250.0,
             peak_search_window_ms=150.0,
             width_search_window_ms=500.0,
@@ -187,11 +187,11 @@ _PRESETS: tuple[SumIntensityDetectionPreset, ...] = (
         name=SumIntensityPresetName.SLOW,
         display_name="Slow events",
         description=(
-            "Longer refractory and search windows for slower biological kinetics. "
-            "This is the closest built-in preset to the earlier try-script slow mode."
+            ""
+            # "Longer refractory and search windows for slower biological kinetics. "
         ),
         params=_params_with(
-            window_radius_points=8,
+            # window_radius_points=8,
             refractory_period_ms=500.0,
             peak_search_window_ms=250.0,
             width_search_window_ms=750.0,

@@ -6,7 +6,10 @@ import math
 
 import numpy as np
 
-from cloudscope.views.analysis_summary_display import format_analysis_summary_lines
+from cloudscope.views.analysis_summary_display import (
+    build_analysis_summary_expansion_for_analysis,
+    format_analysis_summary_lines,
+)
 
 
 def test_format_analysis_summary_lines_metadata_first() -> None:
@@ -47,3 +50,27 @@ def test_format_analysis_summary_lines_non_finite_floats() -> None:
     text = format_analysis_summary_lines(summary)
     assert "velocity_mean: nan" in text
     assert "velocity_median: inf" in text
+
+
+def test_build_analysis_summary_expansion_for_analysis_uses_flat_columns() -> None:
+    """Analysis summary display should use get_summary_values(), not raw summary."""
+    class _FakeAnalysis:
+        def get_summary_values(self) -> dict[str, object]:
+            return {"analysis_date": "260628", "num_peaks": 3}
+
+        @property
+        def result(self) -> object:
+            class _Result:
+                summary = {
+                    "analysis_date": "260628",
+                    "num_peaks": 3,
+                    "peak_events": [{"peak_id": 1}],
+                }
+
+            return _Result()
+
+    text = format_analysis_summary_lines(_FakeAnalysis().get_summary_values())
+    assert "num_peaks: 3" in text
+    assert "peak_events" not in text
+
+    build_analysis_summary_expansion_for_analysis(_FakeAnalysis())  # type: ignore[arg-type]
