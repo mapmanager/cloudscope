@@ -145,6 +145,19 @@ Every ticket MUST create or update a report file under:
 docs-dev/codex_tickets/
 ```
 
+### Ticket numbering
+
+Pick the next **unused three-digit prefix** by listing that directory and
+finding the highest ``NNN_`` prefix (for example ``083_``). Use the next
+integer for the new report:
+
+```text
+docs-dev/codex_tickets/084_short_title_report.md
+```
+
+Older reports without a numeric prefix can be ignored for sequencing. The
+descriptive slug after the number is free-form.
+
 The report filename MUST include the ticket number and short title.
 
 Example:

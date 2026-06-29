@@ -9,6 +9,7 @@ from typing import Literal
 PlotlyLineOrientation = Literal["horizontal", "vertical"]
 PlotlyMeasurementKind = Literal["line", "pair"]
 PlotlySeriesKind = Literal["trace", "scatter"]
+PlotlyYAxisSide = Literal["left", "right"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,12 +58,14 @@ class PlotlyTraceData:
         x: X-axis values in data coordinates.
         y: Y-axis values in data coordinates.
         visible: Whether the trace should be visible.
+        y_axis: Primary ``y`` axis (``"left"``) or overlaid ``y2`` axis (``"right"``).
     """
 
     name: str
     x: tuple[float, ...]
     y: tuple[float, ...]
     visible: bool = True
+    y_axis: PlotlyYAxisSide = "left"
 
     @classmethod
     def from_sequences(
@@ -72,6 +75,7 @@ class PlotlyTraceData:
         x: Sequence[float],
         y: Sequence[float],
         visible: bool = True,
+        y_axis: PlotlyYAxisSide = "left",
     ) -> "PlotlyTraceData":
         """Create trace data from numeric sequences.
 
@@ -80,6 +84,7 @@ class PlotlyTraceData:
             x: X-axis values in data coordinates.
             y: Y-axis values in data coordinates.
             visible: Whether the trace should be visible.
+            y_axis: Primary ``y`` axis (``"left"``) or overlaid ``y2`` axis (``"right"``).
 
         Returns:
             Immutable trace data.
@@ -96,7 +101,14 @@ class PlotlyTraceData:
             raise ValueError(
                 f"x and y must have the same length, got {len(x_values)} and {len(y_values)}"
             )
-        return cls(name=trace_name, x=x_values, y=y_values, visible=bool(visible))
+        axis = _normalize_y_axis_side(y_axis)
+        return cls(
+            name=trace_name,
+            x=x_values,
+            y=y_values,
+            visible=bool(visible),
+            y_axis=axis,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,12 +120,14 @@ class PlotlyScatterData:
         x: X-axis values in data coordinates.
         y: Y-axis values in data coordinates.
         visible: Whether the scatter overlay should be visible.
+        y_axis: Primary ``y`` axis (``"left"``) or overlaid ``y2`` axis (``"right"``).
     """
 
     name: str
     x: tuple[float, ...]
     y: tuple[float, ...]
     visible: bool = True
+    y_axis: PlotlyYAxisSide = "left"
 
     @classmethod
     def from_sequences(
@@ -123,6 +137,7 @@ class PlotlyScatterData:
         x: Sequence[float],
         y: Sequence[float],
         visible: bool = True,
+        y_axis: PlotlyYAxisSide = "left",
     ) -> "PlotlyScatterData":
         """Create scatter overlay data from numeric sequences.
 
@@ -131,6 +146,7 @@ class PlotlyScatterData:
             x: X-axis values in data coordinates.
             y: Y-axis values in data coordinates.
             visible: Whether the scatter overlay should be visible.
+            y_axis: Primary ``y`` axis (``"left"``) or overlaid ``y2`` axis (``"right"``).
 
         Returns:
             Immutable scatter overlay data.
@@ -147,7 +163,34 @@ class PlotlyScatterData:
             raise ValueError(
                 f"x and y must have the same length, got {len(x_values)} and {len(y_values)}"
             )
-        return cls(name=scatter_name, x=x_values, y=y_values, visible=bool(visible))
+        axis = _normalize_y_axis_side(y_axis)
+        return cls(
+            name=scatter_name,
+            x=x_values,
+            y=y_values,
+            visible=bool(visible),
+            y_axis=axis,
+        )
+
+
+def _normalize_y_axis_side(value: str | PlotlyYAxisSide) -> PlotlyYAxisSide:
+    """Normalize a y-axis side literal.
+
+    Args:
+        value: ``"left"`` or ``"right"``.
+
+    Returns:
+        Normalized axis side.
+
+    Raises:
+        ValueError: If the value is not supported.
+    """
+    side = str(value).strip().lower()
+    if side == "left":
+        return "left"
+    if side == "right":
+        return "right"
+    raise ValueError(f"y_axis must be 'left' or 'right', got {value!r}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,12 +226,14 @@ class MeasurementLine:
         orientation: ``"horizontal"`` for a y-value line or ``"vertical"`` for an x-value line.
         position: Current line position in data coordinates.
         visible: Whether the line is visible.
+        y_axis: Y-axis for horizontal lines. Ignored for vertical lines.
     """
 
     name: str
     orientation: PlotlyLineOrientation
     position: float
     visible: bool = True
+    y_axis: PlotlyYAxisSide = "left"
 
 
 @dataclass(slots=True)
@@ -201,6 +246,7 @@ class MeasurementPair:
         position1: Current first-line position in data coordinates.
         position2: Current second-line position in data coordinates.
         visible: Whether both lines are visible.
+        y_axis: Y-axis for horizontal lines. Ignored for vertical lines.
     """
 
     name: str
@@ -208,6 +254,7 @@ class MeasurementPair:
     position1: float
     position2: float
     visible: bool = True
+    y_axis: PlotlyYAxisSide = "left"
 
     @property
     def delta(self) -> float:
@@ -227,6 +274,7 @@ class MeasurementChangeEvent:
         position1: First pair position. ``None`` for single-line measurements.
         position2: Second pair position. ``None`` for single-line measurements.
         delta: Absolute pair distance. ``None`` for single-line measurements.
+        y_axis: Y-axis scale for horizontal measurements. Always ``"left"`` for vertical.
     """
 
     name: str
@@ -236,3 +284,4 @@ class MeasurementChangeEvent:
     position1: float | None = None
     position2: float | None = None
     delta: float | None = None
+    y_axis: PlotlyYAxisSide = "left"

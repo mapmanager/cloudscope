@@ -24,6 +24,8 @@ from nicewidgets.plotly_plot.models import (
     PlotlyScatterData,
     PlotlySeriesMenuItem,
     PlotlyTraceData,
+    PlotlyYAxisSide,
+    _normalize_y_axis_side,
 )
 from nicewidgets.raster_viewer.frontend.plotly_clipboard import (
     copy_plotly_png_to_browser_clipboard,
@@ -211,6 +213,13 @@ _PLOTLY_PLOT_MARGIN_WITH_AXIS_LABELS: dict[str, int] = {
     "b": 72,
 }
 
+_PLOTLY_PLOT_MARGIN_WITH_DUAL_Y_AXIS_LABELS: dict[str, int] = {
+    "l": 60,
+    "r": 60,
+    "t": 10,
+    "b": 72,
+}
+
 _PLOTLY_PLOT_MARGIN_COMPACT: dict[str, int] = {
     "l": 8,
     "r": 8,
@@ -322,6 +331,7 @@ class PlotlyPlotWidget:
         *,
         x_label: str = "x",
         y_label: str = "y",
+        y2_label: str = "",
         theme: PlotlyThemeName = "light",
         on_x_range_changed: OnPlotlyXRangeChanged | None = None,
         on_x_range_selected: OnPlotlyXRangeSelected | None = None,
@@ -331,7 +341,9 @@ class PlotlyPlotWidget:
 
         Args:
             x_label: X-axis label.
-            y_label: Y-axis label.
+            y_label: Primary left y-axis label.
+            y2_label: Secondary right y-axis label used when a right-axis trace
+                or scatter is present.
             theme: Initial Plotly light/dark layout theme.
             on_x_range_changed: Optional callback invoked after the user changes
                 the x-axis range by zooming, panning, or autoranging. ``(None,
@@ -343,6 +355,7 @@ class PlotlyPlotWidget:
         """
         self._x_label = str(x_label)
         self._y_label = str(y_label)
+        self._y2_label = str(y2_label)
         self._theme = normalize_plotly_theme(theme)
         self._display_options = PlotlyPlotDisplayOptions(theme=self._theme)
         self._on_x_range_changed = on_x_range_changed
@@ -442,6 +455,7 @@ class PlotlyPlotWidget:
                 x=current.x,
                 y=current.y,
                 visible=bool(visible),
+                y_axis=current.y_axis,
             )
             self._traces[clean] = data
             index = self._series_index(clean, "trace")
@@ -456,6 +470,7 @@ class PlotlyPlotWidget:
                 x=current.x,
                 y=current.y,
                 visible=bool(visible),
+                y_axis=current.y_axis,
             )
             self._scatters[clean] = data
             index = self._series_index(clean, "scatter")
@@ -591,6 +606,7 @@ class PlotlyPlotWidget:
         x: Sequence[float],
         y: Sequence[float],
         visible: bool = True,
+        y_axis: PlotlyYAxisSide = "left",
     ) -> None:
         """Add a named continuous ``scattergl`` line trace.
 
@@ -599,14 +615,20 @@ class PlotlyPlotWidget:
             x: X-axis values.
             y: Y-axis values.
             visible: Whether the trace should be visible.
+            y_axis: Primary ``y`` axis (``"left"``) or overlaid ``y2`` axis
+                (``"right"``). Right-axis traces create ``layout.yaxis2``.
 
         Raises:
             ValueError: If the name already exists or data are invalid.
         """
         clean = _validate_unique_name(name, self._traces.get(str(name).strip()), label="trace")
-        data = PlotlyTraceData.from_sequences(name=clean, x=x, y=y, visible=visible)
+        axis = _normalize_y_axis_side(y_axis)
+        data = PlotlyTraceData.from_sequences(
+            name=clean, x=x, y=y, visible=visible, y_axis=axis
+        )
         self._traces[clean] = data
         self._series_order.append(_SeriesRef(name=clean, kind="trace"))
+        self._sync_yaxis2_from_series()
         trace = self._trace_to_plotly(data)
         self._figure["data"].append(trace)
         self._add_plotly_trace(trace)
@@ -641,6 +663,7 @@ class PlotlyPlotWidget:
             x=x,
             y=y,
             visible=current.visible if visible is None else visible,
+            y_axis=current.y_axis,
         )
         self._traces[clean] = data
         index = self._series_index(clean, "trace")
@@ -663,6 +686,7 @@ class PlotlyPlotWidget:
         self._series_order.pop(index)
         self._figure["data"].pop(index)
         self._delete_plotly_trace(index)
+        self._sync_yaxis2_from_series()
 
     def clear_traces(self) -> None:
         """Remove all continuous traces while preserving scatter overlays."""
@@ -676,6 +700,7 @@ class PlotlyPlotWidget:
         x: Sequence[float],
         y: Sequence[float],
         visible: bool = True,
+        y_axis: PlotlyYAxisSide = "left",
     ) -> None:
         """Add a named sparse ``scattergl`` marker overlay.
 
@@ -684,6 +709,8 @@ class PlotlyPlotWidget:
             x: X-axis values.
             y: Y-axis values.
             visible: Whether the scatter overlay should be visible.
+            y_axis: Primary ``y`` axis (``"left"``) or overlaid ``y2`` axis
+                (``"right"``). Right-axis scatters create ``layout.yaxis2``.
 
         Raises:
             ValueError: If the name already exists or data are invalid.
@@ -693,9 +720,13 @@ class PlotlyPlotWidget:
             self._scatters.get(str(name).strip()),
             label="scatter",
         )
-        data = PlotlyScatterData.from_sequences(name=clean, x=x, y=y, visible=visible)
+        axis = _normalize_y_axis_side(y_axis)
+        data = PlotlyScatterData.from_sequences(
+            name=clean, x=x, y=y, visible=visible, y_axis=axis
+        )
         self._scatters[clean] = data
         self._series_order.append(_SeriesRef(name=clean, kind="scatter"))
+        self._sync_yaxis2_from_series()
         trace = self._scatter_to_plotly(data)
         self._figure["data"].append(trace)
         self._add_plotly_trace(trace)
@@ -730,6 +761,7 @@ class PlotlyPlotWidget:
             x=x,
             y=y,
             visible=current.visible if visible is None else visible,
+            y_axis=current.y_axis,
         )
         self._scatters[clean] = data
         index = self._series_index(clean, "scatter")
@@ -752,6 +784,7 @@ class PlotlyPlotWidget:
         self._series_order.pop(index)
         self._figure["data"].pop(index)
         self._delete_plotly_trace(index)
+        self._sync_yaxis2_from_series()
 
     def clear_scatters(self) -> None:
         """Remove all scatter overlays while preserving continuous traces."""
@@ -788,6 +821,7 @@ class PlotlyPlotWidget:
                 x=data.x,
                 y=data.y,
                 visible=visible,
+                y_axis=data.y_axis,
             )
             self._traces[stored.name] = stored
             self._series_order.append(_SeriesRef(name=stored.name, kind="trace"))
@@ -799,12 +833,14 @@ class PlotlyPlotWidget:
                 x=data.x,
                 y=data.y,
                 visible=visible,
+                y_axis=data.y_axis,
             )
             self._scatters[stored.name] = stored
             self._series_order.append(_SeriesRef(name=stored.name, kind="scatter"))
             plotly_data.append(self._scatter_to_plotly(stored))
         self._figure["data"] = plotly_data
         self._sync_hover_info_to_plotly_dict()
+        self._sync_yaxis2_from_series()
         self._push_series_data()
 
     def set_theme(self, theme: PlotlyThemeName) -> None:
@@ -896,6 +932,7 @@ class PlotlyPlotWidget:
         orientation: str,
         value: float,
         visible: bool = True,
+        y_axis: PlotlyYAxisSide = "left",
         on_changed: OnMeasurementChanged | None = None,
     ) -> MeasurementLine:
         """Add a draggable horizontal or vertical measurement line.
@@ -905,13 +942,16 @@ class PlotlyPlotWidget:
             orientation: ``horizontal``/``h`` or ``vertical``/``v``.
             value: Initial line position in data coordinates.
             visible: Whether the line should be visible.
+            y_axis: Y-axis for horizontal lines. ``"right"`` requires an
+                existing ``layout.yaxis2`` from a right-axis trace or scatter.
             on_changed: Optional per-measurement callback.
 
         Returns:
             Mutable measurement line object owned by the widget.
 
         Raises:
-            ValueError: If the name already exists or orientation is invalid.
+            ValueError: If the name already exists, orientation is invalid, or
+                a right-axis horizontal line is requested before ``yaxis2`` exists.
         """
         clean = _validate_unique_name(
             name,
@@ -919,16 +959,26 @@ class PlotlyPlotWidget:
             label="measurement",
         )
         normalized = _normalize_orientation(orientation)
+        axis = _normalize_y_axis_side(y_axis)
+        if normalized == "vertical":
+            axis = "left"
+        elif axis == "right" and not self._has_yaxis2():
+            raise ValueError(
+                "cannot add right-axis measurement before a right-axis trace or scatter exists"
+            )
         line = MeasurementLine(
             name=clean,
             orientation=normalized,
             position=float(value),
             visible=bool(visible),
+            y_axis=axis,
         )
         self._measurements[clean] = line
         if on_changed is not None:
             self._measurement_callbacks[clean] = on_changed
-        self._append_measurement_shape(clean, "line", 1, normalized, float(value), visible)
+        self._append_measurement_shape(
+            clean, "line", 1, normalized, float(value), visible, axis
+        )
         self._push_shapes()
         return line
 
@@ -952,6 +1002,7 @@ class PlotlyPlotWidget:
         value1: float,
         value2: float,
         visible: bool = True,
+        y_axis: PlotlyYAxisSide = "left",
         on_changed: OnMeasurementChanged | None = None,
     ) -> MeasurementPair:
         """Add a draggable pair of horizontal or vertical measurement lines.
@@ -962,13 +1013,16 @@ class PlotlyPlotWidget:
             value1: Initial first-line position in data coordinates.
             value2: Initial second-line position in data coordinates.
             visible: Whether both lines should be visible.
+            y_axis: Y-axis for horizontal lines. ``"right"`` requires an
+                existing ``layout.yaxis2`` from a right-axis trace or scatter.
             on_changed: Optional per-measurement callback.
 
         Returns:
             Mutable measurement pair object owned by the widget.
 
         Raises:
-            ValueError: If the name already exists or orientation is invalid.
+            ValueError: If the name already exists, orientation is invalid, or
+                a right-axis horizontal pair is requested before ``yaxis2`` exists.
         """
         clean = _validate_unique_name(
             name,
@@ -976,18 +1030,30 @@ class PlotlyPlotWidget:
             label="measurement",
         )
         normalized = _normalize_orientation(orientation)
+        axis = _normalize_y_axis_side(y_axis)
+        if normalized == "vertical":
+            axis = "left"
+        elif axis == "right" and not self._has_yaxis2():
+            raise ValueError(
+                "cannot add right-axis measurement before a right-axis trace or scatter exists"
+            )
         pair = MeasurementPair(
             name=clean,
             orientation=normalized,
             position1=float(value1),
             position2=float(value2),
             visible=bool(visible),
+            y_axis=axis,
         )
         self._measurements[clean] = pair
         if on_changed is not None:
             self._measurement_callbacks[clean] = on_changed
-        self._append_measurement_shape(clean, "pair", 1, normalized, float(value1), visible)
-        self._append_measurement_shape(clean, "pair", 2, normalized, float(value2), visible)
+        self._append_measurement_shape(
+            clean, "pair", 1, normalized, float(value1), visible, axis
+        )
+        self._append_measurement_shape(
+            clean, "pair", 2, normalized, float(value2), visible, axis
+        )
         self._push_shapes()
         return pair
 
@@ -1009,6 +1075,79 @@ class PlotlyPlotWidget:
             if ref.name == name and ref.kind == kind:
                 return index
         raise KeyError(f"{kind} {name!r} does not exist")
+
+    def _has_yaxis2(self) -> bool:
+        """Return whether the figure layout currently defines ``yaxis2``."""
+        layout = self._figure.get("layout", {})
+        return isinstance(layout, dict) and "yaxis2" in layout
+
+    def _has_right_axis_series(self) -> bool:
+        """Return whether any trace or scatter is bound to the right y-axis."""
+        return any(trace.y_axis == "right" for trace in self._traces.values()) or any(
+            scatter.y_axis == "right" for scatter in self._scatters.values()
+        )
+
+    def _sync_yaxis2_from_series(self) -> None:
+        """Create or remove ``layout.yaxis2`` based on right-axis traces/scatters."""
+        if self._has_right_axis_series():
+            self._ensure_yaxis2()
+        else:
+            self._maybe_remove_yaxis2()
+
+    def _build_yaxis2_dict(self) -> dict[str, Any]:
+        """Return a Plotly ``yaxis2`` layout dictionary for the current theme."""
+        theme = theme_for_name(self._theme)
+        visible = bool(self._display_options.show_axis_labels)
+        return {
+            "overlaying": "y",
+            "side": "right",
+            "autorange": True,
+            "showgrid": False,
+            "zeroline": False,
+            "title": {"text": self._y2_label if visible else ""},
+            "showticklabels": visible,
+            "ticks": "outside" if visible else "",
+            "showline": visible,
+            "color": theme.axis_color,
+            "linecolor": theme.axis_color,
+            "tickcolor": theme.axis_color,
+            "gridcolor": theme.grid_color,
+            "zerolinecolor": theme.zero_line_color,
+        }
+
+    def _ensure_yaxis2(self) -> None:
+        """Ensure ``layout.yaxis2`` exists and matches current display options."""
+        layout = self._figure.setdefault("layout", {})
+        layout["yaxis2"] = self._build_yaxis2_dict()
+        self._sync_margins_to_plotly_dict()
+        self._relayout_secondary_y_axis()
+
+    def _maybe_remove_yaxis2(self) -> None:
+        """Remove ``layout.yaxis2`` when no right-axis traces or scatters remain."""
+        if self._has_right_axis_series() or not self._has_yaxis2():
+            return
+        layout = self._figure.setdefault("layout", {})
+        layout.pop("yaxis2", None)
+        self._sync_margins_to_plotly_dict()
+        self._relayout(
+            {
+                "yaxis2": None,
+                "margin": dict(layout.get("margin", _PLOTLY_PLOT_MARGIN_COMPACT)),
+            },
+            source="remove_yaxis2",
+        )
+
+    def _relayout_secondary_y_axis(self) -> None:
+        """Push ``yaxis2`` and margin layout changes to the browser."""
+        layout = self._figure.get("layout", {})
+        yaxis2 = layout.get("yaxis2")
+        if not isinstance(yaxis2, dict):
+            return
+        relayout: dict[str, Any] = {
+            "yaxis2": yaxis2,
+            "margin": dict(layout.get("margin", _PLOTLY_PLOT_MARGIN_COMPACT)),
+        }
+        self._relayout(relayout, source="yaxis2")
 
     def _remove_measurement(self, name: str, *, expected_kind: _MeasurementKind) -> None:
         """Remove a measurement and all associated Plotly shapes."""
@@ -1037,7 +1176,7 @@ class PlotlyPlotWidget:
     def _trace_to_plotly(self, data: PlotlyTraceData) -> dict[str, Any]:
         """Return a Plotly ``scattergl`` line trace dictionary."""
         hoverinfo = "all" if self._display_options.show_hover_info else "skip"
-        return {
+        trace: dict[str, Any] = {
             "type": "scattergl",
             "mode": "lines",
             "name": data.name,
@@ -1046,11 +1185,14 @@ class PlotlyPlotWidget:
             "visible": True if data.visible else False,
             "hoverinfo": hoverinfo,
         }
+        if data.y_axis == "right":
+            trace["yaxis"] = "y2"
+        return trace
 
     def _scatter_to_plotly(self, data: PlotlyScatterData) -> dict[str, Any]:
         """Return a Plotly ``scattergl`` marker trace dictionary."""
         hoverinfo = "all" if self._display_options.show_hover_info else "skip"
-        return {
+        trace: dict[str, Any] = {
             "type": "scattergl",
             "mode": "markers",
             "name": data.name,
@@ -1060,6 +1202,9 @@ class PlotlyPlotWidget:
             "hoverinfo": hoverinfo,
             "marker": {"size": 8},
         }
+        if data.y_axis == "right":
+            trace["yaxis"] = "y2"
+        return trace
 
     def _append_measurement_shape(
         self,
@@ -1069,9 +1214,15 @@ class PlotlyPlotWidget:
         orientation: PlotlyLineOrientation,
         value: float,
         visible: bool,
+        y_axis: PlotlyYAxisSide = "left",
     ) -> None:
         """Append one Plotly layout shape for a measurement line."""
-        shape = self._line_shape(orientation=orientation, value=value, visible=visible)
+        shape = self._line_shape(
+            orientation=orientation,
+            value=value,
+            visible=visible,
+            y_axis=y_axis,
+        )
         self._shapes().append(shape)
         self._shape_refs.append(_ShapeRef(name=name, kind=kind, line_number=line_number))
 
@@ -1081,6 +1232,7 @@ class PlotlyPlotWidget:
         orientation: PlotlyLineOrientation,
         value: float,
         visible: bool,
+        y_axis: PlotlyYAxisSide = "left",
     ) -> dict[str, Any]:
         """Build one editable Plotly line shape."""
         if orientation == "horizontal":
@@ -1089,7 +1241,7 @@ class PlotlyPlotWidget:
                 "xref": "paper",
                 "x0": 0,
                 "x1": 1,
-                "yref": "y",
+                "yref": "y2" if y_axis == "right" else "y",
                 "y0": value,
                 "y1": value,
                 "visible": bool(visible),
@@ -1324,6 +1476,7 @@ class PlotlyPlotWidget:
                     kind="line",
                     orientation=measurement.orientation,
                     position=position,
+                    y_axis=measurement.y_axis,
                 )
             else:
                 if ref.line_number == 1:
@@ -1338,6 +1491,7 @@ class PlotlyPlotWidget:
                     position1=measurement.position1,
                     position2=measurement.position2,
                     delta=measurement.delta,
+                    y_axis=measurement.y_axis,
                 )
             self._emit_measurement_changed(event)
 
@@ -1466,15 +1620,28 @@ Plotly.relayout(plotDiv, {json.dumps(payload)});
             axis["showline"] = visible
             axis["zeroline"] = False
             axis["showgrid"] = visible
+        if self._has_yaxis2():
+            yaxis2 = layout.setdefault("yaxis2", self._build_yaxis2_dict())
+            if isinstance(yaxis2, dict):
+                title = yaxis2.setdefault("title", {})
+                if not isinstance(title, dict):
+                    title = {}
+                    yaxis2["title"] = title
+                title["text"] = self._y2_label if visible else ""
+                yaxis2["showticklabels"] = visible
+                yaxis2["ticks"] = "outside" if visible else ""
+                yaxis2["showline"] = visible
+                yaxis2["showgrid"] = False
 
     def _sync_margins_to_plotly_dict(self) -> None:
         """Synchronize layout margins with axis-label visibility."""
         layout = self._figure.setdefault("layout", {})
-        margin = (
-            dict(_PLOTLY_PLOT_MARGIN_WITH_AXIS_LABELS)
-            if self._display_options.show_axis_labels
-            else dict(_PLOTLY_PLOT_MARGIN_COMPACT)
-        )
+        if not bool(self._display_options.show_axis_labels):
+            margin = dict(_PLOTLY_PLOT_MARGIN_COMPACT)
+        elif self._has_yaxis2():
+            margin = dict(_PLOTLY_PLOT_MARGIN_WITH_DUAL_Y_AXIS_LABELS)
+        else:
+            margin = dict(_PLOTLY_PLOT_MARGIN_WITH_AXIS_LABELS)
         layout["margin"] = margin
 
     def _sync_legend_to_plotly_dict(self) -> None:
@@ -1548,6 +1715,15 @@ Plotly.react(plotDiv, plotDiv.data, plotDiv.layout, {json.dumps(config)});
             relayout[f"{axis_name}.showline"] = axis.get("showline", False)
             relayout[f"{axis_name}.zeroline"] = axis.get("zeroline", False)
             relayout[f"{axis_name}.showgrid"] = axis.get("showgrid", False)
+        yaxis2 = layout.get("yaxis2")
+        if isinstance(yaxis2, dict):
+            title = yaxis2.get("title", {})
+            if isinstance(title, dict):
+                relayout["yaxis2.title.text"] = title.get("text", "")
+            relayout["yaxis2.showticklabels"] = yaxis2.get("showticklabels", False)
+            relayout["yaxis2.ticks"] = yaxis2.get("ticks", "")
+            relayout["yaxis2.showline"] = yaxis2.get("showline", False)
+            relayout["yaxis2.showgrid"] = yaxis2.get("showgrid", False)
         self._relayout(relayout)
 
     def _relayout_legend(self) -> None:
@@ -1582,6 +1758,13 @@ Plotly.react(plotDiv, plotDiv.data, plotDiv.layout, {json.dumps(config)});
             relayout[f"{axis_name}.tickcolor"] = axis.get("tickcolor", theme.axis_color)
             relayout[f"{axis_name}.gridcolor"] = axis.get("gridcolor", theme.grid_color)
             relayout[f"{axis_name}.zerolinecolor"] = axis.get("zerolinecolor", theme.zero_line_color)
+        yaxis2 = layout.get("yaxis2")
+        if isinstance(yaxis2, dict):
+            relayout["yaxis2.color"] = yaxis2.get("color", theme.axis_color)
+            relayout["yaxis2.linecolor"] = yaxis2.get("linecolor", theme.axis_color)
+            relayout["yaxis2.tickcolor"] = yaxis2.get("tickcolor", theme.axis_color)
+            relayout["yaxis2.gridcolor"] = yaxis2.get("gridcolor", theme.grid_color)
+            relayout["yaxis2.zerolinecolor"] = yaxis2.get("zerolinecolor", theme.zero_line_color)
         self._relayout(relayout)
 
     def _push_series_data(self) -> None:

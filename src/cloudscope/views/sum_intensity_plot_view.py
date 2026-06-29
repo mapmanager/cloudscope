@@ -30,6 +30,7 @@ from nicewidgets.plotly_plot.models import (
     PlotlyScatterData,
     PlotlySeriesMenuItem,
     PlotlyTraceData,
+    PlotlyYAxisSide,
 )
 from nicewidgets.plotly_plot.widget import PlotlyPlotWidget
 
@@ -156,6 +157,7 @@ class SumIntensityPlotView(BaseView):
         self._plot = PlotlyPlotWidget(
             x_label="Time (s)",
             y_label="Signal",
+            y2_label="d(df/f0)/dt (1/s)",
             theme="dark" if self._initial_dark_mode else "light",
             on_x_range_changed=self._on_plot_x_range_changed,
             on_measurement_changed=self._on_measurement_changed,
@@ -315,7 +317,10 @@ class SumIntensityPlotView(BaseView):
         """
         traces = [
             self._trace_data(analysis.get_trace(SumIntensityTraceKey.DF_F_SIGNAL)),
-            self._trace_data(analysis.get_trace(SumIntensityTraceKey.D_DF_F_SIGNAL)),
+            self._trace_data(
+                analysis.get_trace(SumIntensityTraceKey.D_DF_F_SIGNAL),
+                y_axis="right",
+            ),
         ]
         width_traces = analysis.get_width_trace()
         if isinstance(width_traces, tuple):
@@ -378,11 +383,18 @@ class SumIntensityPlotView(BaseView):
         )
         return items
 
-    def _trace_data(self, trace: ResultTrace) -> PlotlyTraceData:
+    def _trace_data(
+        self,
+        trace: ResultTrace,
+        *,
+        y_axis: PlotlyYAxisSide = "left",
+    ) -> PlotlyTraceData:
         """Convert one AcqStore result trace to Plotly trace data.
 
         Args:
             trace: Public AcqStore result trace.
+            y_axis: Primary ``y`` axis (``"left"``) or overlaid ``y2`` axis
+                (``"right"``).
 
         Returns:
             Immutable Plotly trace data.
@@ -395,6 +407,7 @@ class SumIntensityPlotView(BaseView):
             x=trace.x,
             y=trace.y,
             visible=visible,
+            y_axis=y_axis,
         )
 
     def _scatter_data(self, points: ResultPoints) -> PlotlyScatterData:

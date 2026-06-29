@@ -256,6 +256,8 @@ def test_refresh_plot_pushes_traces_scatters_and_widths() -> None:
     assert view._plot.set_series_calls == 1
     assert trace_names == ["df/f0 signal", "Derivative of df/f0", "Peak width 50"]
     assert scatter_names == ["Onsets", "Peaks"]
+    assert view._plot.traces[0].y_axis == "left"
+    assert view._plot.traces[1].y_axis == "right"
     assert view._plot.traces[1].visible is False
     assert view._plot.traces[2].visible is True
     assert all(scatter.visible for scatter in view._plot.scatters)

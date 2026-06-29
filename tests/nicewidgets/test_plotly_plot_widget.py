@@ -452,3 +452,105 @@ def test_toggle_series_visible_updates_existing_scatter(fake_plotly: list[_FakeP
     assert widget.is_series_visible("Onsets") is False
     assert widget.figure["data"][0]["visible"] is False
     assert "Plotly.restyle" in fake_plotly[0].client.calls[-1]
+
+
+def test_right_axis_trace_creates_yaxis2(fake_plotly: list[_FakePlotlyElement]) -> None:
+    """A right-axis trace should create ``layout.yaxis2`` and bind the trace."""
+    widget = PlotlyPlotWidget(y2_label="rate (1/s)")
+
+    widget.add_trace(name="signal", x=[0.0, 1.0], y=[1.0, 2.0])
+    assert "yaxis2" not in widget.figure["layout"]
+
+    widget.add_trace(name="derivative", x=[0.0, 1.0], y=[0.1, 0.2], y_axis="right")
+
+    assert widget.figure["layout"]["yaxis2"]["overlaying"] == "y"
+    assert widget.figure["layout"]["yaxis2"]["side"] == "right"
+    assert widget.figure["data"][1]["yaxis"] == "y2"
+
+
+def test_remove_last_right_axis_trace_removes_yaxis2(fake_plotly: list[_FakePlotlyElement]) -> None:
+    """Removing the last right-axis trace should remove ``layout.yaxis2``."""
+    widget = PlotlyPlotWidget()
+    widget.add_trace(name="derivative", x=[0.0, 1.0], y=[0.1, 0.2], y_axis="right")
+    assert "yaxis2" in widget.figure["layout"]
+
+    widget.remove_trace("derivative")
+
+    assert "yaxis2" not in widget.figure["layout"]
+
+
+def test_set_series_with_mixed_axes(fake_plotly: list[_FakePlotlyElement]) -> None:
+    """Batch series replacement should configure mixed-axis traces and yaxis2."""
+    widget = PlotlyPlotWidget(y2_label="d/dt")
+    traces = [
+        PlotlyTraceData.from_sequences(name="df/f0", x=[0.0, 1.0], y=[1.0, 2.0]),
+        PlotlyTraceData.from_sequences(
+            name="derivative",
+            x=[0.0, 1.0],
+            y=[0.1, 0.2],
+            y_axis="right",
+        ),
+    ]
+
+    widget.set_series(traces=traces)
+
+    assert widget.figure["data"][1]["yaxis"] == "y2"
+    assert widget.figure["layout"]["yaxis2"]["title"]["text"] == ""
+
+
+def test_right_axis_scatter_creates_yaxis2(fake_plotly: list[_FakePlotlyElement]) -> None:
+    """A right-axis scatter should create ``layout.yaxis2``."""
+    widget = PlotlyPlotWidget()
+    widget.plot_scatter(name="markers", x=[0.5], y=[1.0], y_axis="right")
+
+    assert widget.figure["data"][0]["yaxis"] == "y2"
+    assert "yaxis2" in widget.figure["layout"]
+
+
+def test_right_axis_measurement_requires_existing_yaxis2(
+    fake_plotly: list[_FakePlotlyElement],
+) -> None:
+    """Right-axis measurements should fail before a right-axis trace exists."""
+    widget = PlotlyPlotWidget()
+
+    with pytest.raises(ValueError, match="right-axis trace or scatter"):
+        widget.add_measurement_line(
+            name="threshold",
+            orientation="horizontal",
+            value=1.0,
+            y_axis="right",
+        )
+
+
+def test_right_axis_measurement_uses_y2_and_reports_axis_on_drag(
+    fake_plotly: list[_FakePlotlyElement],
+) -> None:
+    """Right-axis horizontal measurements should bind to ``y2`` and report axis."""
+    events: list[MeasurementChangeEvent] = []
+    widget = PlotlyPlotWidget(on_measurement_changed=events.append)
+    widget.add_trace(name="derivative", x=[0.0, 1.0], y=[0.1, 0.2], y_axis="right")
+    widget.add_measurement_line(
+        name="threshold",
+        orientation="horizontal",
+        value=1.0,
+        y_axis="right",
+    )
+
+    assert widget.figure["layout"]["shapes"][0]["yref"] == "y2"
+    widget._on_plotly_relayout(_RelayoutEvent({"shapes[0].y0": 1.5, "shapes[0].y1": 1.5}))
+
+    assert events[-1].position == 1.5
+    assert events[-1].y_axis == "right"
+
+
+def test_axis_labels_toggle_updates_yaxis2_and_dual_margin(
+    fake_plotly: list[_FakePlotlyElement],
+) -> None:
+    """Axis-label toggle should decorate ``yaxis2`` and widen the right margin."""
+    widget = PlotlyPlotWidget(y2_label="rate (1/s)")
+    widget.add_trace(name="derivative", x=[0.0, 1.0], y=[0.1, 0.2], y_axis="right")
+
+    widget.set_axis_labels_visible(True)
+
+    assert widget.figure["layout"]["yaxis2"]["title"]["text"] == "rate (1/s)"
+    assert widget.figure["layout"]["margin"]["r"] == 60
