@@ -33,12 +33,15 @@ def test_sum_intensity_hidden_advanced_fields_remain_in_schema() -> None:
     """Advanced hidden fields should remain backend-valid detection params."""
     schema_by_name = {field.name: field for field in SumIntensityAnalysis.get_detection_schema()}
 
+    assert schema_by_name["baseline_window_ms"].visible is True
+    assert schema_by_name["baseline_window_ms"].category is DetectionParamCategory.PREPROCESSING
     assert schema_by_name["baseline_min_value"].visible is False
     assert schema_by_name["baseline_min_value"].category is DetectionParamCategory.PREPROCESSING
     assert schema_by_name["level_fractions"].visible is False
     assert schema_by_name["level_fractions"].category is DetectionParamCategory.PEAK_DETECTION
 
     defaults = SumIntensityAnalysis.get_default_detection_params()
+    assert "baseline_window_ms" in defaults
     assert "baseline_min_value" in defaults
     assert "level_fractions" in defaults
     SumIntensityAnalysis.validate_detection_params(defaults)

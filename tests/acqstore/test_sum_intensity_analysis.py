@@ -53,14 +53,21 @@ def _params() -> dict[str, object]:
     return {
         "window_radius_points": 0,
         "filter_method": "none",
+        "median_filter_kernel_points": 3,
         "detrend_method": "none",
         "baseline_method": "percentile",
         "baseline_percentile": 0.0,
         "baseline_min_value": 1e-12,
+        "baseline_window_ms": 3.0,
+        "detection_method": "derivative_threshold",
+        "polarity": "positive",
         "detection_source": SumIntensityTraceKey.DF_F_SIGNAL.value,
+        "absolute_threshold": 1.0,
         "derivative_threshold_per_sec": 500.0,
+        "refractory_period_ms": 2.0,
         "peak_search_window_ms": 5.0,
         "width_search_window_ms": 20.0,
+        "level_fractions": "0.1,0.2,0.5,0.8,0.9",
     }
 
 

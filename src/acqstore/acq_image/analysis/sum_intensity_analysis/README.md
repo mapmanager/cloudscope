@@ -465,3 +465,54 @@ The currently hidden advanced fields are:
 
 These fields are still validated by AcqStore and remain available for scripts,
 advanced editors, and future expert-mode GUI controls.
+
+## Event feature schema
+
+Sum-intensity analysis now documents event-level result features with a backend
+feature schema. This schema is separate from continuous trace definitions:
+
+- traces describe per-timepoint arrays such as `df_f_signal` and
+  `d_df_f_signal`.
+- event features describe one scalar measurement per `PeakEvent`.
+
+Use:
+
+```python
+schema = SumIntensityAnalysis.get_feature_schema()
+df = SumIntensityAnalysis.get_feature_schema_dataframe()
+```
+
+The feature schema includes `name`, `display_name`, `value_type`, `unit`,
+`description`, `algorithm`, and `category`. The `algorithm` field is intended for
+human-readable reports and GUI tooltips that explain how each scalar was
+calculated.
+
+Current documented event-level features are:
+
+| Feature | Category | Algorithm summary |
+| --- | --- | --- |
+| `baseline_mean` | Baseline | Mean detection-source value in `[onset - baseline_window_ms, onset)`. |
+| `baseline_std` | Baseline | Sample standard deviation in the same pre-onset baseline window. |
+| `prominence` | Amplitude | Peak value relative to `baseline_mean`, polarity-aware. |
+| `rise_10_90_sec` | Kinetics | `left_90_time_sec - left_10_time_sec`. |
+| `decay_90_10_sec` | Kinetics | `right_10_time_sec - right_90_time_sec`. |
+| `decay_time_sec` | Kinetics | Alias of `decay_90_10_sec` in this implementation. |
+| `max_rise_slope` | Slope | Maximum signed derivative from onset to peak. |
+| `max_decay_slope` | Slope | Maximum signed derivative from peak to right 10% crossing. |
+| `auc` | Area | Integral from left 10% to right 10% crossing above onset value. |
+
+Each new feature is stored as an `EventFeature` record with:
+
+- `value`
+- `status`
+- `reason`
+
+This keeps expected scientific failures, such as missing right-side decay
+crossings, as result data rather than runtime errors.
+
+## Event-local baseline window
+
+`baseline_window_ms` is a visible preprocessing detection parameter. It controls
+the pre-onset window used to calculate `baseline_mean`, `baseline_std`, and
+`prominence`. If the baseline window does not include enough samples for a
+measurement, the affected feature is marked as failed with failure provenance.

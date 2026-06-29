@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 
 from acqstore.acq_image.analysis.data_provider import AnalysisDataProvider
 from acqstore.acq_image.analysis.model import (
@@ -25,6 +26,11 @@ from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_core impor
     SumIntensityTraceKey,
     WIDTH_LEVEL_FRACTIONS,
     run_sum_intensity,
+)
+from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_features import (
+    SumIntensityFeatureSchema,
+    get_sum_intensity_feature_schema,
+    get_sum_intensity_feature_schema_dataframe,
 )
 from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_presets import (
     SumIntensityDetectionPreset,
@@ -72,6 +78,7 @@ class SumIntensityAnalysis(BaseAnalysis):
         "detection_source",
         "peak_search_window_ms",
         "width_search_window_ms",
+        "baseline_window_ms",
         "peak_amplitude_mean",
         "peak_amplitude_median",
         "errors",
@@ -143,6 +150,18 @@ class SumIntensityAnalysis(BaseAnalysis):
                 "Units are the same as the filtered/detrended normalized intensity trace."
             ),
             methods=("manual",),
+            category=DetectionParamCategory.PREPROCESSING,
+        ),
+        DetectionParamSchema(
+            name="baseline_window_ms",
+            display_name="Baseline Window",
+            value_type=DetectionValueType.FLOAT,
+            default=100.0,
+            unit="ms",
+            description=(
+                "Backward window before each detected onset used to calculate "
+                "event-local baseline_mean, baseline_std, and prominence."
+            ),
             category=DetectionParamCategory.PREPROCESSING,
         ),
         DetectionParamSchema(
@@ -298,6 +317,24 @@ class SumIntensityAnalysis(BaseAnalysis):
         params = get_sum_intensity_detection_preset_params(name)
         cls.validate_detection_params(params)
         return params
+
+    @classmethod
+    def get_feature_schema(cls) -> tuple[SumIntensityFeatureSchema, ...]:
+        """Return event-level result feature schema entries.
+
+        Returns:
+            Tuple of feature schema records in stable report order.
+        """
+        return get_sum_intensity_feature_schema()
+
+    @classmethod
+    def get_feature_schema_dataframe(cls) -> pd.DataFrame:
+        """Return event-level result feature schema as a DataFrame.
+
+        Returns:
+            DataFrame with one row per documented event-level feature.
+        """
+        return get_sum_intensity_feature_schema_dataframe()
 
     def __init__(
         self,

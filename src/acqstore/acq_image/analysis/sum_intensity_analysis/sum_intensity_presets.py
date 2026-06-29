@@ -128,6 +128,7 @@ def _base_params() -> dict[str, Any]:
         "baseline_percentile": 20.0,
         "manual_f0_baseline": 1.0,
         "baseline_min_value": 1e-12,
+        "baseline_window_ms": 100.0,
         "detection_method": "derivative_threshold",
         "polarity": "positive",
         "detection_source": SumIntensityTraceKey.DF_F_SIGNAL.value,

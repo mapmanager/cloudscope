@@ -238,6 +238,50 @@ SUM_INTENSITY_TABLE_COLUMNS: tuple[str, ...] = (
 
 
 @dataclass(frozen=True, slots=True)
+class EventFeature:
+    """Event-local scalar measurement with failure provenance.
+
+    Args:
+        value: Numeric measurement value, or None when unavailable.
+        status: Measurement status. ``"ok"`` means the value is valid; other
+            values identify expected scientific failure modes.
+        reason: Human-readable reason when ``status`` is not ``"ok"``.
+    """
+
+    value: float | None
+    status: str = "ok"
+    reason: str = ""
+
+    def to_json_dict(self) -> dict[str, object]:
+        """Return a JSON-serializable feature record.
+
+        Returns:
+            Dictionary containing value, status, and reason.
+        """
+        return {
+            "value": _optional_float(self.value),
+            "status": str(self.status),
+            "reason": str(self.reason),
+        }
+
+    @classmethod
+    def from_json_dict(cls, record: dict[str, Any]) -> EventFeature:
+        """Create a feature record from JSON-like data.
+
+        Args:
+            record: JSON dictionary created by :meth:`to_json_dict`.
+
+        Returns:
+            Parsed event feature.
+        """
+        return cls(
+            value=_optional_float(record.get("value")),
+            status=str(record.get("status", "ok")),
+            reason=str(record.get("reason", "")),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class LevelCrossing:
     """Peak level-crossing measurement at one amplitude fraction.
 
@@ -313,6 +357,15 @@ class PeakEvent:
         peak_amplitude: Peak amplitude relative to onset, or None when
             unavailable.
         detection_method: Detection method used to accept the onset.
+        baseline_mean: Mean detection-source value before onset.
+        baseline_std: Standard deviation of detection-source values before onset.
+        rise_10_90_sec: Time from left 10% to left 90% crossing.
+        decay_90_10_sec: Time from right 90% to right 10% crossing.
+        decay_time_sec: Default decay-time measurement, currently decay 90→10.
+        max_rise_slope: Maximum signed derivative from onset to peak.
+        max_decay_slope: Maximum signed derivative from peak to right 10% crossing.
+        auc: Area under event between left and right 10% crossings.
+        prominence: Peak value relative to the pre-onset baseline mean.
         level_crossings: Requested fractional width measurements.
         onset_to_onset_interval_sec: Interval from the previous accepted onset,
             or None for the first event.
@@ -331,6 +384,15 @@ class PeakEvent:
     peak_value: float | None
     peak_amplitude: float | None
     detection_method: str
+    baseline_mean: EventFeature
+    baseline_std: EventFeature
+    rise_10_90_sec: EventFeature
+    decay_90_10_sec: EventFeature
+    decay_time_sec: EventFeature
+    max_rise_slope: EventFeature
+    max_decay_slope: EventFeature
+    auc: EventFeature
+    prominence: EventFeature
     level_crossings: tuple[LevelCrossing, ...] = field(default_factory=tuple)
     onset_to_onset_interval_sec: float | None = None
     peak_to_peak_interval_sec: float | None = None
@@ -357,6 +419,17 @@ class PeakEvent:
                 "amplitude": _optional_float(self.peak_amplitude),
             },
             "detection_method": str(self.detection_method),
+            "features": {
+                "baseline_mean": self.baseline_mean.to_json_dict(),
+                "baseline_std": self.baseline_std.to_json_dict(),
+                "rise_10_90_sec": self.rise_10_90_sec.to_json_dict(),
+                "decay_90_10_sec": self.decay_90_10_sec.to_json_dict(),
+                "decay_time_sec": self.decay_time_sec.to_json_dict(),
+                "max_rise_slope": self.max_rise_slope.to_json_dict(),
+                "max_decay_slope": self.max_decay_slope.to_json_dict(),
+                "auc": self.auc.to_json_dict(),
+                "prominence": self.prominence.to_json_dict(),
+            },
             "level_crossings": [crossing.to_json_dict() for crossing in self.level_crossings],
             "intervals": {
                 "onset_to_onset_interval_sec": _optional_float(
@@ -381,6 +454,14 @@ class PeakEvent:
         onset = dict(record["onset"])
         peak = dict(record["peak"])
         intervals = dict(record.get("intervals", {}))
+        features = dict(record.get("features", {}))
+
+        def _feature(name: str) -> EventFeature:
+            feature_record = features.get(name)
+            if feature_record is None:
+                return EventFeature(value=None, status="not_available", reason="missing_from_json")
+            return EventFeature.from_json_dict(dict(feature_record))
+
         return cls(
             peak_id=int(record["peak_id"]),
             status=str(record["status"]),
@@ -393,6 +474,15 @@ class PeakEvent:
             peak_value=_optional_float(peak.get("value")),
             peak_amplitude=_optional_float(peak.get("amplitude")),
             detection_method=str(record["detection_method"]),
+            baseline_mean=_feature("baseline_mean"),
+            baseline_std=_feature("baseline_std"),
+            rise_10_90_sec=_feature("rise_10_90_sec"),
+            decay_90_10_sec=_feature("decay_90_10_sec"),
+            decay_time_sec=_feature("decay_time_sec"),
+            max_rise_slope=_feature("max_rise_slope"),
+            max_decay_slope=_feature("max_decay_slope"),
+            auc=_feature("auc"),
+            prominence=_feature("prominence"),
             level_crossings=tuple(
                 LevelCrossing.from_json_dict(dict(item))
                 for item in record.get("level_crossings", ())
@@ -660,14 +750,19 @@ def run_sum_intensity(
         float(params["width_search_window_ms"]), seconds_per_line
     )
     level_fractions = _parse_level_fractions(str(params["level_fractions"]))
+    baseline_window_points = _duration_ms_to_points(
+        float(params["baseline_window_ms"]), seconds_per_line
+    )
     events = _build_events(
         detection_signal=detection_signal,
+        derivative_signal=d_detection_signal,
         time_sec=time_sec,
         onset_indices=accepted_onsets,
         detection_method=str(params["detection_method"]),
         polarity=str(params["polarity"]),
         peak_search_window_points=peak_search_window_points,
         width_search_window_points=width_search_window_points,
+        baseline_window_points=baseline_window_points,
         level_fractions=level_fractions,
     )
 
@@ -747,6 +842,8 @@ def _validated_detection_params(params: dict[str, Any]) -> dict[str, Any]:
             f"{tuple(sorted(allowed_detection_sources))!r}"
         )
     normalized["detection_source"] = detection_source
+    if float(normalized["baseline_window_ms"]) < 0:
+        raise ValueError("baseline_window_ms must be >= 0")
     if float(normalized["refractory_period_ms"]) < 0:
         raise ValueError("refractory_period_ms must be >= 0")
     if float(normalized["peak_search_window_ms"]) <= 0:
@@ -1039,24 +1136,28 @@ def _parse_level_fractions(value: str) -> tuple[float, ...]:
 def _build_events(
     *,
     detection_signal: np.ndarray,
+    derivative_signal: np.ndarray,
     time_sec: np.ndarray,
     onset_indices: list[int],
     detection_method: str,
     polarity: str,
     peak_search_window_points: int,
     width_search_window_points: int,
+    baseline_window_points: int,
     level_fractions: tuple[float, ...],
 ) -> tuple[PeakEvent, ...]:
     """Build event records from accepted onsets.
 
     Args:
         detection_signal: Trace used for feature extraction.
+        derivative_signal: Derivative of ``detection_signal`` in signal units per second.
         time_sec: Time axis in seconds.
         onset_indices: Accepted onset indices.
         detection_method: Detection method used for onset detection.
         polarity: Peak polarity.
         peak_search_window_points: Forward peak search window in points.
         width_search_window_points: Forward width-crossing search window in points.
+        baseline_window_points: Backward baseline window before onset in points.
         level_fractions: Requested amplitude fractions for width measures.
 
     Returns:
@@ -1069,6 +1170,7 @@ def _build_events(
         next_onset = onset_indices[zero_based + 1] if zero_based + 1 < len(onset_indices) else None
         event = _build_one_event(
             detection_signal=detection_signal,
+            derivative_signal=derivative_signal,
             time_sec=time_sec,
             peak_id=zero_based + 1,
             onset_index=onset_index,
@@ -1077,6 +1179,7 @@ def _build_events(
             polarity=polarity,
             peak_search_window_points=peak_search_window_points,
             width_search_window_points=width_search_window_points,
+            baseline_window_points=baseline_window_points,
             level_fractions=level_fractions,
             previous_onset_time=previous_onset_time,
             previous_peak_time=previous_peak_time,
@@ -1091,6 +1194,7 @@ def _build_events(
 def _build_one_event(
     *,
     detection_signal: np.ndarray,
+    derivative_signal: np.ndarray,
     time_sec: np.ndarray,
     peak_id: int,
     onset_index: int,
@@ -1099,6 +1203,7 @@ def _build_one_event(
     polarity: str,
     peak_search_window_points: int,
     width_search_window_points: int,
+    baseline_window_points: int,
     level_fractions: tuple[float, ...],
     previous_onset_time: float | None,
     previous_peak_time: float | None,
@@ -1107,6 +1212,7 @@ def _build_one_event(
 
     Args:
         detection_signal: Trace used for feature extraction.
+        derivative_signal: Derivative of ``detection_signal`` in signal units per second.
         time_sec: Time axis in seconds.
         peak_id: One-based event identifier.
         onset_index: Accepted onset index.
@@ -1115,6 +1221,7 @@ def _build_one_event(
         polarity: Peak polarity.
         peak_search_window_points: Forward peak search window in points.
         width_search_window_points: Forward width-crossing search window in points.
+        baseline_window_points: Backward baseline window before onset in points.
         level_fractions: Requested amplitude fractions.
         previous_onset_time: Previous event onset time for interval stats.
         previous_peak_time: Previous event peak time for interval stats.
@@ -1173,6 +1280,43 @@ def _build_one_event(
             for fraction in level_fractions
         )
 
+    baseline_mean, baseline_std = _measure_baseline_features(
+        detection_signal=detection_signal,
+        onset_index=onset_index,
+        baseline_window_points=baseline_window_points,
+    )
+    prominence = _measure_prominence(
+        baseline_mean=baseline_mean,
+        peak_value=peak_value,
+        polarity=polarity,
+    )
+    rise_10_90 = _measure_rise_10_90(crossings=crossings, time_sec=time_sec)
+    decay_90_10 = _measure_decay_90_10(crossings=crossings, time_sec=time_sec)
+    decay_time = EventFeature(
+        value=decay_90_10.value,
+        status=decay_90_10.status,
+        reason=decay_90_10.reason,
+    )
+    max_rise_slope = _measure_max_rise_slope(
+        derivative_signal=derivative_signal,
+        onset_index=onset_index,
+        peak_index=peak_index,
+        polarity=polarity,
+    )
+    max_decay_slope = _measure_max_decay_slope(
+        derivative_signal=derivative_signal,
+        peak_index=peak_index,
+        right_10_index=_right_crossing_index(crossings, 0.1),
+        polarity=polarity,
+    )
+    auc = _measure_auc(
+        detection_signal=detection_signal,
+        time_sec=time_sec,
+        crossings=crossings,
+        onset_value=onset_value,
+        polarity=polarity,
+    )
+
     onset_interval = None if previous_onset_time is None else onset_time - previous_onset_time
     peak_interval = (
         None
@@ -1191,10 +1335,325 @@ def _build_one_event(
         peak_value=peak_value,
         peak_amplitude=amplitude,
         detection_method=detection_method,
+        baseline_mean=baseline_mean,
+        baseline_std=baseline_std,
+        rise_10_90_sec=rise_10_90,
+        decay_90_10_sec=decay_90_10,
+        decay_time_sec=decay_time,
+        max_rise_slope=max_rise_slope,
+        max_decay_slope=max_decay_slope,
+        auc=auc,
+        prominence=prominence,
         level_crossings=crossings,
         onset_to_onset_interval_sec=onset_interval,
         peak_to_peak_interval_sec=peak_interval,
     )
+
+
+def _measure_baseline_features(
+    *,
+    detection_signal: np.ndarray,
+    onset_index: int,
+    baseline_window_points: int,
+) -> tuple[EventFeature, EventFeature]:
+    """Measure pre-onset baseline mean and standard deviation.
+
+    Args:
+        detection_signal: Trace used for event feature extraction.
+        onset_index: Accepted event onset index.
+        baseline_window_points: Number of points before onset to inspect.
+
+    Returns:
+        Tuple of ``(baseline_mean, baseline_std)`` feature records.
+    """
+    start = max(0, int(onset_index) - max(0, int(baseline_window_points)))
+    stop = int(onset_index)
+    baseline = np.asarray(detection_signal[start:stop], dtype=float)
+    finite = baseline[np.isfinite(baseline)]
+    if finite.size == 0:
+        failed = EventFeature(
+            value=None,
+            status="failed",
+            reason="insufficient_baseline_samples",
+        )
+        return failed, failed
+    mean = EventFeature(value=float(np.mean(finite)))
+    if finite.size < 2:
+        std = EventFeature(
+            value=None,
+            status="failed",
+            reason="insufficient_baseline_samples",
+        )
+    else:
+        std = EventFeature(value=float(np.std(finite, ddof=1)))
+    return mean, std
+
+
+def _measure_prominence(
+    *,
+    baseline_mean: EventFeature,
+    peak_value: float | None,
+    polarity: str,
+) -> EventFeature:
+    """Measure peak prominence relative to pre-onset baseline mean.
+
+    Args:
+        baseline_mean: Baseline mean feature record.
+        peak_value: Refined peak value, or None when unavailable.
+        polarity: Peak polarity.
+
+    Returns:
+        Prominence feature record.
+    """
+    if baseline_mean.status != "ok" or baseline_mean.value is None:
+        return EventFeature(value=None, status="failed", reason="baseline_mean_unavailable")
+    if peak_value is None:
+        return EventFeature(value=None, status="failed", reason="peak_value_unavailable")
+    value = float(peak_value) - float(baseline_mean.value)
+    if polarity == "negative":
+        value = float(baseline_mean.value) - float(peak_value)
+    return EventFeature(value=value)
+
+
+def _measure_rise_10_90(
+    *,
+    crossings: tuple[LevelCrossing, ...],
+    time_sec: np.ndarray,
+) -> EventFeature:
+    """Measure rise time from 10 percent to 90 percent level crossing.
+
+    Args:
+        crossings: Event level-crossing measurements.
+        time_sec: Time axis in seconds.
+
+    Returns:
+        Rise-time feature record.
+    """
+    left_10 = _left_crossing_index(crossings, 0.1)
+    left_90 = _left_crossing_index(crossings, 0.9)
+    if left_10 is None or left_90 is None:
+        return EventFeature(value=None, status="failed", reason="left_10_or_left_90_unavailable")
+    return EventFeature(value=_time_at_fractional_index(time_sec, left_90) - _time_at_fractional_index(time_sec, left_10))
+
+
+def _measure_decay_90_10(
+    *,
+    crossings: tuple[LevelCrossing, ...],
+    time_sec: np.ndarray,
+) -> EventFeature:
+    """Measure decay time from 90 percent to 10 percent level crossing.
+
+    Args:
+        crossings: Event level-crossing measurements.
+        time_sec: Time axis in seconds.
+
+    Returns:
+        Decay-time feature record.
+    """
+    right_90 = _right_crossing_index(crossings, 0.9)
+    right_10 = _right_crossing_index(crossings, 0.1)
+    if right_90 is None or right_10 is None:
+        return EventFeature(value=None, status="failed", reason="right_90_or_right_10_unavailable")
+    return EventFeature(value=_time_at_fractional_index(time_sec, right_10) - _time_at_fractional_index(time_sec, right_90))
+
+
+def _measure_max_rise_slope(
+    *,
+    derivative_signal: np.ndarray,
+    onset_index: int,
+    peak_index: int | None,
+    polarity: str,
+) -> EventFeature:
+    """Measure maximum signed rise slope from onset to peak.
+
+    Args:
+        derivative_signal: Derivative of detection signal.
+        onset_index: Event onset index.
+        peak_index: Refined peak index, or None.
+        polarity: Peak polarity.
+
+    Returns:
+        Rise-slope feature record.
+    """
+    if peak_index is None or peak_index <= onset_index:
+        return EventFeature(value=None, status="failed", reason="peak_index_unavailable")
+    segment = np.asarray(derivative_signal[onset_index : peak_index + 1], dtype=float)
+    finite = segment[np.isfinite(segment)]
+    if finite.size == 0:
+        return EventFeature(value=None, status="failed", reason="no_finite_derivative_samples")
+    value = np.min(finite) if polarity == "negative" else np.max(finite)
+    return EventFeature(value=float(value))
+
+
+def _measure_max_decay_slope(
+    *,
+    derivative_signal: np.ndarray,
+    peak_index: int | None,
+    right_10_index: float | None,
+    polarity: str,
+) -> EventFeature:
+    """Measure maximum signed decay slope from peak to right 10 percent crossing.
+
+    Args:
+        derivative_signal: Derivative of detection signal.
+        peak_index: Refined peak index, or None.
+        right_10_index: Interpolated right 10 percent crossing index, or None.
+        polarity: Peak polarity.
+
+    Returns:
+        Decay-slope feature record.
+    """
+    if peak_index is None:
+        return EventFeature(value=None, status="failed", reason="peak_index_unavailable")
+    if right_10_index is None:
+        return EventFeature(value=None, status="failed", reason="right_10_crossing_unavailable")
+    stop = min(derivative_signal.size, int(np.ceil(float(right_10_index))) + 1)
+    if stop <= peak_index:
+        return EventFeature(value=None, status="failed", reason="empty_peak_to_right_10_window")
+    segment = np.asarray(derivative_signal[peak_index:stop], dtype=float)
+    finite = segment[np.isfinite(segment)]
+    if finite.size == 0:
+        return EventFeature(value=None, status="failed", reason="no_finite_derivative_samples")
+    value = np.max(finite) if polarity == "negative" else np.min(finite)
+    return EventFeature(value=float(value))
+
+
+def _measure_auc(
+    *,
+    detection_signal: np.ndarray,
+    time_sec: np.ndarray,
+    crossings: tuple[LevelCrossing, ...],
+    onset_value: float,
+    polarity: str,
+) -> EventFeature:
+    """Measure event area between left and right 10 percent crossings.
+
+    Args:
+        detection_signal: Trace used for event feature extraction.
+        time_sec: Time axis in seconds.
+        crossings: Event level-crossing measurements.
+        onset_value: Event onset value used as integration baseline.
+        polarity: Peak polarity.
+
+    Returns:
+        AUC feature record.
+    """
+    left_10 = _left_crossing_index(crossings, 0.1)
+    right_10 = _right_crossing_index(crossings, 0.1)
+    if left_10 is None or right_10 is None:
+        return EventFeature(value=None, status="failed", reason="left_10_or_right_10_unavailable")
+    if right_10 <= left_10:
+        return EventFeature(value=None, status="failed", reason="invalid_10_percent_window")
+    x, y = _interpolated_segment(
+        values=detection_signal,
+        time_sec=time_sec,
+        left_index=left_10,
+        right_index=right_10,
+    )
+    if x.size < 2:
+        return EventFeature(value=None, status="failed", reason="insufficient_auc_samples")
+    if polarity == "negative":
+        area_values = np.maximum(float(onset_value) - y, 0.0)
+    else:
+        area_values = np.maximum(y - float(onset_value), 0.0)
+    return EventFeature(value=float(np.trapezoid(area_values, x)))
+
+
+def _left_crossing_index(crossings: tuple[LevelCrossing, ...], fraction: float) -> float | None:
+    """Return left crossing index for one fraction when status is ok.
+
+    Args:
+        crossings: Event level-crossing measurements.
+        fraction: Fraction to match.
+
+    Returns:
+        Interpolated left index, or None.
+    """
+    crossing = _find_crossing_by_fraction(crossings, fraction)
+    if crossing is None or crossing.status != "ok":
+        return None
+    return crossing.left_index
+
+
+def _right_crossing_index(crossings: tuple[LevelCrossing, ...], fraction: float) -> float | None:
+    """Return right crossing index for one fraction when status is ok.
+
+    Args:
+        crossings: Event level-crossing measurements.
+        fraction: Fraction to match.
+
+    Returns:
+        Interpolated right index, or None.
+    """
+    crossing = _find_crossing_by_fraction(crossings, fraction)
+    if crossing is None or crossing.status != "ok":
+        return None
+    return crossing.right_index
+
+
+def _find_crossing_by_fraction(
+    crossings: tuple[LevelCrossing, ...],
+    fraction: float,
+) -> LevelCrossing | None:
+    """Return crossing matching a requested fraction.
+
+    Args:
+        crossings: Event level-crossing measurements.
+        fraction: Fraction to match.
+
+    Returns:
+        Matching crossing, or None.
+    """
+    for crossing in crossings:
+        if abs(float(crossing.fraction) - float(fraction)) < 1e-12:
+            return crossing
+    return None
+
+
+def _time_at_fractional_index(time_sec: np.ndarray, index: float) -> float:
+    """Return interpolated time for a fractional sample index.
+
+    Args:
+        time_sec: Time axis in seconds.
+        index: Fractional sample index.
+
+    Returns:
+        Interpolated time in seconds.
+    """
+    if time_sec.size == 1:
+        return float(time_sec[0])
+    clipped = min(max(float(index), 0.0), float(time_sec.size - 1))
+    return float(np.interp(clipped, np.arange(time_sec.size, dtype=float), time_sec))
+
+
+def _interpolated_segment(
+    *,
+    values: np.ndarray,
+    time_sec: np.ndarray,
+    left_index: float,
+    right_index: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return trace segment with interpolated endpoints.
+
+    Args:
+        values: One-dimensional signal.
+        time_sec: Time axis in seconds.
+        left_index: Fractional left sample index.
+        right_index: Fractional right sample index.
+
+    Returns:
+        Tuple of ``(time, values)`` arrays including interpolated endpoints.
+    """
+    left = float(left_index)
+    right = float(right_index)
+    start = int(np.floor(left)) + 1
+    stop = int(np.floor(right)) + 1
+    interior_indices = np.arange(start, stop, dtype=float)
+    all_indices = np.concatenate(([left], interior_indices, [right]))
+    all_indices = np.unique(all_indices)
+    x = np.asarray([_time_at_fractional_index(time_sec, idx) for idx in all_indices], dtype=float)
+    y = np.interp(all_indices, np.arange(values.size, dtype=float), np.asarray(values, dtype=float))
+    return x, y
 
 
 def _measure_level_crossing(
@@ -1443,6 +1902,7 @@ def _build_summary(
         "detection_source": str(params["detection_source"]),
         "peak_search_window_ms": float(params["peak_search_window_ms"]),
         "width_search_window_ms": float(params["width_search_window_ms"]),
+        "baseline_window_ms": float(params["baseline_window_ms"]),
         "peak_events": [event.to_json_dict() for event in events],
     }
 
