@@ -17,6 +17,8 @@ from acqstore.acq_image.analysis.model import (
 )
 from acqstore.acq_image.analysis.registry import register_analysis_class
 from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_core import (
+    EventFeature,
+    LevelCrossing,
     PeakEvent,
     PeakWidthLevel,
     ResultPoints,
@@ -390,6 +392,107 @@ class SumIntensityAnalysis(BaseAnalysis):
         context.report_progress(1.0, "Sum intensity analysis complete")
         return self.result
 
+    @classmethod
+    def get_pool_summary_columns(cls) -> tuple[str, ...]:
+        """Return scalar summary columns for sum-intensity pool tables.
+
+        This additive pool-facing API keeps the existing rich summary and JSON
+        APIs unchanged while exposing table-safe scalar columns. List-like
+        summary values are flattened for collection-level DataFrame caches.
+
+        Returns:
+            Tuple of scalar summary column names in stable order.
+        """
+        columns: list[str] = []
+        for column in cls.get_summary_columns():
+            if column == "errors":
+                columns.extend(["error_count", "errors_text"])
+            else:
+                columns.append(column)
+        return tuple(columns)
+
+    def get_pool_summary_values(self) -> dict[str, object]:
+        """Return scalar summary values for sum-intensity pool tables.
+
+        Returns:
+            Mapping whose keys match :meth:`get_pool_summary_columns`. Values
+            are scalar objects suitable for pandas table cells.
+        """
+        values: dict[str, object] = {}
+        for column in self.get_summary_columns():
+            if column == "errors":
+                errors = self.result.summary.get("errors", ())
+                if errors is pd.NA or errors is None:
+                    error_values: tuple[str, ...] = ()
+                elif isinstance(errors, (list, tuple)):
+                    error_values = tuple(str(item) for item in errors)
+                else:
+                    error_values = (str(errors),)
+                values["error_count"] = len(error_values)
+                values["errors_text"] = "; ".join(error_values)
+            else:
+                values[column] = self.result.summary.get(column, pd.NA)
+        return values
+
+    @classmethod
+    def get_pool_peak_columns(cls) -> tuple[str, ...]:
+        """Return scalar peak-row columns for sum-intensity pool tables.
+
+        Returns:
+            Tuple of flattened peak-event column names. Feature columns are
+            generated from :meth:`get_feature_schema` so future event-level
+            features propagate to the pool API without pool changes.
+        """
+        base_columns = (
+            "peak_id",
+            "peak_status",
+            "peak_warning_count",
+            "peak_warnings_text",
+            "onset_index",
+            "onset_time_sec",
+            "onset_value",
+            "peak_index",
+            "peak_time_sec",
+            "peak_value",
+            "peak_amplitude",
+            "peak_detection_method",
+            "onset_to_onset_interval_sec",
+            "peak_to_peak_interval_sec",
+        )
+        feature_columns: list[str] = []
+        for schema in cls.get_feature_schema():
+            feature_columns.extend(
+                [
+                    schema.name,
+                    f"{schema.name}_status",
+                    f"{schema.name}_reason",
+                ]
+            )
+        width_columns: list[str] = []
+        for level in PeakWidthLevel:
+            prefix = level.value
+            width_columns.extend(
+                [
+                    f"{prefix}_value",
+                    f"{prefix}_left_index",
+                    f"{prefix}_right_index",
+                    f"{prefix}_points",
+                    f"{prefix}_sec",
+                    f"{prefix}_status",
+                ]
+            )
+        return base_columns + tuple(feature_columns) + tuple(width_columns)
+
+    def get_pool_peak_rows(self) -> tuple[dict[str, object], ...]:
+        """Return flattened scalar rows for detected sum-intensity peaks.
+
+        Returns:
+            Tuple of dictionaries, one per detected peak. Empty when the
+            analysis has no peak events. Each dictionary has exactly the keys
+            returned by :meth:`get_pool_peak_columns`.
+        """
+        return tuple(self._pool_peak_row(event) for event in self.get_peak_events())
+
     def get_peak_events(self) -> tuple[PeakEvent, ...]:
         """Return parsed peak-event records from the result summary.
 
@@ -399,6 +502,38 @@ class SumIntensityAnalysis(BaseAnalysis):
         """
         records = self.result.summary.get("peak_events", ())
         return tuple(PeakEvent.from_json_dict(dict(record)) for record in records)
+
+    @classmethod
+    def _pool_peak_row(cls, event: PeakEvent) -> dict[str, object]:
+        row: dict[str, object] = {
+            "peak_id": int(event.peak_id),
+            "peak_status": str(event.status),
+            "peak_warning_count": len(event.warnings),
+            "peak_warnings_text": "; ".join(str(item) for item in event.warnings),
+            "onset_index": int(event.onset_index),
+            "onset_time_sec": float(event.onset_time_sec),
+            "onset_value": float(event.onset_value),
+            "peak_index": pd.NA if event.peak_index is None else int(event.peak_index),
+            "peak_time_sec": _pool_optional_float(event.peak_time_sec),
+            "peak_value": _pool_optional_float(event.peak_value),
+            "peak_amplitude": _pool_optional_float(event.peak_amplitude),
+            "peak_detection_method": str(event.detection_method),
+            "onset_to_onset_interval_sec": _pool_optional_float(
+                event.onset_to_onset_interval_sec
+            ),
+            "peak_to_peak_interval_sec": _pool_optional_float(
+                event.peak_to_peak_interval_sec
+            ),
+        }
+        for schema in cls.get_feature_schema():
+            feature = getattr(event, schema.name)
+            row.update(_pool_feature_values(schema.name, feature))
+        crossings_by_prefix = {
+            _pool_width_prefix(crossing): crossing for crossing in event.level_crossings
+        }
+        for level in PeakWidthLevel:
+            row.update(_pool_width_values(level.value, crossings_by_prefix.get(level.value)))
+        return {column: row.get(column, pd.NA) for column in cls.get_pool_peak_columns()}
 
     def get_trace(self, key: SumIntensityTraceKey) -> ResultTrace:
         """Return one named continuous trace.
@@ -553,6 +688,79 @@ class SumIntensityAnalysis(BaseAnalysis):
             y_label=trace.y_label,
             series_name=trace.name,
         )
+
+
+def _pool_optional_float(value: object) -> object:
+    """Return a scalar float or ``pandas.NA`` for pool table cells.
+
+    Args:
+        value: Optional numeric value.
+
+    Returns:
+        Float value when present, otherwise ``pandas.NA``.
+    """
+    if value is None:
+        return pd.NA
+    return float(value)
+
+
+def _pool_feature_values(prefix: str, feature: EventFeature) -> dict[str, object]:
+    """Return scalar pool cells for one event feature.
+
+    Args:
+        prefix: Feature name used as the value column prefix.
+        feature: Event feature to flatten.
+
+    Returns:
+        Mapping with value, status, and reason cells.
+    """
+    return {
+        prefix: _pool_optional_float(feature.value),
+        f"{prefix}_status": str(feature.status),
+        f"{prefix}_reason": str(feature.reason),
+    }
+
+
+def _pool_width_prefix(crossing: LevelCrossing) -> str:
+    """Return the pool column prefix for one level crossing.
+
+    Args:
+        crossing: Level-crossing measurement.
+
+    Returns:
+        Prefix such as ``"width_50"``.
+    """
+    percent = int(round(float(crossing.fraction) * 100.0))
+    return f"width_{percent}"
+
+
+def _pool_width_values(prefix: str, crossing: LevelCrossing | None) -> dict[str, object]:
+    """Return scalar pool cells for one peak width level.
+
+    Args:
+        prefix: Width prefix such as ``"width_50"``.
+        crossing: Level-crossing measurement, or None when missing.
+
+    Returns:
+        Mapping with scalar width cells.
+    """
+    if crossing is None:
+        return {
+            f"{prefix}_value": pd.NA,
+            f"{prefix}_left_index": pd.NA,
+            f"{prefix}_right_index": pd.NA,
+            f"{prefix}_points": pd.NA,
+            f"{prefix}_sec": pd.NA,
+            f"{prefix}_status": "missing",
+        }
+    return {
+        f"{prefix}_value": _pool_optional_float(crossing.value),
+        f"{prefix}_left_index": _pool_optional_float(crossing.left_index),
+        f"{prefix}_right_index": _pool_optional_float(crossing.right_index),
+        f"{prefix}_points": _pool_optional_float(crossing.width),
+        f"{prefix}_sec": _pool_optional_float(crossing.width_sec),
+        f"{prefix}_status": str(crossing.status),
+    }
 
 
 _TRACE_DEFINITIONS: dict[SumIntensityTraceKey, dict[str, str]] = {

@@ -436,9 +436,13 @@ class AcqImageList:
 
     def _attach_analysis_pools(self) -> None:
         """Create collection-level analysis pools owned by this list."""
+        from acqstore.analysis_pool.sum_intensity_analysis_pool import (
+            SumIntensityAnalysisPool,
+        )
         from acqstore.analysis_pool.velocity_analysis_pool import VelocityAnalysisPool
 
         self.velocity_analysis_pool = VelocityAnalysisPool(self)
+        self.sum_intensity_analysis_pool = SumIntensityAnalysisPool(self)
 
     def __len__(self) -> int:
         """Return number of files in the collection."""

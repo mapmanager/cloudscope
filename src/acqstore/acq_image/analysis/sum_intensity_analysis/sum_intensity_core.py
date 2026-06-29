@@ -293,6 +293,7 @@ class LevelCrossing:
         right_index: Interpolated falling-side index, or None when unavailable.
         width: ``right_index - left_index`` in points, or None when either side
             is unavailable.
+        width_sec: Width in seconds, or None when width is unavailable.
         status: Measurement status. ``"ok"`` means width is valid; other
             values identify expected scientific failure modes.
     """
@@ -302,6 +303,7 @@ class LevelCrossing:
     left_index: float | None
     right_index: float | None
     width: float | None
+    width_sec: float | None = None
     status: str = "ok"
 
     def to_json_dict(self) -> dict[str, object]:
@@ -316,6 +318,7 @@ class LevelCrossing:
             "left_index": _optional_float(self.left_index),
             "right_index": _optional_float(self.right_index),
             "width": _optional_float(self.width),
+            "width_sec": _optional_float(self.width_sec),
             "status": str(self.status),
         }
 
@@ -335,6 +338,7 @@ class LevelCrossing:
             left_index=_optional_float(record.get("left_index")),
             right_index=_optional_float(record.get("right_index")),
             width=_optional_float(record.get("width")),
+            width_sec=_optional_float(record.get("width_sec")),
             status=str(record.get("status", "ok")),
         )
 
@@ -1249,6 +1253,7 @@ def _build_one_event(
                 left_index=None,
                 right_index=None,
                 width=None,
+                width_sec=None,
                 status="peak_not_found",
             )
             for fraction in level_fractions
@@ -1276,6 +1281,7 @@ def _build_one_event(
                 onset_value=onset_value,
                 peak_value=peak_value,
                 polarity=polarity,
+                seconds_per_line=_seconds_per_line_from_time_axis(time_sec),
             )
             for fraction in level_fractions
         )
@@ -1350,6 +1356,21 @@ def _build_one_event(
     )
 
 
+def _seconds_per_line_from_time_axis(time_sec: np.ndarray) -> float:
+    """Return the uniform time spacing represented by a result time axis.
+
+    Args:
+        time_sec: Time axis in seconds.
+
+    Returns:
+        Time spacing in seconds per line. Single-sample axes return ``0.0``
+        because no width measurement can be valid without two crossings.
+    """
+    if time_sec.size < 2:
+        return 0.0
+    return float(time_sec[1] - time_sec[0])
+
+
 def _measure_baseline_features(
     *,
     detection_signal: np.ndarray,
@@ -1401,6 +1422,7 @@ def _measure_prominence(
         baseline_mean: Baseline mean feature record.
         peak_value: Refined peak value, or None when unavailable.
         polarity: Peak polarity.
+        seconds_per_line: Time spacing in seconds per line.
 
     Returns:
         Prominence feature record.
@@ -1471,6 +1493,7 @@ def _measure_max_rise_slope(
         onset_index: Event onset index.
         peak_index: Refined peak index, or None.
         polarity: Peak polarity.
+        seconds_per_line: Time spacing in seconds per line.
 
     Returns:
         Rise-slope feature record.
@@ -1499,6 +1522,7 @@ def _measure_max_decay_slope(
         peak_index: Refined peak index, or None.
         right_10_index: Interpolated right 10 percent crossing index, or None.
         polarity: Peak polarity.
+        seconds_per_line: Time spacing in seconds per line.
 
     Returns:
         Decay-slope feature record.
@@ -1534,6 +1558,7 @@ def _measure_auc(
         crossings: Event level-crossing measurements.
         onset_value: Event onset value used as integration baseline.
         polarity: Peak polarity.
+        seconds_per_line: Time spacing in seconds per line.
 
     Returns:
         AUC feature record.
@@ -1667,6 +1692,7 @@ def _measure_level_crossing(
     onset_value: float,
     peak_value: float,
     polarity: str,
+    seconds_per_line: float,
 ) -> LevelCrossing:
     """Measure one peak width fraction.
 
@@ -1680,6 +1706,7 @@ def _measure_level_crossing(
         onset_value: Signal value at onset.
         peak_value: Signal value at peak.
         polarity: Peak polarity.
+        seconds_per_line: Time spacing in seconds per line.
 
     Returns:
         Level-crossing measurement with local failure status when needed.
@@ -1711,6 +1738,7 @@ def _measure_level_crossing(
             left_index=float(left),
             right_index=float(right),
             width=float(right - left),
+            width_sec=float(right - left) * float(seconds_per_line),
             status="ok",
         )
     if left is None and right is None:
@@ -1725,6 +1753,7 @@ def _measure_level_crossing(
         left_index=_optional_float(left),
         right_index=_optional_float(right),
         width=None,
+        width_sec=None,
         status=status,
     )
 

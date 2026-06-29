@@ -14,6 +14,7 @@ from cloudscope.controllers.home_page_controller import HomePageController, Home
 from cloudscope.controllers.acq_image_data_controller import AcqImageDataController
 from cloudscope.controllers.load_save_controller import LoadSaveController
 from cloudscope.controllers.roi_controller import RoiController
+from cloudscope.controllers.sum_intensity_pool_controller import SumIntensityPoolController
 from cloudscope.controllers.velocity_pool_controller import VelocityPoolController
 from cloudscope.event_bus import EventBus
 from cloudscope.events.files import LoadPathIntent, LoadPathKind
@@ -57,6 +58,7 @@ class CloudScopeRuntime:
         roi_controller: ROI mutation controller.
         event_analysis_controller: Event-analysis controller.
         velocity_pool_controller: Velocity pool synchronization controller.
+        sum_intensity_pool_controller: Sum-intensity pool synchronization controller.
         acq_image_data_controller: Explicit lazy AcqImage data load/unload controller.
         task_runner: Background task runner for long-running work.
         raster_display_cache: Shared LRU cache of raster planes and pyramids.
@@ -73,6 +75,7 @@ class CloudScopeRuntime:
     roi_controller: RoiController
     event_analysis_controller: EventAnalysisController
     velocity_pool_controller: VelocityPoolController
+    sum_intensity_pool_controller: SumIntensityPoolController
     acq_image_data_controller: AcqImageDataController
     task_runner: TaskRunner
     raster_display_cache: RasterDisplayCache
@@ -102,6 +105,7 @@ class CloudScopeRuntime:
         self.roi_controller.bind()
         self.event_analysis_controller.bind()
         self.velocity_pool_controller.bind()
+        self.sum_intensity_pool_controller.bind()
         self.controllers_bound = True
 
     def initialize_once(self) -> None:
@@ -332,6 +336,10 @@ def _build_runtime(user_context: UserContext, app_config: AppConfig) -> CloudSco
             home_controller=home_page_controller,
         ),
         velocity_pool_controller=VelocityPoolController(
+            event_bus=event_bus,
+            home_controller=home_page_controller,
+        ),
+        sum_intensity_pool_controller=SumIntensityPoolController(
             event_bus=event_bus,
             home_controller=home_page_controller,
         ),
