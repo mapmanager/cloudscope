@@ -10,6 +10,7 @@ from acqstore.acq_image.analysis.model import (
     AnalysisKey,
     DetectionParamCategory,
     DetectionParamSchema,
+    DetectionValueType,
 )
 from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_analysis import (
     SumIntensityAnalysis,
@@ -46,6 +47,38 @@ def _category_heading_if_changed(
     if field.category is previous_category:
         return None
     return field.category.value
+
+
+def _coerce_detection_param_value(field: DetectionParamSchema, value: object) -> object:
+    """Coerce a raw GUI control value to the schema field type.
+
+    NiceGUI ``ui.number`` returns floats even for integer fields. AcqStore
+    validation requires true ``int`` values for ``DetectionValueType.INT``.
+
+    Args:
+        field: Detection parameter schema entry.
+        value: Raw value from a control.
+
+    Returns:
+        Value coerced to the schema type when applicable.
+    """
+    if value is None:
+        return value
+    match field.value_type:
+        case DetectionValueType.INT:
+            if isinstance(value, bool):
+                raise TypeError(f"{field.name!r} must be int, got: bool")
+            return int(value)
+        case DetectionValueType.FLOAT:
+            if isinstance(value, bool):
+                raise TypeError(f"{field.name!r} must be float or int, got: bool")
+            return float(value)
+        case DetectionValueType.BOOL:
+            return bool(value)
+        case DetectionValueType.STR:
+            return str(value)
+        case _:
+            return value
 
 
 def _field_visible_for_current_params(
@@ -284,7 +317,13 @@ class SumIntensityAnalysisView(BaseView):
                             )
                         elif field.value_type.value == "bool":
                             control = ui.checkbox(text=label, value=bool(value))
-                        elif field.value_type.value in {"int", "float"}:
+                        elif field.value_type is DetectionValueType.INT:
+                            control = ui.number(
+                                label=label,
+                                value=int(value),
+                                precision=0,
+                            ).classes("w-full")
+                        elif field.value_type is DetectionValueType.FLOAT:
                             control = ui.number(label=label, value=value).classes("w-full")
                         else:
                             control = ui.input(
@@ -355,7 +394,8 @@ class SumIntensityAnalysisView(BaseView):
         for name, control in self._param_controls.items():
             if not control.visible:
                 continue
-            params[name] = control.value
+            field = self._schema_by_name[name]
+            params[name] = _coerce_detection_param_value(field, control.value)
         SumIntensityAnalysis.validate_detection_params(params)
         return params
 

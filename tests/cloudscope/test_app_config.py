@@ -33,7 +33,7 @@ def test_load_missing_returns_defaults(tmp_path) -> None:
     assert cfg.get_attribute('folder_depth') == DEFAULT_FOLDER_DEPTH
     assert cfg.get_attribute('table_font_size_px') == DEFAULT_TABLE_FONT_SIZE_PX
     assert cfg.get_attribute('text_size') == DEFAULT_TEXT_SIZE
-    assert cfg.get_attribute('dark_mode') is False
+    assert cfg.get_attribute('dark_mode') is True
 
 
 def test_default_text_size_is_text_xs() -> None:

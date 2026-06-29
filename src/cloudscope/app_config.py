@@ -130,7 +130,7 @@ class AppConfigData:
     text_size: str = DEFAULT_TEXT_SIZE
     folder_depth: int = DEFAULT_FOLDER_DEPTH
     table_font_size_px: int = DEFAULT_TABLE_FONT_SIZE_PX
-    dark_mode: bool = False
+    dark_mode: bool = True
     home_left_toolbar_open_splitter_pct: float = DEFAULT_HOME_LEFT_TOOLBAR_OPEN_SPLITTER_PCT
     home_file_list_splitter_pct: float = DEFAULT_HOME_FILE_LIST_SPLITTER_PCT
     home_primary_image_splitter_pct: float = DEFAULT_HOME_PRIMARY_IMAGE_SPLITTER_PCT
@@ -210,7 +210,7 @@ class AppConfigData:
         except Exception:
             table_font_size_px = DEFAULT_TABLE_FONT_SIZE_PX
 
-        dark_raw = payload.get('dark_mode', False)
+        dark_raw = payload.get('dark_mode', True)
         if isinstance(dark_raw, bool):
             dark_mode = dark_raw
         else:

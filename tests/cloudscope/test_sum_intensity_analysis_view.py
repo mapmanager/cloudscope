@@ -21,6 +21,7 @@ from cloudscope.views.base_view import BaseView
 from cloudscope.views.sum_intensity_analysis_view import (
     SumIntensityAnalysisView,
     _category_heading_if_changed,
+    _coerce_detection_param_value,
     _field_visible_for_current_params,
 )
 from cloudscope.views.view_ids import ViewId
@@ -249,14 +250,58 @@ def test_current_detection_params_starts_from_selected_preset_and_visible_contro
     view = SumIntensityAnalysisView(event_bus=EventBus())
     view._preset_control = _FakeControl("fast")  # type: ignore[assignment]
     view._param_controls["derivative_threshold_per_sec"] = _FakeControl(12.5)
+    view._schema_by_name["derivative_threshold_per_sec"] = DetectionParamSchema(
+        name="derivative_threshold_per_sec",
+        display_name="Derivative Threshold",
+        value_type=DetectionValueType.FLOAT,
+        default=1.0,
+    )
     hidden = _FakeControl(99.0, visible=False)
     view._param_controls["absolute_threshold"] = hidden
+    view._schema_by_name["absolute_threshold"] = DetectionParamSchema(
+        name="absolute_threshold",
+        display_name="Absolute Threshold",
+        value_type=DetectionValueType.FLOAT,
+        default=0.0,
+    )
 
     params = view._current_detection_params()
 
     assert params["derivative_threshold_per_sec"] == 12.5
     assert params["baseline_method"] == "percentile"
     assert params["absolute_threshold"] != 99.0
+
+
+def test_coerce_detection_param_value_converts_ui_number_float_to_int() -> None:
+    """Integer schema fields should accept float control values from ui.number."""
+    field = DetectionParamSchema(
+        name="window_radius_points",
+        display_name="Window Radius",
+        value_type=DetectionValueType.INT,
+        default=0,
+    )
+
+    assert _coerce_detection_param_value(field, 4.0) == 4
+    assert isinstance(_coerce_detection_param_value(field, 4.0), int)
+
+
+def test_current_detection_params_coerces_int_fields_from_float_controls() -> None:
+    """Run should receive int detection params when ui.number returns floats."""
+    view = SumIntensityAnalysisView(event_bus=EventBus())
+    view._preset_control = _FakeControl("medium")  # type: ignore[assignment]
+    view._param_controls["window_radius_points"] = _FakeControl(4.0)
+    view._schema_by_name["window_radius_points"] = DetectionParamSchema(
+        name="window_radius_points",
+        display_name="Window Radius",
+        value_type=DetectionValueType.INT,
+        default=0,
+    )
+
+    params = view._current_detection_params()
+
+    assert params["window_radius_points"] == 4
+    assert isinstance(params["window_radius_points"], int)
+    SumIntensityAnalysis.validate_detection_params(params)
 
 
 def test_on_run_clicked_publishes_sum_intensity_intent_for_complete_selection() -> None:
