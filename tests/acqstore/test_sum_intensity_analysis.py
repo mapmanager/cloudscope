@@ -51,6 +51,7 @@ def _params() -> dict[str, object]:
         Detection parameter mapping using the current public API names.
     """
     return {
+        "window_radius_points": 0,
         "filter_method": "none",
         "detrend_method": "none",
         "baseline_method": "percentile",
