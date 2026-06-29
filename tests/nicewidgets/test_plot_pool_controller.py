@@ -122,6 +122,24 @@ def test_select_points_by_row_id_delegates_to_selection_handler(
     assert calls == ["b"]
 
 
+def test_select_points_by_row_ids_delegates_to_selection_handler(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Public API should select multiple row ids through the handler."""
+    controller = _controller(tmp_path)
+    calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(
+        controller._selection_handler,
+        "select_by_row_ids",
+        lambda row_ids, plot_states: calls.append(tuple(row_ids)),
+    )
+
+    controller.select_points_by_row_ids(["a", "b"])
+
+    assert calls == [("a", "b")]
+
+
 def test_validate_plot_state_columns_repairs_stale_x_and_y_columns(tmp_path: Path) -> None:
     """Loaded states with missing columns should be repaired against the current df."""
     controller = _controller(tmp_path)

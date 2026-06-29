@@ -53,3 +53,48 @@ def test_reveal_in_file_manager_uses_linux_folder(monkeypatch: Any, tmp_path: Pa
     file_manager.reveal_in_file_manager(target)
 
     assert calls == [(["xdg-open", str(tmp_path.resolve())], False, False)]
+
+
+def test_open_path_with_default_app_raises_for_missing_path(tmp_path: Path) -> None:
+    """Missing paths should fail before launching a platform command."""
+    with pytest.raises(FileNotFoundError):
+        file_manager.open_path_with_default_app(tmp_path / "missing.log")
+
+
+def test_open_path_with_default_app_uses_macos_open(monkeypatch: Any, tmp_path: Path) -> None:
+    """macOS should open the path with the default application."""
+    target = tmp_path / "cloudscope.log"
+    target.write_text("x")
+    calls: list[tuple[list[str], bool, bool]] = []
+    monkeypatch.setattr(file_manager.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(file_manager.subprocess, "run", lambda cmd, check=False, shell=False: calls.append((cmd, check, shell)))
+
+    file_manager.open_path_with_default_app(target)
+
+    assert calls == [(["open", str(target.resolve())], False, False)]
+
+
+def test_open_path_with_default_app_uses_windows_startfile(monkeypatch: Any, tmp_path: Path) -> None:
+    """Windows should open the path with the default application."""
+    target = tmp_path / "cloudscope.log"
+    target.write_text("x")
+    calls: list[Path] = []
+    monkeypatch.setattr(file_manager.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(file_manager.os, "startfile", lambda path: calls.append(path), raising=False)
+
+    file_manager.open_path_with_default_app(target)
+
+    assert calls == [target.resolve()]
+
+
+def test_open_path_with_default_app_uses_linux_xdg_open(monkeypatch: Any, tmp_path: Path) -> None:
+    """Linux should open the path with ``xdg-open``."""
+    target = tmp_path / "cloudscope.log"
+    target.write_text("x")
+    calls: list[tuple[list[str], bool, bool]] = []
+    monkeypatch.setattr(file_manager.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(file_manager.subprocess, "run", lambda cmd, check=False, shell=False: calls.append((cmd, check, shell)))
+
+    file_manager.open_path_with_default_app(target)
+
+    assert calls == [(["xdg-open", str(target.resolve())], False, False)]

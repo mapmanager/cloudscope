@@ -1374,7 +1374,9 @@ class PlotlyPlotWidget:
         args = getattr(event, "args", None)
         if not isinstance(args, dict):
             return
-        logger.info("plotly_relayout args=%s", args)
+
+        # logger.info("plotly_relayout args=%s", args)
+
         if self._ignore_relayout:
             return
         if self._pop_matching_self_relayout(args) is not None:

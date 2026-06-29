@@ -234,6 +234,37 @@ def test_sum_intensity_pool_creates_one_row_per_peak(tmp_path: Path) -> None:
     assert df["pool_row_id"].is_unique
 
 
+def test_sum_intensity_pool_row_ids_for_selection_returns_peak_rows(tmp_path: Path) -> None:
+    """row_ids_for_selection should return all peak row ids for one selection."""
+    file_path = tmp_path / "sample.tif"
+    file_path.write_text("")
+    images = AcqImageList(str(file_path), file_factory=_PoolFakeAcqImage)
+    acq = images.get_file_by_index(0)
+    acq.analysis_set.add(_analysis_with_events((_event(1, 2.0), _event(2, 3.0))))
+    pool = images.sum_intensity_analysis_pool
+    pool.refresh_rows(acq.file_id, channel=0, roi_id=1)
+
+    row_ids = pool.row_ids_for_selection(acq.file_id, channel=0, roi_id=1)
+
+    assert len(row_ids) == 2
+    assert len(set(row_ids)) == 2
+
+
+def test_sum_intensity_pool_row_ids_for_selection_empty_for_no_peaks(tmp_path: Path) -> None:
+    """row_ids_for_selection should return nothing when only sentinel rows exist."""
+    file_path = tmp_path / "sample.tif"
+    file_path.write_text("")
+    images = AcqImageList(str(file_path), file_factory=_PoolFakeAcqImage)
+    acq = images.get_file_by_index(0)
+    acq.analysis_set.add(_analysis_with_events(()))
+    pool = images.sum_intensity_analysis_pool
+    pool.refresh_rows(acq.file_id, channel=0, roi_id=1)
+
+    row_ids = pool.row_ids_for_selection(acq.file_id, channel=0, roi_id=1)
+
+    assert row_ids == ()
+
+
 def test_sum_intensity_pool_rejects_non_scalar_pool_values(tmp_path: Path) -> None:
     """Pool cells should fail fast when analysis APIs leak non-scalars."""
     file_path = tmp_path / "sample.tif"

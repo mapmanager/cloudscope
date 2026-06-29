@@ -36,3 +36,28 @@ def reveal_in_file_manager(path: str | os.PathLike[str]) -> None:
 
     folder = resolved_path if resolved_path.is_dir() else resolved_path.parent
     subprocess.run(["xdg-open", str(folder)], check=False)
+
+
+def open_path_with_default_app(path: str | os.PathLike[str]) -> None:
+    """Open a file or folder with the platform default application.
+
+    Args:
+        path: File or folder path to open.
+
+    Raises:
+        FileNotFoundError: If ``path`` does not exist.
+    """
+    resolved_path = Path(path).expanduser().resolve()
+    if not resolved_path.exists():
+        raise FileNotFoundError(str(resolved_path))
+
+    system = platform.system()
+    if system == "Darwin":
+        subprocess.run(["open", str(resolved_path)], check=False)
+        return
+
+    if system == "Windows":
+        os.startfile(resolved_path)  # type: ignore[attr-defined]
+        return
+
+    subprocess.run(["xdg-open", str(resolved_path)], check=False)

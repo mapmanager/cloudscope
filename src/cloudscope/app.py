@@ -15,12 +15,13 @@ from cloudscope.pages.home_page import home_page  # noqa: F401  # registers page
 from cloudscope.pages.pool_page import pool_page  # noqa: F401  # registers page route
 from cloudscope.user_context import resolve_user_context
 from cloudscope.devtools.mvc_telemetry import is_mvc_telemetry_enabled
-from cloudscope.utils.logging import get_logger, setup_logging
+from cloudscope.utils.logging import attach_file_handler_to_loggers, get_logger, setup_logging
 from nicewidgets.utils.logging import setup_logging as setup_nicewidgets_logging
 
 setup_logging(level='DEBUG')
-setup_nicewidgets_logging(level='DEBUG')
-setup_acqstore_logging()
+setup_nicewidgets_logging(level='DEBUG', file=False)
+setup_acqstore_logging(level='DEBUG', file=False)
+attach_file_handler_to_loggers('acqstore', 'nicewidgets')
 
 logger = get_logger(__name__)
 

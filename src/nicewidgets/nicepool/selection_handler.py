@@ -216,6 +216,14 @@ class PlotSelectionHandler:
 
     def select_by_row_id(self, row_id: str, plot_states: list[PlotState]) -> None:
         """Programmatically set selection to the point(s) with the given row_id."""
+        self.select_by_row_ids({row_id}, plot_states)
+
+    def select_by_row_ids(
+        self,
+        row_ids: set[str] | list[str] | tuple[str, ...],
+        plot_states: list[PlotState],
+    ) -> None:
+        """Programmatically set selection to points matching any given row id."""
         plot_index = None
         for i, state in enumerate(plot_states):
             if is_selection_compatible(state.plot_type):
@@ -226,25 +234,20 @@ class PlotSelectionHandler:
             return
         state = plot_states[plot_index]
         df_f = self._get_filtered_df(state)
+        requested = {str(row_id) for row_id in row_ids}
+        if not requested:
+            if self._selected_row_ids:
+                self._selected_row_ids = set()
+                self._on_apply_selection()
+                self._on_update_label(0)
+            return
 
-        # logger.error(f'ppp SEARCHING FOR row_id:')
-        # print(f'  {row_id}')
-        # logger.error(f'in _unique_row_id_col is:{self._unique_row_id_col}')
-
-        # for v in df_f[self._unique_row_id_col].head().tolist():
-        #     print(v)
-
-        matching = df_f[df_f[self._unique_row_id_col].astype(str) == str(row_id)]
-        
+        matching = df_f[df_f[self._unique_row_id_col].astype(str).isin(requested)]
         if len(matching) == 0:
-            # logger.warning(f"Row ID '{row_id}' {type(row_id)} not found in filtered dataframe")
-            # logger.warning(f'self._unique_row_id_col is:"{self._unique_row_id_col}"')
-            # print(df_f[self._unique_row_id_col].head())
-
             return
 
         ids = set(matching[self._unique_row_id_col].astype(str).unique())
         self._selected_row_ids = ids
         self._on_apply_selection()
         self._on_update_label(len(self._selected_row_ids))
-        logger.info("Programmatically selected %s point(s) by row_id=%s", len(ids), row_id)
+        logger.info("Programmatically selected %s point(s) by row_ids", len(ids))

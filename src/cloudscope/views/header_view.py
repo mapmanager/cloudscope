@@ -113,7 +113,7 @@ def build_main_header(
         show_open_pool: When True, add a web button that opens ``/pool`` in a named tab.
         show_open_main: When True, add a button that navigates to ``/``.
         show_github: When True, render the GitHub repository link.
-        on_velocity_pool_toggle: Optional callback for the Velocity Pool header button.
+        on_velocity_pool_toggle: Optional callback for the Pool Plots header button.
     """
     with ui.header().classes(
         "items-center justify-between bg-gray-900 text-gray-100"
@@ -124,7 +124,7 @@ def build_main_header(
             if show_open_main:
                 ui.button("Open Main", on_click=lambda: ui.navigate.to("/")).props("flat dense")
             if on_velocity_pool_toggle is not None:
-                ui.button("Velocity Pool", on_click=on_velocity_pool_toggle).props("flat dense")
+                ui.button("Pool Plots", on_click=on_velocity_pool_toggle).props("flat dense")
             if show_open_pool:
                 ui.button("Open Pool", on_click=_open_pool).props("flat dense")
             if app_config is not None:

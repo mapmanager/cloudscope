@@ -737,7 +737,7 @@ class PrimaryImageView(BaseView):
         Returns:
             None.
         """
-        logger.info('is this getting called twice?')
+        # logger.info('is this getting called twice?')
         
         if acq_image is None or grid is None:
             self._viewer.set_rois([])

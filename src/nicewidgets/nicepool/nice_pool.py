@@ -107,3 +107,17 @@ class NicePool(PlotPoolController):
             None.
         """
         super().set_dark_mode(enabled)
+
+    def select_points_by_row_ids(
+        self,
+        row_ids: set[str] | list[str] | tuple[str, ...],
+    ) -> None:
+        """Programmatically select points matching any of the given row ids.
+
+        Args:
+            row_ids: Values from ``unique_row_id_col`` identifying rows to highlight.
+
+        Returns:
+            None.
+        """
+        super().select_points_by_row_ids(row_ids)

@@ -457,6 +457,20 @@ class PlotPoolController:
         """
         self._selection_handler.select_by_row_id(row_id, self.plot_states)
 
+    def select_points_by_row_ids(
+        self,
+        row_ids: set[str] | list[str] | tuple[str, ...],
+    ) -> None:
+        """Programmatically select points matching any of the given row ids.
+
+        Args:
+            row_ids: Values from ``unique_row_id_col`` identifying rows to highlight.
+
+        Returns:
+            None.
+        """
+        self._selection_handler.select_by_row_ids(row_ids, self.plot_states)
+
     def set_theme(self, theme: str) -> None:
         """Set the Plotly layout color theme for all pool plots.
 

@@ -143,6 +143,40 @@ class SumIntensityAnalysisPool:
             return self._df.copy()
         return self._df
 
+    def row_ids_for_selection(
+        self,
+        file_id: str,
+        *,
+        channel: int,
+        roi_id: int,
+        peak_row_types: Sequence[str] = ("peak",),
+    ) -> tuple[str, ...]:
+        """Return ``pool_row_id`` values for one file/channel/ROI selection.
+
+        Args:
+            file_id: Stable acquisition-file identifier.
+            channel: Zero-based channel index.
+            roi_id: ROI identifier.
+            peak_row_types: Row types to include. Defaults to detected peak rows
+                only; pass an empty sequence to include all row types for the
+                selection.
+
+        Returns:
+            Matching ``pool_row_id`` strings in table order.
+        """
+        if self._df.empty:
+            return ()
+        mask = (
+            (self._df["path"] == str(file_id))
+            & (self._df["channel"] == int(channel))
+            & (self._df["roi_id"] == int(roi_id))
+        )
+        if peak_row_types:
+            mask = mask & self._df[self.row_type_column].isin(list(peak_row_types))
+        if not mask.any():
+            return ()
+        return tuple(self._df.loc[mask, "pool_row_id"].astype(str).tolist())
+
     def rebuild(self) -> None:
         """Rebuild the entire pool from the current ``AcqImageList`` state.
 
