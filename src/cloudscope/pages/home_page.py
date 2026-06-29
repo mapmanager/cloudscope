@@ -147,6 +147,8 @@ class HomePage:
             app_state=app_state,
             title='Analysis plot',
             initially_visible=False,
+            dark_mode=dark_mode,
+            dark_mode_provider=_dark_mode,
         )
         sum_intensity_plot = SumIntensityPlotView(
             self.event_bus,

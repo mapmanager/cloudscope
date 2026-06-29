@@ -13,7 +13,12 @@ from nicewidgets.plotly_plot.models import (
     PlotlySeriesMenuItem,
     PlotlyTraceData,
 )
-from nicewidgets.plotly_plot.widget import PlotlyPlotWidget, build_plotly_figure_dict
+from nicewidgets.plotly_plot.event_overlay import PlotlyEventOverlay
+from nicewidgets.plotly_plot.widget import (
+    PlotlyPlotWidget,
+    build_plotly_figure_dict,
+    extract_rect_selection_x_range_from_relayout,
+)
 
 
 class _FakeClient:
@@ -266,6 +271,121 @@ def test_widget_set_series_replaces_data_in_one_update(fake_plotly: list[_FakePl
     assert len(fake_plotly[0].client.calls) - calls_before == 1
     assert "Plotly.deleteTraces" in fake_plotly[0].client.calls[-1]
     assert "Plotly.addTraces" in fake_plotly[0].client.calls[-1]
+
+
+def test_extract_rect_selection_parses_flat_keys() -> None:
+    """Box-select relayout should parse flat selections[0].x0/x1 keys."""
+    args = {"selections[0].x0": 1.5, "selections[0].x1": 3.5}
+    assert extract_rect_selection_x_range_from_relayout(args) == (1.5, 3.5)
+
+
+def test_extract_rect_selection_parses_list_form() -> None:
+    """Box-select relayout should parse selections list payloads."""
+    args = {
+        "selections": [{"type": "rect", "x0": 2.0, "x1": 4.0, "y0": 0, "y1": 1}],
+    }
+    assert extract_rect_selection_x_range_from_relayout(args) == (2.0, 4.0)
+
+
+def test_begin_select_x_range_echo_does_not_emit_x_range_changed(
+    fake_plotly: list[_FakePlotlyElement],
+) -> None:
+    """Dragmode relayout echo after arming should not fire on_x_range_changed."""
+    ranges: list[tuple[float | None, float | None]] = []
+    widget = PlotlyPlotWidget(on_x_range_changed=lambda x0, x1: ranges.append((x0, x1)))
+
+    widget.begin_select_x_range()
+    widget._on_plotly_relayout(_RelayoutEvent({"dragmode": "select"}))
+
+    assert ranges == []
+    assert widget.figure["layout"]["dragmode"] == "select"
+
+
+def test_box_select_emits_on_x_range_selected_once(
+    fake_plotly: list[_FakePlotlyElement],
+) -> None:
+    """A completed box-select should call on_x_range_selected and disarm."""
+    selected: list[tuple[float, float]] = []
+    widget = PlotlyPlotWidget(on_x_range_selected=lambda x0, x1: selected.append((x0, x1)))
+
+    widget.begin_select_x_range()
+    widget._on_plotly_relayout(
+        _RelayoutEvent({"selections[0].x0": 1.0, "selections[0].x1": 2.5})
+    )
+
+    assert selected == [(1.0, 2.5)]
+    assert widget.figure["layout"]["dragmode"] == "zoom"
+    assert widget.figure["layout"]["selections"] == []
+
+
+def test_doubleclick_resets_x_range_and_emits_auto(
+    fake_plotly: list[_FakePlotlyElement],
+) -> None:
+    """Double-click should reset x-axis and emit (None, None)."""
+    ranges: list[tuple[float | None, float | None]] = []
+    widget = PlotlyPlotWidget(on_x_range_changed=lambda x0, x1: ranges.append((x0, x1)))
+
+    widget.set_x_axis_limits(1.0, 5.0)
+    widget._on_plotly_doubleclick(_RelayoutEvent({}))
+
+    assert widget.figure["layout"]["xaxis"]["autorange"] is True
+    assert ranges == [(None, None)]
+
+
+def test_set_legend_visible_preserves_bottom_horizontal_layout(
+    fake_plotly: list[_FakePlotlyElement],
+) -> None:
+    """Legend toggle should preserve bottom-centered horizontal legend layout."""
+    widget = PlotlyPlotWidget()
+
+    widget.set_legend_visible(False)
+    assert widget.figure["layout"]["showlegend"] is False
+
+    widget.set_legend_visible(True)
+    legend = widget.figure["layout"]["legend"]
+    assert widget.figure["layout"]["showlegend"] is True
+    assert legend["orientation"] == "h"
+    assert legend["x"] == 0.5
+    assert legend["y"] == -0.15
+
+
+def test_event_overlays_render_as_non_editable_rects(
+    fake_plotly: list[_FakePlotlyElement],
+) -> None:
+    """Event overlays should append rect shapes below measurement shapes."""
+    widget = PlotlyPlotWidget()
+    widget.add_measurement_line(name="m", orientation="horizontal", value=1.0)
+    widget.events.set_events(
+        [PlotlyEventOverlay(id="7", x0=1.0, x1=2.0, event_type="user")]
+    )
+
+    shapes = widget.figure["layout"]["shapes"]
+    assert len(shapes) == 2
+    assert shapes[1]["type"] == "rect"
+    assert shapes[1]["name"] == "event:7"
+    assert shapes[1]["editable"] is False
+    assert shapes[1]["yref"] == "paper"
+
+
+def test_event_overlays_survive_set_series(fake_plotly: list[_FakePlotlyElement]) -> None:
+    """Replacing series should keep event overlay shapes."""
+    widget = PlotlyPlotWidget()
+    widget.add_trace(name="old", x=[0.0], y=[1.0])
+    widget.events.set_events([PlotlyEventOverlay(id="1", x0=0.5, x1=1.5)])
+    widget.set_series(traces=[PlotlyTraceData.from_sequences(name="new", x=[0.0, 1.0], y=[1.0, 2.0])])
+
+    event_shapes = [s for s in widget.figure["layout"]["shapes"] if s.get("name", "").startswith("event:")]
+    assert len(event_shapes) == 1
+
+
+def test_select_event_updates_highlight_style(fake_plotly: list[_FakePlotlyElement]) -> None:
+    """Selected event should use the selected highlight style."""
+    widget = PlotlyPlotWidget()
+    widget.events.set_events([PlotlyEventOverlay(id="a", x0=1.0, x1=2.0, event_type="user")])
+    widget.events.select_event("a")
+
+    shape = widget.figure["layout"]["shapes"][0]
+    assert shape["line"]["width"] == 4
 
 
 def test_widget_set_series_preserves_measurement_shapes(fake_plotly: list[_FakePlotlyElement]) -> None:

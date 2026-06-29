@@ -1,10 +1,9 @@
 """App-level x-axis range sync between the primary raster and the 1D plot.
 
 The producers are :class:`PlotlyRasterViewer` (pan/zoom on the Plotly heatmap)
-and :class:`EChartWidget` (datazoom on the 1D analysis trace). The consumers
-are the same two widgets via their respective views. The x-axis is shared
-because the Plotly heatmap's plot-x dimension and the 1D analysis trace's
-x-axis are in the same physical units and share an origin.
+and :class:`PlotlyPlotWidget` (acq analysis plot via ``AcqAnalysisPlotView``).
+The x-axis is shared because the Plotly heatmap's plot-x dimension and the 1D
+analysis trace's x-axis are in the same physical units and share an origin.
 
 Reset semantics: the controller subscribes to :class:`FileSelectionChanged`
 and resets the x-range to ``(None, None)`` (auto) on file transitions only.

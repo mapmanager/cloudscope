@@ -56,6 +56,10 @@ class PlotlyPlotContextMenu:
             self._toggle_label("Hover Info", options.show_hover_info),
             on_click=lambda: widget.set_hover_info_visible(not options.show_hover_info),
         )
+        ui.menu_item(
+            self._toggle_label("Legend", options.show_legend),
+            on_click=lambda: widget.set_legend_visible(not options.show_legend),
+        )
 
         ui.separator()
         ui.menu_item("Copy To Clipboard", on_click=widget.copy_plot_to_clipboard)

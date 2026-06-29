@@ -201,12 +201,13 @@ from cloudscope.views.acq_analysis_plot_view import (
 
 
 class _FakeEvents:
-    """Stand-in for EChartWidget.events tracker."""
+    """Stand-in for PlotlyPlotWidget.events tracker."""
 
     def __init__(self) -> None:
         self.set_events_calls: list[list[object]] = []
         self.selections: list[str | None] = []
         self.visibility: list[bool] = []
+        self.clear_calls = 0
         self._raise_on_select = False
 
     def set_events(self, events) -> None:
@@ -220,25 +221,28 @@ class _FakeEvents:
     def set_visible(self, visible) -> None:
         self.visibility.append(bool(visible))
 
+    def clear_events(self) -> None:
+        self.clear_calls += 1
+        self.set_events_calls.append([])
+
 
 class _FakeChart:
-    """Minimal stand-in for EChartWidget supporting plot tests."""
+    """Minimal stand-in for PlotlyPlotWidget supporting plot tests."""
 
     def __init__(self) -> None:
         self.events = _FakeEvents()
         self.cleared = 0
-        self.line_calls: list[dict[str, object]] = []
+        self.series_calls: list[dict[str, object]] = []
         self.begin_x = 0
         self.cancel_x = 0
         self.x_min: float | None = None
         self.x_max: float | None = None
         self.x_reset = 0
 
-    def clear(self) -> None:
-        self.cleared += 1
-
-    def set_line_data(self, **kwargs) -> None:
-        self.line_calls.append(dict(kwargs))
+    def set_series(self, *, traces=(), scatters=()) -> None:
+        self.series_calls.append({"traces": list(traces), "scatters": list(scatters)})
+        if not traces and not scatters:
+            self.cleared += 1
 
     def begin_select_x_range(self) -> None:
         self.begin_x += 1
@@ -248,7 +252,7 @@ class _FakeChart:
 
     @property
     def x_range_limits(self) -> tuple[float | None, float | None]:
-        """Return current logical x-axis limits (mirrors EChartWidget)."""
+        """Return current logical x-axis limits (mirrors PlotlyPlotWidget)."""
         return (self.x_min, self.x_max)
 
     def set_x_axis_limits(self, x_min, x_max) -> None:
@@ -286,7 +290,7 @@ def test_refresh_plot_clears_chart_when_no_plot_data() -> None:
     view._refresh_plot()
 
     assert view._chart.cleared == 1
-    assert view._status_label.text == "previous status"
+    assert view._chart.events.clear_calls == 1
 
 
 def test_refresh_plot_sets_line_data_for_available_plot() -> None:
@@ -308,8 +312,9 @@ def test_refresh_plot_sets_line_data_for_available_plot() -> None:
     view._refresh_plot()
 
     assert view._chart.cleared == 0
-    assert view._chart.line_calls[-1]["x"] == (0.0, 1.0, 2.0)
-    assert view._status_label.text == ""
+    trace = view._chart.series_calls[-1]["traces"][0]
+    assert trace.x == (0.0, 1.0, 2.0)
+    assert trace.name == "Radon velocity"
 
 
 def test_refresh_plot_noop_when_no_chart() -> None:

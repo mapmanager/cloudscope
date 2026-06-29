@@ -16,10 +16,12 @@ class PlotlyPlotDisplayOptions:
             lines, and grid lines are visible.
         show_plotly_toolbar: Whether Plotly's modebar is visible.
         show_hover_info: Whether Plotly emits hover labels for plot traces.
+        show_legend: Whether the Plotly legend is visible.
         theme: Plotly layout color theme.
     """
 
     show_axis_labels: bool = False
     show_plotly_toolbar: bool = False
     show_hover_info: bool = False
+    show_legend: bool = True
     theme: PlotlyThemeName = "light"

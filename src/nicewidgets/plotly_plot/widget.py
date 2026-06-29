@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -13,6 +14,7 @@ from nicegui import core, ui
 from nicewidgets.plotly_plot.context_menu import PlotlyPlotContextMenu
 from nicewidgets.plotly_plot.context_menu_guards import pywebview_plotly_plot_context_menu_guard_js
 from nicewidgets.plotly_plot.display_options import PlotlyPlotDisplayOptions
+from nicewidgets.plotly_plot.event_overlay import PlotlyEventOverlayApi
 from nicewidgets.plotly_plot.models import (
     MeasurementChangeEvent,
     MeasurementLine,
@@ -40,9 +42,11 @@ from nicewidgets.utils.logging import get_logger
 logger = get_logger(__name__)
 
 OnPlotlyXRangeChanged = Callable[[float | None, float | None], None]
+OnPlotlyXRangeSelected = Callable[[float, float], None]
 OnMeasurementChanged = Callable[[MeasurementChangeEvent], None]
 
 _X_RANGE_ECHO_EPS = 1e-9
+_SELF_RELAYOUT_TTL_SEC = 0.250
 
 
 def _x_range_equal(
@@ -60,6 +64,72 @@ def _x_range_equal(
         if abs(av - bv) > _X_RANGE_ECHO_EPS:
             return False
     return True
+
+
+def _relayout_has_axis_range(args: dict[str, object]) -> bool:
+    """Return whether ``args`` carries any Plotly axis range keys."""
+    return any(key.startswith("xaxis.range") or key.startswith("yaxis.range") for key in args)
+
+
+def _relayout_has_bracket_axis_range(args: dict[str, object]) -> bool:
+    """Return whether ``args`` carries bracket-style axis range keys from user gestures."""
+    return any(
+        ("[0]" in key or "[1]" in key)
+        and (key.startswith("xaxis.range") or key.startswith("yaxis.range"))
+        for key in args
+    )
+
+
+def _is_normalized_only_relayout(args: dict[str, object]) -> bool:
+    """Return whether ``args`` is a normalized list-key relayout without bracket keys."""
+    has_list_range = "xaxis.range" in args or "yaxis.range" in args
+    has_bracket_range = any("[0]" in key or "[1]" in key for key in args)
+    return has_list_range and not has_bracket_range
+
+
+def extract_rect_selection_x_range_from_relayout(
+    args: dict[str, object],
+) -> tuple[float | None, float | None]:
+    """Parse Plotly relayout args for box-select ``x0``/``x1``.
+
+    Plotly delivers box-select as a relayout payload. Keys vary (flat ``selections[0].*``,
+    other indexed entries, or a ``selections`` list). Only the x-range is returned.
+
+    Args:
+        args: Plotly relayout event payload.
+
+    Returns:
+        Parsed ``(x0, x1)`` or ``(None, None)`` when not found.
+    """
+    if not args:
+        return None, None
+    k0, k1 = "selections[0].x0", "selections[0].x1"
+    if k0 in args and k1 in args:
+        try:
+            return float(args[k0]), float(args[k1])  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            pass
+    for key in list(args.keys()):
+        if ".x0" in key and key.startswith("selections[") and key.endswith(".x0"):
+            prefix = key[:-3]
+            k1_alt = f"{prefix}.x1"
+            if k1_alt in args:
+                try:
+                    return float(args[key]), float(args[k1_alt])  # type: ignore[arg-type]
+                except (TypeError, ValueError):
+                    pass
+    raw = args.get("selections")
+    if isinstance(raw, (list, tuple)):
+        for item in raw:
+            if isinstance(item, dict):
+                x0 = item.get("x0")
+                x1 = item.get("x1")
+                if x0 is not None and x1 is not None:
+                    try:
+                        return float(x0), float(x1)  # type: ignore[arg-type]
+                    except (TypeError, ValueError):
+                        pass
+    return None, None
 
 
 _SeriesKind = Literal["trace", "scatter"]
@@ -254,6 +324,7 @@ class PlotlyPlotWidget:
         y_label: str = "y",
         theme: PlotlyThemeName = "light",
         on_x_range_changed: OnPlotlyXRangeChanged | None = None,
+        on_x_range_selected: OnPlotlyXRangeSelected | None = None,
         on_measurement_changed: OnMeasurementChanged | None = None,
     ) -> None:
         """Create an empty Plotly widget.
@@ -265,6 +336,8 @@ class PlotlyPlotWidget:
             on_x_range_changed: Optional callback invoked after the user changes
                 the x-axis range by zooming, panning, or autoranging. ``(None,
                 None)`` means Plotly returned to autorange.
+            on_x_range_selected: Optional callback invoked once after the user
+                completes a box-select while ``begin_select_x_range()`` is armed.
             on_measurement_changed: Optional callback invoked after the user
                 drags a measurement line.
         """
@@ -273,6 +346,7 @@ class PlotlyPlotWidget:
         self._theme = normalize_plotly_theme(theme)
         self._display_options = PlotlyPlotDisplayOptions(theme=self._theme)
         self._on_x_range_changed = on_x_range_changed
+        self._on_x_range_selected = on_x_range_selected
         self._on_measurement_changed = on_measurement_changed
         self._x_range = PlotlyAxisRange()
         self._series_menu_items: list[PlotlySeriesMenuItem] = []
@@ -293,11 +367,15 @@ class PlotlyPlotWidget:
         self._measurement_callbacks: dict[str, OnMeasurementChanged] = {}
         self._last_applied_x_range: tuple[float | None, float | None] | None = None
         self._ignore_relayout = False
+        self._x_range_selection_armed = False
+        self._pending_self_relayouts: list[dict[str, object]] = []
         self._ctx_menu: ui.context_menu | None = None
         self._context_menu_builder: PlotlyPlotContextMenu | None = None
+        self.events = PlotlyEventOverlayApi(self)
 
         self.container = ui.plotly(self._figure)
         self.container.on("plotly_relayout", self._on_plotly_relayout)
+        self.container.on("plotly_doubleclick", self._on_plotly_doubleclick)
         self._ctx_menu = ui.context_menu()
         self._context_menu_builder = PlotlyPlotContextMenu(get_widget=lambda: self)
         self.container.on("contextmenu", self._on_context_menu_event)
@@ -448,6 +526,22 @@ class PlotlyPlotWidget:
         self._display_options.show_hover_info = bool(visible)
         self._sync_hover_info_to_plotly_dict()
         self._restyle_hover_info()
+
+    def set_legend_visible(self, visible: bool) -> None:
+        """Show or hide the Plotly legend.
+
+        When shown, the legend uses the widget's bottom horizontal layout
+        (``orientation='h'`` centered below the plot).
+
+        Args:
+            visible: Whether the legend should be visible.
+
+        Returns:
+            None.
+        """
+        self._display_options.show_legend = bool(visible)
+        self._sync_legend_to_plotly_dict()
+        self._relayout_legend()
 
     async def copy_plot_to_clipboard(self) -> None:
         """Copy the current Plotly plot image to the active clipboard.
@@ -768,6 +862,33 @@ class PlotlyPlotWidget:
         """Reset the x-axis to automatic scaling."""
         self.set_x_axis_limits(None, None)
 
+    @property
+    def x_range_limits(self) -> tuple[float | None, float | None]:
+        """Return the widget's current logical x-axis limits."""
+        return (self._x_range.x_min, self._x_range.x_max)
+
+    def begin_select_x_range(self) -> None:
+        """Enter one-shot box-select mode for user x-range selection.
+
+        While armed, ``plotly_relayout`` payloads carrying ``selections`` x-bounds
+        invoke ``on_x_range_selected`` once, then restore zoom mode.
+        """
+        self._x_range_selection_armed = True
+        layout = self._figure.setdefault("layout", {})
+        layout["dragmode"] = "select"
+        self._relayout({"dragmode": "select"}, source="begin_select_x_range")
+
+    def cancel_select_x_range(self) -> None:
+        """Cancel box-select mode and restore zoom dragmode."""
+        self._x_range_selection_armed = False
+        layout = self._figure.setdefault("layout", {})
+        layout["dragmode"] = "zoom"
+        layout["selections"] = []
+        self._relayout(
+            {"dragmode": "zoom", "selections": []},
+            source="cancel_select_x_range",
+        )
+
     def add_measurement_line(
         self,
         *,
@@ -996,15 +1117,132 @@ class PlotlyPlotWidget:
             raise TypeError("Plotly layout.shapes must be a list")
         return shapes
 
+    def _register_self_relayout(
+        self,
+        payload: dict[str, object],
+        *,
+        source: str,
+        echo_suppressions: int = 1,
+    ) -> None:
+        """Register a self-initiated relayout payload for short-lived echo suppression.
+
+        Args:
+            payload: Relayout key/value pairs expected back from Plotly.
+            source: Short label for debugging.
+            echo_suppressions: Matching relayout callbacks to suppress before drop.
+
+        Returns:
+            None.
+        """
+        now = time.perf_counter()
+        expires_at = now + _SELF_RELAYOUT_TTL_SEC
+        self._pending_self_relayouts = [
+            item
+            for item in self._pending_self_relayouts
+            if float(item["expires_at"]) >= now
+        ]
+        self._pending_self_relayouts.append(
+            {
+                "source": source,
+                "expected": dict(payload),
+                "expires_at": expires_at,
+                "remaining": max(1, int(echo_suppressions)),
+            }
+        )
+
+    def _pop_matching_self_relayout(self, args: dict[str, object]) -> str | None:
+        """Match incoming relayout to a pending self-initiated payload.
+
+        Args:
+            args: Incoming Plotly relayout payload.
+
+        Returns:
+            Source label when matched, otherwise ``None``.
+        """
+        now = time.perf_counter()
+        self._pending_self_relayouts = [
+            item
+            for item in self._pending_self_relayouts
+            if float(item["expires_at"]) >= now
+        ]
+        for idx, item in enumerate(self._pending_self_relayouts):
+            expected = item["expected"]
+            if not isinstance(expected, dict):
+                continue
+            if all(args.get(key) == value for key, value in expected.items()):
+                source = str(item["source"])
+                remaining = int(item.get("remaining", 1)) - 1
+                if remaining <= 0:
+                    self._pending_self_relayouts.pop(idx)
+                else:
+                    self._pending_self_relayouts[idx]["remaining"] = remaining
+                return source
+        return None
+
+    def _handle_x_range_selection_relayout(self, args: dict[str, Any]) -> bool:
+        """Consume a box-select relayout while selection mode is armed.
+
+        Args:
+            args: Plotly relayout event payload.
+
+        Returns:
+            ``True`` when the payload was handled as a completed selection.
+        """
+        if not self._x_range_selection_armed:
+            return False
+        x0, x1 = extract_rect_selection_x_range_from_relayout(args)
+        if x0 is None or x1 is None:
+            return False
+        self._x_range_selection_armed = False
+        layout = self._figure.setdefault("layout", {})
+        layout["dragmode"] = "zoom"
+        layout["selections"] = []
+        self._relayout(
+            {"dragmode": "zoom", "selections": []},
+            source="selection_complete",
+        )
+        if self._on_x_range_selected is not None:
+            self._on_x_range_selected(float(x0), float(x1))
+        return True
+
+    def _should_emit_user_x_range_relayout(self, args: dict[str, Any]) -> bool:
+        """Return whether ``args`` looks like a user x-axis range gesture."""
+        if self._parse_x_range_event(args) is None:
+            return False
+        if args.get("xaxis.autorange") is True:
+            return True
+        if not _relayout_has_axis_range(args):
+            return False
+        if _is_normalized_only_relayout(args):
+            return False
+        return _relayout_has_bracket_axis_range(args)
+
     def _on_plotly_relayout(self, event: Any) -> None:
-        """Handle Plotly relayout events from user zooms and shape drags."""
-        if self._ignore_relayout:
-            return
+        """Handle Plotly relayout events from user zooms, selections, and shape drags."""
         args = getattr(event, "args", None)
         if not isinstance(args, dict):
             return
+        logger.info("plotly_relayout args=%s", args)
+        if self._ignore_relayout:
+            return
+        if self._pop_matching_self_relayout(args) is not None:
+            return
+        if self._handle_x_range_selection_relayout(args):
+            return
         self._sync_shape_edits(args)
-        self._emit_x_range_if_needed(args)
+        if self._should_emit_user_x_range_relayout(args):
+            self._emit_x_range_if_needed(args)
+
+    def _on_plotly_doubleclick(self, event: Any) -> None:
+        """Reset x-axis limits after Plotly double-click autorange.
+
+        Args:
+            event: NiceGUI double-click event (unused).
+        """
+        _ = event
+        self.reset_x_axis_limits()
+        if self._on_x_range_changed is not None:
+            self._on_x_range_changed(None, None)
 
     def _emit_x_range_if_needed(self, args: dict[str, Any]) -> None:
         """Emit x-range callback for user axis range changes."""
@@ -1181,8 +1419,9 @@ Plotly.deleteTraces(plotDiv, [{index}]);
 """
         self._run_plotly_javascript(js)
 
-    def _relayout(self, payload: dict[str, Any]) -> None:
+    def _relayout(self, payload: dict[str, Any], *, source: str = "relayout") -> None:
         """Push a Plotly relayout payload to the browser."""
+        self._register_self_relayout(payload, source=source)
         js = f"""
 {self._js_plotly_graph_div()}
 Plotly.relayout(plotDiv, {json.dumps(payload)});
@@ -1191,7 +1430,14 @@ Plotly.relayout(plotDiv, {json.dumps(payload)});
 
     def _push_shapes(self) -> None:
         """Push the current layout shapes to the browser."""
-        self._relayout({"shapes": self._shapes()})
+        self._apply_event_overlays()
+
+    def _apply_event_overlays(self) -> None:
+        """Merge measurement shapes with event overlays and relayout."""
+        measurement_shapes = self._shapes()[: len(self._shape_refs)]
+        combined = measurement_shapes + self.events.build_plotly_shapes()
+        self._figure["layout"]["shapes"] = combined
+        self._relayout({"shapes": combined}, source="event_overlays")
 
     def _sync_theme_to_plotly_dict(self) -> None:
         """Synchronize the selected light/dark theme into the local figure dict."""
@@ -1230,6 +1476,17 @@ Plotly.relayout(plotDiv, {json.dumps(payload)});
             else dict(_PLOTLY_PLOT_MARGIN_COMPACT)
         )
         layout["margin"] = margin
+
+    def _sync_legend_to_plotly_dict(self) -> None:
+        """Synchronize legend visibility and bottom horizontal layout into the figure dict."""
+        layout = self._figure.setdefault("layout", {})
+        layout["showlegend"] = bool(self._display_options.show_legend)
+        legend = layout.setdefault("legend", {})
+        if not isinstance(legend, dict):
+            legend = {}
+            layout["legend"] = legend
+        if self._display_options.show_legend:
+            legend.update(dict(_PLOTLY_PLOT_LEGEND))
 
     def _sync_plotly_config_to_plotly_dict(self) -> None:
         """Synchronize Plotly config options into the local figure dict."""
@@ -1292,6 +1549,18 @@ Plotly.react(plotDiv, plotDiv.data, plotDiv.layout, {json.dumps(config)});
             relayout[f"{axis_name}.zeroline"] = axis.get("zeroline", False)
             relayout[f"{axis_name}.showgrid"] = axis.get("showgrid", False)
         self._relayout(relayout)
+
+    def _relayout_legend(self) -> None:
+        """Push legend visibility (and layout when shown) to the browser."""
+        layout = self._figure.get("layout", {})
+        relayout: dict[str, Any] = {
+            "showlegend": bool(layout.get("showlegend", True)),
+        }
+        if relayout["showlegend"]:
+            legend = layout.get("legend")
+            if isinstance(legend, dict):
+                relayout["legend"] = legend
+        self._relayout(relayout, source="legend_visible")
 
     def _relayout_theme(self) -> None:
         """Push light/dark theme layout properties to the browser."""

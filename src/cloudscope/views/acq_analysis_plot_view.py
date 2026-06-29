@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from nicegui import ui
@@ -20,10 +21,12 @@ from cloudscope.events.analysis import (
     CancelPlotXRangeSelection,
 )
 from cloudscope.events.roi import RoiChanged
+from cloudscope.events.theme import ThemeChanged
 from cloudscope.events.x_range import PrimaryXRangeChanged, SetPrimaryXRangeIntent, x_ranges_equal
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
-from nicewidgets.echart_widget.widget import EChartWidget
+from nicewidgets.plotly_plot.models import PlotlyTraceData
+from nicewidgets.plotly_plot.widget import PlotlyPlotWidget
 
 from cloudscope.utils.logging import get_logger
 logger = get_logger(__name__)
@@ -43,6 +46,8 @@ class AcqAnalysisPlotView(BaseView):
         app_state: Optional page/controller state object.
         title: Card title.
         initially_visible: Whether this view starts visible.
+        dark_mode: Initial Plotly layout theme state.
+        dark_mode_provider: Optional callable returning current app dark-mode state.
     """
 
     view_id = ViewId.ACQ_ANALYSIS_PLOT
@@ -55,14 +60,18 @@ class AcqAnalysisPlotView(BaseView):
         *,
         title: str = "Analysis plot",
         initially_visible: bool = True,
+        dark_mode: bool = False,
+        dark_mode_provider: Callable[[], bool] | None = None,
     ) -> None:
         super().__init__(event_bus=event_bus, app_state=app_state, initially_visible=initially_visible)
         self.title = title
+        self._dark_mode_provider = dark_mode_provider
+        self._initial_dark_mode = bool(dark_mode)
         # self._status_label: ui.label | None = None
-        self._chart: EChartWidget | None = None
+        self._chart: PlotlyPlotWidget | None = None
         self._events_visible = True
         # Latest app-level ``primary_x_range`` cache, updated from
-        # ``PrimaryXRangeChanged``. Re-applied to the chart after every
+        # ``PrimaryXRangeChanged``. Re-applied to the plot after every
         # ``_refresh_plot`` so user/state range survives analysis-row clicks
         # (same file) where the controller intentionally does not reset.
         self._primary_x_range: tuple[float | None, float | None] = (None, None)
@@ -102,6 +111,7 @@ class AcqAnalysisPlotView(BaseView):
         self.add_subscription(
             self.event_bus.subscribe(PrimaryXRangeChanged, self._on_primary_x_range_changed)
         )
+        self.add_subscription(self.event_bus.subscribe(ThemeChanged, self._on_theme_changed))
 
     def refresh_from_state(self) -> None:
         """Refresh the plot from the current selection.
@@ -109,6 +119,7 @@ class AcqAnalysisPlotView(BaseView):
         Returns:
             None.
         """
+        self._sync_theme_from_provider()
         self._refresh_plot()
 
     def on_primary_selection_changed(self) -> None:
@@ -152,7 +163,8 @@ class AcqAnalysisPlotView(BaseView):
         # each view is adding this label with name, comment it out
         # ui.label(self.title).classes("text-lg font-semibold shrink-0")
         
-        self._chart = EChartWidget(
+        self._chart = PlotlyPlotWidget(
+            theme="dark" if self._initial_dark_mode else "light",
             on_x_range_selected=self._on_x_range_selected,
             on_x_range_changed=self._on_chart_x_range_changed,
         )
@@ -287,6 +299,18 @@ class AcqAnalysisPlotView(BaseView):
         self._chart_originated_x_range = True
         self.event_bus.publish(SetPrimaryXRangeIntent(x_min=x_min, x_max=x_max))
 
+    def _on_theme_changed(self, event: ThemeChanged) -> None:
+        """Apply application theme changes to the child plot."""
+        if self._chart is None:
+            return
+        self._chart.set_dark_mode(event.dark_mode)
+
+    def _sync_theme_from_provider(self) -> None:
+        """Apply current application theme when a provider is available."""
+        if self._chart is None or self._dark_mode_provider is None:
+            return
+        self._chart.set_dark_mode(bool(self._dark_mode_provider()))
+
     def _on_primary_x_range_changed(self, event: PrimaryXRangeChanged) -> None:
         """Consumer: cache the authoritative x-range and apply it to the chart.
 
@@ -345,24 +369,31 @@ class AcqAnalysisPlotView(BaseView):
 
         plot_data = self._get_selected_plot_data()
         if plot_data is None:
-            self._chart.clear()
-            # self._status_label.text = self._empty_message()
+            self._clear_chart()
             return
 
-        self._chart.set_line_data(
-            x=plot_data.x,
-            y=plot_data.y,
-            x_label=plot_data.x_label,
-            y_label=plot_data.y_label,
-            series_name=plot_data.series_name,
+        self._chart.set_series(
+            traces=[
+                PlotlyTraceData.from_sequences(
+                    name=plot_data.series_name,
+                    x=plot_data.x,
+                    y=plot_data.y,
+                )
+            ]
         )
         self._refresh_event_overlays()
-        # Re-apply the cached app-level x-range; ``set_line_data`` resets the
-        # chart's own ``_x_range`` to whatever it was before this call, so the
-        # explicit re-apply keeps the chart aligned with ``HomePageState`` on
-        # analysis-row clicks within the same file.
+        # Re-apply the cached app-level x-range; ``set_series`` preserves the
+        # widget's logical ``_x_range`` but the explicit re-apply keeps the
+        # plot aligned with ``HomePageState`` on analysis-row clicks within
+        # the same file.
         self._apply_primary_x_range_to_chart()
-        # self._status_label.text = f"{plot_data.series_name}: {len(plot_data.x)} points"
+
+    def _clear_chart(self) -> None:
+        """Remove plotted data and event overlays."""
+        if self._chart is None:
+            return
+        self._chart.set_series(traces=[])
+        self._chart.events.clear_events()
 
     def _refresh_event_overlays(self) -> None:
         """Refresh chart event overlays from backend state and visibility."""
@@ -394,7 +425,7 @@ class AcqAnalysisPlotView(BaseView):
         """Return selected event overlays from event analysis, if present.
 
         Returns:
-            Backend event objects compatible with ``EChartWidget.events``.
+            Backend event objects compatible with ``PlotlyPlotWidget.events``.
         """
         acq_image = self.get_selected_acq_image()
         if acq_image is None:
