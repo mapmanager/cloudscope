@@ -10,7 +10,11 @@ from nicegui import ui
 
 from acqstore.acq_image.analysis.batch.preview import preview_batch_rows, roi_intersection_across_acq_images
 from acqstore.acq_image.analysis.batch.roi_mode import RoiBatchMode
-from acqstore.acq_image.analysis.model import AnalysisKey, DetectionParamSchema
+from acqstore.acq_image.analysis.model import (
+    AnalysisKey,
+    DetectionParamSchema,
+    DetectionValueType,
+)
 from cloudscope.event_bus import EventBus
 from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind, RunAnalysisIntent, RunBatchAnalysisIntent
 from cloudscope.events.roi import RoiChanged
@@ -35,6 +39,38 @@ def _load_diameter_analysis_class() -> type[Any] | None:
     except Exception:
         return None
     return DiameterAnalysis
+
+
+def _coerce_detection_param_value(field: DetectionParamSchema, value: object) -> object:
+    """Coerce a raw GUI control value to the schema field type.
+
+    NiceGUI ``ui.number`` returns floats even for integer fields. AcqStore
+    validation requires true ``int`` values for ``DetectionValueType.INT``.
+
+    Args:
+        field: Detection parameter schema entry.
+        value: Raw value from a control.
+
+    Returns:
+        Value coerced to the schema type when applicable.
+    """
+    if value is None:
+        return value
+    match field.value_type:
+        case DetectionValueType.INT:
+            if isinstance(value, bool):
+                raise TypeError(f"{field.name!r} must be int, got: bool")
+            return int(value)
+        case DetectionValueType.FLOAT:
+            if isinstance(value, bool):
+                raise TypeError(f"{field.name!r} must be float or int, got: bool")
+            return float(value)
+        case DetectionValueType.BOOL:
+            return bool(value)
+        case DetectionValueType.STR:
+            return str(value)
+        case _:
+            return value
 
 
 def _field_visible_for_method(field: DetectionParamSchema, selected_method: str) -> bool:
@@ -243,9 +279,15 @@ class DiameterAnalysisView(BaseView):
                     ).classes("w-full")
                     if field.name == "diameter_method":
                         control.on_value_change(lambda _event=None: self._refresh_param_visibility())
-                elif field.value_type.value == "bool":
+                elif field.value_type is DetectionValueType.BOOL:
                     control = ui.checkbox(text=label, value=bool(defaults.get(field.name)))
-                elif field.value_type.value in {"int", "float"}:
+                elif field.value_type is DetectionValueType.INT:
+                    control = ui.number(
+                        label=label,
+                        value=int(defaults.get(field.name)),
+                        precision=0,
+                    ).classes("w-full")
+                elif field.value_type is DetectionValueType.FLOAT:
                     control = ui.number(label=label, value=defaults.get(field.name)).classes("w-full")
                 else:
                     control = ui.input(label=label, value=str(defaults.get(field.name, ""))).classes("w-full")
@@ -301,7 +343,11 @@ class DiameterAnalysisView(BaseView):
         for name, control in self._param_controls.items():
             if not control.visible:
                 continue
-            params[name] = control.value
+            field = self._schema_by_name.get(name)
+            if field is None:
+                params[name] = control.value
+            else:
+                params[name] = _coerce_detection_param_value(field, control.value)
         cls.validate_detection_params(params)
         return params
 

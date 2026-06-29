@@ -14,6 +14,7 @@ from cloudscope.state import PrimarySelection
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.diameter_analysis_view import (
     DiameterAnalysisView,
+    _coerce_detection_param_value,
     _field_visible_for_method,
     _load_diameter_analysis_class,
 )
@@ -225,6 +226,41 @@ def test_current_detection_params_skips_hidden_controls() -> None:
 
     assert params[visible_field_name] == defaults[visible_field_name]
     assert "some_other" not in params or params["some_other"] != 99999
+
+
+def test_coerce_detection_param_value_converts_ui_number_float_to_int() -> None:
+    """Integer schema fields should accept float control values from ui.number."""
+    field = DetectionParamSchema(
+        name="window_rows_odd",
+        display_name="Window Rows (Odd)",
+        value_type=DetectionValueType.INT,
+        default=5,
+        description="",
+    )
+
+    assert _coerce_detection_param_value(field, 5.0) == 5
+    assert isinstance(_coerce_detection_param_value(field, 5.0), int)
+
+
+def test_current_detection_params_coerces_int_fields_from_float_controls() -> None:
+    """Run should receive int detection params when ui.number returns floats."""
+    cls = _load_diameter_analysis_class()
+    assert cls is not None
+    view = DiameterAnalysisView(event_bus=EventBus())
+    view._param_controls["window_rows_odd"] = _FakeControl(7.0)
+    view._schema_by_name["window_rows_odd"] = DetectionParamSchema(
+        name="window_rows_odd",
+        display_name="Window Rows (Odd)",
+        value_type=DetectionValueType.INT,
+        default=5,
+        description="",
+    )
+
+    params = view._current_detection_params()
+
+    assert params["window_rows_odd"] == 7
+    assert isinstance(params["window_rows_odd"], int)
+    cls.validate_detection_params(params)
 
 
 # ---- _on_run_clicked publish + guard paths ----
