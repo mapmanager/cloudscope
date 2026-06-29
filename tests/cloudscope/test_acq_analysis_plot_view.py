@@ -246,11 +246,18 @@ class _FakeChart:
     def cancel_select_x_range(self) -> None:
         self.cancel_x += 1
 
+    @property
+    def x_range_limits(self) -> tuple[float | None, float | None]:
+        """Return current logical x-axis limits (mirrors EChartWidget)."""
+        return (self.x_min, self.x_max)
+
     def set_x_axis_limits(self, x_min, x_max) -> None:
         self.x_min = x_min
         self.x_max = x_max
 
     def reset_x_axis_limits(self) -> None:
+        self.x_min = None
+        self.x_max = None
         self.x_reset += 1
 
 
