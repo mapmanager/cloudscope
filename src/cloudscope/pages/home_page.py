@@ -740,6 +740,7 @@ class HomePage:
                             right_pool_splitter,
                             orientation='vertical',
                             offset='before',
+                            show_handle=False,
                             on_dblclick=_toggle_right_pool_panel,
                         )
                         right_pool_splitter.on(
@@ -755,7 +756,7 @@ class HomePage:
                 else:
                     _build_main_workspace()
 
-            add_splitter_handle(left_splitter, orientation='vertical', offset='after')
+            add_splitter_handle(left_splitter, orientation='vertical', offset='after', show_handle=False)
             left_splitter.on(
                 'update:model-value',
                 lambda _event=None: _capture(SplitterId.LEFT_TOOLBAR),

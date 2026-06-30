@@ -19,6 +19,7 @@ _SPLITTER_HANDLE_CSS_ADDED = False
 def add_splitter_handle(
     splitter: QSplitter,
     *,
+    show_handle: bool = True,
     on_dblclick: Callable[[], None] | None = None,
     orientation: Orientation = 'horizontal',
     offset: Offset = 'center',
@@ -28,6 +29,8 @@ def add_splitter_handle(
     Args:
         splitter: NiceGUI splitter element whose separator should receive the
             visible handle.
+        show_handle: When ``False``, skip adding the custom handle pill. The
+            native Quasar separator remains draggable.
         on_dblclick: Optional callback invoked when the handle is double-clicked.
         orientation: Handle orientation. Use ``'vertical'`` for left/right
             splitters and ``'horizontal'`` for top/bottom splitters.
@@ -37,6 +40,8 @@ def add_splitter_handle(
     Returns:
         None.
     """
+    if not show_handle:
+        return
     _ensure_splitter_handle_css()
 
     wrap_classes = ['cloudscope-splitter-handle-wrap']
