@@ -7,7 +7,8 @@ from typing import Any
 
 from nicegui import ui
 
-from acqstore.acq_image.analysis.model import AnalysisKey
+from acqstore.acq_image.analysis.diameter_analysis.diameter_analysis import DiameterAnalysis
+from acqstore.acq_image.analysis.model import AnalysisKey, AnalysisPlotData
 from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_analysis import (
     SumIntensityAnalysis,
 )
@@ -33,6 +34,8 @@ from nicewidgets.plotly_plot.models import (
     PlotlyYAxisSide,
 )
 from nicewidgets.plotly_plot.widget import PlotlyPlotWidget
+
+_DIAMETER_TRACE_NAME = "Diameter"
 
 
 class SumIntensityPlotView(BaseView):
@@ -165,7 +168,7 @@ class SumIntensityPlotView(BaseView):
         self._plot.container.classes("w-full h-full min-h-0 flex-1")
 
     def _on_analysis_completed(self, event: AnalysisCompleted) -> None:
-        """Refresh after matching sum-intensity analysis completion.
+        """Refresh after matching sum-intensity or diameter analysis completion.
 
         Args:
             event: Analysis completion state event.
@@ -173,7 +176,7 @@ class SumIntensityPlotView(BaseView):
         Returns:
             None.
         """
-        if event.analysis_kind is not AnalysisKind.SUM_INTENSITY:
+        if event.analysis_kind not in {AnalysisKind.SUM_INTENSITY, AnalysisKind.DIAMETER}:
             return
         if event.selection.file_id != self.current_selection.file_id:
             return
@@ -333,6 +336,9 @@ class SumIntensityPlotView(BaseView):
         ):
             if len(points.x) > 0:
                 scatters.append(self._scatter_data(points))
+        diameter_trace = self._diameter_trace_data()
+        if diameter_trace is not None:
+            traces.append(diameter_trace)
         return traces, scatters
 
     @staticmethod
@@ -375,6 +381,13 @@ class SumIntensityPlotView(BaseView):
                     default_visible=True,
                     kind="scatter",
                 ),
+                PlotlySeriesMenuItem(
+                    series_name=_DIAMETER_TRACE_NAME,
+                    label="Diameter",
+                    default_visible=False,
+                    kind="trace",
+                    separator_before=True,
+                ),
             ]
         )
         return items
@@ -402,6 +415,47 @@ class SumIntensityPlotView(BaseView):
             name=str(trace.name),
             x=trace.x,
             y=trace.y,
+            visible=visible,
+            y_axis=y_axis,
+        )
+
+    def _diameter_trace_data(self) -> PlotlyTraceData | None:
+        """Return optional diameter overlay trace from the active diameter analysis.
+
+        Returns:
+            Plotly trace on ``yaxis2`` when diameter plot data exists, else ``None``.
+        """
+        diameter_analysis = self._get_selected_diameter_analysis()
+        if diameter_analysis is None:
+            return None
+        plot_data = diameter_analysis.get_plot_data()
+        if plot_data is None:
+            return None
+        return self._plot_data_trace(plot_data, y_axis="right")
+
+    def _plot_data_trace(
+        self,
+        plot_data: AnalysisPlotData,
+        *,
+        y_axis: PlotlyYAxisSide = "left",
+    ) -> PlotlyTraceData:
+        """Convert :class:`AnalysisPlotData` to Plotly trace data.
+
+        Args:
+            plot_data: Display-ready analysis plot payload.
+            y_axis: Primary ``y`` axis (``"left"``) or overlaid ``y2`` axis
+                (``"right"``).
+
+        Returns:
+            Immutable Plotly trace data.
+        """
+        visible = True
+        if self._plot is not None:
+            visible = self._plot.is_series_visible(str(plot_data.series_name))
+        return PlotlyTraceData.from_sequences(
+            name=str(plot_data.series_name),
+            x=plot_data.x,
+            y=plot_data.y,
             visible=visible,
             y_axis=y_axis,
         )
@@ -457,6 +511,28 @@ class SumIntensityPlotView(BaseView):
             )
         )
         if not isinstance(analysis, SumIntensityAnalysis):
+            return None
+        return analysis
+
+    def _get_selected_diameter_analysis(self) -> DiameterAnalysis | None:
+        """Return diameter analysis for the active file/channel/ROI selection.
+
+        Returns:
+            Matching analysis, or ``None`` when unavailable.
+        """
+        acq_image = self.get_selected_acq_image()
+        if acq_image is None:
+            return None
+        if self.current_selection.channel is None or self.current_selection.roi_id is None:
+            return None
+        analysis = acq_image.analysis_set.get(
+            AnalysisKey(
+                DiameterAnalysis.analysis_name,
+                int(self.current_selection.channel),
+                int(self.current_selection.roi_id),
+            )
+        )
+        if not isinstance(analysis, DiameterAnalysis):
             return None
         return analysis
 

@@ -36,6 +36,8 @@ class PlotlyPlotContextMenu:
         options = widget.display_options
 
         for item in widget.series_menu_items:
+            if item.separator_before:
+                ui.separator()
             ui.menu_item(
                 self._toggle_label(item.label, widget.is_series_visible(item.series_name)),
                 on_click=lambda name=item.series_name: widget.toggle_series_visible(name),

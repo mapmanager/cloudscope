@@ -22,12 +22,15 @@ class PlotlySeriesMenuItem:
         label: Human-readable menu label.
         default_visible: Initial visibility when the series is first registered.
         kind: Whether the series is a continuous trace or scatter overlay.
+        separator_before: When True, render a menu separator immediately before
+            this item in the plot context menu.
     """
 
     series_name: str
     label: str
     default_visible: bool = True
     kind: PlotlySeriesKind = "trace"
+    separator_before: bool = False
 
 
 def _as_float_tuple(values: Sequence[float], *, name: str) -> tuple[float, ...]:

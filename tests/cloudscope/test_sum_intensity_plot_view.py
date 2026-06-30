@@ -6,7 +6,8 @@ from typing import Any
 
 import numpy as np
 
-from acqstore.acq_image.analysis.model import AnalysisKey
+from acqstore.acq_image.analysis.diameter_analysis.diameter_analysis import DiameterAnalysis
+from acqstore.acq_image.analysis.model import AnalysisKey, AnalysisPlotData
 from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_analysis import (
     SumIntensityAnalysis,
 )
@@ -115,6 +116,24 @@ class _FakeAcqImage:
         self.analysis_set = _FakeAnalysisSet()
 
 
+class _FakeDiameterAnalysis(DiameterAnalysis):
+    """Fake diameter analysis with deterministic plot data."""
+
+    def __init__(self) -> None:
+        """Create fake analysis without running backend computation."""
+        super().__init__(channel=0, roi_id=1)
+
+    def get_plot_data(self) -> AnalysisPlotData:
+        """Return diameter-versus-time plot data."""
+        return AnalysisPlotData(
+            x=(0.0, 1.0, 2.0),
+            y=(10.0, 12.0, 11.0),
+            x_label="Time (s)",
+            y_label="Diameter (um)",
+            series_name="Diameter",
+        )
+
+
 class _FakeSumIntensityAnalysis(SumIntensityAnalysis):
     """Concrete SumIntensityAnalysis with deterministic public API values."""
 
@@ -193,6 +212,15 @@ class _BadSumIntensityAnalysis(_FakeSumIntensityAnalysis):
         raise KeyError("missing trace")
 
 
+def test_sum_intensity_series_menu_items_place_diameter_last_with_separator() -> None:
+    """Diameter toggle should be last among series items with a separator before it."""
+    items = SumIntensityPlotView._sum_intensity_series_menu_items()
+
+    assert items[-1].series_name == "Diameter"
+    assert items[-1].separator_before is True
+    assert all(not item.separator_before for item in items[:-1])
+
+
 def test_sum_intensity_plot_view_identity() -> None:
     """SumIntensityPlotView should expose its stable view id."""
     view = SumIntensityPlotView(event_bus=EventBus())
@@ -221,6 +249,18 @@ def test_get_selected_sum_intensity_analysis_returns_none_for_incomplete_selecti
     view.current_selection = PrimarySelection(file_id="file", channel=0, roi_id=None)
 
     assert view._get_selected_sum_intensity_analysis() is None
+
+
+def test_get_selected_diameter_analysis_returns_matching_analysis() -> None:
+    """The view should look up diameter analysis by selected channel/ROI."""
+    view = SumIntensityPlotView(event_bus=EventBus())
+    acq_image = _FakeAcqImage()
+    analysis = _FakeDiameterAnalysis()
+    acq_image.analysis_set.set(AnalysisKey("diameter", 0, 1), analysis)
+    view.current_acq_image = acq_image
+    view.current_selection = PrimarySelection(file_id="file", channel=0, roi_id=1)
+
+    assert view._get_selected_diameter_analysis() is analysis
 
 
 def test_refresh_plot_clears_when_no_analysis() -> None:
@@ -260,6 +300,53 @@ def test_refresh_plot_pushes_traces_scatters_and_widths() -> None:
     assert view._plot.placeholder_text is None
 
 
+def test_refresh_plot_includes_diameter_trace_when_analysis_present() -> None:
+    """Diameter overlay should append on y2 when diameter analysis exists."""
+    view = _view_with_fake_plot()
+    acq_image = _FakeAcqImage()
+    acq_image.analysis_set.set(AnalysisKey("sum_intensity", 0, 1), _FakeSumIntensityAnalysis())
+    acq_image.analysis_set.set(AnalysisKey("diameter", 0, 1), _FakeDiameterAnalysis())
+    view.current_acq_image = acq_image
+    view.current_selection = PrimarySelection(file_id="file", channel=0, roi_id=1)
+
+    view._refresh_plot()
+
+    diameter = next((trace for trace in view._plot.traces if trace.name == "Diameter"), None)
+    assert diameter is not None
+    assert diameter.y_axis == "right"
+    assert diameter.visible is False
+
+
+def test_refresh_plot_omits_diameter_trace_when_toggle_on_but_no_analysis() -> None:
+    """Diameter toggle may persist without data until a diameter result exists."""
+    view = _view_with_fake_plot()
+    acq_image = _FakeAcqImage()
+    acq_image.analysis_set.set(AnalysisKey("sum_intensity", 0, 1), _FakeSumIntensityAnalysis())
+    view.current_acq_image = acq_image
+    view.current_selection = PrimarySelection(file_id="file", channel=0, roi_id=1)
+    view._plot._series_visibility["Diameter"] = True  # type: ignore[attr-defined]
+
+    view._refresh_plot()
+
+    assert "Diameter" not in [trace.name for trace in view._plot.traces]
+
+
+def test_refresh_plot_shows_diameter_when_toggle_on() -> None:
+    """Diameter trace should honor context-menu visibility when data exists."""
+    view = _view_with_fake_plot()
+    acq_image = _FakeAcqImage()
+    acq_image.analysis_set.set(AnalysisKey("sum_intensity", 0, 1), _FakeSumIntensityAnalysis())
+    acq_image.analysis_set.set(AnalysisKey("diameter", 0, 1), _FakeDiameterAnalysis())
+    view.current_acq_image = acq_image
+    view.current_selection = PrimarySelection(file_id="file", channel=0, roi_id=1)
+    view._plot._series_visibility["Diameter"] = True  # type: ignore[attr-defined]
+
+    view._refresh_plot()
+
+    diameter = next(trace for trace in view._plot.traces if trace.name == "Diameter")
+    assert diameter.visible is True
+
+
 def test_refresh_plot_preserves_series_visibility_across_selection() -> None:
     """Trace toggle choices should survive file/channel/ROI refresh until reload."""
     view = _view_with_fake_plot()
@@ -293,8 +380,8 @@ def test_refresh_plot_reports_backend_plot_error() -> None:
     assert "Sum-intensity plot unavailable" in (view._plot.placeholder_text or "")
 
 
-def test_matching_sum_intensity_completion_refreshes_plot() -> None:
-    """Only matching SUM_INTENSITY completions should refresh the plot."""
+def test_matching_analysis_completion_refreshes_plot() -> None:
+    """Matching SUM_INTENSITY and DIAMETER completions should refresh the plot."""
     view = SumIntensityPlotView(event_bus=EventBus())
     view.current_selection = PrimarySelection(file_id="file", channel=0, roi_id=1)
     calls: list[str] = []
@@ -322,7 +409,7 @@ def test_matching_sum_intensity_completion_refreshes_plot() -> None:
         )
     )
 
-    assert calls == ["refresh"]
+    assert calls == ["refresh", "refresh"]
 
 
 def test_roi_changed_refreshes_for_current_file_only() -> None:
