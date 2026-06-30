@@ -293,7 +293,7 @@ def build_plotly_figure_dict(
         "ticks": "outside" if axis_label_visible else "",
         "showline": axis_label_visible,
         "zeroline": False,
-        "showgrid": axis_label_visible,
+        "showgrid": False,
     }
     if range_model.x_min is not None and range_model.x_max is not None:
         xaxis["range"] = [range_model.x_min, range_model.x_max]
@@ -308,7 +308,7 @@ def build_plotly_figure_dict(
         "ticks": "outside" if axis_label_visible else "",
         "showline": axis_label_visible,
         "zeroline": False,
-        "showgrid": axis_label_visible,
+        "showgrid": False,
     }
 
     margin = resolve_plot_layout_margins(
@@ -1755,7 +1755,7 @@ Plotly.relayout(plotDiv, {json.dumps(payload)});
             axis["ticks"] = "outside" if visible else ""
             axis["showline"] = visible
             axis["zeroline"] = False
-            axis["showgrid"] = visible
+            axis["showgrid"] = False
         if self._has_yaxis2():
             yaxis2 = layout.setdefault("yaxis2", self._build_yaxis2_dict())
             if isinstance(yaxis2, dict):

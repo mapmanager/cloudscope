@@ -634,6 +634,18 @@ def test_axis_labels_toggle_updates_bottom_margin(
     assert widget.figure["layout"]["margin"]["b"] == 40
 
 
+def test_axis_labels_on_keeps_plot_grid_lines_off(
+    fake_plotly: list[_FakePlotlyElement],
+) -> None:
+    """Axis labels should not enable internal horizontal/vertical grid lines."""
+    widget = PlotlyPlotWidget()
+
+    widget.set_axis_labels_visible(True)
+
+    assert widget.figure["layout"]["xaxis"]["showgrid"] is False
+    assert widget.figure["layout"]["yaxis"]["showgrid"] is False
+
+
 def test_axis_labels_toggle_updates_yaxis2_and_dual_margin(
     fake_plotly: list[_FakePlotlyElement],
 ) -> None:
