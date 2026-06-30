@@ -53,6 +53,10 @@ class _FakePlotlyElement:
         self.client = _FakeClient()
         self.handlers: dict[str, Any] = {}
 
+    def classes(self, *_args: str, **_kwargs: Any) -> _FakePlotlyElement:
+        """Return self for chaining."""
+        return self
+
     def on(self, event_name: str, handler: Any) -> None:
         """Record event handlers registered by the widget.
 
@@ -61,6 +65,54 @@ class _FakePlotlyElement:
             handler: Callback registered for the event.
         """
         self.handlers[event_name] = handler
+
+
+class _FakeUiElement:
+    """Small stand-in for generic NiceGUI container elements."""
+
+    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+        self.visible = True
+
+    def classes(self, *_args: str, **_kwargs: Any) -> _FakeUiElement:
+        """Return self for chaining."""
+        return self
+
+    def set_visibility(self, visible: bool) -> None:
+        """Record visibility changes."""
+        self.visible = bool(visible)
+
+    def __enter__(self) -> _FakeUiElement:
+        return self
+
+    def __exit__(self, *_args: Any) -> None:
+        return None
+
+
+class _FakeUiLabel:
+    """Small stand-in for NiceGUI labels."""
+
+    def __init__(self, text: str = "") -> None:
+        self.text = text
+
+    def classes(self, *_args: str, **_kwargs: Any) -> _FakeUiLabel:
+        """Return self for chaining."""
+        return self
+
+
+@pytest.fixture
+def fake_plotly(monkeypatch: pytest.MonkeyPatch) -> list[_FakePlotlyElement]:
+    """Patch NiceGUI UI factories and return created fake Plotly elements."""
+    created: list[_FakePlotlyElement] = []
+
+    def plotly_factory(figure: dict[str, Any]) -> _FakePlotlyElement:
+        element = _FakePlotlyElement(figure)
+        created.append(element)
+        return element
+
+    monkeypatch.setattr("nicewidgets.plotly_plot.widget.ui.plotly", plotly_factory)
+    monkeypatch.setattr("nicewidgets.plotly_plot.widget.ui.element", _FakeUiElement)
+    monkeypatch.setattr("nicewidgets.plotly_plot.widget.ui.label", _FakeUiLabel)
+    return created
 
 
 class _RelayoutEvent:
@@ -73,20 +125,6 @@ class _RelayoutEvent:
             args: Plotly relayout payload.
         """
         self.args = args
-
-
-@pytest.fixture
-def fake_plotly(monkeypatch: pytest.MonkeyPatch) -> list[_FakePlotlyElement]:
-    """Patch ``ui.plotly`` and return created fake elements."""
-    created: list[_FakePlotlyElement] = []
-
-    def factory(figure: dict[str, Any]) -> _FakePlotlyElement:
-        element = _FakePlotlyElement(figure)
-        created.append(element)
-        return element
-
-    monkeypatch.setattr("nicewidgets.plotly_plot.widget.ui.plotly", factory)
-    return created
 
 
 def test_trace_data_validates_lengths() -> None:
@@ -607,3 +645,42 @@ def test_axis_labels_toggle_updates_yaxis2_and_dual_margin(
 
     assert widget.figure["layout"]["yaxis2"]["title"]["text"] == "rate (1/s)"
     assert widget.figure["layout"]["margin"]["r"] == 60
+
+
+def test_init_show_legend_false_builds_without_legend(fake_plotly: list[_FakePlotlyElement]) -> None:
+    """Initial legend visibility should come from the constructor kwarg."""
+    widget = PlotlyPlotWidget(show_legend=False)
+
+    assert widget.display_options.show_legend is False
+    assert widget.figure["layout"]["showlegend"] is False
+    assert widget.figure["layout"]["margin"]["b"] == 8
+
+
+def test_set_placeholder_text_shows_and_hides_overlay(
+    fake_plotly: list[_FakePlotlyElement],
+) -> None:
+    """Placeholder text should toggle the centered overlay."""
+    widget = PlotlyPlotWidget()
+
+    widget.set_placeholder_text("No data")
+    assert widget.placeholder_text == "No data"
+    assert widget._placeholder_container.visible is True
+
+    widget.set_placeholder_text(None)
+    assert widget.placeholder_text is None
+    assert widget._placeholder_container.visible is False
+
+
+def test_set_series_with_data_clears_placeholder(
+    fake_plotly: list[_FakePlotlyElement],
+) -> None:
+    """Replacing series with data should hide any visible placeholder."""
+    widget = PlotlyPlotWidget()
+    widget.set_placeholder_text("No data")
+
+    widget.set_series(
+        traces=[PlotlyTraceData.from_sequences(name="trace", x=[0.0], y=[1.0])]
+    )
+
+    assert widget.placeholder_text is None
+    assert widget._placeholder_container.visible is False

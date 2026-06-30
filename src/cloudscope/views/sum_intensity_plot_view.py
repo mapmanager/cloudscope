@@ -70,7 +70,6 @@ class SumIntensityPlotView(BaseView):
         self._dark_mode_provider = dark_mode_provider
         self._initial_dark_mode = bool(dark_mode)
         self._plot: PlotlyPlotWidget | None = None
-        self._status_label: ui.label | None = None
         self._primary_x_range: tuple[float | None, float | None] = (None, None)
         self._plot_originated_x_range = False
         self._last_measurement_event: MeasurementChangeEvent | None = None
@@ -164,7 +163,6 @@ class SumIntensityPlotView(BaseView):
         )
         self._plot.register_series_menu_items(self._sum_intensity_series_menu_items())
         self._plot.container.classes("w-full h-full min-h-0 flex-1")
-        self._status_label = ui.label("No sum-intensity analysis selected").classes("text-xs opacity-70 shrink-0")
 
     def _on_analysis_completed(self, event: AnalysisCompleted) -> None:
         """Refresh after matching sum-intensity analysis completion.
@@ -300,8 +298,6 @@ class SumIntensityPlotView(BaseView):
             self._clear_plot(f"Sum-intensity plot unavailable: {exc}")
             return
         self._apply_primary_x_range_to_plot()
-        if self._status_label is not None:
-            self._status_label.text = self._summary_status_text(analysis)
 
     def _build_series_from_analysis(
         self,
@@ -440,8 +436,7 @@ class SumIntensityPlotView(BaseView):
         """
         if self._plot is not None:
             self._plot.set_series()
-        if self._status_label is not None:
-            self._status_label.text = message
+            self._plot.set_placeholder_text(message)
 
     def _get_selected_sum_intensity_analysis(self) -> SumIntensityAnalysis | None:
         """Return sum-intensity analysis for the active file/channel/ROI selection.
@@ -464,26 +459,6 @@ class SumIntensityPlotView(BaseView):
         if not isinstance(analysis, SumIntensityAnalysis):
             return None
         return analysis
-
-    def _summary_status_text(self, analysis: SumIntensityAnalysis) -> str:
-        """Return concise status text from backend summary values.
-
-        Args:
-            analysis: Selected sum-intensity analysis.
-
-        Returns:
-            Human-readable summary status.
-        """
-        summary = analysis.get_summary_values()
-        peak_count = summary.get("num_peaks", 0)
-        f0 = summary.get("f0_baseline", None)
-        if f0 is None:
-            return f"Sum-intensity peaks: {peak_count}"
-        try:
-            f0_text = f"{float(f0):.4g}"
-        except (TypeError, ValueError):
-            f0_text = str(f0)
-        return f"Sum-intensity peaks: {peak_count}; F0: {f0_text}"
 
     def _empty_message(self) -> str:
         """Return status text for the current empty plot state.

@@ -67,7 +67,6 @@ class AcqAnalysisPlotView(BaseView):
         self.title = title
         self._dark_mode_provider = dark_mode_provider
         self._initial_dark_mode = bool(dark_mode)
-        # self._status_label: ui.label | None = None
         self._chart: PlotlyPlotWidget | None = None
         self._events_visible = True
         # Latest app-level ``primary_x_range`` cache, updated from
@@ -165,12 +164,11 @@ class AcqAnalysisPlotView(BaseView):
         
         self._chart = PlotlyPlotWidget(
             theme="dark" if self._initial_dark_mode else "light",
+            show_legend=False,
             on_x_range_selected=self._on_x_range_selected,
             on_x_range_changed=self._on_chart_x_range_changed,
         )
         self._chart.container.classes("w-full h-full min-h-0 flex-1")
-
-        # self._status_label = ui.label("No analysis selected").classes("text-sm opacity-70 shrink-0")
 
     def _on_analysis_completed(self, event: AnalysisCompleted) -> None:
         """Refresh the plot when any primary-kymograph analysis finishes.
@@ -362,16 +360,15 @@ class AcqAnalysisPlotView(BaseView):
         Returns:
             None.
         """
-        # if self._chart is None or self._status_label is None:
-        #     return
         if self._chart is None:
             return
 
         plot_data = self._get_selected_plot_data()
         if plot_data is None:
-            self._clear_chart()
+            self._clear_chart(self._empty_message())
             return
 
+        self._chart.set_placeholder_text(None)
         self._chart.set_series(
             traces=[
                 PlotlyTraceData.from_sequences(
@@ -388,12 +385,20 @@ class AcqAnalysisPlotView(BaseView):
         # the same file.
         self._apply_primary_x_range_to_chart()
 
-    def _clear_chart(self) -> None:
-        """Remove plotted data and event overlays."""
+    def _clear_chart(self, message: str) -> None:
+        """Remove plotted data, event overlays, and show empty-state text.
+
+        Args:
+            message: Human-readable empty-state message.
+
+        Returns:
+            None.
+        """
         if self._chart is None:
             return
         self._chart.set_series(traces=[])
         self._chart.events.clear_events()
+        self._chart.set_placeholder_text(message)
 
     def _refresh_event_overlays(self) -> None:
         """Refresh chart event overlays from backend state and visibility."""

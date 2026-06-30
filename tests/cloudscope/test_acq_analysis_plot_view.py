@@ -238,11 +238,15 @@ class _FakeChart:
         self.x_min: float | None = None
         self.x_max: float | None = None
         self.x_reset = 0
+        self.placeholder_text: str | None = None
 
     def set_series(self, *, traces=(), scatters=()) -> None:
         self.series_calls.append({"traces": list(traces), "scatters": list(scatters)})
         if not traces and not scatters:
             self.cleared += 1
+
+    def set_placeholder_text(self, message: str | None) -> None:
+        self.placeholder_text = message.strip() if message else None
 
     def begin_select_x_range(self) -> None:
         self.begin_x += 1
@@ -265,15 +269,9 @@ class _FakeChart:
         self.x_reset += 1
 
 
-class _FakeLabel:
-    def __init__(self) -> None:
-        self.text = ""
-
-
 def _view_with_fake_chart() -> AcqAnalysisPlotView:
     view = AcqAnalysisPlotView(event_bus=EventBus())
     view._chart = _FakeChart()  # type: ignore[assignment]
-    view._status_label = _FakeLabel()  # type: ignore[assignment]
     return view
 
 
@@ -281,9 +279,8 @@ def _view_with_fake_chart() -> AcqAnalysisPlotView:
 
 
 def test_refresh_plot_clears_chart_when_no_plot_data() -> None:
-    """When no plot data is available, the chart should clear."""
+    """When no plot data is available, the chart should clear and show placeholder text."""
     view = _view_with_fake_chart()
-    view._status_label.text = "previous status"
     view.current_acq_image = FakeAcqImage()
     view.current_selection = PrimarySelection(file_id=None, channel=None, roi_id=None)
 
@@ -291,6 +288,7 @@ def test_refresh_plot_clears_chart_when_no_plot_data() -> None:
 
     assert view._chart.cleared == 1
     assert view._chart.events.clear_calls == 1
+    assert view._chart.placeholder_text == "No file selected"
 
 
 def test_refresh_plot_sets_line_data_for_available_plot() -> None:
@@ -318,7 +316,7 @@ def test_refresh_plot_sets_line_data_for_available_plot() -> None:
 
 
 def test_refresh_plot_noop_when_no_chart() -> None:
-    """Without chart/status objects the method should be a no-op."""
+    """Without a chart object the method should be a no-op."""
     view = AcqAnalysisPlotView(event_bus=EventBus())
     view._refresh_plot()
 

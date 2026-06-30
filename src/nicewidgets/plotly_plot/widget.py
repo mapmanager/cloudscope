@@ -362,6 +362,7 @@ class PlotlyPlotWidget:
         y_label: str = "y",
         y2_label: str = "",
         theme: PlotlyThemeName = "light",
+        show_legend: bool = True,
         on_x_range_changed: OnPlotlyXRangeChanged | None = None,
         on_x_range_selected: OnPlotlyXRangeSelected | None = None,
         on_measurement_changed: OnMeasurementChanged | None = None,
@@ -374,6 +375,7 @@ class PlotlyPlotWidget:
             y2_label: Secondary right y-axis label used when a right-axis trace
                 or scatter is present.
             theme: Initial Plotly light/dark layout theme.
+            show_legend: Whether the bottom horizontal legend starts visible.
             on_x_range_changed: Optional callback invoked after the user changes
                 the x-axis range by zooming, panning, or autoranging. ``(None,
                 None)`` means Plotly returned to autorange.
@@ -386,7 +388,11 @@ class PlotlyPlotWidget:
         self._y_label = str(y_label)
         self._y2_label = str(y2_label)
         self._theme = normalize_plotly_theme(theme)
-        self._display_options = PlotlyPlotDisplayOptions(theme=self._theme)
+        self._display_options = PlotlyPlotDisplayOptions(
+            theme=self._theme,
+            show_legend=bool(show_legend),
+        )
+        self._placeholder_text: str | None = None
         self._on_x_range_changed = on_x_range_changed
         self._on_x_range_selected = on_x_range_selected
         self._on_measurement_changed = on_measurement_changed
@@ -416,12 +422,18 @@ class PlotlyPlotWidget:
         self._context_menu_builder: PlotlyPlotContextMenu | None = None
         self.events = PlotlyEventOverlayApi(self)
 
-        self.container = ui.plotly(self._figure)
-        self.container.on("plotly_relayout", self._on_plotly_relayout)
-        self.container.on("plotly_doubleclick", self._on_plotly_doubleclick)
+        with ui.element("div").classes("relative w-full h-full min-h-0") as self.container:
+            self._plot_element = ui.plotly(self._figure).classes("w-full h-full min-h-0")
+            with ui.element("div").classes(
+                "absolute inset-0 flex items-center justify-center pointer-events-none px-4"
+            ) as self._placeholder_container:
+                self._placeholder_label = ui.label("").classes("text-sm opacity-70 text-center")
+        self._placeholder_container.set_visibility(False)
+        self._plot_element.on("plotly_relayout", self._on_plotly_relayout)
+        self._plot_element.on("plotly_doubleclick", self._on_plotly_doubleclick)
         self._ctx_menu = ui.context_menu()
         self._context_menu_builder = PlotlyPlotContextMenu(get_widget=lambda: self)
-        self.container.on("contextmenu", self._on_context_menu_event)
+        self._plot_element.on("contextmenu", self._on_context_menu_event)
         if is_pywebview_desktop():
             ui.timer(0.05, self._install_pywebview_context_menu_guards, once=True)
 
@@ -429,6 +441,30 @@ class PlotlyPlotWidget:
     def display_options(self) -> PlotlyPlotDisplayOptions:
         """Return mutable display options used by context-menu actions."""
         return self._display_options
+
+    @property
+    def placeholder_text(self) -> str | None:
+        """Return the current centered placeholder message, if any."""
+        return self._placeholder_text
+
+    def set_placeholder_text(self, message: str | None) -> None:
+        """Show or hide centered placeholder text over the plot area.
+
+        Args:
+            message: Human-readable empty-state text, or ``None`` to hide the
+                placeholder overlay.
+
+        Returns:
+            None.
+        """
+        clean = str(message).strip() if message is not None else ""
+        if not clean:
+            self._placeholder_text = None
+            self._placeholder_container.set_visibility(False)
+            return
+        self._placeholder_text = clean
+        self._placeholder_label.text = clean
+        self._placeholder_container.set_visibility(True)
 
     @property
     def series_menu_items(self) -> tuple[PlotlySeriesMenuItem, ...]:
@@ -600,10 +636,10 @@ class PlotlyPlotWidget:
         """
         try:
             if is_pywebview_desktop():
-                png_bytes = await get_plotly_png_bytes(self.container)
+                png_bytes = await get_plotly_png_bytes(self._plot_element)
                 copy_png_bytes_to_native_clipboard(png_bytes)
             else:
-                await copy_plotly_png_to_browser_clipboard(self.container)
+                await copy_plotly_png_to_browser_clipboard(self._plot_element)
             ui.notify("Plot copied to clipboard.", type="positive")
         except Exception as exc:
             logger.exception("Failed to copy Plotly plot to clipboard.")
@@ -619,9 +655,9 @@ class PlotlyPlotWidget:
 
     def _install_pywebview_context_menu_guards(self) -> None:
         """Install desktop-only capture listeners so secondary taps open the menu."""
-        js = pywebview_plotly_plot_context_menu_guard_js(plot_id=self.container.id)
+        js = pywebview_plotly_plot_context_menu_guard_js(plot_id=self._plot_element.id)
         try:
-            self.container.client.run_javascript(js, timeout=2.0)
+            self._plot_element.client.run_javascript(js, timeout=2.0)
         except RuntimeError:
             logger.debug("Could not install pywebview context-menu guards; client unavailable.")
 
@@ -873,6 +909,8 @@ class PlotlyPlotWidget:
         self._sync_hover_info_to_plotly_dict()
         self._sync_yaxis2_from_series()
         self._push_series_data()
+        if plotly_data:
+            self.set_placeholder_text(None)
 
     def set_theme(self, theme: PlotlyThemeName) -> None:
         """Set the Plotly light/dark layout theme.
@@ -1591,7 +1629,7 @@ class PlotlyPlotWidget:
 
     def _js_plotly_graph_div(self) -> str:
         """Return JavaScript that resolves this NiceGUI Plotly graph div."""
-        plot_id = self.container.id
+        plot_id = self._plot_element.id
         return f"""const host = getElement({plot_id}).$el;
 if (!host) return;
 const plotDiv = host.querySelector('.js-plotly-plot') || host;
@@ -1844,13 +1882,13 @@ if (newData.length > 0) {{
         Args:
             js: JavaScript source to execute in the owning browser client.
         """
-        if core.loop is None and self.container.client.__class__.__module__.startswith("nicegui"):
+        if core.loop is None and self._plot_element.client.__class__.__module__.startswith("nicegui"):
             logger.debug("Skipping Plotly JavaScript update before NiceGUI loop starts.")
             return
 
         self._ignore_relayout = True
         try:
-            self.container.client.run_javascript(js, timeout=2.0)
+            self._plot_element.client.run_javascript(js, timeout=2.0)
         except RuntimeError:
             logger.warning("Could not run Plotly JavaScript; browser client unavailable.")
         except AssertionError:

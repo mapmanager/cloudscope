@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -41,6 +40,7 @@ class _FakePlot:
         self.x_reset_calls = 0
         self.dark_mode: bool | None = None
         self._series_visibility: dict[str, bool] = {}
+        self.placeholder_text: str | None = None
 
     def register_series_menu_items(self, items: list[PlotlySeriesMenuItem]) -> None:
         """Record menu defaults while preserving existing visibility choices."""
@@ -78,12 +78,17 @@ class _FakePlot:
         """Record dark-mode theme updates."""
         self.dark_mode = bool(enabled)
 
+    def set_placeholder_text(self, message: str | None) -> None:
+        """Record centered placeholder text."""
+        self.placeholder_text = message.strip() if message else None
 
-@dataclass
-class _FakeLabel:
-    """Small label stand-in."""
 
-    text: str = ""
+def _view_with_fake_plot() -> SumIntensityPlotView:
+    """Create a view with fake child plot."""
+    view = SumIntensityPlotView(event_bus=EventBus())
+    view._plot = _FakePlot()  # type: ignore[assignment]
+    view._plot.register_series_menu_items(SumIntensityPlotView._sum_intensity_series_menu_items())  # type: ignore[attr-defined]
+    return view
 
 
 class _FakeAnalysisSet:
@@ -188,15 +193,6 @@ class _BadSumIntensityAnalysis(_FakeSumIntensityAnalysis):
         raise KeyError("missing trace")
 
 
-def _view_with_fake_plot() -> SumIntensityPlotView:
-    """Create a view with fake child plot and status label."""
-    view = SumIntensityPlotView(event_bus=EventBus())
-    view._plot = _FakePlot()  # type: ignore[assignment]
-    view._plot.register_series_menu_items(SumIntensityPlotView._sum_intensity_series_menu_items())  # type: ignore[attr-defined]
-    view._status_label = _FakeLabel()  # type: ignore[assignment]
-    return view
-
-
 def test_sum_intensity_plot_view_identity() -> None:
     """SumIntensityPlotView should expose its stable view id."""
     view = SumIntensityPlotView(event_bus=EventBus())
@@ -238,7 +234,7 @@ def test_refresh_plot_clears_when_no_analysis() -> None:
     assert view._plot.set_series_calls == 1
     assert view._plot.traces == []
     assert view._plot.scatters == []
-    assert "No sum-intensity analysis" in view._status_label.text
+    assert "No sum-intensity analysis" in (view._plot.placeholder_text or "")
 
 
 def test_refresh_plot_pushes_traces_scatters_and_widths() -> None:
@@ -261,7 +257,7 @@ def test_refresh_plot_pushes_traces_scatters_and_widths() -> None:
     assert view._plot.traces[1].visible is False
     assert view._plot.traces[2].visible is True
     assert all(scatter.visible for scatter in view._plot.scatters)
-    assert view._status_label.text == "Sum-intensity peaks: 1; F0: 1.234"
+    assert view._plot.placeholder_text is None
 
 
 def test_refresh_plot_preserves_series_visibility_across_selection() -> None:
@@ -294,7 +290,7 @@ def test_refresh_plot_reports_backend_plot_error() -> None:
     view._refresh_plot()
 
     assert view._plot.traces == []
-    assert "Sum-intensity plot unavailable" in view._status_label.text
+    assert "Sum-intensity plot unavailable" in (view._plot.placeholder_text or "")
 
 
 def test_matching_sum_intensity_completion_refreshes_plot() -> None:
