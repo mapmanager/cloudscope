@@ -388,12 +388,15 @@ class PrimaryImageView(BaseView):
             return
         self._apply_primary_x_range_to_viewer()
 
-    def _apply_primary_x_range_to_viewer(self) -> None:
+    def _apply_primary_x_range_to_viewer(self, *, include_auto: bool = True) -> None:
         """Push the cached ``primary_x_range`` to the Plotly viewer.
 
-        * ``(None, None)`` -> schedule ``reset_x_axis_to_full_extent`` (x-only
-          autorange; y zoom is preserved).
+        * ``(None, None)`` -> schedule ``reset_x_axis_to_full_extent`` when
+          ``include_auto`` is True (linked 1D plot double-click reset).
         * ``(x_min, x_max)`` -> schedule ``set_x_axis_range``.
+
+        After ``set_data``, callers pass ``include_auto=False`` so auto-range
+        from the new dataset is not overridden.
 
         Skipped silently when the viewer has no data yet.
 
@@ -404,7 +407,8 @@ class PrimaryImageView(BaseView):
             return
         x_min, x_max = self._primary_x_range
         if x_min is None or x_max is None:
-            asyncio.create_task(self._viewer.reset_x_axis_to_full_extent())
+            if include_auto:
+                asyncio.create_task(self._viewer.reset_x_axis_to_full_extent())
             return
         asyncio.create_task(
             self._viewer.set_x_axis_range(x_min=x_min, x_max=x_max)
@@ -576,7 +580,7 @@ class PrimaryImageView(BaseView):
             # (e.g. analysis-row click within the same file). When the cached
             # range is ``(None, None)`` this is a no-op and ``set_data``'s own
             # auto-range stands.
-            self._apply_primary_x_range_to_viewer()
+            self._apply_primary_x_range_to_viewer(include_auto=False)
         except RuntimeError as exc:
             logger.exception('set_data failed: %s', exc)
             err_msg = str(exc)
