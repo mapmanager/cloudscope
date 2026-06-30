@@ -32,7 +32,7 @@ from cloudscope.views.acq_analysis_plot_view import AcqAnalysisPlotView
 from cloudscope.views.left_toolbar_view import LeftToolbarView
 from cloudscope.views.load_save_view import LoadSaveView
 from cloudscope.views.primary_image_view import PrimaryImageView
-from cloudscope.views.reference_image_view import ReferenceImageView
+# from cloudscope.views.reference_image_view import ReferenceImageView  # 20260629 home reference image commented out
 from cloudscope.views.sum_intensity_plot_view import SumIntensityPlotView
 from cloudscope.views.task_progress_dialog_view import TaskProgressDialogView
 from cloudscope.views.velocity_pool_view import VelocityPoolView
@@ -50,7 +50,7 @@ SHOW_VELOCITY_POOL_RIGHT_PANEL = True
 # HOME_WORKSPACE_CLOSED_HEIGHT_CSS = 'calc(100vh - 4rem)'
 # HOME_WORKSPACE_REFERENCE_OPEN_HEIGHT_CSS = 'calc(100vh - 4rem + 420px)'
 HOME_WORKSPACE_CLOSED_HEIGHT_CSS = 'calc(100vh - 4rem + 120px)'
-HOME_WORKSPACE_REFERENCE_OPEN_HEIGHT_CSS = 'calc(100vh - 4rem + 520px)'
+# HOME_WORKSPACE_REFERENCE_OPEN_HEIGHT_CSS = 'calc(100vh - 4rem + 520px)'  # 20260629 home reference image commented out
 
 
 @dataclass(slots=True)
@@ -158,15 +158,15 @@ class HomePage:
             dark_mode=dark_mode,
             dark_mode_provider=_dark_mode,
         )
-        reference_image = ReferenceImageView(
-            self.event_bus,
-            app_state=app_state,
-            title='Reference image',
-            initially_visible=False,
-            dark_mode=dark_mode,
-            dark_mode_provider=_dark_mode,
-            raster_display_cache=get_current_runtime().raster_display_cache,
-        )
+        # reference_image = ReferenceImageView(  # 20260629 home reference image commented out
+        #     self.event_bus,  # 20260629 home reference image commented out
+        #     app_state=app_state,  # 20260629 home reference image commented out
+        #     title='Reference image',  # 20260629 home reference image commented out
+        #     initially_visible=False,  # 20260629 home reference image commented out
+        #     dark_mode=dark_mode,  # 20260629 home reference image commented out
+        #     dark_mode_provider=_dark_mode,  # 20260629 home reference image commented out
+        #     raster_display_cache=get_current_runtime().raster_display_cache,  # 20260629 home reference image commented out
+        # )  # 20260629 home reference image commented out
         velocity_pool_view: VelocityPoolView | None = None
         if SHOW_EMBEDDED_VELOCITY_POOL:
             velocity_pool_view = VelocityPoolView(
@@ -203,7 +203,7 @@ class HomePage:
         home_expansion_refs: dict[str, SmartExpansion | None] = {
             'file_list': None,
             'analysis_plot': None,
-            'reference_image': None,
+            # 'reference_image': None,  # 20260629 home reference image commented out
             'velocity_pool': None,
         }
         panel_open_state = {
@@ -388,27 +388,27 @@ class HomePage:
             acq_analysis_plot.hide()
             _sync_analysis_reference_layout()
 
-        def _open_reference_image_panel() -> None:
-            """Show reference image view and apply shared splitter layout.
-
-            Returns:
-                None.
-            """
-            panel_open_state['reference_image'] = True
-            _set_workspace_frame_height(HOME_WORKSPACE_REFERENCE_OPEN_HEIGHT_CSS)
-            reference_image.show()
-            _sync_analysis_reference_layout()
-
-        def _close_reference_image_panel() -> None:
-            """Hide reference image view and apply shared splitter layout.
-
-            Returns:
-                None.
-            """
-            panel_open_state['reference_image'] = False
-            reference_image.hide()
-            _set_workspace_frame_height(HOME_WORKSPACE_CLOSED_HEIGHT_CSS)
-            _sync_analysis_reference_layout()
+        # def _open_reference_image_panel() -> None:  # 20260629 home reference image commented out
+        #     """Show reference image view and apply shared splitter layout.  # 20260629 home reference image commented out
+        #
+        #     Returns:  # 20260629 home reference image commented out
+        #         None.  # 20260629 home reference image commented out
+        #     """  # 20260629 home reference image commented out
+        #     panel_open_state['reference_image'] = True  # 20260629 home reference image commented out
+        #     _set_workspace_frame_height(HOME_WORKSPACE_REFERENCE_OPEN_HEIGHT_CSS)  # 20260629 home reference image commented out
+        #     reference_image.show()  # 20260629 home reference image commented out
+        #     _sync_analysis_reference_layout()  # 20260629 home reference image commented out
+        #
+        # def _close_reference_image_panel() -> None:  # 20260629 home reference image commented out
+        #     """Hide reference image view and apply shared splitter layout.  # 20260629 home reference image commented out
+        #
+        #     Returns:  # 20260629 home reference image commented out
+        #         None.  # 20260629 home reference image commented out
+        #     """  # 20260629 home reference image commented out
+        #     panel_open_state['reference_image'] = False  # 20260629 home reference image commented out
+        #     reference_image.hide()  # 20260629 home reference image commented out
+        #     _set_workspace_frame_height(HOME_WORKSPACE_CLOSED_HEIGHT_CSS)  # 20260629 home reference image commented out
+        #     _sync_analysis_reference_layout()  # 20260629 home reference image commented out
 
         def _open_velocity_pool_panel() -> None:
             """Show velocity pool view.
@@ -443,13 +443,13 @@ class HomePage:
             for key, expansion in home_expansion_refs.items():
                 if expansion is None:
                     continue
-                if key == 'reference_image':
-                    expansion.close()
-                else:
-                    expansion.open()
+                # if key == 'reference_image':  # 20260629 home reference image commented out
+                #     expansion.close()  # 20260629 home reference image commented out
+                # else:  # 20260629 home reference image commented out
+                expansion.open()
             panel_open_state['file_list'] = True
             panel_open_state['analysis_plot'] = True
-            panel_open_state['reference_image'] = False
+            # panel_open_state['reference_image'] = False  # 20260629 home reference image commented out
             panel_open_state['velocity_pool'] = True
             _set_workspace_frame_height(HOME_WORKSPACE_CLOSED_HEIGHT_CSS)
 
@@ -612,18 +612,18 @@ class HomePage:
 
                                         with analysis_reference_splitter.after:
                                             with ui.column().classes(_fill_column_classes()):
-                                                reference_image_expansion = SmartExpansion(
-                                                    'Reference image',
-                                                    icon='image',
-                                                    initially_open=False,
-                                                    on_open=_open_reference_image_panel,
-                                                    on_close=_close_reference_image_panel,
-                                                )
-                                                home_expansion_refs['reference_image'] = reference_image_expansion
-                                                with reference_image_expansion:
-                                                    reference_image.build()
-                                                reference_image_expansion.apply_initial_state()
-                                                view_manager.register(reference_image)
+                                                # reference_image_expansion = SmartExpansion(  # 20260629 home reference image commented out
+                                                #     'Reference image',  # 20260629 home reference image commented out
+                                                #     icon='image',  # 20260629 home reference image commented out
+                                                #     initially_open=False,  # 20260629 home reference image commented out
+                                                #     on_open=_open_reference_image_panel,  # 20260629 home reference image commented out
+                                                #     on_close=_close_reference_image_panel,  # 20260629 home reference image commented out
+                                                # )  # 20260629 home reference image commented out
+                                                # home_expansion_refs['reference_image'] = reference_image_expansion  # 20260629 home reference image commented out
+                                                # with reference_image_expansion:  # 20260629 home reference image commented out
+                                                #     reference_image.build()  # 20260629 home reference image commented out
+                                                # reference_image_expansion.apply_initial_state()  # 20260629 home reference image commented out
+                                                # view_manager.register(reference_image)  # 20260629 home reference image commented out
 
                                                 if SHOW_EMBEDDED_VELOCITY_POOL and velocity_pool_view is not None:
                                                     velocity_pool_expansion = SmartExpansion(
@@ -675,6 +675,9 @@ class HomePage:
                     view_manager=view_manager,
                     initially_visible=True,
                     on_panel_open_changed=splitter_manager.set_left_toolbar_open,
+                    dark_mode=dark_mode,
+                    dark_mode_provider=_dark_mode,
+                    raster_display_cache=get_current_runtime().raster_display_cache,
                 )
                 left_toolbar.build()
                 left_toolbar_ref['value'] = left_toolbar

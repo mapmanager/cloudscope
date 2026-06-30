@@ -443,16 +443,31 @@ class PoolControlPanel:
         on_selected_callback: Callable[[dict[str, Any]], None],
     ) -> ui.aggrid:
         column_names = list(self.df.columns)
-        row_data = [{"column": str(col)} for col in column_names]
+        row_data = [
+            {"index": i + 1, "column": str(col)}
+            for i, col in enumerate(column_names)
+        ]
         column_defs = [
+            {
+                "field": "index",
+                "headerName": "#",
+                "width": 56,
+                "minWidth": 56,
+                "maxWidth": 72,
+                "pinned": "left",
+                "sortable": True,
+                "resizable": False,
+                "suppressSizeToFit": True,
+                "type": "numericColumn",
+            },
             {
                 "headerName": label,
                 "field": "column",
                 "sortable": True,
                 "resizable": True,
-                "flex": 2,
-                "minWidth": 300,
-            }
+                "flex": 1,
+                "minWidth": 120,
+            },
         ]
         grid_options: dict[str, Any] = {
             "columnDefs": column_defs,
@@ -462,6 +477,7 @@ class PoolControlPanel:
             "headerHeight": 26,
             "defaultColDef": {"sortable": True, "resizable": True},
             "autoSizeStrategy": {"type": "fitGridWidth"},
+            "suppressMovableColumns": True,
         }
         grid_options[":getRowId"] = "(params) => String(params.data.column)"
         _ensure_aggrid_compact_css()

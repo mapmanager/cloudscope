@@ -18,6 +18,7 @@ from nicewidgets.plotly_plot.widget import (
     PlotlyPlotWidget,
     build_plotly_figure_dict,
     extract_rect_selection_x_range_from_relayout,
+    resolve_plot_layout_margins,
 )
 
 
@@ -122,11 +123,31 @@ def test_build_plotly_figure_dict_includes_config_and_shapes() -> None:
     assert figure["layout"]["xaxis"]["autorange"] is False
     assert figure["layout"]["shapes"] == [{"type": "line"}]
     assert figure["layout"]["legend"]["orientation"] == "h"
-    assert figure["layout"]["margin"]["b"] == 72
+    assert figure["layout"]["margin"]["b"] == 40
     assert figure["layout"]["paper_bgcolor"] == "white"
     assert figure["config"]["editable"] is True
     assert figure["config"]["scrollZoom"] is True
     assert figure["config"]["edits"]["titleText"] is False
+
+
+def test_resolve_plot_layout_margins_bottom_by_axis_and_legend() -> None:
+    """Bottom margin should follow axis-label and legend visibility."""
+    assert resolve_plot_layout_margins(
+        show_axis_labels=False,
+        show_legend=False,
+    )["b"] == 8
+    assert resolve_plot_layout_margins(
+        show_axis_labels=False,
+        show_legend=True,
+    )["b"] == 40
+    assert resolve_plot_layout_margins(
+        show_axis_labels=True,
+        show_legend=False,
+    )["b"] == 40
+    assert resolve_plot_layout_margins(
+        show_axis_labels=True,
+        show_legend=True,
+    )["b"] == 72
 
 
 def test_build_plotly_figure_dict_applies_dark_theme() -> None:
@@ -330,6 +351,23 @@ def test_doubleclick_resets_x_range_and_emits_auto(
 
     assert widget.figure["layout"]["xaxis"]["autorange"] is True
     assert ranges == [(None, None)]
+
+
+def test_set_legend_visible_updates_bottom_margin(
+    fake_plotly: list[_FakePlotlyElement],
+) -> None:
+    """Legend toggle should shrink or restore bottom margin."""
+    widget = PlotlyPlotWidget()
+
+    assert widget.figure["layout"]["margin"]["b"] == 40
+
+    widget.set_legend_visible(False)
+    assert widget.figure["layout"]["showlegend"] is False
+    assert widget.figure["layout"]["margin"]["b"] == 8
+
+    widget.set_legend_visible(True)
+    assert widget.figure["layout"]["showlegend"] is True
+    assert widget.figure["layout"]["margin"]["b"] == 40
 
 
 def test_set_legend_visible_preserves_bottom_horizontal_layout(
@@ -541,6 +579,21 @@ def test_right_axis_measurement_uses_y2_and_reports_axis_on_drag(
 
     assert events[-1].position == 1.5
     assert events[-1].y_axis == "right"
+
+
+def test_axis_labels_toggle_updates_bottom_margin(
+    fake_plotly: list[_FakePlotlyElement],
+) -> None:
+    """Axis-label toggle should adjust bottom margin when legend is visible."""
+    widget = PlotlyPlotWidget()
+
+    assert widget.figure["layout"]["margin"]["b"] == 40
+
+    widget.set_axis_labels_visible(True)
+    assert widget.figure["layout"]["margin"]["b"] == 72
+
+    widget.set_axis_labels_visible(False)
+    assert widget.figure["layout"]["margin"]["b"] == 40
 
 
 def test_axis_labels_toggle_updates_yaxis2_and_dual_margin(

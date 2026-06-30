@@ -10,6 +10,7 @@ from nicegui import ui
 
 from cloudscope.app_config import AppConfig
 from cloudscope.event_bus import EventBus
+from cloudscope.raster_display_cache import RasterDisplayCache
 from cloudscope.views.app_config_view import AppConfigView
 from cloudscope.views.app_info_view import AppInfoView
 from cloudscope.views.base_view import BaseView
@@ -17,9 +18,16 @@ from cloudscope.views.metadata_widget.experiment_metadata_view import Experiment
 from cloudscope.views.metadata_widget.image_header_metadata_view import ImageHeaderMetadataView
 from cloudscope.views.diameter_analysis_view import DiameterAnalysisView
 from cloudscope.views.sum_intensity_analysis_view import SumIntensityAnalysisView
+from cloudscope.views.reference_image_view import ReferenceImageView
 from cloudscope.views.velocity_analysis_view import VelocityAnalysisView
 from cloudscope.views.view_ids import ViewId
 from cloudscope.views.view_manager import ViewManager
+
+
+class LeftPanelReferenceImageView(ReferenceImageView):
+    """Reference image panel hosted in the left toolbar."""
+
+    view_id = ViewId.LEFT_TOOLBAR_REFERENCE_IMAGE
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +51,7 @@ _LEFT_TOOLBAR_TABS: tuple[LeftToolbarTab, ...] = (
     LeftToolbarTab(ViewId.VELOCITY_ANALYSIS, "Velocity", "speed"),
     LeftToolbarTab(ViewId.DIAMETER_ANALYSIS, "Diameter", "straighten"),
     LeftToolbarTab(ViewId.SUM_INTENSITY_ANALYSIS, "Sum Intensity", "functions"),
+    LeftToolbarTab(ViewId.LEFT_TOOLBAR_REFERENCE_IMAGE, "Reference Image", "image"),
     LeftToolbarTab(ViewId.APP_CONFIG, "Config", "settings"),
     LeftToolbarTab(ViewId.APP_INFO, "App info", "info"),
 )
@@ -63,6 +72,9 @@ class LeftToolbarView(BaseView):
         view_manager: Manager used to register and show/hide child views.
         initially_visible: Whether the toolbar starts visible.
         on_panel_open_changed: Optional callback invoked when the left panel opens or closes.
+        dark_mode: Initial Plotly raster-viewer theme for the reference image panel.
+        dark_mode_provider: Callable returning current dark-mode state for the reference image panel.
+        raster_display_cache: Shared LRU cache for reference image planes and pyramids.
     """
 
     view_id = ViewId.LEFT_TOOLBAR
@@ -77,6 +89,9 @@ class LeftToolbarView(BaseView):
         view_manager: ViewManager,
         initially_visible: bool = True,
         on_panel_open_changed: Callable[[bool], None] | None = None,
+        dark_mode: bool = False,
+        dark_mode_provider: Callable[[], bool] | None = None,
+        raster_display_cache: RasterDisplayCache | None = None,
     ) -> None:
         super().__init__(event_bus=event_bus, app_state=app_state, initially_visible=initially_visible)
         self._app_config = app_config
@@ -110,6 +125,15 @@ class LeftToolbarView(BaseView):
             event_bus=event_bus,
             app_state=app_state,
             initially_visible=False,
+        )
+        self.reference_image_view = LeftPanelReferenceImageView(
+            event_bus=event_bus,
+            app_state=app_state,
+            title='Reference image',
+            initially_visible=False,
+            dark_mode=dark_mode,
+            dark_mode_provider=dark_mode_provider,
+            raster_display_cache=raster_display_cache,
         )
         self.app_config_view = AppConfigView(
             app_config=app_config,
@@ -159,6 +183,7 @@ class LeftToolbarView(BaseView):
                     self.velocity_analysis_view.build()
                     self.diameter_analysis_view.build()
                     self.sum_intensity_analysis_view.build()
+                    self.reference_image_view.build()
                     self.app_config_view.build()
                     self.app_info_view.build()
 
@@ -194,6 +219,7 @@ class LeftToolbarView(BaseView):
             self.velocity_analysis_view,
             self.diameter_analysis_view,
             self.sum_intensity_analysis_view,
+            self.reference_image_view,
             self.app_config_view,
             self.app_info_view,
         ):

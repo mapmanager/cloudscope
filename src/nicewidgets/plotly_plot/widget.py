@@ -206,26 +206,54 @@ _PLOTLY_PLOT_LEGEND: dict[str, Any] = {
     "y": -0.15,
 }
 
-_PLOTLY_PLOT_MARGIN_WITH_AXIS_LABELS: dict[str, int] = {
-    "l": 60,
-    "r": 24,
-    "t": 10,
-    "b": 72,
-}
+_PLOTLY_PLOT_MARGIN_EDGE_COMPACT: int = 8
+_PLOTLY_PLOT_MARGIN_L_WITH_AXIS_LABELS: int = 60
+_PLOTLY_PLOT_MARGIN_R_WITH_AXIS_LABELS: int = 24
+_PLOTLY_PLOT_MARGIN_R_WITH_DUAL_Y_AXIS_LABELS: int = 60
+_PLOTLY_PLOT_MARGIN_T_WITH_AXIS_LABELS: int = 10
+_PLOTLY_PLOT_MARGIN_B_COMPACT: int = 8
+_PLOTLY_PLOT_MARGIN_B_WITH_AXIS_LABELS: int = 40
+_PLOTLY_PLOT_MARGIN_B_WITH_LEGEND: int = 40
+_PLOTLY_PLOT_MARGIN_B_WITH_AXIS_LABELS_AND_LEGEND: int = 72
 
-_PLOTLY_PLOT_MARGIN_WITH_DUAL_Y_AXIS_LABELS: dict[str, int] = {
-    "l": 60,
-    "r": 60,
-    "t": 10,
-    "b": 72,
-}
 
-_PLOTLY_PLOT_MARGIN_COMPACT: dict[str, int] = {
-    "l": 8,
-    "r": 8,
-    "t": 8,
-    "b": 72,
-}
+def resolve_plot_layout_margins(
+    *,
+    show_axis_labels: bool,
+    show_legend: bool,
+    has_yaxis2: bool = False,
+) -> dict[str, int]:
+    """Return Plotly layout margins for axis-label and legend visibility.
+
+    Args:
+        show_axis_labels: Whether axis decorations are visible.
+        show_legend: Whether the bottom horizontal legend is visible.
+        has_yaxis2: Whether a secondary right y-axis is present.
+
+    Returns:
+        Plotly ``layout.margin`` dictionary with ``l``, ``r``, ``t``, and ``b``.
+    """
+    if show_axis_labels:
+        left = _PLOTLY_PLOT_MARGIN_L_WITH_AXIS_LABELS
+        right = (
+            _PLOTLY_PLOT_MARGIN_R_WITH_DUAL_Y_AXIS_LABELS
+            if has_yaxis2
+            else _PLOTLY_PLOT_MARGIN_R_WITH_AXIS_LABELS
+        )
+        top = _PLOTLY_PLOT_MARGIN_T_WITH_AXIS_LABELS
+    else:
+        left = right = top = _PLOTLY_PLOT_MARGIN_EDGE_COMPACT
+
+    if show_axis_labels and show_legend:
+        bottom = _PLOTLY_PLOT_MARGIN_B_WITH_AXIS_LABELS_AND_LEGEND
+    elif show_axis_labels:
+        bottom = _PLOTLY_PLOT_MARGIN_B_WITH_AXIS_LABELS
+    elif show_legend:
+        bottom = _PLOTLY_PLOT_MARGIN_B_WITH_LEGEND
+    else:
+        bottom = _PLOTLY_PLOT_MARGIN_B_COMPACT
+
+    return {"l": left, "r": right, "t": top, "b": bottom}
 
 
 def build_plotly_figure_dict(
@@ -237,6 +265,7 @@ def build_plotly_figure_dict(
     shapes: list[dict[str, Any]] | None = None,
     theme: PlotlyThemeName = "light",
     show_axis_labels: bool = False,
+    show_legend: bool = True,
     show_plotly_toolbar: bool = False,
 ) -> dict[str, Any]:
     """Build a NiceGUI-compatible Plotly figure dictionary.
@@ -249,6 +278,7 @@ def build_plotly_figure_dict(
         shapes: Optional Plotly layout shapes.
         theme: Plotly light/dark layout theme name.
         show_axis_labels: Whether axis decorations are visible.
+        show_legend: Whether the bottom horizontal legend is visible.
         show_plotly_toolbar: Whether Plotly's modebar is visible.
 
     Returns:
@@ -280,10 +310,9 @@ def build_plotly_figure_dict(
         "showgrid": axis_label_visible,
     }
 
-    margin = (
-        dict(_PLOTLY_PLOT_MARGIN_WITH_AXIS_LABELS)
-        if axis_label_visible
-        else dict(_PLOTLY_PLOT_MARGIN_COMPACT)
+    margin = resolve_plot_layout_margins(
+        show_axis_labels=axis_label_visible,
+        show_legend=bool(show_legend),
     )
 
     layout: dict[str, Any] = {
@@ -292,7 +321,7 @@ def build_plotly_figure_dict(
         "shapes": list(shapes or []),
         "dragmode": "zoom",
         "margin": margin,
-        "showlegend": True,
+        "showlegend": bool(show_legend),
         "legend": dict(_PLOTLY_PLOT_LEGEND),
         "uirevision": "nicewidgets-plotly-plot",
     }
@@ -370,6 +399,7 @@ class PlotlyPlotWidget:
             x_range=self._x_range,
             theme=self._theme,
             show_axis_labels=self._display_options.show_axis_labels,
+            show_legend=self._display_options.show_legend,
             show_plotly_toolbar=self._display_options.show_plotly_toolbar,
         )
         self._series_order: list[_SeriesRef] = []
@@ -556,6 +586,7 @@ class PlotlyPlotWidget:
         """
         self._display_options.show_legend = bool(visible)
         self._sync_legend_to_plotly_dict()
+        self._sync_margins_to_plotly_dict()
         self._relayout_legend()
 
     async def copy_plot_to_clipboard(self) -> None:
@@ -1132,7 +1163,15 @@ class PlotlyPlotWidget:
         self._relayout(
             {
                 "yaxis2": None,
-                "margin": dict(layout.get("margin", _PLOTLY_PLOT_MARGIN_COMPACT)),
+                "margin": dict(
+                    layout.get(
+                        "margin",
+                        resolve_plot_layout_margins(
+                            show_axis_labels=self._display_options.show_axis_labels,
+                            show_legend=self._display_options.show_legend,
+                        ),
+                    )
+                ),
             },
             source="remove_yaxis2",
         )
@@ -1145,7 +1184,16 @@ class PlotlyPlotWidget:
             return
         relayout: dict[str, Any] = {
             "yaxis2": yaxis2,
-            "margin": dict(layout.get("margin", _PLOTLY_PLOT_MARGIN_COMPACT)),
+            "margin": dict(
+                layout.get(
+                    "margin",
+                    resolve_plot_layout_margins(
+                        show_axis_labels=self._display_options.show_axis_labels,
+                        show_legend=self._display_options.show_legend,
+                        has_yaxis2=True,
+                    ),
+                )
+            ),
         }
         self._relayout(relayout, source="yaxis2")
 
@@ -1636,15 +1684,13 @@ Plotly.relayout(plotDiv, {json.dumps(payload)});
                 yaxis2["showgrid"] = False
 
     def _sync_margins_to_plotly_dict(self) -> None:
-        """Synchronize layout margins with axis-label visibility."""
+        """Synchronize layout margins with axis-label and legend visibility."""
         layout = self._figure.setdefault("layout", {})
-        if not bool(self._display_options.show_axis_labels):
-            margin = dict(_PLOTLY_PLOT_MARGIN_COMPACT)
-        elif self._has_yaxis2():
-            margin = dict(_PLOTLY_PLOT_MARGIN_WITH_DUAL_Y_AXIS_LABELS)
-        else:
-            margin = dict(_PLOTLY_PLOT_MARGIN_WITH_AXIS_LABELS)
-        layout["margin"] = margin
+        layout["margin"] = resolve_plot_layout_margins(
+            show_axis_labels=bool(self._display_options.show_axis_labels),
+            show_legend=bool(self._display_options.show_legend),
+            has_yaxis2=self._has_yaxis2(),
+        )
 
     def _sync_legend_to_plotly_dict(self) -> None:
         """Synchronize legend visibility and bottom horizontal layout into the figure dict."""
@@ -1729,10 +1775,11 @@ Plotly.react(plotDiv, plotDiv.data, plotDiv.layout, {json.dumps(config)});
         self._relayout(relayout)
 
     def _relayout_legend(self) -> None:
-        """Push legend visibility (and layout when shown) to the browser."""
+        """Push legend visibility, layout, and bottom margin to the browser."""
         layout = self._figure.get("layout", {})
         relayout: dict[str, Any] = {
             "showlegend": bool(layout.get("showlegend", True)),
+            "margin": layout.get("margin", {}),
         }
         if relayout["showlegend"]:
             legend = layout.get("legend")
