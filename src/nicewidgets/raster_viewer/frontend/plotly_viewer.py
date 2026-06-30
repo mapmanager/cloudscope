@@ -1333,13 +1333,61 @@ Plotly.relayout(plotDiv, {{
 """
         self._plot.client.run_javascript(js, timeout=2.0)
 
+    async def reset_x_axis_to_full_extent(self) -> None:
+        """Reset visible **x** axis to the full data extent without changing y.
+
+        Used when linked 1D plots emit an auto x-range ``(None, None)`` and the
+        raster viewer must zoom out horizontally while preserving the current
+        y viewport. Schedules a debounced raster refresh for the new x window.
+        """
+        if self._plot is None or self._transform is None:
+            raise RuntimeError('Viewer must be built and data set before resetting axis ranges.')
+
+        full_bounds = self._transform.full_row_col_bounds()
+        x_lo, x_hi = self._transform.row_col_to_plot_x_range(full_bounds)
+        new_x_range = (x_lo, x_hi)
+        if self._last_display_axis_ranges is not None and _x_range_equal(
+            new_x_range,
+            self._last_display_axis_ranges[0],
+        ):
+            self._last_applied_x_range = new_x_range
+            return
+
+        if self._last_display_axis_ranges is not None:
+            y_lo, y_hi = self._last_display_axis_ranges[1]
+        else:
+            y_lo, y_hi = self._transform.row_col_to_plot_y_range(self._current_bounds)
+
+        self._current_bounds = self._transform.plot_xy_ranges_to_row_col(
+            x_lo,
+            x_hi,
+            y_lo,
+            y_hi,
+        )
+
+        layout = self._plotly_dict.setdefault('layout', {})
+        xaxis = layout.setdefault('xaxis', {})
+        xaxis['autorange'] = False
+        xaxis['range'] = [x_lo, x_hi]
+
+        self._last_applied_x_range = new_x_range
+        self._last_display_axis_ranges = ((x_lo, x_hi), (y_lo, y_hi))
+
+        js = f"""
+{self._js_plotly_graph_div()}
+Plotly.relayout(plotDiv, {{
+  'xaxis.range': [{json.dumps(x_lo)}, {json.dumps(x_hi)}],
+  'xaxis.autorange': false
+}});
+"""
+        self._plot.client.run_javascript(js, timeout=2.0)
+        self._schedule_viewport_settle()
+
     def reset_x_axis_range(self) -> None:
         """Record that the next user x-range should be treated as auto.
 
-        Callers use this when the consumer-side state event arrives with
-        ``(None, None)``. The actual reset of Plotly's view happens on the next
-        full render (or via the existing double-click handler); recording
-        ``None`` here is enough to clear echo suppression.
+        Prefer :meth:`reset_x_axis_to_full_extent` when the Plotly view must
+        actually zoom out to the full x extent while preserving y.
         """
         self._last_applied_x_range = (None, None)
 

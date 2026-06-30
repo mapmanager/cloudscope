@@ -391,11 +391,8 @@ class PrimaryImageView(BaseView):
     def _apply_primary_x_range_to_viewer(self) -> None:
         """Push the cached ``primary_x_range`` to the Plotly viewer.
 
-        Behavior matches the agreed contract:
-
-        * ``(None, None)`` -> no-op. ``set_data`` already auto-ranges the
-          Plotly view on the new ``uirevision``; we only override when the
-          state asks for a non-auto window.
+        * ``(None, None)`` -> schedule ``reset_x_axis_to_full_extent`` (x-only
+          autorange; y zoom is preserved).
         * ``(x_min, x_max)`` -> schedule ``set_x_axis_range``.
 
         Skipped silently when the viewer has no data yet.
@@ -407,6 +404,7 @@ class PrimaryImageView(BaseView):
             return
         x_min, x_max = self._primary_x_range
         if x_min is None or x_max is None:
+            asyncio.create_task(self._viewer.reset_x_axis_to_full_extent())
             return
         asyncio.create_task(
             self._viewer.set_x_axis_range(x_min=x_min, x_max=x_max)

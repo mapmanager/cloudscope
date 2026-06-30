@@ -17,13 +17,16 @@ class _FakePlotlyViewer:
     def __init__(self) -> None:
         self.has_data = True
         self.set_x_calls: list[tuple[float, float]] = []
-        self.reset_calls = 0
+        self.reset_full_extent_calls = 0
 
     async def set_x_axis_range(self, *, x_min: float, x_max: float) -> None:
         self.set_x_calls.append((x_min, x_max))
 
+    async def reset_x_axis_to_full_extent(self) -> None:
+        self.reset_full_extent_calls += 1
+
     def reset_x_axis_range(self) -> None:
-        self.reset_calls += 1
+        self.reset_full_extent_calls += 1
 
 
 class _FakeChart:
@@ -81,7 +84,7 @@ def test_primary_image_view_consumer_applies_to_viewer_when_has_data() -> None:
 
     asyncio.run(_run())
     assert fake.set_x_calls == [(2.0, 8.0)]
-    assert fake.reset_calls == 0
+    assert fake.reset_full_extent_calls == 0
 
 
 def test_primary_image_view_skips_self_echo_after_viewer_originated_range() -> None:
@@ -105,20 +108,23 @@ def test_primary_image_view_skips_self_echo_after_viewer_originated_range() -> N
     assert view._primary_x_range == (2.0, 8.0)
 
 
-def test_primary_image_view_consumer_auto_range_is_a_noop_for_viewer() -> None:
-    """``(None, None)`` does NOT call the viewer reset.
+def test_primary_image_view_consumer_auto_range_resets_x_only() -> None:
+    """External ``(None, None)`` should reset x to full extent without touching y."""
+    import asyncio
 
-    ``set_data`` auto-ranges the Plotly view on the new ``uirevision``; the
-    consumer only overrides when state asks for a non-auto window.
-    """
     bus = EventBus()
     view = PrimaryImageView(bus)
     fake = _FakePlotlyViewer()
     view._viewer = fake  # type: ignore[assignment]
 
-    view._on_primary_x_range_changed(PrimaryXRangeChanged(x_min=None, x_max=None))
+    async def _run() -> None:
+        view._on_primary_x_range_changed(PrimaryXRangeChanged(x_min=None, x_max=None))
+        for _ in range(5):
+            await asyncio.sleep(0)
+
+    asyncio.run(_run())
     assert fake.set_x_calls == []
-    assert fake.reset_calls == 0
+    assert fake.reset_full_extent_calls == 1
     assert view._primary_x_range == (None, None)
 
 
@@ -132,7 +138,7 @@ def test_primary_image_view_consumer_no_data_is_noop() -> None:
 
     view._on_primary_x_range_changed(PrimaryXRangeChanged(x_min=2.0, x_max=8.0))
     assert fake.set_x_calls == []
-    assert fake.reset_calls == 0
+    assert fake.reset_full_extent_calls == 0
 
 
 def test_primary_image_view_caches_x_range_from_state_event() -> None:
@@ -156,17 +162,24 @@ def test_primary_image_view_caches_x_range_from_state_event() -> None:
     asyncio.run(_run())
 
 
-def test_primary_image_view_apply_helper_skips_when_cache_is_auto() -> None:
-    """``_apply_primary_x_range_to_viewer`` is a no-op when cache is ``(None, None)``."""
+def test_primary_image_view_apply_helper_resets_x_when_cache_is_auto() -> None:
+    """``_apply_primary_x_range_to_viewer`` resets x when cache is ``(None, None)``."""
+    import asyncio
+
     bus = EventBus()
     view = PrimaryImageView(bus)
     fake = _FakePlotlyViewer()
     view._viewer = fake  # type: ignore[assignment]
     view._primary_x_range = (None, None)
 
-    view._apply_primary_x_range_to_viewer()
+    async def _run() -> None:
+        view._apply_primary_x_range_to_viewer()
+        for _ in range(5):
+            await asyncio.sleep(0)
+
+    asyncio.run(_run())
     assert fake.set_x_calls == []
-    assert fake.reset_calls == 0
+    assert fake.reset_full_extent_calls == 1
 
 
 def test_primary_image_view_apply_helper_re_applies_finite_cache() -> None:
@@ -190,7 +203,7 @@ def test_primary_image_view_apply_helper_re_applies_finite_cache() -> None:
 
     asyncio.run(_run())
     assert fake.set_x_calls == [(2.5, 6.5)]
-    assert fake.reset_calls == 0
+    assert fake.reset_full_extent_calls == 0
 
 
 def test_acq_analysis_plot_view_publishes_intent_on_chart_x_range() -> None:

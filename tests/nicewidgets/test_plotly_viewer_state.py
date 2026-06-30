@@ -1052,6 +1052,35 @@ def test_set_x_axis_range_relayouts_x_axis_only() -> None:
     asyncio.run(run())
 
 
+def test_reset_x_axis_to_full_extent_relayouts_x_axis_only() -> None:
+    """``reset_x_axis_to_full_extent`` must not send ``yaxis.range`` relayout keys."""
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.last_js = ''
+
+        def run_javascript(self, js: str, timeout: float) -> None:
+            self.last_js = js
+
+    class FakePlot:
+        id = 'plot-id'
+        client = FakeClient()
+
+    async def run() -> None:
+        viewer = PlotlyRasterViewer()
+        viewer._plot = FakePlot()
+        viewer._transform = PlotlyCoordTransform(nrows=4, ncols=4, grid=_grid())
+        viewer._plotly_dict = {'layout': {'xaxis': {}, 'yaxis': {}}}
+        viewer._last_display_axis_ranges = ((1.0, 2.0), (5.0, 6.0))
+        viewer._schedule_viewport_settle = lambda: None  # type: ignore[method-assign]
+        await viewer.reset_x_axis_to_full_extent()
+        assert 'xaxis.range' in viewer._plot.client.last_js
+        assert 'yaxis.range' not in viewer._plot.client.last_js
+        assert viewer._last_display_axis_ranges == ((0.0, 8.0), (5.0, 6.0))
+
+    asyncio.run(run())
+
+
 def test_apply_response_reacts_on_trace_type_change_without_nicegui_update() -> None:
     """PNG/heatmap switches should use Plotly.react and preserve browser layout."""
     from nicewidgets.raster_viewer.backend.image_model import RenderResponse
