@@ -42,6 +42,7 @@ class _FakePlot:
         self.dark_mode: bool | None = None
         self._series_visibility: dict[str, bool] = {}
         self.placeholder_text: str | None = None
+        self.y2_label: str | None = None
 
     def register_series_menu_items(self, items: list[PlotlySeriesMenuItem]) -> None:
         """Record menu defaults while preserving existing visibility choices."""
@@ -82,6 +83,10 @@ class _FakePlot:
     def set_placeholder_text(self, message: str | None) -> None:
         """Record centered placeholder text."""
         self.placeholder_text = message.strip() if message else None
+
+    def set_y2_label(self, label: str) -> None:
+        """Record right y-axis label updates."""
+        self.y2_label = str(label)
 
 
 def _view_with_fake_plot() -> SumIntensityPlotView:
@@ -345,6 +350,49 @@ def test_refresh_plot_shows_diameter_when_toggle_on() -> None:
 
     diameter = next(trace for trace in view._plot.traces if trace.name == "Diameter")
     assert diameter.visible is True
+
+
+def test_apply_y2_label_clears_when_derivative_and_diameter_hidden() -> None:
+    """Right y-axis title should be empty when no right-axis overlays are visible."""
+    view = _view_with_fake_plot()
+    acq_image = _FakeAcqImage()
+    acq_image.analysis_set.set(AnalysisKey("sum_intensity", 0, 1), _FakeSumIntensityAnalysis())
+    acq_image.analysis_set.set(AnalysisKey("diameter", 0, 1), _FakeDiameterAnalysis())
+    view.current_acq_image = acq_image
+    view.current_selection = PrimarySelection(file_id="file", channel=0, roi_id=1)
+
+    view._refresh_plot()
+
+    assert view._plot.y2_label == ""
+
+
+def test_apply_y2_label_uses_derivative_label_when_derivative_visible() -> None:
+    """Derivative overlay should set the derivative right y-axis title."""
+    view = _view_with_fake_plot()
+    acq_image = _FakeAcqImage()
+    acq_image.analysis_set.set(AnalysisKey("sum_intensity", 0, 1), _FakeSumIntensityAnalysis())
+    view.current_acq_image = acq_image
+    view.current_selection = PrimarySelection(file_id="file", channel=0, roi_id=1)
+    view._plot._series_visibility["Derivative of df/f0"] = True  # type: ignore[attr-defined]
+
+    view._refresh_plot()
+
+    assert view._plot.y2_label == "d(df/f0)/dt (1/s)"
+
+
+def test_apply_y2_label_uses_diameter_label_when_diameter_only_visible() -> None:
+    """Diameter-only overlay should set the diameter right y-axis title."""
+    view = _view_with_fake_plot()
+    acq_image = _FakeAcqImage()
+    acq_image.analysis_set.set(AnalysisKey("sum_intensity", 0, 1), _FakeSumIntensityAnalysis())
+    acq_image.analysis_set.set(AnalysisKey("diameter", 0, 1), _FakeDiameterAnalysis())
+    view.current_acq_image = acq_image
+    view.current_selection = PrimarySelection(file_id="file", channel=0, roi_id=1)
+    view._plot._series_visibility["Diameter"] = True  # type: ignore[attr-defined]
+
+    view._refresh_plot()
+
+    assert view._plot.y2_label == "Diameter (um)"
 
 
 def test_refresh_plot_preserves_series_visibility_across_selection() -> None:

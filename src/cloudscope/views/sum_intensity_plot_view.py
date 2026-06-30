@@ -36,6 +36,8 @@ from nicewidgets.plotly_plot.models import (
 from nicewidgets.plotly_plot.widget import PlotlyPlotWidget
 
 _DIAMETER_TRACE_NAME = "Diameter"
+_DERIVATIVE_TRACE_NAME = "Derivative of df/f0"
+_DERIVATIVE_Y2_LABEL = "d(df/f0)/dt (1/s)"
 
 
 class SumIntensityPlotView(BaseView):
@@ -159,10 +161,10 @@ class SumIntensityPlotView(BaseView):
         self._plot = PlotlyPlotWidget(
             x_label="Time (s)",
             y_label="Signal",
-            y2_label="d(df/f0)/dt (1/s)",
             theme="dark" if self._initial_dark_mode else "light",
             on_x_range_changed=self._on_plot_x_range_changed,
             on_measurement_changed=self._on_measurement_changed,
+            on_series_visibility_changed=self._on_series_visibility_changed,
         )
         self._plot.register_series_menu_items(self._sum_intensity_series_menu_items())
         self._plot.container.classes("w-full h-full min-h-0 flex-1")
@@ -245,6 +247,41 @@ class SumIntensityPlotView(BaseView):
         """
         self._last_measurement_event = event
 
+    def _on_series_visibility_changed(self, series_name: str, visible: bool) -> None:
+        """Refresh the right y-axis label when derivative or diameter toggles.
+
+        Args:
+            series_name: Context-menu series name.
+            visible: Visibility after the toggle.
+
+        Returns:
+            None.
+        """
+        del visible
+        if series_name in {_DERIVATIVE_TRACE_NAME, _DIAMETER_TRACE_NAME}:
+            self._apply_y2_label()
+
+    def _apply_y2_label(self) -> None:
+        """Set the right y-axis title from visible derivative/diameter overlays.
+
+        Returns:
+            None.
+        """
+        if self._plot is None:
+            return
+        deriv_visible = self._plot.is_series_visible(_DERIVATIVE_TRACE_NAME)
+        diam_visible = self._plot.is_series_visible(_DIAMETER_TRACE_NAME)
+        if not deriv_visible and not diam_visible:
+            self._plot.set_y2_label("")
+        elif deriv_visible:
+            self._plot.set_y2_label(_DERIVATIVE_Y2_LABEL)
+        else:
+            analysis = self._get_selected_diameter_analysis()
+            if analysis is not None:
+                self._plot.set_y2_label(analysis.get_plot_data().y_label)
+            else:
+                self._plot.set_y2_label("Diameter (um)")
+
     def _on_theme_changed(self, event: ThemeChanged) -> None:
         """Apply an application theme change to the child Plotly widget.
 
@@ -300,6 +337,7 @@ class SumIntensityPlotView(BaseView):
         except (KeyError, ValueError) as exc:
             self._clear_plot(f"Sum-intensity plot unavailable: {exc}")
             return
+        self._apply_y2_label()
         self._apply_primary_x_range_to_plot()
 
     def _build_series_from_analysis(
@@ -351,8 +389,8 @@ class SumIntensityPlotView(BaseView):
         """
         items = [
             PlotlySeriesMenuItem(
-                series_name="Derivative of df/f0",
-                label="Derivative of df/f0",
+                series_name=_DERIVATIVE_TRACE_NAME,
+                label=_DERIVATIVE_TRACE_NAME,
                 default_visible=False,
                 kind="trace",
             ),
@@ -490,6 +528,7 @@ class SumIntensityPlotView(BaseView):
         """
         if self._plot is not None:
             self._plot.set_series()
+            self._plot.set_y2_label("")
             self._plot.set_placeholder_text(message)
 
     def _get_selected_sum_intensity_analysis(self) -> SumIntensityAnalysis | None:

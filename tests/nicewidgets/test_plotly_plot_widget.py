@@ -647,6 +647,63 @@ def test_axis_labels_toggle_updates_yaxis2_and_dual_margin(
     assert widget.figure["layout"]["margin"]["r"] == 60
 
 
+def test_hidden_right_axis_trace_hides_yaxis2_decorations(
+    fake_plotly: list[_FakePlotlyElement],
+) -> None:
+    """Invisible right-axis traces should not show y2 decorations or dual margin."""
+    widget = PlotlyPlotWidget(y2_label="rate (1/s)")
+    widget.register_series_menu_items(
+        [PlotlySeriesMenuItem("derivative", "derivative", default_visible=False)]
+    )
+    traces = [
+        PlotlyTraceData.from_sequences(name="df/f0", x=[0.0, 1.0], y=[1.0, 2.0]),
+        PlotlyTraceData.from_sequences(
+            name="derivative",
+            x=[0.0, 1.0],
+            y=[0.1, 0.2],
+            y_axis="right",
+            visible=False,
+        ),
+    ]
+
+    widget.set_series(traces=traces)
+    widget.set_axis_labels_visible(True)
+
+    assert widget.figure["layout"]["yaxis2"]["title"]["text"] == ""
+    assert widget.figure["layout"]["yaxis2"]["showticklabels"] is False
+    assert widget.figure["layout"]["margin"]["r"] == 24
+
+
+def test_toggle_right_axis_visibility_updates_yaxis2_decorations(
+    fake_plotly: list[_FakePlotlyElement],
+) -> None:
+    """Toggling a right-axis trace should show and hide y2 decorations."""
+    widget = PlotlyPlotWidget(y2_label="rate (1/s)")
+    widget.register_series_menu_items(
+        [PlotlySeriesMenuItem("derivative", "derivative", default_visible=False)]
+    )
+    widget.set_series(
+        traces=[
+            PlotlyTraceData.from_sequences(name="df/f0", x=[0.0, 1.0], y=[1.0, 2.0]),
+            PlotlyTraceData.from_sequences(
+                name="derivative",
+                x=[0.0, 1.0],
+                y=[0.1, 0.2],
+                y_axis="right",
+            ),
+        ]
+    )
+    widget.set_axis_labels_visible(True)
+
+    assert widget.figure["layout"]["yaxis2"]["title"]["text"] == ""
+    assert widget.figure["layout"]["margin"]["r"] == 24
+
+    widget.toggle_series_visible("derivative")
+
+    assert widget.figure["layout"]["yaxis2"]["title"]["text"] == "rate (1/s)"
+    assert widget.figure["layout"]["margin"]["r"] == 60
+
+
 def test_init_show_legend_false_builds_without_legend(fake_plotly: list[_FakePlotlyElement]) -> None:
     """Initial legend visibility should come from the constructor kwarg."""
     widget = PlotlyPlotWidget(show_legend=False)

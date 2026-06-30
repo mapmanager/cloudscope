@@ -44,6 +44,7 @@ from nicewidgets.utils.logging import get_logger
 logger = get_logger(__name__)
 
 OnPlotlyXRangeChanged = Callable[[float | None, float | None], None]
+OnSeriesVisibilityChanged = Callable[[str, bool], None]
 OnPlotlyXRangeSelected = Callable[[float, float], None]
 OnMeasurementChanged = Callable[[MeasurementChangeEvent], None]
 
@@ -366,14 +367,15 @@ class PlotlyPlotWidget:
         on_x_range_changed: OnPlotlyXRangeChanged | None = None,
         on_x_range_selected: OnPlotlyXRangeSelected | None = None,
         on_measurement_changed: OnMeasurementChanged | None = None,
+        on_series_visibility_changed: OnSeriesVisibilityChanged | None = None,
     ) -> None:
         """Create an empty Plotly widget.
 
         Args:
             x_label: X-axis label.
             y_label: Primary left y-axis label.
-            y2_label: Secondary right y-axis label used when a right-axis trace
-                or scatter is present.
+            y2_label: Secondary right y-axis label used when a visible right-axis
+                trace or scatter is present.
             theme: Initial Plotly light/dark layout theme.
             show_legend: Whether the bottom horizontal legend starts visible.
             on_x_range_changed: Optional callback invoked after the user changes
@@ -383,6 +385,8 @@ class PlotlyPlotWidget:
                 completes a box-select while ``begin_select_x_range()`` is armed.
             on_measurement_changed: Optional callback invoked after the user
                 drags a measurement line.
+            on_series_visibility_changed: Optional callback invoked after a
+                context-menu series visibility toggle.
         """
         self._x_label = str(x_label)
         self._y_label = str(y_label)
@@ -396,6 +400,7 @@ class PlotlyPlotWidget:
         self._on_x_range_changed = on_x_range_changed
         self._on_x_range_selected = on_x_range_selected
         self._on_measurement_changed = on_measurement_changed
+        self._on_series_visibility_changed = on_series_visibility_changed
         self._x_range = PlotlyAxisRange()
         self._series_menu_items: list[PlotlySeriesMenuItem] = []
         self._series_visibility: dict[str, bool] = {}
@@ -528,6 +533,7 @@ class PlotlyPlotWidget:
             trace = self._trace_to_plotly(data)
             self._figure["data"][index] = trace
             self._restyle_plotly_trace(index, trace)
+            self._refresh_yaxis2_layout()
             return
         if clean in self._scatters:
             current = self._scatters[clean]
@@ -543,8 +549,25 @@ class PlotlyPlotWidget:
             trace = self._scatter_to_plotly(data)
             self._figure["data"][index] = trace
             self._restyle_plotly_trace(index, trace)
+            self._refresh_yaxis2_layout()
             return
         raise KeyError(f"series {clean!r} does not exist")
+
+    def set_y2_label(self, label: str) -> None:
+        """Set the secondary right y-axis title text.
+
+        Decorations appear only when axis labels are enabled and at least one
+        right-axis trace or scatter is visible.
+
+        Args:
+            label: Y2 axis title, or ``""`` to clear.
+
+        Returns:
+            None.
+        """
+        self._y2_label = str(label)
+        if self._has_yaxis2():
+            self._refresh_yaxis2_layout()
 
     def toggle_series_visible(self, series_name: str) -> bool:
         """Toggle visibility for one registered trace or scatter overlay.
@@ -566,6 +589,8 @@ class PlotlyPlotWidget:
             self.set_series_visible(clean, new_visible)
         else:
             self._series_visibility[clean] = new_visible
+        if self._on_series_visibility_changed is not None:
+            self._on_series_visibility_changed(clean, new_visible)
         return new_visible
 
     def set_axis_labels_visible(self, visible: bool) -> None:
@@ -1156,6 +1181,16 @@ class PlotlyPlotWidget:
             scatter.y_axis == "right" for scatter in self._scatters.values()
         )
 
+    def _has_visible_right_axis_series(self) -> bool:
+        """Return whether any visible trace or scatter uses the right y-axis."""
+        return any(trace.y_axis == "right" and trace.visible for trace in self._traces.values()) or any(
+            scatter.y_axis == "right" and scatter.visible for scatter in self._scatters.values()
+        )
+
+    def _yaxis2_decorations_visible(self) -> bool:
+        """Return whether right y-axis title, ticks, and line should show."""
+        return bool(self._display_options.show_axis_labels) and self._has_visible_right_axis_series()
+
     def _sync_yaxis2_from_series(self) -> None:
         """Create or remove ``layout.yaxis2`` based on right-axis traces/scatters."""
         if self._has_right_axis_series():
@@ -1163,10 +1198,23 @@ class PlotlyPlotWidget:
         else:
             self._maybe_remove_yaxis2()
 
+    def _refresh_yaxis2_layout(self) -> None:
+        """Update ``yaxis2`` decorations and right margin after visibility changes."""
+        if self._has_right_axis_series():
+            if not self._has_yaxis2():
+                self._ensure_yaxis2()
+                return
+            layout = self._figure.setdefault("layout", {})
+            layout["yaxis2"] = self._build_yaxis2_dict()
+            self._sync_margins_to_plotly_dict()
+            self._relayout_secondary_y_axis()
+        else:
+            self._maybe_remove_yaxis2()
+
     def _build_yaxis2_dict(self) -> dict[str, Any]:
         """Return a Plotly ``yaxis2`` layout dictionary for the current theme."""
         theme = theme_for_name(self._theme)
-        visible = bool(self._display_options.show_axis_labels)
+        visible = self._yaxis2_decorations_visible()
         return {
             "overlaying": "y",
             "side": "right",
@@ -1228,7 +1276,7 @@ class PlotlyPlotWidget:
                     resolve_plot_layout_margins(
                         show_axis_labels=self._display_options.show_axis_labels,
                         show_legend=self._display_options.show_legend,
-                        has_yaxis2=True,
+                        has_yaxis2=self._yaxis2_decorations_visible(),
                     ),
                 )
             ),
@@ -1711,14 +1759,15 @@ Plotly.relayout(plotDiv, {json.dumps(payload)});
         if self._has_yaxis2():
             yaxis2 = layout.setdefault("yaxis2", self._build_yaxis2_dict())
             if isinstance(yaxis2, dict):
+                deco_visible = self._yaxis2_decorations_visible()
                 title = yaxis2.setdefault("title", {})
                 if not isinstance(title, dict):
                     title = {}
                     yaxis2["title"] = title
-                title["text"] = self._y2_label if visible else ""
-                yaxis2["showticklabels"] = visible
-                yaxis2["ticks"] = "outside" if visible else ""
-                yaxis2["showline"] = visible
+                title["text"] = self._y2_label if deco_visible else ""
+                yaxis2["showticklabels"] = deco_visible
+                yaxis2["ticks"] = "outside" if deco_visible else ""
+                yaxis2["showline"] = deco_visible
                 yaxis2["showgrid"] = False
 
     def _sync_margins_to_plotly_dict(self) -> None:
@@ -1727,7 +1776,7 @@ Plotly.relayout(plotDiv, {json.dumps(payload)});
         layout["margin"] = resolve_plot_layout_margins(
             show_axis_labels=bool(self._display_options.show_axis_labels),
             show_legend=bool(self._display_options.show_legend),
-            has_yaxis2=self._has_yaxis2(),
+            has_yaxis2=self._yaxis2_decorations_visible(),
         )
 
     def _sync_legend_to_plotly_dict(self) -> None:
