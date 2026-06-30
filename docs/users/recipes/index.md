@@ -32,10 +32,12 @@ For a source file named `my_file.tif`, saved files may include:
 my_file.tif.json
 my_file.tif.radon_velocity.csv
 my_file.tif.diameter.csv
+my_file.tif.sum_intensity.csv
 ```
 
 The JSON sidecar stores CloudScope state, ROIs, metadata, and analysis summaries that do not
-have a dedicated CSV file. CSV files store tabular outputs for velocity and diameter analyses.
+have a dedicated CSV file. CSV files store tabular outputs for velocity, diameter, and sum
+intensity analyses.
 
 Use **Save** in the main toolbar to persist your work.
 
@@ -47,6 +49,7 @@ Line scan kymograph analyses:
 |---|---|---|
 | [Velocity analysis](velocity-analysis.md) | Yes | Blood flow velocity from a Radon-transform-based method |
 | [Diameter analysis](diameter-analysis.md) | Yes | Vessel diameter from line scan kymographs |
+| [Sum intensity analysis](sum-intensity-analysis.md) | Yes | Functional reporter fluorescence (like GCaMP) from normalized line intensity |
 
 Analyses that require a completed [velocity analysis](velocity-analysis.md) on the same
 channel and ROI — see [Analyses from velocity](analyses-from-velocity/index.md):

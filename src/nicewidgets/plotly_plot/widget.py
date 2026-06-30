@@ -14,6 +14,7 @@ from nicegui import core, ui
 from nicewidgets.plotly_plot.context_menu import PlotlyPlotContextMenu
 from nicewidgets.plotly_plot.context_menu_guards import pywebview_plotly_plot_context_menu_guard_js
 from nicewidgets.plotly_plot.display_options import PlotlyPlotDisplayOptions
+from nicewidgets.plotly_layout_margins import PlotlyLayoutMarginsProfile
 from nicewidgets.plotly_plot.event_overlay import PlotlyEventOverlayApi
 from nicewidgets.plotly_plot.models import (
     MeasurementChangeEvent,
@@ -223,6 +224,7 @@ def resolve_plot_layout_margins(
     show_axis_labels: bool,
     show_legend: bool,
     has_yaxis2: bool = False,
+    layout_margins_profile: PlotlyLayoutMarginsProfile | None = None,
 ) -> dict[str, int]:
     """Return Plotly layout margins for axis-label and legend visibility.
 
@@ -230,10 +232,14 @@ def resolve_plot_layout_margins(
         show_axis_labels: Whether axis decorations are visible.
         show_legend: Whether the bottom horizontal legend is visible.
         has_yaxis2: Whether a secondary right y-axis is present.
+        layout_margins_profile: Optional fixed margin profile that bypasses
+            widget-default margin tables.
 
     Returns:
         Plotly ``layout.margin`` dictionary with ``l``, ``r``, ``t``, and ``b``.
     """
+    if layout_margins_profile is not None:
+        return layout_margins_profile.resolve(show_axis_labels=show_axis_labels)
     if show_axis_labels:
         left = _PLOTLY_PLOT_MARGIN_L_WITH_AXIS_LABELS
         right = (
@@ -368,6 +374,7 @@ class PlotlyPlotWidget:
         on_x_range_selected: OnPlotlyXRangeSelected | None = None,
         on_measurement_changed: OnMeasurementChanged | None = None,
         on_series_visibility_changed: OnSeriesVisibilityChanged | None = None,
+        layout_margins_profile: PlotlyLayoutMarginsProfile | None = None,
     ) -> None:
         """Create an empty Plotly widget.
 
@@ -387,10 +394,13 @@ class PlotlyPlotWidget:
                 drags a measurement line.
             on_series_visibility_changed: Optional callback invoked after a
                 context-menu series visibility toggle.
+            layout_margins_profile: Optional fixed margin profile for aligned
+                multi-plot stacks.
         """
         self._x_label = str(x_label)
         self._y_label = str(y_label)
         self._y2_label = str(y2_label)
+        self._layout_margins_profile = layout_margins_profile
         self._theme = normalize_plotly_theme(theme)
         self._display_options = PlotlyPlotDisplayOptions(
             theme=self._theme,
@@ -426,6 +436,9 @@ class PlotlyPlotWidget:
         self._ctx_menu: ui.context_menu | None = None
         self._context_menu_builder: PlotlyPlotContextMenu | None = None
         self.events = PlotlyEventOverlayApi(self)
+        if self._layout_margins_profile is not None:
+            self._sync_margins_to_plotly_dict()
+            self._sync_axis_stabilization_to_plotly_dict()
 
         with ui.element("div").classes("relative w-full h-full min-h-0") as self.container:
             self._plot_element = ui.plotly(self._figure).classes("w-full h-full min-h-0")
@@ -534,6 +547,7 @@ class PlotlyPlotWidget:
             self._figure["data"][index] = trace
             self._restyle_plotly_trace(index, trace)
             self._refresh_yaxis2_layout()
+            self._pin_x_axis_after_series_update()
             return
         if clean in self._scatters:
             current = self._scatters[clean]
@@ -550,6 +564,7 @@ class PlotlyPlotWidget:
             self._figure["data"][index] = trace
             self._restyle_plotly_trace(index, trace)
             self._refresh_yaxis2_layout()
+            self._pin_x_axis_after_series_update()
             return
         raise KeyError(f"series {clean!r} does not exist")
 
@@ -568,6 +583,45 @@ class PlotlyPlotWidget:
         self._y2_label = str(label)
         if self._has_yaxis2():
             self._refresh_yaxis2_layout()
+
+    def set_x_label(self, label: str) -> None:
+        """Set the primary x-axis title text.
+
+        Args:
+            label: X-axis title, or ``""`` to clear.
+
+        Returns:
+            None.
+        """
+        self._set_primary_axis_label(axis_name="xaxis", label=str(label), attr="_x_label")
+
+    def set_y_label(self, label: str) -> None:
+        """Set the primary left y-axis title text.
+
+        Args:
+            label: Y-axis title, or ``""`` to clear.
+
+        Returns:
+            None.
+        """
+        self._set_primary_axis_label(axis_name="yaxis", label=str(label), attr="_y_label")
+
+    def _set_primary_axis_label(self, *, axis_name: str, label: str, attr: str) -> None:
+        """Update one primary axis title in memory and optionally relayout."""
+        setattr(self, attr, label)
+        layout = self._figure.setdefault("layout", {})
+        axis = layout.setdefault(axis_name, {})
+        if not isinstance(axis, dict):
+            axis = {}
+            layout[axis_name] = axis
+        title = axis.setdefault("title", {})
+        if not isinstance(title, dict):
+            title = {}
+            axis["title"] = title
+        visible = bool(self._display_options.show_axis_labels)
+        title["text"] = label if visible else ""
+        if visible:
+            self._relayout({f"{axis_name}.title.text": label})
 
     def toggle_series_visible(self, series_name: str) -> bool:
         """Toggle visibility for one registered trace or scatter overlay.
@@ -605,6 +659,7 @@ class PlotlyPlotWidget:
         self._display_options.show_axis_labels = bool(visible)
         self._sync_axis_labels_to_plotly_dict()
         self._sync_margins_to_plotly_dict()
+        self._sync_axis_stabilization_to_plotly_dict()
         self._relayout_axis_labels_and_margins()
 
     def set_plotly_toolbar_visible(self, visible: bool) -> None:
@@ -934,8 +989,50 @@ class PlotlyPlotWidget:
         self._sync_hover_info_to_plotly_dict()
         self._sync_yaxis2_from_series()
         self._push_series_data()
+        self._pin_x_axis_after_series_update()
         if plotly_data:
             self.set_placeholder_text(None)
+
+    @staticmethod
+    def _finite_x_values(values: Sequence[float]) -> list[float]:
+        """Return finite x samples from one trace sequence."""
+        return [float(value) for value in values if math.isfinite(value)]
+
+    def _derive_x_range_from_visible_line_traces(self) -> tuple[float, float] | None:
+        """Return the x extent of visible continuous line traces.
+
+        Scatter overlays are excluded so marker padding does not expand the
+        displayed x-axis when the logical range is automatic.
+        """
+        xs: list[float] = []
+        for trace in self._traces.values():
+            if not trace.visible:
+                continue
+            xs.extend(self._finite_x_values(trace.x))
+        if not xs:
+            return None
+        return min(xs), max(xs)
+
+    def _push_x_axis_range_to_browser(self, x_min: float, x_max: float) -> None:
+        """Apply x-axis limits to the local figure dict and browser."""
+        xaxis = self._figure["layout"].setdefault("xaxis", {})
+        xaxis["range"] = [float(x_min), float(x_max)]
+        xaxis["autorange"] = False
+        self._relayout({"xaxis.range": [float(x_min), float(x_max)], "xaxis.autorange": False})
+
+    def _pin_x_axis_after_series_update(self) -> None:
+        """Pin x-axis limits after trace replacement.
+
+        When the logical range is automatic, derive limits from visible line
+        traces only. Scatter marker traces otherwise expand autorange padding.
+        """
+        x_min, x_max = self._x_range.x_min, self._x_range.x_max
+        if x_min is None or x_max is None:
+            derived = self._derive_x_range_from_visible_line_traces()
+            if derived is None:
+                return
+            x_min, x_max = derived
+        self._push_x_axis_range_to_browser(x_min, x_max)
 
     def set_theme(self, theme: PlotlyThemeName) -> None:
         """Set the Plotly light/dark layout theme.
@@ -989,7 +1086,18 @@ class PlotlyPlotWidget:
         self._relayout({"xaxis.range": [float(x_min), float(x_max)], "xaxis.autorange": False})
 
     def reset_x_axis_limits(self) -> None:
-        """Reset the x-axis to automatic scaling."""
+        """Reset the x-axis to the full extent of visible line traces.
+
+        When line traces are present, limits are derived from continuous traces
+        only so scatter marker padding does not shift x=0. With no line traces,
+        falls back to Plotly autorange.
+        """
+        derived = self._derive_x_range_from_visible_line_traces()
+        if derived is not None:
+            self._x_range = PlotlyAxisRange(x_min=None, x_max=None)
+            self._last_applied_x_range = (None, None)
+            self._push_x_axis_range_to_browser(*derived)
+            return
         self.set_x_axis_limits(None, None)
 
     @property
@@ -1255,6 +1363,7 @@ class PlotlyPlotWidget:
                         resolve_plot_layout_margins(
                             show_axis_labels=self._display_options.show_axis_labels,
                             show_legend=self._display_options.show_legend,
+                            layout_margins_profile=self._layout_margins_profile,
                         ),
                     )
                 ),
@@ -1277,6 +1386,7 @@ class PlotlyPlotWidget:
                         show_axis_labels=self._display_options.show_axis_labels,
                         show_legend=self._display_options.show_legend,
                         has_yaxis2=self._yaxis2_decorations_visible(),
+                        layout_margins_profile=self._layout_margins_profile,
                     ),
                 )
             ),
@@ -1334,6 +1444,7 @@ class PlotlyPlotWidget:
             "y": list(data.y),
             "visible": True if data.visible else False,
             "hoverinfo": hoverinfo,
+            "cliponaxis": True,
             "marker": {"size": 8},
         }
         if data.y_axis == "right":
@@ -1777,7 +1888,16 @@ Plotly.relayout(plotDiv, {json.dumps(payload)});
             show_axis_labels=bool(self._display_options.show_axis_labels),
             show_legend=bool(self._display_options.show_legend),
             has_yaxis2=self._yaxis2_decorations_visible(),
+            layout_margins_profile=self._layout_margins_profile,
         )
+
+    def _sync_axis_stabilization_to_plotly_dict(self) -> None:
+        """Apply stack-profile axis stabilization into the local figure dict."""
+        if self._layout_margins_profile is None:
+            return
+        layout = self._figure.setdefault("layout", {})
+        if isinstance(layout, dict):
+            self._layout_margins_profile.apply_axis_stabilization(layout)
 
     def _sync_legend_to_plotly_dict(self) -> None:
         """Synchronize legend visibility and bottom horizontal layout into the figure dict."""
@@ -1850,6 +1970,8 @@ Plotly.react(plotDiv, plotDiv.data, plotDiv.layout, {json.dumps(config)});
             relayout[f"{axis_name}.showline"] = axis.get("showline", False)
             relayout[f"{axis_name}.zeroline"] = axis.get("zeroline", False)
             relayout[f"{axis_name}.showgrid"] = axis.get("showgrid", False)
+            if "automargin" in axis:
+                relayout[f"{axis_name}.automargin"] = axis.get("automargin")
         yaxis2 = layout.get("yaxis2")
         if isinstance(yaxis2, dict):
             title = yaxis2.get("title", {})

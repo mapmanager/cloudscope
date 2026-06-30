@@ -27,6 +27,7 @@ For a source file named `my_file.tif`, saved files may include:
 my_file.tif.json
 my_file.tif.radon_velocity.csv
 my_file.tif.diameter.csv
+my_file.tif.sum_intensity.csv
 ```
 
 The JSON sidecar records the ROIs, detection parameters, and analysis summaries used to generate results. These files should be retained with the source data when preserving an analysis.

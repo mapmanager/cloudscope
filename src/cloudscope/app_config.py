@@ -5,10 +5,14 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from platformdirs import user_config_dir
 
 from cloudscope.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from nicewidgets.plotly_layout_margins import PlotlyLayoutMarginsProfile
 logger = get_logger(__name__)
 
 APP_NAME = 'cloudscope'
@@ -36,6 +40,25 @@ DEFAULT_CONTRAST_AUTO_PERCENTILE_LOW = 1.0
 DEFAULT_CONTRAST_AUTO_PERCENTILE_HIGH = 99.5
 DEFAULT_CHANNEL_COLOR_LUT: dict[str, str] = {'0': 'Green', '1': 'Red', '2': 'Blue'}
 DEFAULT_FALLBACK_COLOR_LUT = 'Gray'
+HOME_STACK_MARGIN_LABELS_ON: dict[str, int] = {'l': 60, 'r': 24, 't': 10, 'b': 40}
+HOME_STACK_MARGIN_LABELS_OFF: dict[str, int] = {'l': 8, 'r': 8, 't': 8, 'b': 8}
+
+
+def home_stack_layout_margins_profile() -> PlotlyLayoutMarginsProfile:
+    """Return the fixed margin profile for the Home page three-plot stack.
+
+    Returns:
+        Margin profile with axis automargin disabled for aligned plot areas.
+    """
+    from nicewidgets.plotly_layout_margins import PlotlyLayoutMarginsProfile
+
+    return PlotlyLayoutMarginsProfile(
+        with_axis_labels=dict(HOME_STACK_MARGIN_LABELS_ON),
+        compact=dict(HOME_STACK_MARGIN_LABELS_OFF),
+        stabilize_axis_automargin=True,
+    )
+
+
 _HOME_SPLITTER_KEYS = {
     'left_toolbar': 'home_left_toolbar_open_splitter_pct',
     'file_list': 'home_file_list_splitter_pct',

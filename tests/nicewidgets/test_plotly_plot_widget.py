@@ -13,6 +13,7 @@ from nicewidgets.plotly_plot.models import (
     PlotlySeriesMenuItem,
     PlotlyTraceData,
 )
+from nicewidgets.plotly_layout_margins import PlotlyLayoutMarginsProfile
 from nicewidgets.plotly_plot.event_overlay import PlotlyEventOverlay
 from nicewidgets.plotly_plot.widget import (
     PlotlyPlotWidget,
@@ -188,6 +189,42 @@ def test_resolve_plot_layout_margins_bottom_by_axis_and_legend() -> None:
     )["b"] == 72
 
 
+def test_resolve_plot_layout_margins_uses_profile_when_provided() -> None:
+    """A layout profile should bypass default legend and dual-axis margin rules."""
+    profile = PlotlyLayoutMarginsProfile(
+        with_axis_labels={"l": 60, "r": 24, "t": 10, "b": 40},
+        compact={"l": 8, "r": 8, "t": 8, "b": 8},
+        stabilize_axis_automargin=True,
+    )
+
+    assert resolve_plot_layout_margins(
+        show_axis_labels=True,
+        show_legend=True,
+        has_yaxis2=True,
+        layout_margins_profile=profile,
+    ) == {"l": 60, "r": 24, "t": 10, "b": 40}
+
+
+def test_layout_margins_profile_pins_automargin_and_margins(
+    fake_plotly: list[_FakePlotlyElement],
+) -> None:
+    """Stack margin profiles should apply fixed margins and disable automargin."""
+    profile = PlotlyLayoutMarginsProfile(
+        with_axis_labels={"l": 60, "r": 24, "t": 10, "b": 40},
+        compact={"l": 8, "r": 8, "t": 8, "b": 8},
+        stabilize_axis_automargin=True,
+    )
+    widget = PlotlyPlotWidget(layout_margins_profile=profile)
+
+    assert widget.figure["layout"]["margin"] == {"l": 8, "r": 8, "t": 8, "b": 8}
+    assert widget.figure["layout"]["xaxis"]["automargin"] is False
+    assert widget.figure["layout"]["yaxis"]["automargin"] is False
+
+    widget.set_axis_labels_visible(True)
+
+    assert widget.figure["layout"]["margin"] == {"l": 60, "r": 24, "t": 10, "b": 40}
+
+
 def test_build_plotly_figure_dict_applies_dark_theme() -> None:
     """Dark theme should set Plotly layout colors."""
     figure = build_plotly_figure_dict(theme="dark")
@@ -242,6 +279,61 @@ def test_widget_set_and_reset_x_axis_limits(fake_plotly: list[_FakePlotlyElement
     widget.reset_x_axis_limits()
     assert "range" not in widget.figure["layout"]["xaxis"]
     assert widget.figure["layout"]["xaxis"]["autorange"] is True
+
+
+def test_set_series_reapplies_x_axis_limits_when_range_unchanged(
+    fake_plotly: list[_FakePlotlyElement],
+) -> None:
+    """``set_series`` should pin line-trace x limits when logical range is automatic."""
+    widget = PlotlyPlotWidget()
+    fake_plotly[0].client.calls.clear()
+
+    widget.set_series(
+        traces=[PlotlyTraceData.from_sequences(name="signal", x=[0.0, 10.0], y=[0.0, 1.0])],
+        scatters=[PlotlyScatterData.from_sequences(name="Onsets", x=[0.0, 5.0], y=[0.5, 0.6])],
+    )
+
+    assert widget.figure["layout"]["xaxis"]["range"] == [0.0, 10.0]
+    assert widget.figure["layout"]["xaxis"]["autorange"] is False
+    assert any("xaxis.range" in call for call in fake_plotly[0].client.calls)
+
+
+def test_reset_x_axis_limits_uses_line_trace_extent_not_scatter_padding(
+    fake_plotly: list[_FakePlotlyElement],
+) -> None:
+    """Automatic x reset should derive limits from line traces, not scatters."""
+    widget = PlotlyPlotWidget()
+    widget.set_series(
+        traces=[PlotlyTraceData.from_sequences(name="signal", x=[0.0, 10.0], y=[0.0, 1.0])],
+        scatters=[PlotlyScatterData.from_sequences(name="Onsets", x=[0.5, 5.0], y=[0.5, 0.6])],
+    )
+
+    widget.reset_x_axis_limits()
+
+    assert widget.x_range_limits == (None, None)
+    assert widget.figure["layout"]["xaxis"]["range"] == [0.0, 10.0]
+    assert widget.figure["layout"]["xaxis"]["autorange"] is False
+
+
+def test_scatter_trace_clips_markers_on_axis(fake_plotly: list[_FakePlotlyElement]) -> None:
+    """Scatter overlays should clip marker radius at axis edges."""
+    widget = PlotlyPlotWidget()
+    widget.plot_scatter(name="Onsets", x=[0.0], y=[1.0])
+
+    assert widget.figure["data"][0]["cliponaxis"] is True
+
+
+def test_set_y_label_updates_layout_when_axis_labels_visible(
+    fake_plotly: list[_FakePlotlyElement],
+) -> None:
+    """Primary y-axis title updates should relayout when decorations are on."""
+    widget = PlotlyPlotWidget()
+    widget.set_axis_labels_visible(True)
+
+    widget.set_y_label("df/f0")
+
+    assert widget.figure["layout"]["yaxis"]["title"]["text"] == "df/f0"
+    assert any("yaxis.title.text" in call for call in fake_plotly[0].client.calls)
 
 
 def test_widget_emits_user_x_range_callback(fake_plotly: list[_FakePlotlyElement]) -> None:
@@ -312,7 +404,7 @@ def test_measurement_pair_drag_updates_delta(fake_plotly: list[_FakePlotlyElemen
 
 
 def test_widget_set_series_replaces_data_in_one_update(fake_plotly: list[_FakePlotlyElement]) -> None:
-    """Batch series replacement should use one browser update."""
+    """Batch series replacement should update traces and pin automatic x limits."""
     widget = PlotlyPlotWidget()
     widget.add_trace(name="old", x=[0.0], y=[1.0])
 
@@ -327,9 +419,9 @@ def test_widget_set_series_replaces_data_in_one_update(fake_plotly: list[_FakePl
     widget.set_series(traces=traces, scatters=scatters)
 
     assert [trace["name"] for trace in widget.figure["data"]] == ["df/f0", "derivative", "peaks"]
-    assert len(fake_plotly[0].client.calls) - calls_before == 1
-    assert "Plotly.deleteTraces" in fake_plotly[0].client.calls[-1]
-    assert "Plotly.addTraces" in fake_plotly[0].client.calls[-1]
+    new_calls = fake_plotly[0].client.calls[calls_before:]
+    assert any("Plotly.deleteTraces" in call and "Plotly.addTraces" in call for call in new_calls)
+    assert any("xaxis.range" in call for call in new_calls)
 
 
 def test_extract_rect_selection_parses_flat_keys() -> None:

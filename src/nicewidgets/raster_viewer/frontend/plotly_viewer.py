@@ -791,6 +791,7 @@ Plotly.relayout(plotDiv, {{
         self._display_options.show_axis_labels = bool(visible)
         self._sync_axis_labels_to_plotly_dict()
         self._sync_margins_to_plotly_dict()
+        self._sync_axis_stabilization_to_plotly_dict()
         self._relayout_axis_labels()
 
     def set_square_plot(self, enabled: bool) -> None:
@@ -925,6 +926,7 @@ Plotly.restyle(plotDiv, {{
         self._sync_theme_to_plotly_dict()
         self._sync_axis_labels_to_plotly_dict()
         self._sync_margins_to_plotly_dict()
+        self._sync_axis_stabilization_to_plotly_dict()
         self._sync_square_plot_to_plotly_dict()
         self._sync_hover_info_to_plotly_dict()
         layout = self._plotly_dict.setdefault('layout', {})
@@ -990,12 +992,25 @@ Plotly.restyle(plotDiv, {{
         if not isinstance(layout, dict):
             layout = {}
             self._plotly_dict['layout'] = layout
-        margin = (
-            PLOTLY_MARGIN_WITH_AXIS_LABELS
-            if self._display_options.show_axis_labels
-            else PLOTLY_MARGIN_COMPACT
-        )
+        profile = self._display_options.layout_margins_profile
+        if profile is not None:
+            margin = profile.resolve(show_axis_labels=bool(self._display_options.show_axis_labels))
+        else:
+            margin = (
+                PLOTLY_MARGIN_WITH_AXIS_LABELS
+                if self._display_options.show_axis_labels
+                else PLOTLY_MARGIN_COMPACT
+            )
         layout['margin'] = dict(margin)
+
+    def _sync_axis_stabilization_to_plotly_dict(self) -> None:
+        """Apply stack-profile axis stabilization into the local figure dict."""
+        profile = self._display_options.layout_margins_profile
+        if profile is None:
+            return
+        layout = self._plotly_dict.setdefault('layout', {})
+        if isinstance(layout, dict):
+            profile.apply_axis_stabilization(layout)
 
     def _sync_theme_to_plotly_dict(self) -> None:
         """Synchronize the selected light/dark theme into the local figure dict."""
@@ -1098,6 +1113,8 @@ Plotly.restyle(plotDiv, {{
             relayout[f'{axis_name}.showline'] = axis.get('showline', False)
             relayout[f'{axis_name}.zeroline'] = axis.get('zeroline', False)
             relayout[f'{axis_name}.showgrid'] = axis.get('showgrid', True)
+            if 'automargin' in axis:
+                relayout[f'{axis_name}.automargin'] = axis.get('automargin')
         margin = layout.get('margin')
         if isinstance(margin, dict):
             relayout['margin'] = margin

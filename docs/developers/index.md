@@ -27,7 +27,7 @@ The `acqstore` package owns image loading, metadata, ROIs, and analysis. The des
 
 The GUI uses an event-driven MVC architecture so user interactions can update related views consistently. Long-running analysis tasks are routed through controlled task execution, while image pyramids keep visualization responsive without changing the full-resolution data used for analysis.
 
-Velocity and diameter analysis can use parallel execution where available, and those performance paths are available from the GUI and scripted workflows because they are implemented in the shared backend.
+Velocity, diameter, and sum intensity analysis can use parallel execution where available, and those performance paths are available from the GUI and scripted workflows because they are implemented in the shared backend.
 
 ## Repository organization
 

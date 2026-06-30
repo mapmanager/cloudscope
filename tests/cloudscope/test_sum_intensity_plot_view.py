@@ -43,6 +43,8 @@ class _FakePlot:
         self._series_visibility: dict[str, bool] = {}
         self.placeholder_text: str | None = None
         self.y2_label: str | None = None
+        self.x_label: str | None = None
+        self.y_label: str | None = None
 
     def register_series_menu_items(self, items: list[PlotlySeriesMenuItem]) -> None:
         """Record menu defaults while preserving existing visibility choices."""
@@ -87,6 +89,14 @@ class _FakePlot:
     def set_y2_label(self, label: str) -> None:
         """Record right y-axis label updates."""
         self.y2_label = str(label)
+
+    def set_x_label(self, label: str) -> None:
+        """Record x-axis label updates."""
+        self.x_label = str(label)
+
+    def set_y_label(self, label: str) -> None:
+        """Record y-axis label updates."""
+        self.y_label = str(label)
 
 
 def _view_with_fake_plot() -> SumIntensityPlotView:
@@ -160,7 +170,7 @@ class _FakeSumIntensityAnalysis(SumIntensityAnalysis):
             x=np.asarray([0.0, 1.0, 2.0], dtype=float),
             y=np.asarray([0.0, 0.5, 0.25], dtype=float),
             x_label="Time (s)",
-            y_label="Signal",
+            y_label="df/f0",
             metadata={},
         )
 
@@ -173,7 +183,7 @@ class _FakeSumIntensityAnalysis(SumIntensityAnalysis):
                 x=np.asarray([0.5], dtype=float),
                 y=np.asarray([0.2], dtype=float),
                 x_label="Time (s)",
-                y_label="Signal",
+                y_label="df/f0",
                 metadata={},
             )
         if key is SumIntensityEventPointKey.PEAKS:
@@ -183,10 +193,21 @@ class _FakeSumIntensityAnalysis(SumIntensityAnalysis):
                 x=np.asarray([1.0], dtype=float),
                 y=np.asarray([0.5], dtype=float),
                 x_label="Time (s)",
-                y_label="Signal",
+                y_label="df/f0",
                 metadata={},
             )
         raise KeyError(key)
+
+    def get_plot_data(self) -> AnalysisPlotData:
+        """Return canonical df/f0 plot data for axis-label tests."""
+        trace = self.get_trace(SumIntensityTraceKey.DF_F_SIGNAL)
+        return AnalysisPlotData(
+            x=tuple(float(value) for value in trace.x.tolist()),
+            y=tuple(float(value) for value in trace.y.tolist()),
+            x_label=trace.x_label,
+            y_label=trace.y_label,
+            series_name=trace.name,
+        )
 
     def get_width_trace(self, peak_width_level=None):
         """Return one width trace in a tuple."""
@@ -364,6 +385,20 @@ def test_apply_y2_label_clears_when_derivative_and_diameter_hidden() -> None:
     view._refresh_plot()
 
     assert view._plot.y2_label == ""
+
+
+def test_refresh_plot_applies_df_f0_axis_labels_from_plot_data() -> None:
+    """Y-axis title should come from canonical df/f0 plot data, not a hardcoded label."""
+    view = _view_with_fake_plot()
+    acq_image = _FakeAcqImage()
+    acq_image.analysis_set.set(AnalysisKey("sum_intensity", 0, 1), _FakeSumIntensityAnalysis())
+    view.current_acq_image = acq_image
+    view.current_selection = PrimarySelection(file_id="file", channel=0, roi_id=1)
+
+    view._refresh_plot()
+
+    assert view._plot.x_label == "Time (s)"
+    assert view._plot.y_label == "df/f0"
 
 
 def test_apply_y2_label_uses_derivative_label_when_derivative_visible() -> None:

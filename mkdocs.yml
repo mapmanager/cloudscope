@@ -87,6 +87,7 @@ nav:
           - users/recipes/index.md
           - Velocity analysis: users/recipes/velocity-analysis.md
           - Diameter analysis: users/recipes/diameter-analysis.md
+          - Sum intensity analysis: users/recipes/sum-intensity-analysis.md
           - Analyses from velocity:
               - users/recipes/analyses-from-velocity/index.md
               - Velocity event analysis: users/recipes/analyses-from-velocity/velocity-event-analysis.md
@@ -95,6 +96,7 @@ nav:
       - scientists/index.md
       - Velocity Analysis: scientists/velocity-analysis.md
       - Diameter Analysis: scientists/diameter-analysis.md
+      - Sum Intensity Analysis: scientists/sum-intensity-analysis.md
       - AcqImage Metadata: scientists/acqimage-metadata.md
       - Notebooks:
           - scientists/notebooks.md
@@ -119,4 +121,5 @@ nav:
       - Analysis Core: api/analysis-core.md
       - Velocity Analysis: api/velocity-analysis.md
       - Diameter Analysis: api/diameter-analysis.md
+      - Sum Intensity Analysis: api/sum-intensity-analysis.md
       - Batch Analysis: api/batch-analysis.md

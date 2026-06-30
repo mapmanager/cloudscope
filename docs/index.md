@@ -11,6 +11,7 @@ It provides desktop and browser interfaces for working with acquisition-backed i
 
 - blood flow velocity analysis from line scan kymographs using a Radon-transform-based method
 - vessel diameter analysis from line scan kymographs
+- sum intensity analysis from line scan kymographs for functional reporter fluorescence (like GCaMP)
 
 The same `acqstore` scientific backend is used by the desktop application, browser application, Python scripts, and Jupyter notebooks.
 

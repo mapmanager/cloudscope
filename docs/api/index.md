@@ -11,6 +11,7 @@ Current analysis modules include:
 
 - velocity analysis: blood flow velocity estimation from line scan kymographs using a Radon-transform-based method
 - diameter analysis: vessel diameter estimation from line scan kymographs
+- sum intensity analysis: functional reporter fluorescence (like GCaMP) from normalized line intensity on line scan kymographs
 
 The API pages are generated with mkdocstrings from Google-style docstrings in the source code.
 
@@ -24,4 +25,5 @@ The API pages are generated with mkdocstrings from Google-style docstrings in th
 - [Analysis Core](analysis-core.md)
 - [Velocity Analysis](velocity-analysis.md)
 - [Diameter Analysis](diameter-analysis.md)
+- [Sum Intensity Analysis](sum-intensity-analysis.md)
 - [Batch Analysis](batch-analysis.md)

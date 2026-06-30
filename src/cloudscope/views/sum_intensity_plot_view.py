@@ -19,6 +19,7 @@ from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_core impor
     SumIntensityEventPointKey,
     SumIntensityTraceKey,
 )
+from cloudscope.app_config import home_stack_layout_margins_profile
 from cloudscope.event_bus import EventBus
 from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind
 from cloudscope.events.roi import RoiChanged
@@ -159,12 +160,12 @@ class SumIntensityPlotView(BaseView):
             None.
         """
         self._plot = PlotlyPlotWidget(
-            x_label="Time (s)",
-            y_label="Signal",
             theme="dark" if self._initial_dark_mode else "light",
+            show_legend=False,
             on_x_range_changed=self._on_plot_x_range_changed,
             on_measurement_changed=self._on_measurement_changed,
             on_series_visibility_changed=self._on_series_visibility_changed,
+            layout_margins_profile=home_stack_layout_margins_profile(),
         )
         self._plot.register_series_menu_items(self._sum_intensity_series_menu_items())
         self._plot.container.classes("w-full h-full min-h-0 flex-1")
@@ -338,7 +339,25 @@ class SumIntensityPlotView(BaseView):
             self._clear_plot(f"Sum-intensity plot unavailable: {exc}")
             return
         self._apply_y2_label()
+        self._apply_axis_labels(analysis)
         self._apply_primary_x_range_to_plot()
+
+    def _apply_axis_labels(self, analysis: SumIntensityAnalysis) -> None:
+        """Set x/y axis titles from the canonical df/f0 plot data.
+
+        Args:
+            analysis: Selected sum-intensity analysis.
+
+        Returns:
+            None.
+        """
+        if self._plot is None:
+            return
+        plot_data = analysis.get_plot_data()
+        if plot_data is None:
+            return
+        self._plot.set_x_label(plot_data.x_label)
+        self._plot.set_y_label(plot_data.y_label)
 
     def _build_series_from_analysis(
         self,

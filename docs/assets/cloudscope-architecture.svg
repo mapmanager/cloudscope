@@ -50,7 +50,7 @@
 
   <rect x="665" y="430" width="220" height="58" class="subbox" />
   <text x="775" y="464" text-anchor="middle" class="small">Analysis</text>
-  <text x="775" y="483" text-anchor="middle" class="tiny">velocity · diameter</text>
+  <text x="775" y="483" text-anchor="middle" class="tiny">velocity · diameter · sum intensity</text>
 
   <path d="M390 390 C330 415 270 420 205 430" class="line" />
   <path d="M490 390 L490 430" class="line" />

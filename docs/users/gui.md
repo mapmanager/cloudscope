@@ -63,7 +63,7 @@ These controls affect how the image is displayed. They do not change the origina
 
 ![CloudScope left navigation toolbar](../assets/gui/left-toolbar.png){ .cs-screenshot width="56" align=left loading=lazy }
 
-The left navigation toolbar switches between major CloudScope views and workflows. Each icon opens a focused panel such as home, loading, metadata, ROIs, velocity analysis, diameter analysis, or other analysis/result views.
+The left navigation toolbar switches between major CloudScope views and workflows. Each icon opens a focused panel such as home, loading, metadata, ROIs, velocity analysis, diameter analysis, sum intensity analysis, or other analysis/result views.
 
 The exact set of icons may change as CloudScope grows, but the purpose remains the same: choose the workflow panel, then use the main viewer and file list to work with the selected acquisition data.
 
@@ -85,7 +85,26 @@ A typical velocity workflow is:
 
 See [Velocity analysis](recipes/velocity-analysis.md) for a step-by-step recipe.
 
-Velocity and diameter analyses use multiprocessing or multithreading where available. This can reduce analysis time in the GUI and in scripted workflows without changing the scientific API used to run the analysis.
+Velocity, diameter, and sum intensity analyses use multiprocessing or multithreading where available. This can reduce analysis time in the GUI and in scripted workflows without changing the scientific API used to run the analysis.
+
+## Sum intensity analysis panel
+
+![CloudScope sum intensity analysis view](../assets/gui/sum-intensity-analysis-view.png){ .cs-screenshot .cs-screenshot-center width="980" loading=lazy }
+
+The sum intensity analysis panel configures and runs peak detection on normalized line
+intensity from a functional reporter (like GCaMP). The panel exposes detection presets,
+preprocessing parameters, and peak-detection controls. The plot view shows df/f0, the
+derivative trace, and onset and peak markers.
+
+A typical sum intensity workflow is:
+
+1. Select an acquisition, channel, and rectangular ROI.
+2. Choose a detection preset or tune individual parameters.
+3. Run the analysis.
+4. Inspect plotted traces and event markers.
+5. Save results for downstream use.
+
+See [Sum intensity analysis](recipes/sum-intensity-analysis.md) for a step-by-step recipe.
 
 ## Loading sample data
 

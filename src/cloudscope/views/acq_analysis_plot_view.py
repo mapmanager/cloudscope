@@ -9,6 +9,7 @@ from nicegui import ui
 
 from acqstore.acq_image.analysis.model import AnalysisKey, AnalysisPlotData
 from acqstore.acq_image.analysis.event_analysis.event_analysis import EventAnalysis
+from cloudscope.app_config import home_stack_layout_margins_profile
 from cloudscope.event_bus import EventBus
 from cloudscope.events.acq_image_events import (
     AcqImageEventSelectionChanged,
@@ -167,6 +168,7 @@ class AcqAnalysisPlotView(BaseView):
             show_legend=False,
             on_x_range_selected=self._on_x_range_selected,
             on_x_range_changed=self._on_chart_x_range_changed,
+            layout_margins_profile=home_stack_layout_margins_profile(),
         )
         self._chart.container.classes("w-full h-full min-h-0 flex-1")
 

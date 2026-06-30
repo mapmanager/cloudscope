@@ -29,6 +29,7 @@ from acqstore.acq_image.analysis.model import AnalysisKey, AnalysisOverlayTraceD
 from acqstore.acq_image.roi import RectROI, RectRoiBounds
 from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader
 from acqstore.acq_image.metadata import ImageHeaderMetadata
+from cloudscope.app_config import home_stack_layout_margins_profile
 from cloudscope.event_bus import EventBus
 from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind
 from cloudscope.events.contrast import ImageContrastChanged
@@ -228,6 +229,7 @@ class PrimaryImageView(BaseView):
             display_options=PlotlyRasterViewerDisplayOptions(
                 theme='dark' if dark_mode else 'light',
                 show_trace_overlays=False,
+                layout_margins_profile=home_stack_layout_margins_profile(),
             ),
             on_x_range_changed=self._on_viewer_x_range_changed,
             on_roi_bounds_preview=self._on_viewer_roi_bounds_preview,

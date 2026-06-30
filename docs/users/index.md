@@ -6,6 +6,7 @@ Current quantitative analysis workflows are designed for **line scan kymographs*
 
 - blood flow velocity analysis from line scan kymographs
 - vessel diameter analysis from line scan kymographs
+- sum intensity analysis from line scan kymographs for functional reporter fluorescence (like GCaMP)
 
 CloudScope can load and visualize supported scientific image formats, but the currently implemented quantitative analyses are designed for line scan data.
 
@@ -70,6 +71,7 @@ my_file.tif
 my_file.tif.json
 my_file.tif.radon_velocity.csv
 my_file.tif.diameter.csv
+my_file.tif.sum_intensity.csv
 ```
 
 The JSON sidecar stores metadata, ROIs, analysis parameters, and analysis summaries. Analysis CSV files store tabular outputs for analyses that provide CSV export.

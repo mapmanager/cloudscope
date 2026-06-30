@@ -13,6 +13,7 @@ if 'nicegui' not in sys.modules:
     fake_nicegui.ui = types.SimpleNamespace()
     sys.modules['nicegui'] = fake_nicegui
 
+from nicewidgets.plotly_layout_margins import PlotlyLayoutMarginsProfile
 from nicewidgets.raster_viewer.backend.image_model import RasterGridSpec
 from nicewidgets.raster_viewer.frontend.plotly_context_menu import (
     PlotlyRasterViewerContextMenu,
@@ -97,6 +98,24 @@ def test_axis_label_margin_toggle_swaps_between_compact_and_labeled() -> None:
 
     viewer.set_axis_labels_visible(False)
     assert viewer.figure['layout']['margin'] == {'l': 8, 'r': 8, 't': 8, 'b': 8}
+
+
+def test_layout_margins_profile_overrides_default_raster_margins() -> None:
+    """Stack profiles should replace raster default margin tables."""
+    profile = PlotlyLayoutMarginsProfile(
+        with_axis_labels={'l': 60, 'r': 24, 't': 10, 'b': 40},
+        compact={'l': 8, 'r': 8, 't': 8, 'b': 8},
+        stabilize_axis_automargin=True,
+    )
+    viewer = _viewer_with_data(
+        display_options=PlotlyRasterViewerDisplayOptions(layout_margins_profile=profile),
+    )
+
+    viewer.set_axis_labels_visible(True)
+
+    assert viewer.figure['layout']['margin'] == {'l': 60, 'r': 24, 't': 10, 'b': 40}
+    assert viewer.figure['layout']['xaxis']['automargin'] is False
+    assert viewer.figure['layout']['yaxis']['automargin'] is False
 
 
 def test_axis_toggle_controls_titles_ticks_lines_and_grid() -> None:

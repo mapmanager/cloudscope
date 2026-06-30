@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from nicewidgets.plotly_layout_margins import PlotlyLayoutMarginsProfile
 from nicewidgets.plotly_theme import PlotlyThemeName
 
 
@@ -23,6 +24,8 @@ class PlotlyRasterViewerDisplayOptions:
         square_plot: Whether Plotly should constrain the visible raster plot to
             a square plot area.
         theme: Plotly raster viewer color theme.
+        layout_margins_profile: Optional fixed margin profile for aligned
+            multi-plot stacks.
     """
 
     show_plotly_toolbar: bool = False
@@ -33,3 +36,4 @@ class PlotlyRasterViewerDisplayOptions:
     show_hover_info: bool = False
     square_plot: bool = False
     theme: PlotlyThemeName = 'light'
+    layout_margins_profile: PlotlyLayoutMarginsProfile | None = None

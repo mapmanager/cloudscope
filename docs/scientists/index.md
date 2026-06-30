@@ -13,6 +13,7 @@ Current quantitative analysis workflows are designed for **line scan kymographs*
 
 - [blood flow velocity analysis](velocity-analysis.md) from line scan kymographs using a Radon-transform-based method
 - [vessel diameter analysis](diameter-analysis.md) from line scan kymographs
+- [sum intensity analysis](sum-intensity-analysis.md) from line scan kymographs for functional reporter fluorescence (like GCaMP)
 
 ## Why CloudScope?
 
@@ -69,7 +70,7 @@ Analysis modules take detection parameters as input and produce summary values a
 
 The current quantitative analysis workflows operate on line scan kymographs rather than general two-dimensional image fields.
 
-A line scan kymograph represents repeated sampling along a spatial line over time. CloudScope uses this structure for blood flow velocity and vessel diameter measurements.
+A line scan kymograph represents repeated sampling along a spatial line over time. CloudScope uses this structure for blood flow velocity, vessel diameter, and functional reporter fluorescence measurements.
 
 ## Current analysis workflows
 
@@ -85,6 +86,13 @@ Diameter analysis estimates vessel diameter from line scan kymographs using inte
 
 Read more in [Diameter Analysis](diameter-analysis.md).
 
+### Functional reporter fluorescence
+
+Sum intensity analysis measures normalized line intensity along a kymograph ROI and detects
+transient peaks from a functional reporter (like GCaMP).
+
+Read more in [Sum Intensity Analysis](sum-intensity-analysis.md).
+
 ## Saved analysis files
 
 For each acquisition file, CloudScope stores analysis state and results as sidecar files next to the source file.
@@ -96,6 +104,7 @@ my_file.tif
 my_file.tif.json
 my_file.tif.radon_velocity.csv
 my_file.tif.diameter.csv
+my_file.tif.sum_intensity.csv
 ```
 
 The JSON sidecar stores:
@@ -129,6 +138,7 @@ Traditional two-dimensional segmentation, tracking, and image-analysis workflows
 
 - [Velocity Analysis](velocity-analysis.md)
 - [Diameter Analysis](diameter-analysis.md)
+- [Sum Intensity Analysis](sum-intensity-analysis.md)
 - [AcqImage Metadata](acqimage-metadata.md)
 - [Notebook Workflows](notebooks.md)
 - [API Reference](../api/index.md)
