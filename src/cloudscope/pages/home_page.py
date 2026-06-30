@@ -772,6 +772,8 @@ class HomePage:
 
         ui.context.client.on_disconnect(_on_client_disconnect)
 
+        logger.info('!!! HOME PAGE BUILD COMPLETED !!!')
+
     # abb 20260323 pywebview native save png (clipboard)
     def _native_resize(self, e):# we also can do this:
         """
