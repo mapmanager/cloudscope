@@ -220,7 +220,7 @@ def test_layout_margins_profile_pins_automargin_and_margins(
     assert widget.figure["layout"]["xaxis"]["automargin"] is False
     assert widget.figure["layout"]["yaxis"]["automargin"] is False
 
-    widget.set_axis_labels_visible(True)
+    widget.set_x_axis_labels_visible(True)
 
     assert widget.figure["layout"]["margin"] == {"l": 60, "r": 24, "t": 10, "b": 40}
 
@@ -328,7 +328,7 @@ def test_set_y_label_updates_layout_when_axis_labels_visible(
 ) -> None:
     """Primary y-axis title updates should relayout when decorations are on."""
     widget = PlotlyPlotWidget()
-    widget.set_axis_labels_visible(True)
+    widget.set_y_axis_labels_visible(True)
 
     widget.set_y_label("df/f0")
 
@@ -719,10 +719,10 @@ def test_axis_labels_toggle_updates_bottom_margin(
 
     assert widget.figure["layout"]["margin"]["b"] == 40
 
-    widget.set_axis_labels_visible(True)
+    widget.set_x_axis_labels_visible(True)
     assert widget.figure["layout"]["margin"]["b"] == 72
 
-    widget.set_axis_labels_visible(False)
+    widget.set_x_axis_labels_visible(False)
     assert widget.figure["layout"]["margin"]["b"] == 40
 
 
@@ -732,7 +732,8 @@ def test_axis_labels_on_keeps_plot_grid_lines_off(
     """Axis labels should not enable internal horizontal/vertical grid lines."""
     widget = PlotlyPlotWidget()
 
-    widget.set_axis_labels_visible(True)
+    widget.set_x_axis_labels_visible(True)
+    widget.set_y_axis_labels_visible(True)
 
     assert widget.figure["layout"]["xaxis"]["showgrid"] is False
     assert widget.figure["layout"]["yaxis"]["showgrid"] is False
@@ -745,7 +746,7 @@ def test_axis_labels_toggle_updates_yaxis2_and_dual_margin(
     widget = PlotlyPlotWidget(y2_label="rate (1/s)")
     widget.add_trace(name="derivative", x=[0.0, 1.0], y=[0.1, 0.2], y_axis="right")
 
-    widget.set_axis_labels_visible(True)
+    widget.set_y_axis_labels_visible(True)
 
     assert widget.figure["layout"]["yaxis2"]["title"]["text"] == "rate (1/s)"
     assert widget.figure["layout"]["margin"]["r"] == 60
@@ -771,7 +772,7 @@ def test_hidden_right_axis_trace_hides_yaxis2_decorations(
     ]
 
     widget.set_series(traces=traces)
-    widget.set_axis_labels_visible(True)
+    widget.set_y_axis_labels_visible(True)
 
     assert widget.figure["layout"]["yaxis2"]["title"]["text"] == ""
     assert widget.figure["layout"]["yaxis2"]["showticklabels"] is False
@@ -797,7 +798,7 @@ def test_toggle_right_axis_visibility_updates_yaxis2_decorations(
             ),
         ]
     )
-    widget.set_axis_labels_visible(True)
+    widget.set_y_axis_labels_visible(True)
 
     assert widget.figure["layout"]["yaxis2"]["title"]["text"] == ""
     assert widget.figure["layout"]["margin"]["r"] == 24
@@ -806,6 +807,46 @@ def test_toggle_right_axis_visibility_updates_yaxis2_decorations(
 
     assert widget.figure["layout"]["yaxis2"]["title"]["text"] == "rate (1/s)"
     assert widget.figure["layout"]["margin"]["r"] == 60
+
+
+def test_init_axis_label_visibility_kwargs(fake_plotly: list[_FakePlotlyElement]) -> None:
+    """Constructor kwargs should set independent x/y axis label visibility."""
+    widget = PlotlyPlotWidget(show_x_axis_labels=True, show_y_axis_labels=False)
+
+    assert widget.display_options.show_x_axis_labels is True
+    assert widget.display_options.show_y_axis_labels is False
+    assert widget.figure["layout"]["xaxis"]["showticklabels"] is True
+    assert widget.figure["layout"]["yaxis"]["showticklabels"] is False
+
+
+def test_x_and_y_axis_labels_toggle_independently(
+    fake_plotly: list[_FakePlotlyElement],
+) -> None:
+    """X and y axis decorations should toggle independently."""
+    widget = PlotlyPlotWidget()
+
+    widget.set_x_axis_labels_visible(True)
+    assert widget.figure["layout"]["xaxis"]["showticklabels"] is True
+    assert widget.figure["layout"]["yaxis"]["showticklabels"] is False
+
+    widget.set_y_axis_labels_visible(True)
+    assert widget.figure["layout"]["yaxis"]["showticklabels"] is True
+
+    widget.set_x_axis_labels_visible(False)
+    assert widget.figure["layout"]["xaxis"]["showticklabels"] is False
+    assert widget.figure["layout"]["yaxis"]["showticklabels"] is True
+
+
+def test_axis_label_font_size_is_explicit(fake_plotly: list[_FakePlotlyElement]) -> None:
+    """Axis title and tick labels should use the widget default font size."""
+    widget = PlotlyPlotWidget()
+    widget.set_x_axis_labels_visible(True)
+    widget.set_y_axis_labels_visible(True)
+
+    for axis_name in ("xaxis", "yaxis"):
+        axis = widget.figure["layout"][axis_name]
+        assert axis["title"]["font"]["size"] == 11
+        assert axis["tickfont"]["size"] == 11
 
 
 def test_init_show_legend_false_builds_without_legend(fake_plotly: list[_FakePlotlyElement]) -> None:

@@ -162,6 +162,8 @@ class SumIntensityPlotView(BaseView):
         self._plot = PlotlyPlotWidget(
             theme="dark" if self._initial_dark_mode else "light",
             show_legend=False,
+            show_x_axis_labels=True,
+            show_y_axis_labels=False,
             on_x_range_changed=self._on_plot_x_range_changed,
             on_measurement_changed=self._on_measurement_changed,
             on_series_visibility_changed=self._on_series_visibility_changed,

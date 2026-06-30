@@ -217,6 +217,50 @@ _PLOTLY_PLOT_MARGIN_B_COMPACT: int = 8
 _PLOTLY_PLOT_MARGIN_B_WITH_AXIS_LABELS: int = 40
 _PLOTLY_PLOT_MARGIN_B_WITH_LEGEND: int = 40
 _PLOTLY_PLOT_MARGIN_B_WITH_AXIS_LABELS_AND_LEGEND: int = 72
+_PLOTLY_PLOT_AXIS_LABEL_FONT_SIZE: int = 11
+
+
+def _any_axis_labels_visible(*, show_x_axis_labels: bool, show_y_axis_labels: bool) -> bool:
+    """Return whether any primary axis decorations are visible."""
+    return bool(show_x_axis_labels or show_y_axis_labels)
+
+
+def _apply_axis_label_font(axis: dict[str, Any]) -> None:
+    """Set explicit axis title and tick label font sizes on ``axis``."""
+    title = axis.setdefault("title", {})
+    if not isinstance(title, dict):
+        title = {}
+        axis["title"] = title
+    font = title.setdefault("font", {})
+    if not isinstance(font, dict):
+        font = {}
+        title["font"] = font
+    font["size"] = _PLOTLY_PLOT_AXIS_LABEL_FONT_SIZE
+    tickfont = axis.setdefault("tickfont", {})
+    if not isinstance(tickfont, dict):
+        tickfont = {}
+        axis["tickfont"] = tickfont
+    tickfont["size"] = _PLOTLY_PLOT_AXIS_LABEL_FONT_SIZE
+
+
+def _apply_axis_decorations(
+    axis: dict[str, Any],
+    *,
+    label_text: str,
+    visible: bool,
+) -> None:
+    """Apply axis title, tick, and line visibility plus label font size."""
+    _apply_axis_label_font(axis)
+    title = axis.setdefault("title", {})
+    if not isinstance(title, dict):
+        title = {}
+        axis["title"] = title
+    title["text"] = label_text if visible else ""
+    axis["showticklabels"] = visible
+    axis["ticks"] = "outside" if visible else ""
+    axis["showline"] = visible
+    axis["zeroline"] = False
+    axis["showgrid"] = False
 
 
 def resolve_plot_layout_margins(
@@ -271,7 +315,8 @@ def build_plotly_figure_dict(
     x_range: PlotlyAxisRange | None = None,
     shapes: list[dict[str, Any]] | None = None,
     theme: PlotlyThemeName = "light",
-    show_axis_labels: bool = False,
+    show_x_axis_labels: bool = False,
+    show_y_axis_labels: bool = False,
     show_legend: bool = True,
     show_plotly_toolbar: bool = False,
 ) -> dict[str, Any]:
@@ -284,7 +329,8 @@ def build_plotly_figure_dict(
         x_range: Optional explicit x-axis range.
         shapes: Optional Plotly layout shapes.
         theme: Plotly light/dark layout theme name.
-        show_axis_labels: Whether axis decorations are visible.
+        show_x_axis_labels: Whether x-axis decorations are visible.
+        show_y_axis_labels: Whether primary y-axis decorations are visible.
         show_legend: Whether the bottom horizontal legend is visible.
         show_plotly_toolbar: Whether Plotly's modebar is visible.
 
@@ -292,33 +338,30 @@ def build_plotly_figure_dict(
         Dictionary with Plotly ``data``, ``layout``, and ``config`` keys.
     """
     range_model = x_range or PlotlyAxisRange()
-    axis_label_visible = bool(show_axis_labels)
-    xaxis: dict[str, Any] = {
-        "title": {"text": x_label if axis_label_visible else ""},
-        "showticklabels": axis_label_visible,
-        "ticks": "outside" if axis_label_visible else "",
-        "showline": axis_label_visible,
-        "zeroline": False,
-        "showgrid": False,
-    }
+    xaxis: dict[str, Any] = {}
+    _apply_axis_decorations(
+        xaxis,
+        label_text=x_label,
+        visible=bool(show_x_axis_labels),
+    )
     if range_model.x_min is not None and range_model.x_max is not None:
         xaxis["range"] = [range_model.x_min, range_model.x_max]
         xaxis["autorange"] = False
     else:
         xaxis["autorange"] = True
 
-    yaxis: dict[str, Any] = {
-        "title": {"text": y_label if axis_label_visible else ""},
-        "autorange": True,
-        "showticklabels": axis_label_visible,
-        "ticks": "outside" if axis_label_visible else "",
-        "showline": axis_label_visible,
-        "zeroline": False,
-        "showgrid": False,
-    }
+    yaxis: dict[str, Any] = {"autorange": True}
+    _apply_axis_decorations(
+        yaxis,
+        label_text=y_label,
+        visible=bool(show_y_axis_labels),
+    )
 
     margin = resolve_plot_layout_margins(
-        show_axis_labels=axis_label_visible,
+        show_axis_labels=_any_axis_labels_visible(
+            show_x_axis_labels=show_x_axis_labels,
+            show_y_axis_labels=show_y_axis_labels,
+        ),
         show_legend=bool(show_legend),
     )
 
@@ -370,6 +413,8 @@ class PlotlyPlotWidget:
         y2_label: str = "",
         theme: PlotlyThemeName = "light",
         show_legend: bool = True,
+        show_x_axis_labels: bool = False,
+        show_y_axis_labels: bool = False,
         on_x_range_changed: OnPlotlyXRangeChanged | None = None,
         on_x_range_selected: OnPlotlyXRangeSelected | None = None,
         on_measurement_changed: OnMeasurementChanged | None = None,
@@ -385,6 +430,9 @@ class PlotlyPlotWidget:
                 trace or scatter is present.
             theme: Initial Plotly light/dark layout theme.
             show_legend: Whether the bottom horizontal legend starts visible.
+            show_x_axis_labels: Whether x-axis decorations start visible.
+            show_y_axis_labels: Whether primary left and secondary right y-axis
+                decorations start visible.
             on_x_range_changed: Optional callback invoked after the user changes
                 the x-axis range by zooming, panning, or autoranging. ``(None,
                 None)`` means Plotly returned to autorange.
@@ -405,6 +453,8 @@ class PlotlyPlotWidget:
         self._display_options = PlotlyPlotDisplayOptions(
             theme=self._theme,
             show_legend=bool(show_legend),
+            show_x_axis_labels=bool(show_x_axis_labels),
+            show_y_axis_labels=bool(show_y_axis_labels),
         )
         self._placeholder_text: str | None = None
         self._on_x_range_changed = on_x_range_changed
@@ -419,7 +469,8 @@ class PlotlyPlotWidget:
             y_label=self._y_label,
             x_range=self._x_range,
             theme=self._theme,
-            show_axis_labels=self._display_options.show_axis_labels,
+            show_x_axis_labels=self._display_options.show_x_axis_labels,
+            show_y_axis_labels=self._display_options.show_y_axis_labels,
             show_legend=self._display_options.show_legend,
             show_plotly_toolbar=self._display_options.show_plotly_toolbar,
         )
@@ -571,7 +622,7 @@ class PlotlyPlotWidget:
     def set_y2_label(self, label: str) -> None:
         """Set the secondary right y-axis title text.
 
-        Decorations appear only when axis labels are enabled and at least one
+        Decorations appear only when y-axis labels are enabled and at least one
         right-axis trace or scatter is visible.
 
         Args:
@@ -618,10 +669,21 @@ class PlotlyPlotWidget:
         if not isinstance(title, dict):
             title = {}
             axis["title"] = title
-        visible = bool(self._display_options.show_axis_labels)
+        visible = (
+            bool(self._display_options.show_x_axis_labels)
+            if axis_name == "xaxis"
+            else bool(self._display_options.show_y_axis_labels)
+        )
         title["text"] = label if visible else ""
         if visible:
             self._relayout({f"{axis_name}.title.text": label})
+
+    def _any_axis_labels_visible(self) -> bool:
+        """Return whether any axis decorations are visible for margin layout."""
+        return _any_axis_labels_visible(
+            show_x_axis_labels=self._display_options.show_x_axis_labels,
+            show_y_axis_labels=self._display_options.show_y_axis_labels,
+        )
 
     def toggle_series_visible(self, series_name: str) -> bool:
         """Toggle visibility for one registered trace or scatter overlay.
@@ -647,16 +709,31 @@ class PlotlyPlotWidget:
             self._on_series_visibility_changed(clean, new_visible)
         return new_visible
 
-    def set_axis_labels_visible(self, visible: bool) -> None:
-        """Show or hide axis title text, ticks, lines, and grid lines.
+    def set_x_axis_labels_visible(self, visible: bool) -> None:
+        """Show or hide x-axis title text, ticks, lines, and grid lines.
 
         Args:
-            visible: Whether axis decorations should be visible.
+            visible: Whether x-axis decorations should be visible.
 
         Returns:
             None.
         """
-        self._display_options.show_axis_labels = bool(visible)
+        self._display_options.show_x_axis_labels = bool(visible)
+        self._sync_axis_labels_to_plotly_dict()
+        self._sync_margins_to_plotly_dict()
+        self._sync_axis_stabilization_to_plotly_dict()
+        self._relayout_axis_labels_and_margins()
+
+    def set_y_axis_labels_visible(self, visible: bool) -> None:
+        """Show or hide left and right y-axis title text, ticks, lines, and grid lines.
+
+        Args:
+            visible: Whether y-axis decorations should be visible.
+
+        Returns:
+            None.
+        """
+        self._display_options.show_y_axis_labels = bool(visible)
         self._sync_axis_labels_to_plotly_dict()
         self._sync_margins_to_plotly_dict()
         self._sync_axis_stabilization_to_plotly_dict()
@@ -1297,7 +1374,7 @@ class PlotlyPlotWidget:
 
     def _yaxis2_decorations_visible(self) -> bool:
         """Return whether right y-axis title, ticks, and line should show."""
-        return bool(self._display_options.show_axis_labels) and self._has_visible_right_axis_series()
+        return bool(self._display_options.show_y_axis_labels) and self._has_visible_right_axis_series()
 
     def _sync_yaxis2_from_series(self) -> None:
         """Create or remove ``layout.yaxis2`` based on right-axis traces/scatters."""
@@ -1323,22 +1400,18 @@ class PlotlyPlotWidget:
         """Return a Plotly ``yaxis2`` layout dictionary for the current theme."""
         theme = theme_for_name(self._theme)
         visible = self._yaxis2_decorations_visible()
-        return {
+        yaxis2: dict[str, Any] = {
             "overlaying": "y",
             "side": "right",
             "autorange": True,
-            "showgrid": False,
-            "zeroline": False,
-            "title": {"text": self._y2_label if visible else ""},
-            "showticklabels": visible,
-            "ticks": "outside" if visible else "",
-            "showline": visible,
             "color": theme.axis_color,
             "linecolor": theme.axis_color,
             "tickcolor": theme.axis_color,
             "gridcolor": theme.grid_color,
             "zerolinecolor": theme.zero_line_color,
         }
+        _apply_axis_decorations(yaxis2, label_text=self._y2_label, visible=visible)
+        return yaxis2
 
     def _ensure_yaxis2(self) -> None:
         """Ensure ``layout.yaxis2`` exists and matches current display options."""
@@ -1361,7 +1434,7 @@ class PlotlyPlotWidget:
                     layout.get(
                         "margin",
                         resolve_plot_layout_margins(
-                            show_axis_labels=self._display_options.show_axis_labels,
+                            show_axis_labels=self._any_axis_labels_visible(),
                             show_legend=self._display_options.show_legend,
                             layout_margins_profile=self._layout_margins_profile,
                         ),
@@ -1383,7 +1456,7 @@ class PlotlyPlotWidget:
                 layout.get(
                     "margin",
                     resolve_plot_layout_margins(
-                        show_axis_labels=self._display_options.show_axis_labels,
+                        show_axis_labels=self._any_axis_labels_visible(),
                         show_legend=self._display_options.show_legend,
                         has_yaxis2=self._yaxis2_decorations_visible(),
                         layout_margins_profile=self._layout_margins_profile,
@@ -1851,41 +1924,32 @@ Plotly.relayout(plotDiv, {json.dumps(payload)});
     def _sync_axis_labels_to_plotly_dict(self) -> None:
         """Synchronize axis decoration visibility into the local figure dict."""
         layout = self._figure.setdefault("layout", {})
-        visible = bool(self._display_options.show_axis_labels)
-        for axis_name, label_text in (("xaxis", self._x_label), ("yaxis", self._y_label)):
+        axis_specs = (
+            ("xaxis", self._x_label, self._display_options.show_x_axis_labels),
+            ("yaxis", self._y_label, self._display_options.show_y_axis_labels),
+        )
+        for axis_name, label_text, visible in axis_specs:
             axis = layout.setdefault(axis_name, {})
             if not isinstance(axis, dict):
                 axis = {}
                 layout[axis_name] = axis
-            title = axis.setdefault("title", {})
-            if not isinstance(title, dict):
-                title = {}
-                axis["title"] = title
-            title["text"] = label_text if visible else ""
-            axis["showticklabels"] = visible
-            axis["ticks"] = "outside" if visible else ""
-            axis["showline"] = visible
-            axis["zeroline"] = False
-            axis["showgrid"] = False
+            _apply_axis_decorations(axis, label_text=label_text, visible=bool(visible))
         if self._has_yaxis2():
             yaxis2 = layout.setdefault("yaxis2", self._build_yaxis2_dict())
             if isinstance(yaxis2, dict):
                 deco_visible = self._yaxis2_decorations_visible()
-                title = yaxis2.setdefault("title", {})
-                if not isinstance(title, dict):
-                    title = {}
-                    yaxis2["title"] = title
-                title["text"] = self._y2_label if deco_visible else ""
-                yaxis2["showticklabels"] = deco_visible
-                yaxis2["ticks"] = "outside" if deco_visible else ""
-                yaxis2["showline"] = deco_visible
+                _apply_axis_decorations(
+                    yaxis2,
+                    label_text=self._y2_label,
+                    visible=deco_visible,
+                )
                 yaxis2["showgrid"] = False
 
     def _sync_margins_to_plotly_dict(self) -> None:
         """Synchronize layout margins with axis-label and legend visibility."""
         layout = self._figure.setdefault("layout", {})
         layout["margin"] = resolve_plot_layout_margins(
-            show_axis_labels=bool(self._display_options.show_axis_labels),
+            show_axis_labels=self._any_axis_labels_visible(),
             show_legend=bool(self._display_options.show_legend),
             has_yaxis2=self._yaxis2_decorations_visible(),
             layout_margins_profile=self._layout_margins_profile,
@@ -1965,6 +2029,8 @@ Plotly.react(plotDiv, plotDiv.data, plotDiv.layout, {json.dumps(config)});
             title = axis.get("title", {})
             if isinstance(title, dict):
                 relayout[f"{axis_name}.title.text"] = title.get("text", "")
+                relayout[f"{axis_name}.title.font.size"] = _PLOTLY_PLOT_AXIS_LABEL_FONT_SIZE
+            relayout[f"{axis_name}.tickfont.size"] = _PLOTLY_PLOT_AXIS_LABEL_FONT_SIZE
             relayout[f"{axis_name}.showticklabels"] = axis.get("showticklabels", False)
             relayout[f"{axis_name}.ticks"] = axis.get("ticks", "")
             relayout[f"{axis_name}.showline"] = axis.get("showline", False)
@@ -1977,6 +2043,8 @@ Plotly.react(plotDiv, plotDiv.data, plotDiv.layout, {json.dumps(config)});
             title = yaxis2.get("title", {})
             if isinstance(title, dict):
                 relayout["yaxis2.title.text"] = title.get("text", "")
+                relayout["yaxis2.title.font.size"] = _PLOTLY_PLOT_AXIS_LABEL_FONT_SIZE
+            relayout["yaxis2.tickfont.size"] = _PLOTLY_PLOT_AXIS_LABEL_FONT_SIZE
             relayout["yaxis2.showticklabels"] = yaxis2.get("showticklabels", False)
             relayout["yaxis2.ticks"] = yaxis2.get("ticks", "")
             relayout["yaxis2.showline"] = yaxis2.get("showline", False)

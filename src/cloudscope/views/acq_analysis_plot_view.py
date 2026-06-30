@@ -166,6 +166,8 @@ class AcqAnalysisPlotView(BaseView):
         self._chart = PlotlyPlotWidget(
             theme="dark" if self._initial_dark_mode else "light",
             show_legend=False,
+            show_x_axis_labels=True,
+            show_y_axis_labels=False,
             on_x_range_selected=self._on_x_range_selected,
             on_x_range_changed=self._on_chart_x_range_changed,
             layout_margins_profile=home_stack_layout_margins_profile(),

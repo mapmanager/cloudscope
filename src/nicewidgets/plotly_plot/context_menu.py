@@ -47,8 +47,12 @@ class PlotlyPlotContextMenu:
             ui.separator()
 
         ui.menu_item(
-            self._toggle_label("Axis Labels", options.show_axis_labels),
-            on_click=lambda: widget.set_axis_labels_visible(not options.show_axis_labels),
+            self._toggle_label("X Axis Labels", options.show_x_axis_labels),
+            on_click=lambda: widget.set_x_axis_labels_visible(not options.show_x_axis_labels),
+        )
+        ui.menu_item(
+            self._toggle_label("Y Axis Labels", options.show_y_axis_labels),
+            on_click=lambda: widget.set_y_axis_labels_visible(not options.show_y_axis_labels),
         )
         ui.menu_item(
             self._toggle_label("Plotly Toolbar", options.show_plotly_toolbar),
