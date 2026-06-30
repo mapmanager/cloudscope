@@ -14,6 +14,12 @@ from nicegui import core, ui
 from nicewidgets.plotly_plot.context_menu import PlotlyPlotContextMenu
 from nicewidgets.plotly_plot.context_menu_guards import pywebview_plotly_plot_context_menu_guard_js
 from nicewidgets.plotly_plot.display_options import PlotlyPlotDisplayOptions
+from nicewidgets.plotly_axis_layout import (
+    PLOTLY_AXIS_LABEL_FONT_SIZE,
+    any_axis_labels_visible,
+    apply_axis_decorations,
+    resolve_plot_layout_margins,
+)
 from nicewidgets.plotly_layout_margins import PlotlyLayoutMarginsProfile
 from nicewidgets.plotly_plot.event_overlay import PlotlyEventOverlayApi
 from nicewidgets.plotly_plot.models import (
@@ -208,104 +214,6 @@ _PLOTLY_PLOT_LEGEND: dict[str, Any] = {
     "y": -0.15,
 }
 
-_PLOTLY_PLOT_MARGIN_EDGE_COMPACT: int = 8
-_PLOTLY_PLOT_MARGIN_L_WITH_AXIS_LABELS: int = 60
-_PLOTLY_PLOT_MARGIN_R_WITH_AXIS_LABELS: int = 24
-_PLOTLY_PLOT_MARGIN_R_WITH_DUAL_Y_AXIS_LABELS: int = 60
-_PLOTLY_PLOT_MARGIN_T_WITH_AXIS_LABELS: int = 10
-_PLOTLY_PLOT_MARGIN_B_COMPACT: int = 8
-_PLOTLY_PLOT_MARGIN_B_WITH_AXIS_LABELS: int = 40
-_PLOTLY_PLOT_MARGIN_B_WITH_LEGEND: int = 40
-_PLOTLY_PLOT_MARGIN_B_WITH_AXIS_LABELS_AND_LEGEND: int = 72
-_PLOTLY_PLOT_AXIS_LABEL_FONT_SIZE: int = 11
-
-
-def _any_axis_labels_visible(*, show_x_axis_labels: bool, show_y_axis_labels: bool) -> bool:
-    """Return whether any primary axis decorations are visible."""
-    return bool(show_x_axis_labels or show_y_axis_labels)
-
-
-def _apply_axis_label_font(axis: dict[str, Any]) -> None:
-    """Set explicit axis title and tick label font sizes on ``axis``."""
-    title = axis.setdefault("title", {})
-    if not isinstance(title, dict):
-        title = {}
-        axis["title"] = title
-    font = title.setdefault("font", {})
-    if not isinstance(font, dict):
-        font = {}
-        title["font"] = font
-    font["size"] = _PLOTLY_PLOT_AXIS_LABEL_FONT_SIZE
-    tickfont = axis.setdefault("tickfont", {})
-    if not isinstance(tickfont, dict):
-        tickfont = {}
-        axis["tickfont"] = tickfont
-    tickfont["size"] = _PLOTLY_PLOT_AXIS_LABEL_FONT_SIZE
-
-
-def _apply_axis_decorations(
-    axis: dict[str, Any],
-    *,
-    label_text: str,
-    visible: bool,
-) -> None:
-    """Apply axis title, tick, and line visibility plus label font size."""
-    _apply_axis_label_font(axis)
-    title = axis.setdefault("title", {})
-    if not isinstance(title, dict):
-        title = {}
-        axis["title"] = title
-    title["text"] = label_text if visible else ""
-    axis["showticklabels"] = visible
-    axis["ticks"] = "outside" if visible else ""
-    axis["showline"] = visible
-    axis["zeroline"] = False
-    axis["showgrid"] = False
-
-
-def resolve_plot_layout_margins(
-    *,
-    show_axis_labels: bool,
-    show_legend: bool,
-    has_yaxis2: bool = False,
-    layout_margins_profile: PlotlyLayoutMarginsProfile | None = None,
-) -> dict[str, int]:
-    """Return Plotly layout margins for axis-label and legend visibility.
-
-    Args:
-        show_axis_labels: Whether axis decorations are visible.
-        show_legend: Whether the bottom horizontal legend is visible.
-        has_yaxis2: Whether a secondary right y-axis is present.
-        layout_margins_profile: Optional fixed margin profile that bypasses
-            widget-default margin tables.
-
-    Returns:
-        Plotly ``layout.margin`` dictionary with ``l``, ``r``, ``t``, and ``b``.
-    """
-    if layout_margins_profile is not None:
-        return layout_margins_profile.resolve(show_axis_labels=show_axis_labels)
-    if show_axis_labels:
-        left = _PLOTLY_PLOT_MARGIN_L_WITH_AXIS_LABELS
-        right = (
-            _PLOTLY_PLOT_MARGIN_R_WITH_DUAL_Y_AXIS_LABELS
-            if has_yaxis2
-            else _PLOTLY_PLOT_MARGIN_R_WITH_AXIS_LABELS
-        )
-        top = _PLOTLY_PLOT_MARGIN_T_WITH_AXIS_LABELS
-    else:
-        left = right = top = _PLOTLY_PLOT_MARGIN_EDGE_COMPACT
-
-    if show_axis_labels and show_legend:
-        bottom = _PLOTLY_PLOT_MARGIN_B_WITH_AXIS_LABELS_AND_LEGEND
-    elif show_axis_labels:
-        bottom = _PLOTLY_PLOT_MARGIN_B_WITH_AXIS_LABELS
-    elif show_legend:
-        bottom = _PLOTLY_PLOT_MARGIN_B_WITH_LEGEND
-    else:
-        bottom = _PLOTLY_PLOT_MARGIN_B_COMPACT
-
-    return {"l": left, "r": right, "t": top, "b": bottom}
-
 
 def build_plotly_figure_dict(
     *,
@@ -339,7 +247,7 @@ def build_plotly_figure_dict(
     """
     range_model = x_range or PlotlyAxisRange()
     xaxis: dict[str, Any] = {}
-    _apply_axis_decorations(
+    apply_axis_decorations(
         xaxis,
         label_text=x_label,
         visible=bool(show_x_axis_labels),
@@ -351,14 +259,14 @@ def build_plotly_figure_dict(
         xaxis["autorange"] = True
 
     yaxis: dict[str, Any] = {"autorange": True}
-    _apply_axis_decorations(
+    apply_axis_decorations(
         yaxis,
         label_text=y_label,
         visible=bool(show_y_axis_labels),
     )
 
     margin = resolve_plot_layout_margins(
-        show_axis_labels=_any_axis_labels_visible(
+        show_axis_labels=any_axis_labels_visible(
             show_x_axis_labels=show_x_axis_labels,
             show_y_axis_labels=show_y_axis_labels,
         ),
@@ -680,7 +588,7 @@ class PlotlyPlotWidget:
 
     def _any_axis_labels_visible(self) -> bool:
         """Return whether any axis decorations are visible for margin layout."""
-        return _any_axis_labels_visible(
+        return any_axis_labels_visible(
             show_x_axis_labels=self._display_options.show_x_axis_labels,
             show_y_axis_labels=self._display_options.show_y_axis_labels,
         )
@@ -1410,7 +1318,7 @@ class PlotlyPlotWidget:
             "gridcolor": theme.grid_color,
             "zerolinecolor": theme.zero_line_color,
         }
-        _apply_axis_decorations(yaxis2, label_text=self._y2_label, visible=visible)
+        apply_axis_decorations(yaxis2, label_text=self._y2_label, visible=visible)
         return yaxis2
 
     def _ensure_yaxis2(self) -> None:
@@ -1933,12 +1841,12 @@ Plotly.relayout(plotDiv, {json.dumps(payload)});
             if not isinstance(axis, dict):
                 axis = {}
                 layout[axis_name] = axis
-            _apply_axis_decorations(axis, label_text=label_text, visible=bool(visible))
+            apply_axis_decorations(axis, label_text=label_text, visible=bool(visible))
         if self._has_yaxis2():
             yaxis2 = layout.setdefault("yaxis2", self._build_yaxis2_dict())
             if isinstance(yaxis2, dict):
                 deco_visible = self._yaxis2_decorations_visible()
-                _apply_axis_decorations(
+                apply_axis_decorations(
                     yaxis2,
                     label_text=self._y2_label,
                     visible=deco_visible,
@@ -2029,8 +1937,8 @@ Plotly.react(plotDiv, plotDiv.data, plotDiv.layout, {json.dumps(config)});
             title = axis.get("title", {})
             if isinstance(title, dict):
                 relayout[f"{axis_name}.title.text"] = title.get("text", "")
-                relayout[f"{axis_name}.title.font.size"] = _PLOTLY_PLOT_AXIS_LABEL_FONT_SIZE
-            relayout[f"{axis_name}.tickfont.size"] = _PLOTLY_PLOT_AXIS_LABEL_FONT_SIZE
+                relayout[f"{axis_name}.title.font.size"] = PLOTLY_AXIS_LABEL_FONT_SIZE
+            relayout[f"{axis_name}.tickfont.size"] = PLOTLY_AXIS_LABEL_FONT_SIZE
             relayout[f"{axis_name}.showticklabels"] = axis.get("showticklabels", False)
             relayout[f"{axis_name}.ticks"] = axis.get("ticks", "")
             relayout[f"{axis_name}.showline"] = axis.get("showline", False)
@@ -2043,8 +1951,8 @@ Plotly.react(plotDiv, plotDiv.data, plotDiv.layout, {json.dumps(config)});
             title = yaxis2.get("title", {})
             if isinstance(title, dict):
                 relayout["yaxis2.title.text"] = title.get("text", "")
-                relayout["yaxis2.title.font.size"] = _PLOTLY_PLOT_AXIS_LABEL_FONT_SIZE
-            relayout["yaxis2.tickfont.size"] = _PLOTLY_PLOT_AXIS_LABEL_FONT_SIZE
+                relayout["yaxis2.title.font.size"] = PLOTLY_AXIS_LABEL_FONT_SIZE
+            relayout["yaxis2.tickfont.size"] = PLOTLY_AXIS_LABEL_FONT_SIZE
             relayout["yaxis2.showticklabels"] = yaxis2.get("showticklabels", False)
             relayout["yaxis2.ticks"] = yaxis2.get("ticks", "")
             relayout["yaxis2.showline"] = yaxis2.get("showline", False)

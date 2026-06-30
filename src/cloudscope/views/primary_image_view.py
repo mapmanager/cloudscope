@@ -229,6 +229,8 @@ class PrimaryImageView(BaseView):
             display_options=PlotlyRasterViewerDisplayOptions(
                 theme='dark' if dark_mode else 'light',
                 show_trace_overlays=False,
+                show_x_axis_labels=True,
+                show_y_axis_labels=False,
                 layout_margins_profile=home_stack_layout_margins_profile(),
             ),
             on_x_range_changed=self._on_viewer_x_range_changed,

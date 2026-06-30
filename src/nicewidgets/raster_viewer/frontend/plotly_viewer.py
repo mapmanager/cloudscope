@@ -51,10 +51,14 @@ from nicewidgets.raster_viewer.frontend.trace_overlay import (
     PlotlyTraceOverlay,
     PlotlyTraceOverlayLayer,
 )
+from nicewidgets.plotly_axis_layout import (
+    PLOTLY_AXIS_LABEL_FONT_SIZE,
+    any_axis_labels_visible,
+    apply_axis_decorations,
+    resolve_plot_layout_margins,
+)
 from nicewidgets.raster_viewer.frontend.plotly_protocol import (
     DEFAULT_HEATMAP_COLORSCALE,
-    PLOTLY_MARGIN_COMPACT,
-    PLOTLY_MARGIN_WITH_AXIS_LABELS,
     RASTER_VIEWER_PLOTLY_CONFIG,
     PlotlyViewportPayload,
     build_plotly_figure,
@@ -775,20 +779,31 @@ Plotly.relayout(plotDiv, {{
         self._sync_trace_overlays_to_plotly_dict()
         self._restyle_trace_overlay_visibility()
 
-    def set_axis_labels_visible(self, visible: bool) -> None:
-        """Set x/y axis decoration visibility without rebuilding the plot.
-
-        The public method keeps its original name for API compatibility, but it
-        now controls the full axis decoration set: title text, numeric tick
-        labels, tick marks, axis line, zero line, and grid lines.
+    def set_x_axis_labels_visible(self, visible: bool) -> None:
+        """Set x-axis decoration visibility without rebuilding the plot.
 
         Args:
-            visible: Whether axis decorations should be visible.
+            visible: Whether x-axis decorations should be visible.
 
         Returns:
             None.
         """
-        self._display_options.show_axis_labels = bool(visible)
+        self._display_options.show_x_axis_labels = bool(visible)
+        self._sync_axis_labels_to_plotly_dict()
+        self._sync_margins_to_plotly_dict()
+        self._sync_axis_stabilization_to_plotly_dict()
+        self._relayout_axis_labels()
+
+    def set_y_axis_labels_visible(self, visible: bool) -> None:
+        """Set y-axis decoration visibility without rebuilding the plot.
+
+        Args:
+            visible: Whether y-axis decorations should be visible.
+
+        Returns:
+            None.
+        """
+        self._display_options.show_y_axis_labels = bool(visible)
         self._sync_axis_labels_to_plotly_dict()
         self._sync_margins_to_plotly_dict()
         self._sync_axis_stabilization_to_plotly_dict()
@@ -966,25 +981,30 @@ Plotly.restyle(plotDiv, {{
         }
         self._plotly_dict['config'] = config
 
+    def _any_axis_labels_visible(self) -> bool:
+        """Return whether any axis decorations are visible for margin layout."""
+        return any_axis_labels_visible(
+            show_x_axis_labels=self._display_options.show_x_axis_labels,
+            show_y_axis_labels=self._display_options.show_y_axis_labels,
+        )
+
     def _sync_axis_labels_to_plotly_dict(self) -> None:
         """Synchronize axis decoration visibility into the local figure dict."""
         layout = self._plotly_dict.setdefault('layout', {})
-        visible = bool(self._display_options.show_axis_labels)
-        for axis_name in ('xaxis', 'yaxis'):
+        axis_specs = (
+            ('xaxis', self._display_options.show_x_axis_labels),
+            ('yaxis', self._display_options.show_y_axis_labels),
+        )
+        for axis_name, visible in axis_specs:
             axis = layout.setdefault(axis_name, {})
             if not isinstance(axis, dict):
                 axis = {}
                 layout[axis_name] = axis
-            title = axis.setdefault('title', {})
-            if not isinstance(title, dict):
-                title = {}
-                axis['title'] = title
-            title['text'] = self._axis_title_texts.get(axis_name, '') if visible else ''
-            axis['showticklabels'] = visible
-            axis['ticks'] = 'outside' if visible else ''
-            axis['showline'] = visible
-            axis['zeroline'] = False
-            axis['showgrid'] = visible
+            apply_axis_decorations(
+                axis,
+                label_text=self._axis_title_texts.get(axis_name, ''),
+                visible=bool(visible),
+            )
 
     def _sync_margins_to_plotly_dict(self) -> None:
         """Synchronize layout margins with axis-label visibility."""
@@ -992,16 +1012,11 @@ Plotly.restyle(plotDiv, {{
         if not isinstance(layout, dict):
             layout = {}
             self._plotly_dict['layout'] = layout
-        profile = self._display_options.layout_margins_profile
-        if profile is not None:
-            margin = profile.resolve(show_axis_labels=bool(self._display_options.show_axis_labels))
-        else:
-            margin = (
-                PLOTLY_MARGIN_WITH_AXIS_LABELS
-                if self._display_options.show_axis_labels
-                else PLOTLY_MARGIN_COMPACT
-            )
-        layout['margin'] = dict(margin)
+        layout['margin'] = resolve_plot_layout_margins(
+            show_axis_labels=self._any_axis_labels_visible(),
+            show_legend=False,
+            layout_margins_profile=self._display_options.layout_margins_profile,
+        )
 
     def _sync_axis_stabilization_to_plotly_dict(self) -> None:
         """Apply stack-profile axis stabilization into the local figure dict."""
@@ -1108,11 +1123,13 @@ Plotly.restyle(plotDiv, {{
             title = axis.get('title', {})
             title_text = title.get('text', '') if isinstance(title, dict) else ''
             relayout[f'{axis_name}.title.text'] = title_text
+            relayout[f'{axis_name}.title.font.size'] = PLOTLY_AXIS_LABEL_FONT_SIZE
+            relayout[f'{axis_name}.tickfont.size'] = PLOTLY_AXIS_LABEL_FONT_SIZE
             relayout[f'{axis_name}.showticklabels'] = axis.get('showticklabels', True)
             relayout[f'{axis_name}.ticks'] = axis.get('ticks', '')
             relayout[f'{axis_name}.showline'] = axis.get('showline', False)
             relayout[f'{axis_name}.zeroline'] = axis.get('zeroline', False)
-            relayout[f'{axis_name}.showgrid'] = axis.get('showgrid', True)
+            relayout[f'{axis_name}.showgrid'] = axis.get('showgrid', False)
             if 'automargin' in axis:
                 relayout[f'{axis_name}.automargin'] = axis.get('automargin')
         margin = layout.get('margin')
@@ -1963,7 +1980,10 @@ return {{
             self._plotly_dict = {
                 'data': [],
                 'layout': {
-                    'margin': dict(PLOTLY_MARGIN_WITH_AXIS_LABELS),
+                    'margin': resolve_plot_layout_margins(
+                        show_axis_labels=False,
+                        show_legend=False,
+                    ),
                     'uirevision': self._uirevision,
                     'autosize': True,
                     'xaxis': {'range': [0.0, 1.0]},

@@ -13,6 +13,7 @@ if 'nicegui' not in sys.modules:
     fake_nicegui.ui = types.SimpleNamespace()
     sys.modules['nicegui'] = fake_nicegui
 
+from nicewidgets.plotly_axis_layout import resolve_plot_layout_margins
 from nicewidgets.plotly_layout_margins import PlotlyLayoutMarginsProfile
 from nicewidgets.raster_viewer.backend.image_model import RasterGridSpec
 from nicewidgets.raster_viewer.frontend.plotly_context_menu import (
@@ -24,6 +25,9 @@ from nicewidgets.raster_viewer.frontend.plotly_display_options import (
 from nicewidgets.raster_viewer.frontend.plotly_viewer import PlotlyRasterViewer
 from nicewidgets.raster_viewer.frontend.roi_overlay import RectRoiOverlay
 from nicewidgets.raster_viewer.frontend.trace_overlay import PlotlyTraceOverlay
+
+_LABELED_MARGINS = resolve_plot_layout_margins(show_axis_labels=True, show_legend=False)
+_COMPACT_MARGINS = resolve_plot_layout_margins(show_axis_labels=False, show_legend=False)
 
 
 def _viewer_with_data(
@@ -45,7 +49,8 @@ def test_display_options_defaults_match_context_menu_requirements() -> None:
     assert options.show_plotly_toolbar is False
     assert options.show_rois is True
     assert options.show_trace_overlays is True
-    assert options.show_axis_labels is False
+    assert options.show_x_axis_labels is False
+    assert options.show_y_axis_labels is False
     assert options.show_hover_info is False
     assert options.theme == 'light'
 
@@ -56,7 +61,8 @@ def test_viewer_accepts_caller_supplied_display_options() -> None:
         show_plotly_toolbar=True,
         show_rois=False,
         show_trace_overlays=False,
-        show_axis_labels=True,
+        show_x_axis_labels=True,
+        show_y_axis_labels=True,
         theme='dark',
     )
 
@@ -67,7 +73,7 @@ def test_viewer_accepts_caller_supplied_display_options() -> None:
     assert viewer.figure['config']['displayModeBar'] is True
     assert layout['xaxis']['title']['text'] == 's'
     assert layout['yaxis']['title']['text'] == 'um'
-    assert layout['margin'] == {'l': 40, 'r': 10, 't': 10, 'b': 40}
+    assert layout['margin'] == _LABELED_MARGINS
     assert layout['paper_bgcolor'] == '#111827'
 
 
@@ -78,26 +84,29 @@ def test_axis_labels_are_hidden_by_default_but_preserved_for_toggle() -> None:
 
     assert layout['xaxis']['title']['text'] == ''
     assert layout['yaxis']['title']['text'] == ''
-    assert layout['margin'] == {'l': 8, 'r': 8, 't': 8, 'b': 8}
+    assert layout['margin'] == _COMPACT_MARGINS
 
-    viewer.set_axis_labels_visible(True)
+    viewer.set_x_axis_labels_visible(True)
+    viewer.set_y_axis_labels_visible(True)
 
     assert viewer.figure['layout']['xaxis']['title']['text'] == 's'
     assert viewer.figure['layout']['yaxis']['title']['text'] == 'um'
-    assert viewer.figure['layout']['margin'] == {'l': 40, 'r': 10, 't': 10, 'b': 40}
+    assert viewer.figure['layout']['margin'] == _LABELED_MARGINS
 
 
 def test_axis_label_margin_toggle_swaps_between_compact_and_labeled() -> None:
     """Margins should shrink when axis labels are hidden and expand when shown."""
     viewer = _viewer_with_data()
 
-    assert viewer.figure['layout']['margin'] == {'l': 8, 'r': 8, 't': 8, 'b': 8}
+    assert viewer.figure['layout']['margin'] == _COMPACT_MARGINS
 
-    viewer.set_axis_labels_visible(True)
-    assert viewer.figure['layout']['margin'] == {'l': 40, 'r': 10, 't': 10, 'b': 40}
+    viewer.set_x_axis_labels_visible(True)
+    viewer.set_y_axis_labels_visible(True)
+    assert viewer.figure['layout']['margin'] == _LABELED_MARGINS
 
-    viewer.set_axis_labels_visible(False)
-    assert viewer.figure['layout']['margin'] == {'l': 8, 'r': 8, 't': 8, 'b': 8}
+    viewer.set_x_axis_labels_visible(False)
+    viewer.set_y_axis_labels_visible(False)
+    assert viewer.figure['layout']['margin'] == _COMPACT_MARGINS
 
 
 def test_layout_margins_profile_overrides_default_raster_margins() -> None:
@@ -111,7 +120,8 @@ def test_layout_margins_profile_overrides_default_raster_margins() -> None:
         display_options=PlotlyRasterViewerDisplayOptions(layout_margins_profile=profile),
     )
 
-    viewer.set_axis_labels_visible(True)
+    viewer.set_x_axis_labels_visible(True)
+    viewer.set_y_axis_labels_visible(True)
 
     assert viewer.figure['layout']['margin'] == {'l': 60, 'r': 24, 't': 10, 'b': 40}
     assert viewer.figure['layout']['xaxis']['automargin'] is False
@@ -119,7 +129,7 @@ def test_layout_margins_profile_overrides_default_raster_margins() -> None:
 
 
 def test_axis_toggle_controls_titles_ticks_lines_and_grid() -> None:
-    """Axis toggle should hide/show full axis decorations, not title only."""
+    """Axis toggles should hide/show decorations independently with grid off."""
     viewer = _viewer_with_data()
     xaxis = viewer.figure['layout']['xaxis']
     yaxis = viewer.figure['layout']['yaxis']
@@ -131,14 +141,48 @@ def test_axis_toggle_controls_titles_ticks_lines_and_grid() -> None:
         assert axis['zeroline'] is False
         assert axis['showgrid'] is False
 
-    viewer.set_axis_labels_visible(True)
+    viewer.set_x_axis_labels_visible(True)
 
-    for axis in (xaxis, yaxis):
-        assert axis['showticklabels'] is True
-        assert axis['ticks'] == 'outside'
-        assert axis['showline'] is True
-        assert axis['zeroline'] is False
-        assert axis['showgrid'] is True
+    assert xaxis['showticklabels'] is True
+    assert xaxis['ticks'] == 'outside'
+    assert xaxis['showline'] is True
+    assert xaxis['showgrid'] is False
+    assert yaxis['showticklabels'] is False
+
+    viewer.set_y_axis_labels_visible(True)
+
+    assert yaxis['showticklabels'] is True
+    assert yaxis['ticks'] == 'outside'
+    assert yaxis['showline'] is True
+    assert yaxis['showgrid'] is False
+
+
+def test_init_axis_label_visibility_kwargs() -> None:
+    """Constructor kwargs should set independent x/y axis label visibility."""
+    viewer = _viewer_with_data(
+        display_options=PlotlyRasterViewerDisplayOptions(
+            show_x_axis_labels=True,
+            show_y_axis_labels=False,
+        ),
+    )
+
+    assert viewer.display_options.show_x_axis_labels is True
+    assert viewer.display_options.show_y_axis_labels is False
+    assert viewer.figure['layout']['xaxis']['showticklabels'] is True
+    assert viewer.figure['layout']['yaxis']['showticklabels'] is False
+    assert viewer.figure['layout']['margin'] == _LABELED_MARGINS
+
+
+def test_axis_label_font_size_is_explicit() -> None:
+    """Axis title and tick labels should use the shared default font size."""
+    viewer = _viewer_with_data()
+    viewer.set_x_axis_labels_visible(True)
+    viewer.set_y_axis_labels_visible(True)
+
+    for axis_name in ('xaxis', 'yaxis'):
+        axis = viewer.figure['layout'][axis_name]
+        assert axis['title']['font']['size'] == 11
+        assert axis['tickfont']['size'] == 11
 
 
 def test_plotly_theme_can_be_toggled_without_rebuilding_viewer() -> None:

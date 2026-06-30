@@ -44,7 +44,8 @@ def test_display_options_defaults_match_context_menu_requirements() -> None:
     assert options.show_plotly_toolbar is False
     assert options.show_rois is True
     assert options.show_trace_overlays is True
-    assert options.show_axis_labels is False
+    assert options.show_x_axis_labels is False
+    assert options.show_y_axis_labels is False
 
 
 def test_viewer_accepts_caller_supplied_display_options() -> None:
@@ -53,7 +54,8 @@ def test_viewer_accepts_caller_supplied_display_options() -> None:
         show_plotly_toolbar=True,
         show_rois=False,
         show_trace_overlays=False,
-        show_axis_labels=True,
+        show_x_axis_labels=True,
+        show_y_axis_labels=True,
     )
 
     viewer = _viewer_with_data(display_options=options)
@@ -73,7 +75,8 @@ def test_axis_labels_are_hidden_by_default_but_preserved_for_toggle() -> None:
     assert layout['xaxis']['title']['text'] == ''
     assert layout['yaxis']['title']['text'] == ''
 
-    viewer.set_axis_labels_visible(True)
+    viewer.set_x_axis_labels_visible(True)
+    viewer.set_y_axis_labels_visible(True)
 
     assert viewer.figure['layout']['xaxis']['title']['text'] == 's'
     assert viewer.figure['layout']['yaxis']['title']['text'] == 'um'

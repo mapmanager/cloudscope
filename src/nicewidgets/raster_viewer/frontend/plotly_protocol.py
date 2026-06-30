@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from nicewidgets.plotly_axis_layout import resolve_plot_layout_margins
 from nicewidgets.raster_viewer.backend.image_model import RenderResponse, RowColBounds, ViewRequest, ViewportSize
 from nicewidgets.raster_viewer.frontend.plotly_coord_transform import PlotlyCoordTransform
 
@@ -24,22 +25,6 @@ RASTER_VIEWER_PLOTLY_CONFIG: dict[str, object] = {
     'doubleClick': False,
     'scrollZoom': True,
     'responsive': True,
-}
-
-# Plotly layout margins when axis decorations are visible (titles, ticks, grid).
-PLOTLY_MARGIN_WITH_AXIS_LABELS: dict[str, int] = {
-    'l': 40,
-    'r': 10,
-    't': 10,
-    'b': 40,
-}
-
-# Compact margins when axis decorations are hidden to maximize raster plot area.
-PLOTLY_MARGIN_COMPACT: dict[str, int] = {
-    'l': 8,
-    'r': 8,
-    't': 8,
-    'b': 8,
 }
 
 
@@ -90,7 +75,7 @@ def build_plotly_figure(
     }
 
     layout: dict[str, object] = {
-        'margin': dict(PLOTLY_MARGIN_WITH_AXIS_LABELS),
+        'margin': resolve_plot_layout_margins(show_axis_labels=False, show_legend=False),
         'uirevision': uirevision,
         'autosize': True,
         'dragmode': 'zoom',
