@@ -27,6 +27,31 @@ logger = get_logger(__name__)
 
 _TAB_VELOCITY = "velocity"
 _TAB_PEAKS = "peaks"
+_VELOCITY_POOL_TABS_CLASS = "velocity-pool-tabs"
+_VELOCITY_POOL_TAB_PANELS_CLASS = "velocity-pool-tab-panels"
+_VELOCITY_POOL_TAB_CSS_ADDED = False
+_VELOCITY_POOL_TAB_CSS = """
+.velocity-pool-tabs .q-tab {
+    min-height: 28px;
+    padding: 0 8px;
+}
+.velocity-pool-tab-panels .q-tab-panel {
+    padding: 0;
+}
+"""
+
+
+def _ensure_velocity_pool_tab_css() -> None:
+    """Inject compact pool-tab CSS once per process.
+
+    Returns:
+        None.
+    """
+    global _VELOCITY_POOL_TAB_CSS_ADDED
+    if _VELOCITY_POOL_TAB_CSS_ADDED:
+        return
+    ui.add_css(_VELOCITY_POOL_TAB_CSS)
+    _VELOCITY_POOL_TAB_CSS_ADDED = True
 
 
 class VelocityPoolView(BaseView):
@@ -98,13 +123,18 @@ class VelocityPoolView(BaseView):
 
         assert self.root is not None
         with self.root:
-            with ui.tabs().classes("w-full shrink-0") as tabs:
-                self._velocity_tab = ui.tab(_TAB_VELOCITY, label="Velocity")
-                self._peaks_tab = ui.tab(_TAB_PEAKS, label="Peaks")
+            _ensure_velocity_pool_tab_css()
+            with ui.tabs().classes(
+                f"w-full shrink-0 {_VELOCITY_POOL_TABS_CLASS}"
+            ).props("dense align=left inline-label narrow-indicator no-caps") as tabs:
+                self._velocity_tab = ui.tab(_TAB_VELOCITY, label="Velocity", icon="speed")
+                self._peaks_tab = ui.tab(_TAB_PEAKS, label="Peaks", icon="functions")
             self._tabs = tabs
             assert self._velocity_tab is not None
-            with ui.tab_panels(tabs, value=self._velocity_tab).classes("w-full flex-1 min-h-0"):
-                with ui.tab_panel(self._velocity_tab):
+            with ui.tab_panels(tabs, value=self._velocity_tab).classes(
+                f"w-full flex-1 min-h-0 p-0 {_VELOCITY_POOL_TAB_PANELS_CLASS}"
+            ):
+                with ui.tab_panel(self._velocity_tab).classes("p-0 h-full min-h-0"):
                     self._velocity_pool = NicePool(
                         self._velocity_dataframe_from_state(),
                         config=NicePoolConfig(
@@ -119,7 +149,7 @@ class VelocityPoolView(BaseView):
                     )
                     self._velocity_pool.build()
                 assert self._peaks_tab is not None
-                with ui.tab_panel(self._peaks_tab):
+                with ui.tab_panel(self._peaks_tab).classes("p-0 h-full min-h-0"):
                     self._peaks_pool = NicePool(
                         self._peaks_dataframe_from_state(),
                         config=NicePoolConfig(

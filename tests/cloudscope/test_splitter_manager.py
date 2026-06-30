@@ -22,6 +22,7 @@ class FakeSplitter:
     """Small fake object matching the subset of NiceGUI splitter API used by SplitterManager."""
 
     value: float
+    limits: tuple[float, float] = (0.0, 100.0)
     update_count: int = 0
 
     def update(self) -> None:
@@ -111,7 +112,8 @@ def test_splitter_manager_right_pool_open_closed(tmp_path: Path) -> None:
     """Right pool panel open/closed helpers should use collapsed and remembered open values."""
     cfg = AppConfig(path=tmp_path / 'app_config.json')
     manager = SplitterManager(cfg)
-    splitter = FakeSplitter(value=HOME_RIGHT_POOL_CLOSED_SPLITTER_PCT)
+    preset_limits = HOME_SPLITTER_PRESETS[SplitterId.RIGHT_POOL].limits
+    splitter = FakeSplitter(value=HOME_RIGHT_POOL_CLOSED_SPLITTER_PCT, limits=preset_limits)
     manager.register(SplitterId.RIGHT_POOL, splitter)
 
     assert manager.is_right_pool_open() is False
@@ -119,10 +121,48 @@ def test_splitter_manager_right_pool_open_closed(tmp_path: Path) -> None:
     manager.set_right_pool_open(True)
     assert splitter.value == DEFAULT_HOME_RIGHT_POOL_OPEN_SPLITTER_PCT
     assert manager.is_right_pool_open() is True
+    assert splitter.limits == preset_limits
 
     manager.set_right_pool_open(False)
     assert splitter.value == HOME_RIGHT_POOL_CLOSED_SPLITTER_PCT
     assert manager.is_right_pool_open() is False
+    assert splitter.limits == (HOME_RIGHT_POOL_CLOSED_SPLITTER_PCT, HOME_RIGHT_POOL_CLOSED_SPLITTER_PCT)
+
+
+def test_splitter_manager_set_splitter_drag_enabled_pins_limits(tmp_path: Path) -> None:
+    """Disabling drag should pin splitter limits to the current value."""
+    cfg = AppConfig(path=tmp_path / 'app_config.json')
+    manager = SplitterManager(cfg)
+    preset_limits = HOME_SPLITTER_PRESETS[SplitterId.RIGHT_POOL].limits
+    splitter = FakeSplitter(value=72.0, limits=preset_limits)
+    manager.register(SplitterId.RIGHT_POOL, splitter)
+
+    manager.set_splitter_drag_enabled(SplitterId.RIGHT_POOL, False)
+
+    assert splitter.limits == (72.0, 72.0)
+    assert splitter.update_count == 1
+
+    manager.set_splitter_drag_enabled(SplitterId.RIGHT_POOL, True)
+
+    assert splitter.limits == preset_limits
+    assert splitter.update_count == 2
+
+
+def test_splitter_manager_right_pool_startup_closed_freezes_drag(tmp_path: Path) -> None:
+    """A collapsed right pool should start with drag disabled after registration wiring."""
+    cfg = AppConfig(path=tmp_path / 'app_config.json')
+    manager = SplitterManager(cfg)
+    preset_limits = HOME_SPLITTER_PRESETS[SplitterId.RIGHT_POOL].limits
+    splitter = FakeSplitter(value=HOME_RIGHT_POOL_CLOSED_SPLITTER_PCT, limits=preset_limits)
+    manager.register(SplitterId.RIGHT_POOL, splitter)
+
+    assert manager.is_right_pool_open() is False
+    manager.set_splitter_drag_enabled(SplitterId.RIGHT_POOL, False)
+
+    assert splitter.limits == (
+        HOME_RIGHT_POOL_CLOSED_SPLITTER_PCT,
+        HOME_RIGHT_POOL_CLOSED_SPLITTER_PCT,
+    )
 
 
 def test_splitter_manager_capture_does_not_remember_collapsed_left_toolbar(tmp_path: Path) -> None:

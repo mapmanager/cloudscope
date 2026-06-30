@@ -50,7 +50,7 @@ _LEFT_TOOLBAR_TABS: tuple[LeftToolbarTab, ...] = (
     LeftToolbarTab(ViewId.IMAGE_HEADER_METADATA, "Image Header", "biotech"),
     LeftToolbarTab(ViewId.VELOCITY_ANALYSIS, "Velocity", "speed"),
     LeftToolbarTab(ViewId.DIAMETER_ANALYSIS, "Diameter", "straighten"),
-    LeftToolbarTab(ViewId.SUM_INTENSITY_ANALYSIS, "Sum Intensity", "functions"),
+    LeftToolbarTab(ViewId.SUM_INTENSITY_ANALYSIS, "Peak Detect", "functions"),
     LeftToolbarTab(ViewId.LEFT_TOOLBAR_REFERENCE_IMAGE, "Reference Image", "image"),
     LeftToolbarTab(ViewId.APP_CONFIG, "Config", "settings"),
     LeftToolbarTab(ViewId.APP_INFO, "App info", "info"),

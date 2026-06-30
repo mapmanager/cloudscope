@@ -137,6 +137,7 @@ class SplitterManager:
     def __init__(self, app_config: AppConfig) -> None:
         self._app_config = app_config
         self._splitters: dict[SplitterId, ManagedSplitter] = {}
+        self._drag_enabled: dict[SplitterId, bool] = {}
 
     def register(self, splitter_id: SplitterId, splitter: Any) -> ManagedSplitter:
         """Register a NiceGUI splitter.
@@ -182,9 +183,40 @@ class SplitterManager:
         """
         managed = self._splitters[splitter_id]
         applied = managed.set_value(value)
+        if not self._drag_enabled.get(splitter_id, True):
+            managed.splitter.limits = (applied, applied)
+            managed.splitter.update()
         if remember:
             self._remember_value(splitter_id, applied)
         return applied
+
+    def set_splitter_drag_enabled(self, splitter_id: SplitterId, enabled: bool) -> None:
+        """Enable or disable user drag for one splitter.
+
+        When drag is disabled, the splitter ``limits`` are pinned to the current
+        value so the handle cannot move. This avoids Quasar ``disable`` styling
+        on the splitter while still freezing layout.
+
+        Args:
+            splitter_id: Managed splitter id.
+            enabled: True to restore preset drag limits; False to pin the handle.
+
+        Returns:
+            None.
+        """
+        managed = self._splitters.get(splitter_id)
+        if managed is None:
+            return
+        enabled = bool(enabled)
+        if self._drag_enabled.get(splitter_id, True) == enabled:
+            return
+        self._drag_enabled[splitter_id] = enabled
+        if enabled:
+            managed.splitter.limits = managed.preset.limits
+        else:
+            value = managed.value
+            managed.splitter.limits = (value, value)
+        managed.splitter.update()
 
     def restore_open_value(self, splitter_id: SplitterId) -> float:
         """Restore one splitter to its remembered open value.
@@ -268,12 +300,14 @@ class SplitterManager:
             None.
         """
         if is_open:
+            self.set_splitter_drag_enabled(SplitterId.RIGHT_POOL, True)
             value = self._app_config.get_home_splitter_value(SplitterId.RIGHT_POOL.value)
             if self._is_collapsed_value(SplitterId.RIGHT_POOL, value):
                 value = DEFAULT_HOME_RIGHT_POOL_OPEN_SPLITTER_PCT
             self.set_value(SplitterId.RIGHT_POOL, value, remember=False)
         else:
             self.set_value(SplitterId.RIGHT_POOL, HOME_RIGHT_POOL_CLOSED_SPLITTER_PCT, remember=False)
+            self.set_splitter_drag_enabled(SplitterId.RIGHT_POOL, False)
 
     def reset_all(self) -> None:
         """Reset all managed splitters to factory values.
@@ -289,6 +323,11 @@ class SplitterManager:
                 self.set_value(splitter_id, HOME_RIGHT_POOL_CLOSED_SPLITTER_PCT, remember=False)
             else:
                 self.set_value(splitter_id, self._app_config.get_home_splitter_value(splitter_id.value), remember=False)
+        if SplitterId.RIGHT_POOL in self._splitters:
+            self.set_splitter_drag_enabled(
+                SplitterId.RIGHT_POOL,
+                self.is_right_pool_open(),
+            )
 
     def _remember_value(self, splitter_id: SplitterId, value: float) -> None:
         """Remember a user-adjusted splitter value in AppConfig memory.

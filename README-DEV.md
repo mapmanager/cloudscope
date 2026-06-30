@@ -1,112 +1,16 @@
-# zip a folder of py and md files
+# how to fix rogue apps
 
-acqstore
+## See what's running
+pgrep -lf 'src/cloudscope/app.py'
 
-zip -r cloudscope_20260622_v2.zip \
-    src tests docs-dev scripts pyproject.toml \
-    -x "*/__pycache__/*" \
-       "*.pyc" \
-       "*.pyo" \
-       ".pytest_cache/*" \
-       ".mypy_cache/*" \
-       ".ruff_cache/*" \
-       ".DS_Store" \
-       ".ipynb_checkpoints/*" \
-       "docs/site/*" \
-       "site/*" \
-       "build/*" \
-       "dist/*" \
-       ".venv/*" \
-       ".git/*" \
-       "*.svg" \
-       "*.png" \
-       "*.jpg" \
-       "*.jpeg" \
-       "*.tif" \
-       "*.tiff" \
-       "*.oir" \
-       "*.czi" \
-       "*.zarr/*"
+## Stop all matches (from anywhere)
+pkill -f 'src/cloudscope/app.py'
 
-find packaging \
-    -type d \( -name build -o -name dist \) -prune -o \
-    -type f \( \
-        -name "*.md" -o \
-        -name "*.sh" -o \
-        -name "*.icns" -o \
-        -name "*.spec" -o \
-        -name "*.entitlements" -o \
-        -name "*.plist" \
-    \) -print | zip cloudscope_packaging_20260610_v1.zip -@
-        
-find docs \
-    -type d \( \
-        -name .ipynb_checkpoints -o \
-        -name __pycache__ -o \
-        -name build -o \
-        -name site \
-    \) -prune -o \
-    -type f ! -name '.DS_Store' ! -name '*.pyc' \( \
-        -name '*.md' -o \
-        -name '*.ipynb' -o \
-        -name '*.css' -o \
-        -name '*.png' -o \
-        -name '*.svg' -o \
-        -name '*.html' -o \
-        -name '*.py' \
-    \) -print | zip cloudscope_docs_20260623_v1.zip -@
+## Confirm gone
+pgrep -lf 'src/cloudscope/app.py'   # should print nothing
 
-find tests -type f \( \
-    -name "*.py" -o \
-    -name "*.md" -o \
-    -name "*.ipynb" -o \
-    -name "*.css" -o \
-    -name "*.png" -o \
-    -name "*.svg" \
-\) -print | zip cloudscope_tests_20260612_v1.zip -@
-
-find docs-dev -type f \( \
-    -name "*.md" -o \
-    -name "*.ipynb" -o \
-    -name "*.css" -o \
-    -name "*.png" -o \
-    -name "*.svg" \
-\) -print | zip cloudscope_docs_dev_20260612_v1.zip -@
-
-find src -type f \( \
-    -name "*.py" -o \
-    -name "*.md" -o \
-    -name "*.ipynb" -o \
-    -name "*.css" -o \
-    -name "*.png" -o \
-    -name "*.svg" \
-\) -print | zip cloudscope_src_20260612_v1.zip -@
-
-find .github/workflows -type f \( \
-    -name "*.py" -o \
-    -name "*.md" -o \
-    -name "*.ipynb" -o \
-    -name "*.css" -o \
-    -name "*.png" -o \
-    -name "*.svg" \
-    -name "*.yml" \
-\) -print | zip cloudscope_workflows_20260611_v1.zip -@
-
-    zip -r cloudscope_src_20260513_v1.zip src/cloudscope -i '*.py' '*.md'
-
-    zip -r cloudscope_src_20260609_v1.zip src/acqstore -i '*.py' '*.md'
-    zip -r cloudscope_tests_20260607_v1.zip tests -i '*.py' '*.md'
-    zip -r cloudscope_docs_20260607_v1.zip docs -i '*.py' '*.md'
-    zip -r cloudscope_scripts_20260607_v1.zip scripts -i '*.py' '*.md'
-
-    zip -r cloudscope_scripts_20260525_v6.zip scripts -i '*.py' '*.md'
-    zip -r cloudscope_sandbox_20260525_v6.zip sandbox -i '*.py' '*.md'
-    
-    zip -r cloudscope_src_20260524_v6.zip src -i '*.py' '*.md'
-
-    zip -r kymflow_20260520_diameter_v1.zip /Users/cudmore/Sites/kymflow_outer/kymflow/src/kymflow/core/analysis/diameter_analysis -i '*.py' '*.md'
-
-    /Users/cudmore/Sites/kymflow_outer/kymflow/src/kymflow/core/analysis/diameter_analysis
+## Then start fresh
+./run app
 
 
 # Running `src/cloudscope/app.py`

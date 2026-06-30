@@ -202,6 +202,27 @@ def test_refresh_from_state_skipped_once_after_build(monkeypatch: pytest.MonkeyP
     assert len(FakeNicePool.instances[1].set_dataframe_calls) == 1
 
 
+def test_velocity_pool_view_builds_compact_tabs_with_icons(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pool tabs should use compact Quasar props, zero panel padding, and analysis icons."""
+    FakeNicePool.instances.clear()
+    monkeypatch.setattr(velocity_pool_view_module, "NicePool", FakeNicePool)
+    view = VelocityPoolView(event_bus=EventBus(), app_state=None, initially_visible=False)
+
+    view.build()
+
+    assert view._velocity_tab is not None
+    assert view._peaks_tab is not None
+    assert view._tabs is not None
+    assert view._velocity_tab._props["icon"] == "speed"  # noqa: SLF001
+    assert view._velocity_tab._props["label"] == "Velocity"  # noqa: SLF001
+    assert view._peaks_tab._props["icon"] == "functions"  # noqa: SLF001
+    assert view._peaks_tab._props["label"] == "Peaks"  # noqa: SLF001
+    tabs_props = str(view._tabs._props)  # noqa: SLF001
+    assert "dense" in tabs_props
+    assert "inline-label" in tabs_props
+    assert velocity_pool_view_module._VELOCITY_POOL_TABS_CLASS in str(view._tabs._classes)  # noqa: SLF001
+
+
 def test_velocity_pool_view_configures_initial_plot_configs(monkeypatch: pytest.MonkeyPatch) -> None:
     """Both tabs should pass CloudScope-owned inline plot configs to NicePool."""
     FakeNicePool.instances.clear()

@@ -1,0 +1,49 @@
+---
+description: Avoid reflexive shared-module extraction; prefer KISS for trivial duplication
+alwaysApply: true
+---
+
+# Shared module discipline
+
+When two call sites use the same string, constant, or small helper, do **not**
+default to creating a new shared module. Prefer the smallest change that solves
+the ticket.
+
+## Default (KISS)
+
+- Duplicate a literal or one-liner when:
+  - Only 2–3 call sites exist
+  - The value is stable and low-risk (e.g. Material icon names, labels)
+  - Extraction would add a new file plus imports across layers
+  - The ticket is a localized UI tweak, not a public API contract
+
+- Keep changes in the file the user named (e.g. add icons on tabs in one view
+  only).
+
+## When a shared module *is* appropriate (propose explicitly)
+
+- Same logic or contract is duplicated in **3+** places and already drifting
+- Cross-package boundary needs a **documented public API** (ticket says so)
+- Bug fixes must apply everywhere atomically (security, correctness)
+- Ticket explicitly asks for centralization or DRY at module level
+
+## How to communicate (required balance)
+
+- **Do not** silently skip mentioning extraction when it might help long-term.
+- **Do not** treat every duplicate as a mandate for a new `*_constants.py`.
+- When extraction is optional, say so in one sentence:
+  - **Inline (recommended for this ticket):** …
+  - **Extract later if:** … (only if duplication grows or ticket expands)
+
+## Red flags for over-engineering
+
+- New file under `views/` (or elsewhere) for 1–2 string constants
+- Refactoring unrelated files to “use the shared thing” when the user asked
+  for a single-widget UI change
+- General-purpose “icons registry” or “tab config” modules for one screen
+
+## Relationship to AGENTS.md
+
+Follow package boundaries and ticket scope. When KISS and a broad DRY instinct
+conflict on scope, **ticket scope and user steering win** unless the user asks
+for centralization.

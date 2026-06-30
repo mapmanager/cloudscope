@@ -720,6 +720,17 @@ class HomePage:
                         splitter_manager.set_right_pool_open(not splitter_manager.is_right_pool_open())
                         _sync_right_pool_panel()
 
+                    def _sync_right_pool_splitter_drag() -> None:
+                        """Freeze right-pool splitter drag while the panel is collapsed.
+
+                        Returns:
+                            None.
+                        """
+                        splitter_manager.set_splitter_drag_enabled(
+                            SplitterId.RIGHT_POOL,
+                            splitter_manager.is_right_pool_open(),
+                        )
+
                     right_pool_toggle_ref['value'] = _toggle_right_pool_panel
 
                     right_pool_preset = HOME_SPLITTER_PRESETS[SplitterId.RIGHT_POOL]
@@ -728,6 +739,8 @@ class HomePage:
                         limits=right_pool_preset.limits,
                     ).classes('w-full h-full min-h-0 overflow-hidden') as right_pool_splitter:
                         splitter_manager.register(SplitterId.RIGHT_POOL, right_pool_splitter)
+                        if not splitter_manager.is_right_pool_open():
+                            splitter_manager.set_splitter_drag_enabled(SplitterId.RIGHT_POOL, False)
 
                         with right_pool_splitter.before:
                             _build_main_workspace()
@@ -748,6 +761,7 @@ class HomePage:
                             lambda _event=None: (
                                 _capture(SplitterId.RIGHT_POOL),
                                 _sync_right_pool_panel(),
+                                _sync_right_pool_splitter_drag(),
                             ),
                             throttle=0.2,
                         )
