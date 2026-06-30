@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -156,3 +157,20 @@ def test_sidecar_json_not_required_for_roi_api(tmp_path: Path) -> None:
     r = acq.rois.create_rect_roi(RectRoiBounds(0, 1, 0, 2))
     crop = acq.get_roi_image(0, r.roi_id)
     assert crop.shape == (1, 2)
+
+
+def test_get_slice_data_loaded_missing_channel_axis_includes_context() -> None:
+    """Multi-channel header without C axis should raise a descriptive ValueError."""
+    arr = np.zeros((10, 8), dtype=np.uint16)
+    loader = _ArrayLoader(arr, ('Y', 'X'))
+    loader._header = replace(loader._header, num_channels=2)
+    loader.load_image_data()
+
+    with pytest.raises(ValueError, match="num_channels=2") as exc_info:
+        loader.get_slice_data_loaded(0)
+
+    message = str(exc_info.value)
+    assert "test_unit.tif" in message
+    assert "dims=('Y', 'X')" in message
+    assert "loaded shape (10, 8)" in message
+    assert "no C axis" in message

@@ -2,7 +2,8 @@ from __future__ import annotations  # treat all type hints as strings
 
 from contextlib import contextmanager
 from collections.abc import Iterator
-from typing import BinaryIO
+from dataclasses import replace
+from typing import Any, BinaryIO
 import numpy as np
 import tifffile
 from typing import Self
@@ -54,6 +55,54 @@ def _tif_dims_from_series_axes(axes: str, shape: tuple[int, ...]) -> tuple[str, 
     return _tif_dims_from_ndim(len(shape))
 
 
+def _ordered_olympus_split_channel_paths(
+    tif_channel_paths: dict[int, Any],
+    num_channels: int,
+) -> tuple[str, ...] | None:
+    """Return ordered on-disk paths when every Olympus channel file is present.
+
+    Args:
+        tif_channel_paths: 1-based channel index to path mapping from
+            :func:`~read_olympus_txt.read_olympus_txt_dict`.
+        num_channels: Channel count reported by the Olympus sidecar.
+
+    Returns:
+        ``(path_ch1, path_ch2, ...)`` when ``num_channels > 1`` and every
+        expected path exists; otherwise ``None``.
+    """
+    if num_channels <= 1:
+        return None
+    ordered: list[str] = []
+    for channel_number in range(1, num_channels + 1):
+        path = tif_channel_paths.get(channel_number)
+        if path is None:
+            return None
+        ordered.append(str(path))
+    return tuple(ordered)
+
+
+def _header_for_olympus_split_channels(
+    base: ImageHeader,
+    num_channels: int,
+) -> ImageHeader:
+    """Upgrade a kymograph Olympus header to ``(C, Y, X)`` for split-channel TIFFs."""
+    y_size = int(base.sizes["Y"])
+    x_size = int(base.sizes["X"])
+    step_y = float(base.physical_units[base.dims.index("Y")])
+    step_x = float(base.physical_units[base.dims.index("X")])
+    label_y = str(base.physical_units_labels[base.dims.index("Y")])
+    label_x = str(base.physical_units_labels[base.dims.index("X")])
+    return replace(
+        base,
+        shape=(num_channels, y_size, x_size),
+        dims=("C", "Y", "X"),
+        sizes={"C": num_channels, "Y": y_size, "X": x_size},
+        num_channels=num_channels,
+        physical_units=(1.0, step_y, step_x),
+        physical_units_labels=("Pixels", label_y, label_x),
+    )
+
+
 class TiffFileLoader(BaseFileLoader):
     """Lazy-loading TIFF reader using ``tifffile`` metadata and pixels.
 
@@ -61,6 +110,10 @@ class TiffFileLoader(BaseFileLoader):
     it inspects ``tifffile.TiffFile(...).series[0]``. This path reads TIFF
     metadata only and does not materialize pixel arrays. Pixel data are loaded
     later through :meth:`BaseFileLoader.load_image_data`.
+
+    When an Olympus sidecar reports multiple channels stored as separate
+    ``_C001T…`` / ``_C002T…`` TIFF siblings, this loader merges them into one
+    ``(C, Y, X)`` volume on first pixel load.
 
     Args:
         path: Filesystem path to the TIFF.
@@ -77,6 +130,7 @@ class TiffFileLoader(BaseFileLoader):
         load_olympus_header: bool = True,
     ) -> None:
         self._load_olympus_header = load_olympus_header
+        self._olympus_channel_paths: tuple[str, ...] | None = None
         super().__init__(path, header)
 
     @contextmanager
@@ -113,6 +167,7 @@ class TiffFileLoader(BaseFileLoader):
         inst.path = filename
         inst._stream = stream
         inst._load_olympus_header = load_olympus_header
+        inst._olympus_channel_paths = None
         inst._post_init(header)
         return inst
 
@@ -125,13 +180,53 @@ class TiffFileLoader(BaseFileLoader):
         with self._open_tif() as src:
             return np.asarray(tifffile.imread(src))
 
+    def _read_olympus_split_channel_array(self) -> np.ndarray:
+        """Load and stack Olympus split-channel sibling TIFFs into ``(C, Y, X)``."""
+        if self._olympus_channel_paths is None:
+            raise RuntimeError("Olympus split-channel paths are not initialized")
+        planes: list[np.ndarray] = []
+        y_size: int | None = None
+        x_size: int | None = None
+        for index, channel_path in enumerate(self._olympus_channel_paths):
+            plane = np.asarray(tifffile.imread(channel_path))
+            if plane.ndim != 2:
+                raise ValueError(
+                    f"Olympus split-channel TIFF must be 2D (Y, X); "
+                    f"channel {index} at {channel_path!r} has shape {plane.shape}"
+                )
+            if y_size is None:
+                y_size = int(plane.shape[0])
+                x_size = int(plane.shape[1])
+            elif plane.shape != (y_size, x_size):
+                raise ValueError(
+                    "Olympus split-channel TIFF shape mismatch: "
+                    f"channel 0 is {(y_size, x_size)}, channel {index} at "
+                    f"{channel_path!r} is {tuple(int(x) for x in plane.shape)}"
+                )
+            planes.append(plane)
+        return np.stack(planes, axis=0)
+
     def _read_tif_header(self) -> ImageHeader:
         """Read TIFF header metadata using sidecar or tifffile series metadata."""
+        self._olympus_channel_paths = None
         if self._stream is None and self._load_olympus_header:
             odict = read_olympus_txt_dict(self.path)
             if odict is not None:
                 try:
-                    return _image_header_from_olympus_dict(self.path, odict)
+                    base = _image_header_from_olympus_dict(self.path, odict)
+                    num_channels = int(odict.get("numChannels", base.num_channels))
+                    tif_channel_paths = odict.get("tifChannelPaths") or {}
+                    ordered = _ordered_olympus_split_channel_paths(
+                        tif_channel_paths,
+                        num_channels,
+                    )
+                    if ordered is not None:
+                        self._olympus_channel_paths = ordered
+                        return _header_for_olympus_split_channels(
+                            base,
+                            len(ordered),
+                        )
+                    return base
                 except (ValueError, TypeError, KeyError) as exc:
                     logger.warning(
                         "Olympus txt present but ImageHeader build failed, "
@@ -174,7 +269,10 @@ class TiffFileLoader(BaseFileLoader):
         """Load TIFF pixels and validate loaded shape against the cached header."""
         if self._img_data is not None:
             return self._img_data
-        arr = self._read_tif_array()
+        if self._olympus_channel_paths is not None:
+            arr = self._read_olympus_split_channel_array()
+        else:
+            arr = self._read_tif_array()
         hdr = self._header
         if hdr is not None:
             expected = tuple(int(x) for x in hdr.shape)

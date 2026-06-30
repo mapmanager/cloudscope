@@ -19,6 +19,7 @@ from cloudscope.raster_display_cache import (
     RasterDisplayCacheKey,
     RasterDisplayPlaneKind,
 )
+from cloudscope.utils.load_errors import format_raster_load_error
 from cloudscope.utils.logging import get_logger
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
@@ -414,9 +415,14 @@ class ReferenceImageView(BaseView):
                 self._raster_display_cache,
             )
         except Exception as exc:
-            logger.exception('Reference image load failed file_id=%r channel=%r', file_id, channel)
-            err_msg = str(exc)
-            self._run_ui(lambda: ui.notify(err_msg, type='negative'))
+            presentation = format_raster_load_error(
+                exc,
+                acq_image=acq_image,
+                channel=channel,
+                operation='Reference image',
+            )
+            logger.exception(presentation.log_message)
+            self._run_ui(lambda: ui.notify(presentation.notify_message, type='negative'))
             try:
                 await self._viewer.clear_data()
             except RuntimeError as inner:

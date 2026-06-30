@@ -604,6 +604,23 @@ class BaseFileLoader:
         self.unload_reference_data()
 
     @staticmethod
+    def _format_missing_channel_axis_error(
+        *,
+        channel: int,
+        source_path: str | None,
+        num_channels: int,
+        dims: tuple[str, ...],
+        array_shape: tuple[int, ...],
+    ) -> str:
+        """Build a compact error when the header claims channels but volume has no ``C`` axis."""
+        path_part = f" from {source_path!r}" if source_path else ""
+        return (
+            f"Cannot slice ch {channel}{path_part}: num_channels={num_channels}, "
+            f"dims={dims}, loaded shape {array_shape}, no C axis "
+            f"(Olympus split-channel siblings may be missing)."
+        )
+
+    @staticmethod
     def yx_slice_from_volume(
         arr: np.ndarray,
         dims: tuple[str, ...],
@@ -612,6 +629,8 @@ class BaseFileLoader:
         *,
         z: int = 0,
         t: int = 0,
+        source_path: str | None = None,
+        array_shape: tuple[int, ...] | None = None,
     ) -> np.ndarray:
         """Select ``T`` / ``Z`` / ``C`` and return a 2D ``(Y, X)`` view or copy of ``arr``."""
         if channel < 0 or channel >= num_channels:
@@ -623,6 +642,21 @@ class BaseFileLoader:
             raise ValueError(f"Expected dims to include Y and X; got dims={dims}")
         if "C" not in dims_list:
             if num_channels != 1:
+                if source_path is not None or array_shape is not None:
+                    shape = (
+                        tuple(int(x) for x in array_shape)
+                        if array_shape is not None
+                        else tuple(int(x) for x in arr.shape)
+                    )
+                    raise ValueError(
+                        BaseFileLoader._format_missing_channel_axis_error(
+                            channel=channel,
+                            source_path=source_path,
+                            num_channels=num_channels,
+                            dims=dims,
+                            array_shape=shape,
+                        )
+                    )
                 raise ValueError(
                     f"No C axis in dims but num_channels={num_channels}"
                 )
@@ -686,6 +720,8 @@ class BaseFileLoader:
             channel,
             z=z,
             t=t,
+            source_path=self.path,
+            array_shape=tuple(int(x) for x in self._img_data.shape),
         )
 
     def get_slice_data(self, channel: int, z: int = 0, t: int = 0) -> np.ndarray:
@@ -714,6 +750,8 @@ class BaseFileLoader:
             channel,
             z=z,
             t=t,
+            source_path=self.path,
+            array_shape=tuple(int(x) for x in self._img_data.shape),
         )
 
     def get_image_physical_units(self) -> tuple[float, float]:
@@ -798,8 +836,15 @@ class BaseFileLoader:
 
         if "C" not in self._header.dims:
             if self._header.num_channels != 1:
+                assert self._img_data is not None
                 raise ValueError(
-                    f"No C axis in dims but num_channels={self._header.num_channels}"
+                    self._format_missing_channel_axis_error(
+                        channel=channel,
+                        source_path=self.path,
+                        num_channels=self._header.num_channels,
+                        dims=self._header.dims,
+                        array_shape=tuple(int(x) for x in self._img_data.shape),
+                    )
                 )
             if channel != 0:
                 raise IndexError(f"No C axis; only channel 0 is valid, got {channel}")
