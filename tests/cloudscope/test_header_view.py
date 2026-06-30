@@ -18,6 +18,7 @@ def test_build_main_header_signature_accepts_title() -> None:
     sig = inspect.signature(build_main_header)
     assert "title" in sig.parameters
     assert "event_bus" in sig.parameters
+    assert "load_save_view" in sig.parameters
     assert "on_velocity_pool_toggle" in sig.parameters
     params = sig.parameters["title"]
     assert params.default == "CloudScope"

@@ -20,6 +20,7 @@ from cloudscope.app_config import AppConfig
 from cloudscope.event_bus import EventBus, EventSubscription
 from cloudscope.events.theme import ThemeChanged
 from cloudscope.utils.logging import get_logger
+from cloudscope.views.load_save_view import LoadSaveView
 
 logger = get_logger(__name__)
 
@@ -96,6 +97,7 @@ def build_main_header(
     title: str = "CloudScope",
     app_config: AppConfig | None = None,
     event_bus: EventBus | None = None,
+    load_save_view: LoadSaveView | None = None,
     show_open_pool: bool = False,
     show_open_main: bool = False,
     show_github: bool = True,
@@ -110,6 +112,7 @@ def build_main_header(
         title: Left-aligned application title text.
         app_config: When set, adds a light/dark toggle (persisted) before the GitHub link.
         event_bus: Optional page-scoped event bus used to publish theme state changes.
+        load_save_view: Optional pre-constructed load/save toolbar mounted after the title.
         show_open_pool: When True, add a web button that opens ``/pool`` in a named tab.
         show_open_main: When True, add a button that navigates to ``/``.
         show_github: When True, render the GitHub repository link.
@@ -118,9 +121,12 @@ def build_main_header(
     with ui.header().classes(
         "items-center justify-between bg-gray-900 text-gray-100"
     ).props("dense").style("min-height: 40px; padding: 0 12px;"):
-        with ui.row().classes("items-center gap-2 min-w-0"):
-            ui.label(title).classes("text-lg font-bold truncate")
-        with ui.row().classes("items-center gap-2"):
+        with ui.row().classes("items-center gap-3 min-w-0 flex-1 overflow-hidden"):
+            ui.label(title).classes("text-lg font-bold truncate shrink-0")
+            if load_save_view is not None:
+                with ui.row().classes("items-center min-w-0 flex-1 overflow-hidden"):
+                    load_save_view.build(compact=True)
+        with ui.row().classes("items-center gap-2 shrink-0"):
             if show_open_main:
                 ui.button("Open Main", on_click=lambda: ui.navigate.to("/")).props("flat dense")
             if on_velocity_pool_toggle is not None:

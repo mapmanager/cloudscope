@@ -109,25 +109,33 @@ class LoadSaveView(BaseView):
         self._recent_menu: ui.menu | None = None
         self._upload_widget: UploadWidget | None = None
         self._upload_progress: _UploadProgressDialog | None = None
+        self._compact = False
 
-    def build(self, parent: ui.element | None = None) -> ui.element:
+    def build(self, parent: ui.element | None = None, *, compact: bool = False) -> ui.element:
         """Build toolbar UI.
 
         Args:
             parent: Optional NiceGUI parent.
+            compact: When True, use dense controls suited for the application header bar.
 
         Returns:
             Root element for this view.
         """
         # logger.info('!!! debug timeout reset')
-        
+
+        self._compact = bool(compact)
         self._client = ui.context.client
+        row_classes = (
+            'items-center gap-1 min-w-0 flex-nowrap overflow-hidden'
+            if self._compact
+            else 'w-full items-center gap-2'
+        )
         if parent is None:
-            with ui.row().classes('w-full items-center gap-2') as self.root:
+            with ui.row().classes(row_classes) as self.root:
                 self._build_toolbar_contents()
         else:
             with parent:
-                with ui.row().classes('w-full items-center gap-2') as self.root:
+                with ui.row().classes(row_classes) as self.root:
                     self._build_toolbar_contents()
 
         self._update_button_states()
@@ -167,6 +175,22 @@ class LoadSaveView(BaseView):
         """
         self._update_button_states()
         
+    def _button_props(self, *, flat: bool = False) -> str:
+        """Return Quasar props for toolbar buttons.
+
+        Args:
+            flat: When True, include the flat prop.
+
+        Returns:
+            Space-separated Quasar prop string.
+        """
+        parts = ['dense']
+        if flat:
+            parts.append('flat')
+        if self._compact:
+            parts.append('no-caps')
+        return ' '.join(parts)
+
     def _build_toolbar_contents(self) -> None:
         """Build toolbar controls inside the current NiceGUI slot.
 
@@ -178,31 +202,32 @@ class LoadSaveView(BaseView):
             self._history_button = ui.button(
                 icon='menu',
                 on_click=self._open_recent_menu,
-            ).props('flat')
+            ).props(self._button_props(flat=True))
             self._build_recent_menu()
 
         self._load_file_button = ui.button(
             'Load File',
             on_click=lambda: self._on_load_clicked(LoadPathKind.FILE),
-        )
+        ).props(self._button_props())
         self._load_folder_button = ui.button(
             'Load Folder',
             on_click=lambda: self._on_load_clicked(LoadPathKind.FOLDER),
-        )
+        ).props(self._button_props())
         if not self._local_path_pickers_enabled():
             picker_hint = 'Local file picker is available in the desktop app'
             self._load_file_button.tooltip(picker_hint)
             self._load_folder_button.tooltip(picker_hint)
         self._build_upload_control()
 
+        save_classes = '' if self._compact else 'ml-auto'
         self._save_selected_button = ui.button(
             'Save Selected',
             on_click=self._on_save_selected_clicked,
-        ).classes('ml-auto')
+        ).props(self._button_props()).classes(save_classes)
         self._save_all_button = ui.button(
             'Save All',
             on_click=self._on_save_all_clicked,
-        )
+        ).props(self._button_props())
 
     def _build_upload_control(self) -> None:
         """Mount the inline compact upload widget that doubles as a drop target.

@@ -101,6 +101,20 @@ def test_splitter_manager_restore_open_value_recovers_from_file_list_peek(tmp_pa
     assert splitter.value == HOME_SPLITTER_PRESETS[SplitterId.FILE_LIST].default_value
 
 
+def test_splitter_manager_is_file_list_collapsed(tmp_path: Path) -> None:
+    """File-list collapsed detection should treat peek values as collapsed."""
+    cfg = AppConfig(path=tmp_path / 'app_config.json')
+    manager = SplitterManager(cfg)
+    splitter = FakeSplitter(value=HOME_FILE_LIST_PEEK_SPLITTER_PCT)
+    manager.register(SplitterId.FILE_LIST, splitter)
+
+    assert manager.is_file_list_collapsed() is True
+
+    manager.set_value(SplitterId.FILE_LIST, 25.0, remember=False)
+
+    assert manager.is_file_list_collapsed() is False
+
+
 def test_splitter_manager_keeps_left_toolbar_closed_limit() -> None:
     """Left toolbar keeps its closed rail instead of collapsing fully."""
     assert HOME_SPLITTER_PRESETS[SplitterId.LEFT_TOOLBAR].limits[0] == HOME_LEFT_TOOLBAR_CLOSED_SPLITTER_PCT

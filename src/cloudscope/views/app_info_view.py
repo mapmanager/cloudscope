@@ -88,9 +88,9 @@ class AppInfoView(BaseView):
             open_logs_button.disable()
 
         log_expansion = SmartExpansion(
-            'Recent logs',
-            icon='article',
-            caption='Last 200 lines from cloudscope.log',
+            'Cloudscope logs',
+            # icon='article',
+            # caption='cloudscope.log',
             initially_open=False,
             on_open=self._refresh_log_preview,
         )

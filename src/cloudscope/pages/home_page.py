@@ -201,11 +201,11 @@ class HomePage:
         right_pool_column_ref: dict[str, ui.element | None] = {'value': None}
         workspace_frame_ref: dict[str, Any | None] = {'value': None}
         home_expansion_refs: dict[str, SmartExpansion | None] = {
-            'file_list': None,
             'analysis_plot': None,
             # 'reference_image': None,  # 20260629 home reference image commented out
             'velocity_pool': None,
         }
+        file_list_header_chevron_ref: dict[str, ui.icon | None] = {'value': None}
         panel_open_state = {
             'file_list': False,
             'analysis_plot': True,
@@ -348,15 +348,32 @@ class HomePage:
             else:
                 splitter_manager.collapse_pane(SplitterId.ANALYSIS_REFERENCE, 'before')
 
-        def _open_file_list_panel() -> None:
-            """Show file list view and restore its splitter pane.
+        def _sync_file_list_header() -> None:
+            """Update the file-list header chevron to match panel open state.
 
             Returns:
                 None.
             """
+            chevron = file_list_header_chevron_ref['value']
+            if chevron is None:
+                return
+            if panel_open_state['file_list']:
+                chevron.classes(add='rotate-180', remove='rotate-0')
+            else:
+                chevron.classes(add='rotate-0', remove='rotate-180')
+
+        def _open_file_list_panel() -> None:
+            """Show file list view and restore its splitter pane when opening from closed.
+
+            Returns:
+                None.
+            """
+            was_closed = not panel_open_state['file_list']
             panel_open_state['file_list'] = True
-            splitter_manager.restore_open_value(SplitterId.FILE_LIST)
+            if was_closed:
+                splitter_manager.restore_open_value(SplitterId.FILE_LIST)
             file_list_panel.show()
+            _sync_file_list_header()
 
         def _close_file_list_panel() -> None:
             """Hide file list view and collapse its splitter pane.
@@ -367,6 +384,18 @@ class HomePage:
             panel_open_state['file_list'] = False
             file_list_panel.hide()
             splitter_manager.collapse_file_list_to_peek()
+            _sync_file_list_header()
+
+        def _toggle_file_list_panel() -> None:
+            """Toggle home file-list panel open or closed.
+
+            Returns:
+                None.
+            """
+            if panel_open_state['file_list']:
+                _close_file_list_panel()
+            else:
+                _open_file_list_panel()
 
         def _open_analysis_plot_panel() -> None:
             """Show analysis plot view and apply shared splitter layout.
@@ -433,21 +462,21 @@ class HomePage:
             velocity_pool_view.hide()
 
         def _reset_home_expansions() -> None:
-            """Restore Home page SmartExpansion panels to their default open state.
+            """Restore Home page panels to their default open state.
 
             Reference image stays collapsed; other panels are opened.
 
             Returns:
                 None.
             """
-            for key, expansion in home_expansion_refs.items():
+            _open_file_list_panel()
+            for expansion in home_expansion_refs.values():
                 if expansion is None:
                     continue
                 # if key == 'reference_image':  # 20260629 home reference image commented out
                 #     expansion.close()  # 20260629 home reference image commented out
                 # else:  # 20260629 home reference image commented out
                 expansion.open()
-            panel_open_state['file_list'] = True
             panel_open_state['analysis_plot'] = True
             # panel_open_state['reference_image'] = False  # 20260629 home reference image commented out
             panel_open_state['velocity_pool'] = True
@@ -507,11 +536,13 @@ class HomePage:
             title='CloudScope',
             app_config=self.app_config,
             event_bus=self.event_bus,
+            load_save_view=load_save_view,
             show_open_pool=get_pool_launcher() is not None,
             on_velocity_pool_toggle=(
                 _header_toggle_right_pool_panel if SHOW_VELOCITY_POOL_RIGHT_PANEL else None
             ),
         )
+        view_manager.register(load_save_view)
         footer.build()
         view_manager.register(footer)
         task_progress_dialog.build()
@@ -537,31 +568,25 @@ class HomePage:
                         splitter_manager.register(SplitterId.FILE_LIST, file_list_splitter)
 
                         with file_list_splitter.before:
-                            with ui.column().classes(_fill_column_classes()):
-                                load_save_view.build()
-                                view_manager.register(load_save_view)
+                            with ui.column().classes(_fill_column_classes('gap-0')):
+                                with ui.row().classes(
+                                    'w-full items-center gap-2 shrink-0 cursor-pointer py-1 px-1 '
+                                    'border-b border-gray-200 dark:border-gray-700'
+                                ) as file_list_header:
+                                    ui.icon('account_tree').classes('text-lg')
+                                    ui.label('File list').classes('flex-1 text-sm font-medium')
+                                    file_list_header_chevron = ui.icon('expand_more').classes(
+                                        'transition-transform duration-200'
+                                    )
+                                    file_list_header_chevron_ref['value'] = file_list_header_chevron
+                                file_list_header.on('click', _toggle_file_list_panel)
 
                                 with ui.column().classes(
-                                    'w-full flex-1 min-h-0 flex flex-col shrink gap-0'
+                                    'w-full flex-1 min-h-0 flex flex-col overflow-hidden'
                                 ):
-                                    file_list_expansion = SmartExpansion(
-                                        'File list',
-                                        icon='account_tree',
-                                        initially_open=False,
-                                        on_open=_open_file_list_panel,
-                                        on_close=_close_file_list_panel,
-                                    )
-                                    home_expansion_refs['file_list'] = file_list_expansion
-                                    file_list_expansion.expansion.classes(
-                                        'w-full flex-1 min-h-0 flex flex-col'
-                                    )
-                                    with file_list_expansion:
-                                        with ui.column().classes(
-                                            'w-full flex-1 min-h-0 flex flex-col overflow-hidden'
-                                        ):
-                                            file_list_panel.build()
-                                    file_list_expansion.apply_initial_state()
-                                    view_manager.register(file_list_panel)
+                                    file_list_panel.build()
+                                view_manager.register(file_list_panel)
+                                _close_file_list_panel()
 
                         with file_list_splitter.after:
                             primary_preset = HOME_SPLITTER_PRESETS[SplitterId.PRIMARY_IMAGE]

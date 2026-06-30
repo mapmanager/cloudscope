@@ -21,10 +21,11 @@ from cloudscope.app_config import (
     AppConfig,
 )
 
-# Peek height for the home file-list SmartExpansion when collapsed (percent of
-# workspace height). Keeps the expansion header visible without reserving the
+# Peek height for the home file-list header row when collapsed (percent of
+# workspace height). Keeps the toggle header visible without reserving the
 # full open file-list splitter share.
-HOME_FILE_LIST_PEEK_SPLITTER_PCT = 2.5
+# Enough vertical space for the file-list header row (no Load/Save in this pane).
+HOME_FILE_LIST_PEEK_SPLITTER_PCT = 6.0
 HOME_FILE_LIST_COLLAPSED_SLACK_PCT = 0.5
 
 
@@ -253,12 +254,23 @@ class SplitterManager:
         value = preset.limits[0] if side == 'before' else preset.limits[1]
         return self.set_value(splitter_id, value, remember=False)
 
+    def is_file_list_collapsed(self) -> bool:
+        """Return whether the home file-list splitter is at peek/collapsed height.
+
+        Returns:
+            True when the file-list pane is at or below the peek collapse threshold.
+        """
+        managed = self._splitters.get(SplitterId.FILE_LIST)
+        if managed is None:
+            return True
+        return self._is_collapsed_value(SplitterId.FILE_LIST, managed.value)
+
     def collapse_file_list_to_peek(self) -> float:
-        """Collapse the home file-list pane to a peek height for the expansion header.
+        """Collapse the home file-list pane to a peek height for the toggle header.
 
         Unlike :meth:`collapse_pane` with ``side='before'`` (which drives the
         splitter to 0%), this leaves ~``HOME_FILE_LIST_PEEK_SPLITTER_PCT`` of
-        vertical space so the SmartExpansion title row stays visible and clickable.
+        vertical space so the file-list header row stays visible and clickable.
 
         Returns:
             Applied splitter value.
