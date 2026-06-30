@@ -21,6 +21,12 @@ from cloudscope.app_config import (
     AppConfig,
 )
 
+# Peek height for the home file-list SmartExpansion when collapsed (percent of
+# workspace height). Keeps the expansion header visible without reserving the
+# full open file-list splitter share.
+HOME_FILE_LIST_PEEK_SPLITTER_PCT = 2.5
+HOME_FILE_LIST_COLLAPSED_SLACK_PCT = 0.5
+
 
 class SplitterId(StrEnum):
     """Managed Home page splitter identifiers."""
@@ -247,6 +253,22 @@ class SplitterManager:
         value = preset.limits[0] if side == 'before' else preset.limits[1]
         return self.set_value(splitter_id, value, remember=False)
 
+    def collapse_file_list_to_peek(self) -> float:
+        """Collapse the home file-list pane to a peek height for the expansion header.
+
+        Unlike :meth:`collapse_pane` with ``side='before'`` (which drives the
+        splitter to 0%), this leaves ~``HOME_FILE_LIST_PEEK_SPLITTER_PCT`` of
+        vertical space so the SmartExpansion title row stays visible and clickable.
+
+        Returns:
+            Applied splitter value.
+        """
+        return self.set_value(
+            SplitterId.FILE_LIST,
+            HOME_FILE_LIST_PEEK_SPLITTER_PCT,
+            remember=False,
+        )
+
     def capture_current_value(self, splitter_id: SplitterId) -> None:
         """Remember the current UI value for one splitter in AppConfig memory.
 
@@ -358,7 +380,7 @@ class SplitterManager:
         if splitter_id is SplitterId.LEFT_TOOLBAR:
             return value <= HOME_LEFT_TOOLBAR_CLOSED_SPLITTER_PCT + HOME_LEFT_TOOLBAR_COLLAPSED_SLACK_PCT
         if splitter_id is SplitterId.FILE_LIST:
-            return value <= lower
+            return value <= HOME_FILE_LIST_PEEK_SPLITTER_PCT + HOME_FILE_LIST_COLLAPSED_SLACK_PCT
         if splitter_id is SplitterId.PRIMARY_IMAGE:
             return value >= upper
         if splitter_id is SplitterId.ANALYSIS_REFERENCE:

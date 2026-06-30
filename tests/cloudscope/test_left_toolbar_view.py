@@ -5,6 +5,7 @@ from __future__ import annotations
 from cloudscope.app_config import AppConfig
 from cloudscope.event_bus import EventBus
 from cloudscope.views.app_config_view import AppConfigView
+from cloudscope.views.left_panel_file_list_view import LeftPanelFileListView
 from cloudscope.views.left_toolbar_view import LeftPanelReferenceImageView, LeftToolbarView
 from cloudscope.views.metadata_widget.experiment_metadata_view import ExperimentMetadataView
 from cloudscope.views.metadata_widget.image_header_metadata_view import ImageHeaderMetadataView
@@ -29,6 +30,7 @@ def test_left_toolbar_constructs_panel_views(tmp_path) -> None:
     )
 
     assert view.view_id is ViewId.LEFT_TOOLBAR
+    assert isinstance(view.file_list_view, LeftPanelFileListView)
     assert isinstance(view.experiment_metadata_view, ExperimentMetadataView)
     assert isinstance(view.image_header_metadata_view, ImageHeaderMetadataView)
     assert isinstance(view.velocity_analysis_view, VelocityAnalysisView)
@@ -37,6 +39,7 @@ def test_left_toolbar_constructs_panel_views(tmp_path) -> None:
     assert isinstance(view.app_config_view, AppConfigView)
     assert isinstance(view.reference_image_view, LeftPanelReferenceImageView)
     assert view.panel_view_ids == (
+        ViewId.LEFT_TOOLBAR_FILE_LIST,
         ViewId.EXPERIMENT_METADATA,
         ViewId.IMAGE_HEADER_METADATA,
         ViewId.VELOCITY_ANALYSIS,

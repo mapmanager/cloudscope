@@ -207,7 +207,7 @@ class HomePage:
             'velocity_pool': None,
         }
         panel_open_state = {
-            'file_list': True,
+            'file_list': False,
             'analysis_plot': True,
             'reference_image': False,
             'velocity_pool': True,
@@ -366,7 +366,7 @@ class HomePage:
             """
             panel_open_state['file_list'] = False
             file_list_panel.hide()
-            splitter_manager.collapse_pane(SplitterId.FILE_LIST, 'before')
+            splitter_manager.collapse_file_list_to_peek()
 
         def _open_analysis_plot_panel() -> None:
             """Show analysis plot view and apply shared splitter layout.
@@ -541,10 +541,27 @@ class HomePage:
                                 load_save_view.build()
                                 view_manager.register(load_save_view)
 
-                                file_list_panel.show()
-                                file_list_panel.build()
-
-                                view_manager.register(file_list_panel)
+                                with ui.column().classes(
+                                    'w-full flex-1 min-h-0 flex flex-col shrink gap-0'
+                                ):
+                                    file_list_expansion = SmartExpansion(
+                                        'File list',
+                                        icon='account_tree',
+                                        initially_open=False,
+                                        on_open=_open_file_list_panel,
+                                        on_close=_close_file_list_panel,
+                                    )
+                                    home_expansion_refs['file_list'] = file_list_expansion
+                                    file_list_expansion.expansion.classes(
+                                        'w-full flex-1 min-h-0 flex flex-col'
+                                    )
+                                    with file_list_expansion:
+                                        with ui.column().classes(
+                                            'w-full flex-1 min-h-0 flex flex-col overflow-hidden'
+                                        ):
+                                            file_list_panel.build()
+                                    file_list_expansion.apply_initial_state()
+                                    view_manager.register(file_list_panel)
 
                         with file_list_splitter.after:
                             primary_preset = HOME_SPLITTER_PRESETS[SplitterId.PRIMARY_IMAGE]

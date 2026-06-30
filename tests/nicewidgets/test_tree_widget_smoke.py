@@ -339,6 +339,18 @@ def test_show_index_column_prepends_synthetic_column() -> None:
     assert 'file_row_index' not in tw._rows[0]
 
 
+def test_show_index_column_width_multiplier_scales_default_width() -> None:
+    """Index column width should honor index_column_width_multiplier."""
+    tw = TreeWidget(
+        columns=_sample_columns(),
+        row_id_field='row_id',
+        rows=_sample_rows(),
+        config=TreeWidgetConfig(show_index_column=True, index_column_width_multiplier=0.5),
+    )
+    base_width = font_scaled_column_width_px(None)
+    assert tw._column_defs[0]['width'] == max(1, int(round(base_width * 0.5)))
+
+
 def test_set_data_does_not_write_index_into_rows() -> None:
     tw = TreeWidget(
         columns=_sample_columns(),

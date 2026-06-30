@@ -17,6 +17,7 @@ class ViewId(StrEnum):
     DIAMETER_ANALYSIS = "diameter_analysis"
     SUM_INTENSITY_ANALYSIS = "sum_intensity_analysis"
     LEFT_TOOLBAR_REFERENCE_IMAGE = "left_toolbar_reference_image"
+    LEFT_TOOLBAR_FILE_LIST = "left_toolbar_file_list"
     SUM_INTENSITY_PLOT = "sum_intensity_plot"
     EVENT_ANALYSIS = "event_analysis"
     ACQ_ANALYSIS_PLOT = "acq_analysis_plot"

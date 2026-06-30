@@ -12,6 +12,7 @@ the wiring site in :func:`cloudscope.pages.home_page.HomePage.build`.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 from nicegui import ui
@@ -37,6 +38,7 @@ from cloudscope.events.metadata import MetadataChanged
 from cloudscope.events.roi import RoiChanged
 from cloudscope.events.selection import SelectFileIntent
 from cloudscope.schema_adapters import schema_to_column_defs
+from nicewidgets.aggrid_common.column_def import ColumnDef
 from cloudscope.utils.file_manager import reveal_in_file_manager
 from cloudscope.utils.logging import get_logger
 from cloudscope.views.base_view import BaseView
@@ -89,6 +91,10 @@ class AcqImageListTreeView(BaseView):
             updates.
         table_font_size_px: Tree cell font size in pixels.
         initially_visible: Whether this view starts visible.
+        default_visible_columns: When set, schema columns not in this set
+            start hidden. Users can show them via the tree context-menu
+            column toggles. When ``None``, column visibility follows the
+            AcqStore schema defaults only.
     """
 
     view_id = ViewId.FILE_LIST
@@ -100,10 +106,62 @@ class AcqImageListTreeView(BaseView):
         app_state: Any | None = None,
         table_font_size_px: int = 12,
         initially_visible: bool = True,
+        default_visible_columns: frozenset[str] | None = None,
     ) -> None:
         super().__init__(event_bus=event_bus, app_state=app_state, initially_visible=initially_visible)
         self._table_font_size_px = int(table_font_size_px)
+        self._default_visible_columns = default_visible_columns
         self._tree: TreeWidget | None = None
+
+    def _build_schema_column_defs(self, font_px: int) -> list[ColumnDef]:
+        """Return tree column definitions for the file-list schema.
+
+        Args:
+            font_px: Cell font size in pixels forwarded to width scaling.
+
+        Returns:
+            Column definitions with optional ``default_visible_columns``
+            visibility applied.
+        """
+        columns = schema_to_column_defs(
+            ACQ_FILE_LIST_SCHEMA,
+            tree_group_display_field=_TREE_CHEVRON_COLUMN_FIELD,
+            cell_font_size_px=font_px,
+        )
+        if self._default_visible_columns is None:
+            return columns
+        visible = self._default_visible_columns
+        return [
+            replace(col, hide=True) if col.field not in visible else col
+            for col in columns
+        ]
+
+    def _build_tree_widget_config(
+        self,
+        font_px: int,
+        row_h: int,
+        header_h: int,
+    ) -> TreeWidgetConfig:
+        """Return :class:`TreeWidgetConfig` for this file-list tree.
+
+        Args:
+            font_px: Cell font size in pixels.
+            row_h: Row height in pixels.
+            header_h: Header height in pixels.
+
+        Returns:
+            Tree widget configuration.
+        """
+        return TreeWidgetConfig(
+            selection_mode="single",
+            auto_size_columns=False,
+            fit_columns_on_grid_resize=False,
+            suppress_movable_columns=True,
+            show_index_column=True,
+            cell_font_size_px=font_px,
+            row_height=row_h,
+            header_height=header_h,
+        )
 
     def build(self, parent: ui.element | None = None) -> ui.element:
         """Build and return the file-list tree UI.
@@ -118,25 +176,12 @@ class AcqImageListTreeView(BaseView):
         row_h, header_h = scaled_row_header_heights_px(font_px)
         rows = self._read_tree_rows_from_state()
         self._tree = TreeWidget(
-            columns=schema_to_column_defs(
-                ACQ_FILE_LIST_SCHEMA,
-                tree_group_display_field=_TREE_CHEVRON_COLUMN_FIELD,
-                cell_font_size_px=font_px,
-            ),
+            columns=self._build_schema_column_defs(font_px),
             row_id_field=ACQ_TREE_ROW_ID_FIELD,
             rows=rows,
             on_row_selected=self._on_row_selected,
             on_build_context_menu=self._build_context_menu,
-            config=TreeWidgetConfig(
-                selection_mode="single",
-                auto_size_columns=False,
-                fit_columns_on_grid_resize=False,
-                suppress_movable_columns=True,
-                show_index_column=True,
-                cell_font_size_px=font_px,
-                row_height=row_h,
-                header_height=header_h,
-            ),
+            config=self._build_tree_widget_config(font_px, row_h, header_h),
             path_field=ACQ_TREE_PATH_FIELD,
         )
 

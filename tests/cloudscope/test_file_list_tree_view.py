@@ -497,3 +497,41 @@ def test_build_passes_sized_parent_to_tree_widget(monkeypatch) -> None:
     assert captured['parent'] is mock_root
     assert built_root is mock_root
     mock_column.classes.assert_called_once_with(tree_view_mod._FILE_TREE_ROOT_CLASSES)
+
+
+def test_build_schema_column_defs_respects_default_visible_columns() -> None:
+    """default_visible_columns should hide schema fields outside the allowlist."""
+    view = AcqImageListTreeView(
+        event_bus=EventBus(),
+        default_visible_columns=frozenset({'name', 'parent', 'grandparent', 'dims'}),
+    )
+    columns = view._build_schema_column_defs(13)
+    by_field = {col.field: col for col in columns}
+
+    assert by_field['name'].hide is False
+    assert by_field['parent'].hide is False
+    assert by_field['grandparent'].hide is False
+    assert by_field['dims'].hide is False
+    assert by_field['saved'].hide is True
+    assert by_field['loaded'].hide is True
+    assert by_field['num_channels'].hide is True
+
+
+def test_build_schema_column_defs_without_profile_uses_schema_defaults() -> None:
+    """When default_visible_columns is None, schema visibility is unchanged."""
+    view = AcqImageListTreeView(event_bus=EventBus())
+    columns = view._build_schema_column_defs(13)
+    by_field = {col.field: col for col in columns}
+
+    assert by_field['name'].hide is False
+    assert by_field['path'].hide is True
+    assert by_field['condition'].hide is True
+
+
+def test_left_panel_file_list_view_uses_toolbar_view_id() -> None:
+    """Left toolbar file list should register under LEFT_TOOLBAR_FILE_LIST."""
+    from cloudscope.views.left_panel_file_list_view import LeftPanelFileListView
+    from cloudscope.views.view_ids import ViewId
+
+    view = LeftPanelFileListView(event_bus=EventBus())
+    assert view.view_id is ViewId.LEFT_TOOLBAR_FILE_LIST

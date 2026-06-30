@@ -176,6 +176,9 @@ class TreeWidget:
                     )
             self._index_field = idx_f
             idx_width = font_scaled_column_width_px(self._config.cell_font_size_px)
+            scale = float(self._config.index_column_width_multiplier)
+            if scale != 1.0:
+                idx_width = max(1, int(round(idx_width * scale)))
             index_col = ColumnDef(
                 field=idx_f,
                 headerName=str(self._config.index_header),

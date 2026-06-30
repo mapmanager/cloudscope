@@ -54,6 +54,8 @@ class TreeWidgetConfig:
             a blank header (column remains visible).
         index_menu_label: Label used in the column visibility context menu
             when ``index_header`` is blank (default ``Index``).
+        index_column_width_multiplier: Scale factor applied to the default
+            font-scaled index column width (``1.0`` keeps the default).
     """
 
     selection_mode: SelectionMode = 'single'
@@ -71,6 +73,7 @@ class TreeWidgetConfig:
     index_field: str = 'file_row_index'
     index_header: str = ''
     index_menu_label: str = 'Index'
+    index_column_width_multiplier: float = 1.0
 
 
 def scaled_row_header_heights_px(cell_font_size_px: int) -> tuple[int, int]:

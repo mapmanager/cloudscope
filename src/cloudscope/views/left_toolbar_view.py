@@ -17,6 +17,7 @@ from cloudscope.views.base_view import BaseView
 from cloudscope.views.metadata_widget.experiment_metadata_view import ExperimentMetadataView
 from cloudscope.views.metadata_widget.image_header_metadata_view import ImageHeaderMetadataView
 from cloudscope.views.diameter_analysis_view import DiameterAnalysisView
+from cloudscope.views.left_panel_file_list_view import LeftPanelFileListView
 from cloudscope.views.sum_intensity_analysis_view import SumIntensityAnalysisView
 from cloudscope.views.reference_image_view import ReferenceImageView
 from cloudscope.views.velocity_analysis_view import VelocityAnalysisView
@@ -46,6 +47,7 @@ class LeftToolbarTab:
 
 
 _LEFT_TOOLBAR_TABS: tuple[LeftToolbarTab, ...] = (
+    LeftToolbarTab(ViewId.LEFT_TOOLBAR_FILE_LIST, "File List", "account_tree"),
     LeftToolbarTab(ViewId.EXPERIMENT_METADATA, "Experimental Metadata", "description"),
     LeftToolbarTab(ViewId.IMAGE_HEADER_METADATA, "Image Header", "biotech"),
     LeftToolbarTab(ViewId.VELOCITY_ANALYSIS, "Velocity", "speed"),
@@ -100,6 +102,12 @@ class LeftToolbarView(BaseView):
         self._active_view_id: ViewId | None = None
         self._buttons: dict[ViewId, ui.button] = {}
         self._left_panel_root: ui.element | None = None
+        self.file_list_view = LeftPanelFileListView(
+            event_bus=event_bus,
+            app_state=app_state,
+            table_font_size_px=int(app_config.data.table_font_size_px),
+            initially_visible=False,
+        )
         self.experiment_metadata_view = ExperimentMetadataView(
             event_bus=event_bus,
             app_state=app_state,
@@ -178,6 +186,7 @@ class LeftToolbarView(BaseView):
                     self._build_buttons()
                 with ui.column().classes("h-full min-h-0 w-full flex-1 gap-3 p-3 overflow-hidden") as panel_root:
                     self._left_panel_root = panel_root
+                    self.file_list_view.build()
                     self.experiment_metadata_view.build()
                     self.image_header_metadata_view.build()
                     self.velocity_analysis_view.build()
@@ -214,6 +223,7 @@ class LeftToolbarView(BaseView):
             None.
         """
         for view in (
+            self.file_list_view,
             self.experiment_metadata_view,
             self.image_header_metadata_view,
             self.velocity_analysis_view,

@@ -14,7 +14,12 @@ from cloudscope.app_config import (
     HOME_RIGHT_POOL_MAIN_MIN_SPLITTER_PCT,
     AppConfig,
 )
-from cloudscope.views.splitter_manager import HOME_SPLITTER_PRESETS, SplitterId, SplitterManager
+from cloudscope.views.splitter_manager import (
+    HOME_FILE_LIST_PEEK_SPLITTER_PCT,
+    HOME_SPLITTER_PRESETS,
+    SplitterId,
+    SplitterManager,
+)
 
 
 @dataclass
@@ -51,7 +56,6 @@ def test_splitter_manager_smart_expansion_collapse_values_are_temporary(tmp_path
     manager = SplitterManager(cfg)
 
     cases = (
-        (SplitterId.FILE_LIST, 'before'),
         (SplitterId.PRIMARY_IMAGE, 'after'),
         (SplitterId.ANALYSIS_REFERENCE, 'before'),
         (SplitterId.ANALYSIS_REFERENCE, 'after'),
@@ -66,6 +70,35 @@ def test_splitter_manager_smart_expansion_collapse_values_are_temporary(tmp_path
         lower, upper = HOME_SPLITTER_PRESETS[splitter_id].limits
         assert applied == (lower if side == 'before' else upper)
         assert cfg.get_home_splitter_value(splitter_id.value) == original
+
+
+def test_splitter_manager_collapse_file_list_to_peek_is_temporary(tmp_path: Path) -> None:
+    """File-list peek collapse should not replace remembered open layout."""
+    cfg = AppConfig(path=tmp_path / 'app_config.json')
+    manager = SplitterManager(cfg)
+    splitter = FakeSplitter(value=25.0)
+    manager.register(SplitterId.FILE_LIST, splitter)
+    original = cfg.get_home_splitter_value('file_list')
+
+    applied = manager.collapse_file_list_to_peek()
+
+    assert applied == HOME_FILE_LIST_PEEK_SPLITTER_PCT
+    assert splitter.value == HOME_FILE_LIST_PEEK_SPLITTER_PCT
+    assert cfg.get_home_splitter_value('file_list') == original
+
+
+def test_splitter_manager_restore_open_value_recovers_from_file_list_peek(tmp_path: Path) -> None:
+    """Restoring file-list splitter should recover from peek collapse values."""
+    cfg = AppConfig(path=tmp_path / 'app_config.json')
+    cfg.set_home_splitter_value('file_list', HOME_FILE_LIST_PEEK_SPLITTER_PCT)
+    manager = SplitterManager(cfg)
+    splitter = FakeSplitter(value=HOME_FILE_LIST_PEEK_SPLITTER_PCT)
+    manager.register(SplitterId.FILE_LIST, splitter)
+
+    applied = manager.restore_open_value(SplitterId.FILE_LIST)
+
+    assert applied == HOME_SPLITTER_PRESETS[SplitterId.FILE_LIST].default_value
+    assert splitter.value == HOME_SPLITTER_PRESETS[SplitterId.FILE_LIST].default_value
 
 
 def test_splitter_manager_keeps_left_toolbar_closed_limit() -> None:
