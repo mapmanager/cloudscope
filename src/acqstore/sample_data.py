@@ -19,6 +19,11 @@ from platformdirs import user_data_dir
 SAMPLE_DATA_DIR_ENV = 'CLOUDSCOPE_SAMPLE_DATA_DIR'
 DEFAULT_APP_NAME = 'cloudscope'
 
+DIAMETER_SAMPLE_DATA = 'diameter-sample-data'
+VELOCITY_SAMPLE_DATA = 'velocity-sample-data'
+
+_RELEASE_BASE = 'https://github.com/mapmanager/cloudscope-data/releases/download/v0.1.0'
+
 
 @dataclass(frozen=True, slots=True)
 class SampleDataset:
@@ -57,13 +62,21 @@ class SampleDataset:
 
 
 SAMPLES: dict[str, SampleDataset] = {
-    'demo-small': SampleDataset(
-        name='demo-small',
+    DIAMETER_SAMPLE_DATA: SampleDataset(
+        name=DIAMETER_SAMPLE_DATA,
         version='v1',
-        url='https://github.com/mapmanager/cloudscope-data/releases/download/v0.1.0/demo-small-v1.zip',
-        sha256='30a2d494eb2884d9258e249e861abd9726791dca8829b47bb1a12515ec289d93',
-        extracted_dir='demo-small',
-        description='Small demo dataset with raw OIR files and saved analysis outputs.',
+        url=f'{_RELEASE_BASE}/diameter-sample-data.zip',
+        sha256='0d897008319e998ddabc383abb1245f8fefe5b9655f44de1b094f09cfe464d7a',
+        extracted_dir=DIAMETER_SAMPLE_DATA,
+        description='TIF kymograph sample data for diameter analysis demos.',
+    ),
+    VELOCITY_SAMPLE_DATA: SampleDataset(
+        name=VELOCITY_SAMPLE_DATA,
+        version='v1',
+        url=f'{_RELEASE_BASE}/velocity-sample-data.zip',
+        sha256='a8223a2c7984bd43ef3df882e7f9f7216459341b76285af4286ff809a5d64941',
+        extracted_dir=VELOCITY_SAMPLE_DATA,
+        description='OIR kymograph sample data for velocity analysis demos.',
     ),
 }
 

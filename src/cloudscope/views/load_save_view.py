@@ -10,6 +10,7 @@ from pathlib import Path
 from nicegui import app, ui
 
 from acqstore.acq_image.supported_import_extensions import get_allowed_import_extensions
+from acqstore.sample_data import DIAMETER_SAMPLE_DATA, VELOCITY_SAMPLE_DATA
 from acqstore.upload_store import (
     UploadCollisionError,
     UploadError,
@@ -320,7 +321,16 @@ class LoadSaveView(BaseView):
             if recent_folders or recent_files:
                 ui.separator()
             ui.menu_item('Load CSV', lambda: self._on_load_clicked(LoadPathKind.CSV))
-            ui.menu_item('Load Sample Data', self._on_load_sample_data_clicked)
+
+            ui.menu_item(
+                'Load Diameter Sample Data',
+                lambda: self._on_load_sample_data_clicked(DIAMETER_SAMPLE_DATA),
+            )
+            ui.menu_item(
+                'Load Velocity Sample Data',
+                lambda: self._on_load_sample_data_clicked(VELOCITY_SAMPLE_DATA),
+            )
+
             self._append_manning_preset_menu_item()
             if recent_folders or recent_files:
                 ui.separator()
@@ -361,9 +371,13 @@ class LoadSaveView(BaseView):
     #         return
     #     self.event_bus.publish(LoadPathIntent(path=path, kind=kind))
 
-    def _on_load_sample_data_clicked(self) -> None:
-        """Emit a request to load the default sample dataset."""
-        self.event_bus.publish(LoadSampleDataIntent(name='demo-small'))
+    def _on_load_sample_data_clicked(self, name: str) -> None:
+        """Emit a request to load one registered sample dataset.
+
+        Args:
+            name: Registered sample key from :mod:`acqstore.sample_data`.
+        """
+        self.event_bus.publish(LoadSampleDataIntent(name=name))
 
     def _manning_preset_load_path(self) -> Path | None:
         """Return the Manning preset path for server/docker contexts.

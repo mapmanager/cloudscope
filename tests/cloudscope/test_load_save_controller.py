@@ -780,7 +780,7 @@ def test_load_sample_data_intent_ensures_sample_then_loads_folder(tmp_path, monk
     controller = LoadSaveController(event_bus=bus, home_controller=home, app_config=cfg)
     controller.bind()
 
-    sample_folder = tmp_path / 'sample-cache' / 'demo-small-v1' / 'demo-small'
+    sample_folder = tmp_path / 'sample-cache' / 'velocity-sample-data-v1' / 'velocity-sample-data'
     sample_folder.mkdir(parents=True)
     fake_list = _FakeList([_FakeFile(str(sample_folder / 'a.oir'))])
     captured: dict[str, object] = {}
@@ -798,9 +798,9 @@ def test_load_sample_data_intent_ensures_sample_then_loads_folder(tmp_path, monk
     monkeypatch.setattr('cloudscope.controllers.load_save_controller.ensure_sample', _ensure_sample)
     monkeypatch.setattr('cloudscope.controllers.load_save_controller.AcqImageList.load_safe', _load_safe)
 
-    bus.publish(LoadSampleDataIntent(name='demo-small'))
+    bus.publish(LoadSampleDataIntent(name='velocity-sample-data'))
 
-    assert captured['sample_name'] == 'demo-small'
+    assert captured['sample_name'] == 'velocity-sample-data'
     assert captured['load_path'] == str(sample_folder)
     assert captured['kind'].value == 'folder'
     assert cfg.get_recent_folders()[-1] == str(sample_folder)

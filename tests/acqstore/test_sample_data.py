@@ -25,16 +25,17 @@ def _make_zip(path: Path, *, root_name: str = 'demo-small') -> None:
         zf.writestr(f'{root_name}/cond1/a.oir.json', '{}')
 
 
-def test_list_samples_includes_demo_small() -> None:
+def test_list_samples_includes_registered_datasets() -> None:
     samples = list_samples()
     names = [item.name for item in samples]
-    assert 'demo-small' in names
+    assert 'diameter-sample-data' in names
+    assert 'velocity-sample-data' in names
 
 
 def test_get_sample_returns_registered_sample() -> None:
-    sample = get_sample('demo-small')
-    assert sample.name == 'demo-small'
-    assert sample.extracted_dir == 'demo-small'
+    sample = get_sample('diameter-sample-data')
+    assert sample.name == 'diameter-sample-data'
+    assert sample.extracted_dir == 'diameter-sample-data'
 
 
 def test_get_sample_raises_for_unknown_sample() -> None:
