@@ -40,10 +40,10 @@ def test_left_panel_column_widths_and_blank_marker_headers() -> None:
     assert by_field['saved'].extra['width'] == marker_width
 
 
-def test_left_panel_tree_config_uses_half_width_index_column() -> None:
-    """Toolbar tree should halve the default index column width."""
+def test_left_panel_tree_config_uses_narrow_index_column() -> None:
+    """Toolbar tree should use a reduced index column width multiplier."""
     view = LeftPanelFileListView(event_bus=EventBus(), table_font_size_px=12)
     config = view._build_tree_widget_config(12, 36, 36)
 
-    assert config.index_column_width_multiplier == 0.5
+    assert config.index_column_width_multiplier == 0.8
     assert view.view_id is ViewId.LEFT_TOOLBAR_FILE_LIST

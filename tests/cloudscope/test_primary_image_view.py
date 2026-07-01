@@ -253,6 +253,9 @@ def test_publishes_primary_plane_loaded_after_set_data() -> None:
         def get_image_contrast(self, _c: int):
             return contrast
 
+        def ensure_image_contrast_from_plane(self, _channel: int, _plane, **_kwargs):
+            return contrast
+
     seen: list[PrimaryPlaneLoaded] = []
     bus.subscribe(PrimaryPlaneLoaded, seen.append)
 
