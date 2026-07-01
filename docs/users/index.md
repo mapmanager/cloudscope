@@ -1,14 +1,14 @@
 # End User Guide
 
-CloudScope lets you load scientific image files, inspect image data, define or select ROIs, run supported analyses, and export results.
+CloudScope lets you load raw image files, visualize image data, define and select ROIs, run supported analyses, and export results.
 
 Current quantitative analysis workflows are designed for **line scan kymographs** and include:
 
-- blood flow velocity analysis from line scan kymographs
-- vessel diameter analysis from line scan kymographs
-- sum intensity analysis from line scan kymographs for functional reporter fluorescence (like GCaMP)
+- blood flow velocity analysis
+- vessel diameter analysis 
+- sum intensity peak analysis for functional reporter fluorescence (like GCaMP)
 
-CloudScope can load and visualize supported scientific image formats, but the currently implemented quantitative analyses are designed for line scan data.
+CloudScope can load and visualize a range of image formats, but the currently implemented quantitative analyses are designed for line scan data.
 
 ## Try CloudScope in a browser
 
