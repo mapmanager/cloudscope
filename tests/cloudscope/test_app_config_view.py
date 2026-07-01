@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import fields
 
-from cloudscope.app_config import AppConfigData
+from cloudscope.app_config import APP_CONFIG_EDITABLE_SETTINGS_FIELDS, AppConfigData
 from cloudscope.views.app_config_view import APP_CONFIG_UI_SCHEMA
 
 
@@ -16,6 +16,7 @@ def test_app_config_ui_schema_field_names_exist_on_dataclass() -> None:
 
 def test_app_config_ui_schema_editable_subset() -> None:
     editable = {f.name for f in APP_CONFIG_UI_SCHEMA.fields if f.editable}
+    assert editable == set(APP_CONFIG_EDITABLE_SETTINGS_FIELDS)
     assert editable == {
         'text_size',
         'folder_depth',

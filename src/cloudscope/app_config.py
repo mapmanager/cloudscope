@@ -38,6 +38,14 @@ DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT = 50.0
 DEFAULT_HOME_ANALYSIS_SUM_INTENSITY_SPLITTER_PCT = 58.0
 DEFAULT_CONTRAST_AUTO_PERCENTILE_LOW = 1.0
 DEFAULT_CONTRAST_AUTO_PERCENTILE_HIGH = 99.5
+# Fields edited in ``AppConfigView``; keep in sync with ``APP_CONFIG_UI_SCHEMA``.
+APP_CONFIG_EDITABLE_SETTINGS_FIELDS: tuple[str, ...] = (
+    'text_size',
+    'folder_depth',
+    'table_font_size_px',
+    'contrast_auto_percentile_low',
+    'contrast_auto_percentile_high',
+)
 DEFAULT_CHANNEL_COLOR_LUT: dict[str, str] = {'0': 'Green', '1': 'Red', '2': 'Blue'}
 DEFAULT_FALLBACK_COLOR_LUT = 'Gray'
 HOME_STACK_MARGIN_LABELS_ON: dict[str, int] = {'l': 60, 'r': 24, 't': 10, 'b': 40}
@@ -658,6 +666,25 @@ class AppConfig:
         self.data.home_analysis_reference_splitter_pct = DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT
         self.data.home_analysis_sum_intensity_splitter_pct = DEFAULT_HOME_ANALYSIS_SUM_INTENSITY_SPLITTER_PCT
         self.data.home_right_pool_open_splitter_pct = DEFAULT_HOME_RIGHT_POOL_OPEN_SPLITTER_PCT
+
+    def reset_editable_settings_to_factory_defaults(self) -> None:
+        """Reset Config-panel editable fields to factory defaults and persist.
+
+        Session and layout fields (recents, window geometry, splitters,
+        ``dark_mode``, channel LUT defaults) are left unchanged.
+
+        Returns:
+            None.
+        """
+        defaults = AppConfigData()
+        self.data.text_size = defaults.text_size
+        self.data.folder_depth = defaults.folder_depth
+        self.data.table_font_size_px = defaults.table_font_size_px
+        self.set_contrast_auto_percentiles(
+            defaults.contrast_auto_percentile_low,
+            defaults.contrast_auto_percentile_high,
+        )
+        self.normalize_and_persist()
 
     def get_contrast_auto_percentiles(self) -> tuple[float, float]:
         """Return the ``(low, high)`` percentile pair used for Auto contrast.

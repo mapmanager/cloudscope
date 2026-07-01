@@ -170,6 +170,16 @@ class AppConfigView(BaseView):
         """
         self.event_bus.publish(ResetHomeLayoutIntent())
 
+    def _on_factory_defaults_clicked(self) -> None:
+        """Restore Config-panel editable fields to factory defaults.
+
+        Returns:
+            None.
+        """
+        self._app_config.reset_editable_settings_to_factory_defaults()
+        self.refresh_from_state()
+        ui.notify('Factory defaults restored', type='positive')
+
     def build(self, parent: ui.element | None = None) -> ui.element:
         """Build the settings card.
 
@@ -210,7 +220,12 @@ class AppConfigView(BaseView):
             schema=APP_CONFIG_UI_SCHEMA,
             values=self._values_for_card(),
             on_apply=lambda p: self._on_apply(p),
+            editable_columns=2,
         )
         self._card.build()
         ui.separator()
-        ui.button('Reset View', on_click=self._on_reset_view_clicked).props('outline color=primary')
+        with ui.row().classes('w-full gap-2'):
+            ui.button('Reset View', on_click=self._on_reset_view_clicked).props('outline color=primary')
+            ui.button('Factory defaults', on_click=self._on_factory_defaults_clicked).props(
+                'outline color=primary'
+            )

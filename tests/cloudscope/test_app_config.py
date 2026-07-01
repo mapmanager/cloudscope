@@ -11,7 +11,11 @@ from cloudscope import app_config as app_config_module
 from cloudscope.app_config import (
     AppConfig,
     AppConfigData,
+    APP_CONFIG_EDITABLE_SETTINGS_FIELDS,
+    DEFAULT_CONTRAST_AUTO_PERCENTILE_HIGH,
+    DEFAULT_CONTRAST_AUTO_PERCENTILE_LOW,
     DEFAULT_FOLDER_DEPTH,
+    DEFAULT_HOME_FILE_LIST_SPLITTER_PCT,
     DEFAULT_TABLE_FONT_SIZE_PX,
     DEFAULT_TEXT_SIZE,
     MAX_RECENTS,
@@ -263,3 +267,41 @@ def test_normalize_and_persist_writes_disk(tmp_path) -> None:
     cfg.normalize_and_persist()
     loaded = AppConfig.load(config_path=cfg_path)
     assert loaded.get_attribute('folder_depth') == 3
+
+
+def test_reset_editable_settings_to_factory_defaults(tmp_path) -> None:
+    """Reset restores Config-panel fields and persists without touching session data."""
+    cfg_path = tmp_path / 'app_config.json'
+    example_file = tmp_path / 'example.tif'
+    example_file.write_text('x', encoding='utf-8')
+    cfg = AppConfig(path=cfg_path)
+    cfg.data.text_size = 'text-lg'
+    cfg.data.folder_depth = 9
+    cfg.data.table_font_size_px = 20
+    cfg.set_contrast_auto_percentiles(10.0, 90.0)
+    cfg.push_recent_file(str(example_file))
+    cfg.set_last_path(str(example_file))
+    cfg.set_home_splitter_value('file_list', 33.0)
+    cfg.data.dark_mode = False
+    cfg.save()
+
+    cfg.reset_editable_settings_to_factory_defaults()
+
+    assert cfg.get_attribute('text_size') == DEFAULT_TEXT_SIZE
+    assert cfg.get_attribute('folder_depth') == DEFAULT_FOLDER_DEPTH
+    assert cfg.get_attribute('table_font_size_px') == DEFAULT_TABLE_FONT_SIZE_PX
+    assert cfg.get_contrast_auto_percentiles() == (
+        DEFAULT_CONTRAST_AUTO_PERCENTILE_LOW,
+        DEFAULT_CONTRAST_AUTO_PERCENTILE_HIGH,
+    )
+    assert cfg.get_recent_files() == [str(example_file.resolve())]
+    assert cfg.get_last_path() == str(example_file.resolve())
+    assert cfg.get_home_splitter_value('file_list') == 33.0
+    assert cfg.get_attribute('dark_mode') is False
+
+    loaded = AppConfig.load(config_path=cfg_path)
+    assert loaded.get_attribute('text_size') == DEFAULT_TEXT_SIZE
+    assert loaded.get_contrast_auto_percentiles() == (
+        DEFAULT_CONTRAST_AUTO_PERCENTILE_LOW,
+        DEFAULT_CONTRAST_AUTO_PERCENTILE_HIGH,
+    )
