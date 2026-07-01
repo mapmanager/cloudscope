@@ -16,4 +16,10 @@ def test_app_config_ui_schema_field_names_exist_on_dataclass() -> None:
 
 def test_app_config_ui_schema_editable_subset() -> None:
     editable = {f.name for f in APP_CONFIG_UI_SCHEMA.fields if f.editable}
-    assert editable == {'text_size', 'folder_depth', 'table_font_size_px'}
+    assert editable == {
+        'text_size',
+        'folder_depth',
+        'table_font_size_px',
+        'contrast_auto_percentile_low',
+        'contrast_auto_percentile_high',
+    }

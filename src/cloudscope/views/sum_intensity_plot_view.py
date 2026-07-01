@@ -25,6 +25,7 @@ from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind
 from cloudscope.events.roi import RoiChanged
 from cloudscope.events.theme import ThemeChanged
 from cloudscope.events.x_range import PrimaryXRangeChanged, SetPrimaryXRangeIntent, x_ranges_equal
+from cloudscope.plot_axis_labels import kymograph_time_x_label
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
 from nicewidgets.plotly_plot.models import (
@@ -358,7 +359,11 @@ class SumIntensityPlotView(BaseView):
         plot_data = analysis.get_plot_data()
         if plot_data is None:
             return
-        self._plot.set_x_label(plot_data.x_label)
+        x_label = kymograph_time_x_label(
+            self.get_selected_acq_image(),
+            fallback=plot_data.x_label,
+        )
+        self._plot.set_x_label(x_label)
         self._plot.set_y_label(plot_data.y_label)
 
     def _build_series_from_analysis(

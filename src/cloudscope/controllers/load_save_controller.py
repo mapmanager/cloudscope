@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from uuid import uuid4
 
 from acqstore.sample_data import ensure_sample
@@ -41,6 +42,30 @@ from cloudscope.user_context import UserContext
 from cloudscope.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def _file_display_name(acq_file: object) -> str:
+    """Return a short display name for status messages."""
+    name = getattr(acq_file, 'name', None)
+    if isinstance(name, str) and name:
+        return name
+    file_id = getattr(acq_file, 'file_id', None)
+    if file_id is not None:
+        return Path(str(file_id)).name
+    return 'selected file'
+
+
+def _load_complete_message(result: LoadResult) -> str:
+    """Format load completion status with loaded/total counts."""
+    loaded = len(result.acq_image_list)
+    total = result.discovered_count
+    if total <= 0 and loaded > 0:
+        total = loaded
+    base = f'Load completed ({loaded}/{total})'
+    warning_count = len(result.warnings)
+    if warning_count:
+        return f'{base} with {warning_count} warning(s)'
+    return base
 
 
 class _ImmediateTaskContext:
@@ -231,6 +256,7 @@ class LoadSaveController:
             self._publish_status(level=StatusLevel.INFO, source=StatusSource.SAVE, message='Selected file has no unsaved changes')
             return
 
+        saved_name = _file_display_name(acq_file)
         try:
             self._start_task(
                 task_kind=TaskKind.SAVE,
@@ -239,7 +265,7 @@ class LoadSaveController:
                 on_completed=lambda _result: self._publish_status(
                     level=StatusLevel.INFO,
                     source=StatusSource.SAVE,
-                    message='Saved selected file',
+                    message=f'Saved {saved_name}',
                 ),
                 on_failed=lambda exc: self._publish_status(
                     level=StatusLevel.ERROR,
@@ -435,10 +461,14 @@ class LoadSaveController:
             self._publish_status(
                 level=StatusLevel.WARNING,
                 source=StatusSource.LOAD,
-                message=f'Load completed with {warning_count} warning(s)',
+                message=_load_complete_message(result),
             )
         else:
-            self._publish_status(level=StatusLevel.INFO, source=StatusSource.LOAD, message='Load completed')
+            self._publish_status(
+                level=StatusLevel.INFO,
+                source=StatusSource.LOAD,
+                message=_load_complete_message(result),
+            )
 
         loaded = result.acq_image_list
         if len(loaded) == 0:

@@ -197,6 +197,32 @@ def test_on_channel_change_respects_disabled_state(hosted_toolbar) -> None:
     assert seen == []
 
 
+def test_channel_select_enabled_with_single_option() -> None:
+    """Single channel should remain selectable (not disabled)."""
+    t = ImageToolbarWidget(on_intent=lambda _ev: None)
+    t.set_file_ext('f', 0, 1, channel_options=['0'], roi_options=[1])
+
+    assert t.get_channel() == 0
+    assert t._channel_select.enabled is True
+
+
+def test_roi_select_enabled_with_single_option() -> None:
+    """Single ROI should remain selectable (not disabled)."""
+    t = ImageToolbarWidget(on_intent=lambda _ev: None)
+    t.set_file_ext('f', 0, 5, channel_options=['0', '1'], roi_options=[5])
+
+    assert t.get_roi_id() == 5
+    assert t._roi_select.enabled is True
+
+
+def test_selects_enabled_with_multiple_options(hosted_toolbar) -> None:
+    """Multiple channel/ROI options keep selects enabled."""
+    t, _seen = hosted_toolbar
+
+    assert t._channel_select.enabled is True
+    assert t._roi_select.enabled is True
+
+
 # ---------- _on_add_click and friends ----------
 
 

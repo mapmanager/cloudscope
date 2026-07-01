@@ -212,6 +212,19 @@ def test_reference_contrast_window_uses_percentiles() -> None:
     assert zmax <= 99.0
 
 
+def test_reference_contrast_window_respects_custom_percentiles() -> None:
+    """Custom percentile bounds change the baked reference window."""
+    plane = np.arange(100, dtype=np.uint16).reshape(10, 10)
+
+    default_window = reference_contrast_window(plane)
+    wide_window = reference_contrast_window(plane, percentile_low=0.0, percentile_high=100.0)
+
+    assert default_window is not None
+    assert wide_window is not None
+    assert wide_window[0] <= default_window[0]
+    assert wide_window[1] >= default_window[1]
+
+
 def test_reference_contrast_window_empty_plane_returns_none() -> None:
     """An empty plane produces no window (viewer keeps auto-stretch)."""
     assert reference_contrast_window(np.empty((0, 0), dtype=np.uint16)) is None

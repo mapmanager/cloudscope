@@ -111,7 +111,11 @@ def test_load_path_emits_status_progress_and_recents(tmp_path, monkeypatch) -> N
     fake_list = _FakeList([_FakeFile('/tmp/a.tif')])
 
     def _load_safe(_path: str, *, kind: str, **_kwargs):
-        return LoadResult(acq_image_list=fake_list, warnings=(LoadWarning(message='warn'),))
+        return LoadResult(
+            acq_image_list=fake_list,
+            warnings=(LoadWarning(message='warn'),),
+            discovered_count=2,
+        )
 
     monkeypatch.setattr('cloudscope.controllers.load_save_controller.AcqImageList.load_safe', _load_safe)
     statuses: list[AppStatusChanged] = []
@@ -125,6 +129,7 @@ def test_load_path_emits_status_progress_and_recents(tmp_path, monkeypatch) -> N
     assert any(item.status == 'running' for item in progress)
     assert any(item.status == 'completed' for item in progress)
     assert statuses[-1].level == 'warning'
+    assert statuses[-1].message == 'Load completed (1/2) with 1 warning(s)'
     assert recents[-1].recent_files[-1].endswith('a.tif')
     saved = json.loads(cfg.path.read_text(encoding='utf-8'))
     assert saved['last_path']
@@ -479,7 +484,7 @@ def test_save_selected_info_when_not_dirty(tmp_path) -> None:
 
 
 def test_save_selected_publishes_completion_status(tmp_path) -> None:
-    """A successful save-selected should publish 'Saved selected file' INFO."""
+    """A successful save-selected should publish the saved file name in INFO."""
     from cloudscope.events.selection import SelectFileIntent
 
     _, bus, home, _, cap = _build_controller(tmp_path)
@@ -492,7 +497,7 @@ def test_save_selected_publishes_completion_status(tmp_path) -> None:
 
     bus.publish(SaveSelectedIntent())
 
-    assert any(s.message == 'Saved selected file' for s in cap.statuses)
+    assert any(s.message == 'Saved a.tif' for s in cap.statuses)
     assert any(p.status == 'completed' for p in cap.progress)
     assert files.get_files()[0].saved == 1
 

@@ -11,7 +11,12 @@ from collections.abc import Mapping
 from nicegui import ui
 
 from acqstore.schema import FieldSchema, SchemaDefinition, ValueType
-from cloudscope.app_config import AppConfig, DEFAULT_TABLE_FONT_SIZE_PX
+from cloudscope.app_config import (
+    AppConfig,
+    DEFAULT_CONTRAST_AUTO_PERCENTILE_HIGH,
+    DEFAULT_CONTRAST_AUTO_PERCENTILE_LOW,
+    DEFAULT_TABLE_FONT_SIZE_PX,
+)
 from cloudscope.event_bus import EventBus
 from cloudscope.events.layout import ResetHomeLayoutIntent
 from cloudscope.views.base_view import BaseView
@@ -54,6 +59,24 @@ APP_CONFIG_UI_SCHEMA = SchemaDefinition(
             editable=True,
             visible=True,
         ),
+        FieldSchema(
+            name='contrast_auto_percentile_low',
+            display_name='Auto contrast min percentile',
+            value_type=ValueType.FLOAT,
+            description='Lower percentile for Auto contrast and initial image seeding.',
+            default_value=DEFAULT_CONTRAST_AUTO_PERCENTILE_LOW,
+            editable=True,
+            visible=True,
+        ),
+        FieldSchema(
+            name='contrast_auto_percentile_high',
+            display_name='Auto contrast max percentile',
+            value_type=ValueType.FLOAT,
+            description='Upper percentile for Auto contrast and initial image seeding.',
+            default_value=DEFAULT_CONTRAST_AUTO_PERCENTILE_HIGH,
+            editable=True,
+            visible=True,
+        ),
     ),
 )
 
@@ -91,6 +114,8 @@ class AppConfigView(BaseView):
             'text_size': data.text_size,
             'folder_depth': data.folder_depth,
             'table_font_size_px': data.table_font_size_px,
+            'contrast_auto_percentile_low': data.contrast_auto_percentile_low,
+            'contrast_auto_percentile_high': data.contrast_auto_percentile_high,
         }
 
     def _on_apply(self, patch: Mapping[str, object]) -> None:
@@ -117,6 +142,19 @@ class AppConfigView(BaseView):
             raw_tf = patch['table_font_size_px']
             try:
                 self._app_config.data.table_font_size_px = int(raw_tf)  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                pass
+        if 'contrast_auto_percentile_low' in patch or 'contrast_auto_percentile_high' in patch:
+            low = patch.get(
+                'contrast_auto_percentile_low',
+                self._app_config.data.contrast_auto_percentile_low,
+            )
+            high = patch.get(
+                'contrast_auto_percentile_high',
+                self._app_config.data.contrast_auto_percentile_high,
+            )
+            try:
+                self._app_config.set_contrast_auto_percentiles(float(low), float(high))
             except (TypeError, ValueError):
                 pass
 

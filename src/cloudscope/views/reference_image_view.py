@@ -12,6 +12,8 @@ from nicegui import run, ui
 from acqstore.acq_image.acq_image import AcqImage
 from acqstore.acq_image.file_loaders.base_file_loader import ReferenceImage, ReferenceImagePlane
 from acqstore.acq_image.image_contrast import contrast_clip_min_max
+from cloudscope.app_config import AppConfig
+from cloudscope.contrast_seeding import contrast_auto_percentiles
 from cloudscope.event_bus import EventBus
 from cloudscope.events.theme import ThemeChanged
 from cloudscope.raster_display_cache import (
@@ -185,17 +187,23 @@ def scan_path_to_plotly_overlays(
     ]
 
 
-def reference_contrast_window(plane: np.ndarray) -> tuple[float, float] | None:
+def reference_contrast_window(
+    plane: np.ndarray,
+    *,
+    percentile_low: float = 1.0,
+    percentile_high: float = 99.5,
+) -> tuple[float, float] | None:
     """Return a stable percentile contrast window for a reference image plane.
 
-    Reuses :func:`contrast_clip_min_max` (percentiles 1.0 / 99.5) so the
-    reference image PNG uses the same default-window logic as the primary
-    image. The window is baked into the PNG pixels by the raster service, which
-    keeps the overview contrast stable across pan/zoom instead of per-clip
-    auto-stretching.
+    Reuses :func:`contrast_clip_min_max` so the reference image PNG uses the
+    same default-window logic as the primary image. The window is baked into
+    the PNG pixels by the raster service, which keeps the overview contrast
+    stable across pan/zoom instead of per-clip auto-stretching.
 
     Args:
         plane: 2D reference image array.
+        percentile_low: Lower percentile for auto clipping.
+        percentile_high: Upper percentile for auto clipping.
 
     Returns:
         ``(zmin, zmax)`` floats, or ``None`` when the plane is empty or the
@@ -204,7 +212,11 @@ def reference_contrast_window(plane: np.ndarray) -> tuple[float, float] | None:
     """
     if plane.size == 0:
         return None
-    lo, hi = contrast_clip_min_max(plane)
+    lo, hi = contrast_clip_min_max(
+        plane,
+        percentile_low=percentile_low,
+        percentile_high=percentile_high,
+    )
     if hi <= lo:
         return None
     return float(lo), float(hi)
@@ -258,10 +270,12 @@ class ReferenceImageView(BaseView):
         dark_mode: bool = False,
         dark_mode_provider: Callable[[], bool] | None = None,
         raster_display_cache: RasterDisplayCache | None = None,
+        app_config: AppConfig | None = None,
     ) -> None:
         super().__init__(event_bus=event_bus, app_state=app_state, initially_visible=initially_visible)
         self._title = title
         self._client: Any = None
+        self._app_config = app_config
         self._viewer = PlotlyRasterViewer(
             display_options=PlotlyRasterViewerDisplayOptions(
                 theme='dark' if dark_mode else 'light',
@@ -499,7 +513,12 @@ class ReferenceImageView(BaseView):
         Returns:
             None.
         """
-        window = reference_contrast_window(plane)
+        percentile_low, percentile_high = contrast_auto_percentiles(self._app_config)
+        window = reference_contrast_window(
+            plane,
+            percentile_low=percentile_low,
+            percentile_high=percentile_high,
+        )
         if window is None:
             return
         zmin, zmax = window

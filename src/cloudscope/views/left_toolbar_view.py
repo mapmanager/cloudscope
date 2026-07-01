@@ -142,6 +142,7 @@ class LeftToolbarView(BaseView):
             dark_mode=dark_mode,
             dark_mode_provider=dark_mode_provider,
             raster_display_cache=raster_display_cache,
+            app_config=app_config,
         )
         self.app_config_view = AppConfigView(
             app_config=app_config,

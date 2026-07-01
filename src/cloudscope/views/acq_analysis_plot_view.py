@@ -24,6 +24,7 @@ from cloudscope.events.analysis import (
 from cloudscope.events.roi import RoiChanged
 from cloudscope.events.theme import ThemeChanged
 from cloudscope.events.x_range import PrimaryXRangeChanged, SetPrimaryXRangeIntent, x_ranges_equal
+from cloudscope.plot_axis_labels import kymograph_time_x_label
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
 from nicewidgets.plotly_plot.models import PlotlyTraceData
@@ -382,12 +383,31 @@ class AcqAnalysisPlotView(BaseView):
                 )
             ]
         )
+        self._apply_axis_labels(plot_data)
         self._refresh_event_overlays()
         # Re-apply the cached app-level x-range; ``set_series`` preserves the
         # widget's logical ``_x_range`` but the explicit re-apply keeps the
         # plot aligned with ``HomePageState`` on analysis-row clicks within
         # the same file.
         self._apply_primary_x_range_to_chart()
+
+    def _apply_axis_labels(self, plot_data: AnalysisPlotData) -> None:
+        """Set x/y axis titles from header metadata and plot data.
+
+        Args:
+            plot_data: Display-ready analysis plot payload.
+
+        Returns:
+            None.
+        """
+        if self._chart is None:
+            return
+        x_label = kymograph_time_x_label(
+            self.get_selected_acq_image(),
+            fallback=plot_data.x_label,
+        )
+        self._chart.set_x_label(x_label)
+        self._chart.set_y_label(plot_data.y_label)
 
     def _clear_chart(self, message: str) -> None:
         """Remove plotted data, event overlays, and show empty-state text.

@@ -91,7 +91,7 @@ class ImageToolbarWidget:
                 options=[],
                 value=None,
                 on_change=self._on_channel_change,
-            ).props(f'name=channel {COMPACT_SELECT_PROPS}').classes(f'w-28 {COMPACT_SELECT_CLASS}')
+            ).props(f'name=channel {COMPACT_SELECT_PROPS}').classes(f'w-24 {COMPACT_SELECT_CLASS}')
 
         with ui.row().classes('items-center gap-1'):
             ui.label('ROI')
@@ -99,7 +99,7 @@ class ImageToolbarWidget:
                 options=[],
                 value=None,
                 on_change=self._on_roi_change,
-            ).props(f'name=roi {COMPACT_SELECT_PROPS}').classes(f'w-28 {COMPACT_SELECT_CLASS}')
+            ).props(f'name=roi {COMPACT_SELECT_PROPS}').classes(f'w-24 {COMPACT_SELECT_CLASS}')
 
         self._add_btn = ui.button(icon='add', on_click=self._on_add_click).props('flat round')
         self._add_btn.tooltip('Add ROI')

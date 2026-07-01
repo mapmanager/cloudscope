@@ -141,6 +141,7 @@ class LoadResult:
 
     acq_image_list: AcqImageList
     warnings: tuple[LoadWarning, ...]
+    discovered_count: int = 0
 
 
 class LoadCancelled(RuntimeError):
@@ -318,7 +319,7 @@ class AcqImageList:
                 obj._files = []
                 obj._files_by_id = {}
                 obj._attach_analysis_pools()
-                return LoadResult(acq_image_list=obj, warnings=tuple(warnings))
+                return LoadResult(acq_image_list=obj, warnings=tuple(warnings), discovered_count=0)
 
         candidate_paths: list[str] = []
         if kind == PathKind.FOLDER:
@@ -368,7 +369,7 @@ class AcqImageList:
         obj._files = files
         obj._files_by_id = {acq_file.file_id: acq_file for acq_file in files}
         obj._attach_analysis_pools()
-        return LoadResult(acq_image_list=obj, warnings=tuple(warnings))
+        return LoadResult(acq_image_list=obj, warnings=tuple(warnings), discovered_count=total)
 
     @staticmethod
     def _build_file_list_from_csv_safe(csv_path: Path) -> tuple[list[str], list[LoadWarning]]:

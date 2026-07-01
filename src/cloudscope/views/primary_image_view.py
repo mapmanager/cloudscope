@@ -29,7 +29,8 @@ from acqstore.acq_image.analysis.model import AnalysisKey, AnalysisOverlayTraceD
 from acqstore.acq_image.roi import RectROI, RectRoiBounds
 from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader
 from acqstore.acq_image.metadata import ImageHeaderMetadata
-from cloudscope.app_config import home_stack_layout_margins_profile
+from cloudscope.app_config import AppConfig, home_stack_layout_margins_profile
+from cloudscope.contrast_seeding import ensure_channel_contrast_from_plane
 from cloudscope.event_bus import EventBus
 from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind
 from cloudscope.events.contrast import ImageContrastChanged
@@ -208,6 +209,7 @@ class PrimaryImageView(BaseView):
         dark_mode_provider: Optional callable returning the current application
             dark-mode state when the view is shown after being hidden.
         raster_display_cache: Optional shared LRU cache for planes and pyramids.
+        app_config: Optional shared app config for contrast seeding defaults.
     """
 
     view_id = ViewId.PRIMARY_IMAGE
@@ -222,10 +224,12 @@ class PrimaryImageView(BaseView):
         dark_mode: bool = False,
         dark_mode_provider: Callable[[], bool] | None = None,
         raster_display_cache: RasterDisplayCache | None = None,
+        app_config: AppConfig | None = None,
     ) -> None:
         super().__init__(event_bus=event_bus, app_state=None, initially_visible=initially_visible)
         self._title = title
         self._client: Any = None
+        self._app_config = app_config
         self._viewer = PlotlyRasterViewer(
             display_options=PlotlyRasterViewerDisplayOptions(
                 theme='dark' if dark_mode else 'light',
@@ -577,6 +581,12 @@ class PrimaryImageView(BaseView):
             self._refresh_roi_overlays(acq_image=acq_image, grid=grid)
             self._refresh_diameter_trace_overlays(acq_image=acq_image, grid=grid)
             if not is_placeholder and file_id is not None and channel is not None and acq_image is not None:
+                ensure_channel_contrast_from_plane(
+                    acq_image,
+                    int(channel),
+                    plane,
+                    self._app_config,
+                )
                 await self._apply_contrast(acq_image, int(channel))
                 try:
                     plane.setflags(write=False)

@@ -10,6 +10,7 @@ from nicegui import ui
 from acqstore.acq_image.acq_image import AcqImage
 from acqstore.acq_image.image_contrast import contrast_clip_min_max
 from cloudscope.app_config import AppConfig
+from cloudscope.contrast_seeding import contrast_auto_percentiles, ensure_channel_contrast_from_plane
 from cloudscope.event_bus import EventBus
 from cloudscope.events.contrast import ImageContrastChanged, UpdateImageContrastIntent
 from cloudscope.events.raster import PrimaryPlaneLoaded
@@ -182,7 +183,7 @@ class ImageToolbarView(BaseView):
         if self._app_config is None:
             low, high = 1.0, 99.5
         else:
-            low, high = self._app_config.get_contrast_auto_percentiles()
+            low, high = contrast_auto_percentiles(self._app_config)
         return contrast_clip_min_max(
             plane, percentile_low=low, percentile_high=high
         )
@@ -228,18 +229,11 @@ class ImageToolbarView(BaseView):
         acq_image = self.current_acq_image
         if acq_image is None or self._contrast is None:
             return
-        if self._app_config is None:
-            default_lut = 'Gray'
-            percentile_low, percentile_high = 1.0, 99.5
-        else:
-            default_lut = self._app_config.get_default_channel_color_lut(int(event.channel))
-            percentile_low, percentile_high = self._app_config.get_contrast_auto_percentiles()
-        contrast = acq_image.ensure_image_contrast_from_plane(
+        contrast = ensure_channel_contrast_from_plane(
+            acq_image,
             int(event.channel),
             event.plane,
-            default_color_lut=default_lut,
-            percentile_low=percentile_low,
-            percentile_high=percentile_high,
+            self._app_config,
         )
         self._contrast.set_image_ext(event.plane)
         self._contrast.set_lut_ext(contrast.color_lut)

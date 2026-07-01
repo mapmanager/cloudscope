@@ -126,7 +126,7 @@ class LoadSaveView(BaseView):
         self._compact = bool(compact)
         self._client = ui.context.client
         row_classes = (
-            'items-center gap-1 min-w-0 flex-nowrap overflow-hidden'
+            'grid grid-cols-2 w-full min-w-0 gap-1 items-center'
             if self._compact
             else 'w-full items-center gap-2'
         )
@@ -197,6 +197,22 @@ class LoadSaveView(BaseView):
         Returns:
             None.
         """
+        if self._compact:
+            with ui.element('div').classes('flex items-center gap-1 min-w-0 justify-self-start'):
+                self._build_load_controls()
+            with ui.element('div').classes('flex items-center gap-1 min-w-0 justify-self-end'):
+                self._build_save_controls()
+            return
+
+        self._build_load_controls()
+        self._build_save_controls()
+
+    def _build_load_controls(self) -> None:
+        """Build load/history/upload controls.
+
+        Returns:
+            None.
+        """
         with ui.element('div').classes('inline-flex items-center shrink-0') as hist_wrap:
             self._history_menu_container = hist_wrap
             self._history_button = ui.button(
@@ -219,6 +235,12 @@ class LoadSaveView(BaseView):
             self._load_folder_button.tooltip(picker_hint)
         self._build_upload_control()
 
+    def _build_save_controls(self) -> None:
+        """Build save action buttons.
+
+        Returns:
+            None.
+        """
         save_classes = '' if self._compact else 'ml-auto'
         self._save_selected_button = ui.button(
             'Save Selected',

@@ -239,6 +239,8 @@ class _FakeChart:
         self.x_max: float | None = None
         self.x_reset = 0
         self.placeholder_text: str | None = None
+        self.x_label: str | None = None
+        self.y_label: str | None = None
 
     def set_series(self, *, traces=(), scatters=()) -> None:
         self.series_calls.append({"traces": list(traces), "scatters": list(scatters)})
@@ -267,6 +269,12 @@ class _FakeChart:
         self.x_min = None
         self.x_max = None
         self.x_reset += 1
+
+    def set_x_label(self, label: str) -> None:
+        self.x_label = label
+
+    def set_y_label(self, label: str) -> None:
+        self.y_label = label
 
 
 def _view_with_fake_chart() -> AcqAnalysisPlotView:
@@ -313,6 +321,8 @@ def test_refresh_plot_sets_line_data_for_available_plot() -> None:
     trace = view._chart.series_calls[-1]["traces"][0]
     assert trace.x == (0.0, 1.0, 2.0)
     assert trace.name == "Radon velocity"
+    assert view._chart.x_label == "Time (s)"
+    assert view._chart.y_label == "Velocity"
 
 
 def test_refresh_plot_noop_when_no_chart() -> None:
