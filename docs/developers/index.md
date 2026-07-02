@@ -1,6 +1,6 @@
 # Developer Guide
 
-CloudScope is developed as a single codebase that supports desktop, browser, scripting, and notebook workflows while sharing the same scientific backend.
+CloudScope is developed as a single codebase that supports desktop, browser, scripting, and notebook workflows while sharing the same `acqstore` backend.
 
 The repository is organized into three primary packages:
 
@@ -16,7 +16,7 @@ The guiding design principle is scientific reproducibility. The same analysis co
 
 CloudScope was designed around several goals:
 
-- one scientific backend
+- one shared backend (`acqstore`)
 - multiple user interfaces
 - reproducible analysis
 - testable code

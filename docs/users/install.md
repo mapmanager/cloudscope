@@ -127,4 +127,5 @@ then compare the hash of the ZIP to the contents of the checksum file.
 ## Next steps
 
 - [Using the GUI](gui.md)
+- [Saved file formats](saved-files.md)
 - [End-user recipes](recipes/index.md) — load sample data to confirm your installation

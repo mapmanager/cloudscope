@@ -17,7 +17,7 @@ Current quantitative analysis workflows are designed for **line scan kymographs*
 
 ## Why CloudScope?
 
-CloudScope exists to keep scientific image loading, visualization, metadata, ROIs, and analysis connected through one shared backend.
+CloudScope exists to keep image loading, visualization, metadata, ROIs, and analysis connected through one shared backend.
 
 The same `acqstore` code is used by:
 
@@ -130,7 +130,7 @@ See [AcqImage Metadata](acqimage-metadata.md).
 
 ## Current limitations
 
-CloudScope can load and visualize supported scientific image formats, but the currently implemented quantitative analysis workflows are designed for line scan kymographs.
+CloudScope can load and visualize supported image formats, but the currently implemented quantitative analysis workflows are designed for line scan kymographs.
 
 Traditional two-dimensional segmentation, tracking, and image-analysis workflows are not yet implemented as dedicated CloudScope analysis modules.
 

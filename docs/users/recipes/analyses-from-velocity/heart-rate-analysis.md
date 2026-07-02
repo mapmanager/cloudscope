@@ -27,8 +27,8 @@ For many files with the same parameter set, use the
 
 ## Saved files
 
-Heart rate results are stored in the acquisition **JSON sidecar** only. There is no dedicated
-heart rate CSV file.
+Heart rate results are stored in the acquisition JSON file only. There is no dedicated
+heart rate CSV file. See [Saved file formats](../../saved-files.md).
 
 ## See also
 

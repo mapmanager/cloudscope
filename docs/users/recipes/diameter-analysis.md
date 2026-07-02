@@ -1,13 +1,13 @@
 # Diameter analysis
 
-Diameter analysis estimates **vessel diameter from line scan kymographs**.
+Diameter analysis estimates **vessel diameter** from line scan kymographs.
 
 ## Before you start
 
 - Load a **line scan kymograph**.
 - Select or create an **ROI** covering the vessel region to analyze.
 
-See [Open data](index.md#open-data) and [Using the GUI](../gui.md) for loading files and ROIs.
+See [Using the GUI](../gui.md) for loading files and ROIs.
 
 ## Run diameter analysis in the GUI
 
@@ -15,8 +15,19 @@ See [Open data](index.md#open-data) and [Using the GUI](../gui.md) for loading f
 2. Open the left navigation toolbar and click **Diameter** (straighten icon).
 3. Review **Detection parameters** in the Diameter panel.
 4. Run the analysis.
-5. Inspect the summary, quality-control values, and tabular output.
-6. Use **Save** in the main toolbar to persist results.
+5. Review the summary, quality-control values, and tabular output.
+6. Use **Save Selected** or **Save All** in the top header to persist results.
+
+![CloudScope diameter analysis panel](../../assets/gui/diameter-analysis-view.png){ .cs-screenshot .cs-screenshot-center width="640" loading=lazy }
+
+## Results and reproducibility
+
+Review diameter results in the Diameter panel and the **Analysis plot**. Save from the top
+header to write JSON and CSV files next to the source image.
+
+The GUI and scripting workflows share the same `acqstore` backend, so results from the interface
+should match equivalent Python scripts using the same data, ROIs, and parameters. See
+[Saved file formats](../saved-files.md) for output file details.
 
 ## Saved files
 
@@ -27,7 +38,7 @@ my_file.tif.json
 my_file.tif.diameter.csv
 ```
 
-The JSON sidecar stores detection parameters and summary values (for example mean diameter and
+The JSON file stores detection parameters and summary values (for example mean diameter and
 QC scores). The CSV stores tabular diameter results.
 
 ## See also

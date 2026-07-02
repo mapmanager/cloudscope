@@ -5,15 +5,21 @@ hide:
 
 # CloudScope
 
-CloudScope is a scientific image loading, visualization, and analysis application.
+![CloudScope Home page — file list, kymograph viewer, and analysis plots](assets/gui/cloudscope-home-page-top.png){ .cs-screenshot width="600" align=right loading=lazy }
+
+CloudScope is an image loading, visualization, and analysis application.
 
 It provides desktop and browser interfaces for working with acquisition-backed image data. Current quantitative analysis workflows are designed for **line scan kymographs** and include:
 
-- blood flow velocity analysis from line scan kymographs using a Radon-transform-based method
-- vessel diameter analysis from line scan kymographs
-- sum intensity analysis from line scan kymographs for functional reporter fluorescence (like GCaMP)
+- *in vivo* blood flow velocity analysis using a Radon-transform-based method
+- vessel diameter analysis
+- sum intensity analysis for functional fluorescence reporters (like GCaMP)
 
-The same `acqstore` scientific backend is used by the desktop application, browser application, Python scripts, and Jupyter notebooks.
+The same `acqstore` backend is used by the desktop application, browser application, Python scripts, and Jupyter notebooks.
+
+For folder-level comparison of analysis results across many files, CloudScope provides **pool plots** — interactive velocity and peak summaries that update as you load data and run analyses. See the [Pool plots](users/pool-plots.md) guide.
+
+<div class="cs-clear"></div>
 
 <div class="grid cards" markdown>
 
@@ -37,26 +43,26 @@ The same `acqstore` scientific backend is used by the desktop application, brows
 
 ## Why CloudScope?
 
-CloudScope separates scientific data handling from user interfaces. The desktop GUI, browser GUI, notebooks, and scripts all use the same backend code for loading files, managing ROIs, running analysis, and saving results.
+CloudScope separates data handling from user interfaces. The desktop and browser GUIs, notebooks, and scripts all use the same backend code for loading files, managing ROIs, running analysis, and saving results.
 
-This architecture helps keep analysis behavior reproducible across interfaces and makes it possible to validate scientific workflows with unit tests and versioned releases.
+This architecture helps keep analysis behavior reproducible across interfaces and makes it possible to validate workflows with unit tests and versioned releases.
 
 ## One backend, multiple interfaces
 
 ![CloudScope architecture](assets/cloudscope-architecture.svg){ .cs-screenshot .cs-screenshot-center width="760" loading=lazy }
 
-CloudScope is built around `acqstore`, the shared scientific backend. The GUI is a user interface for the same backend APIs that can also be called directly from Python.
+CloudScope is built around `acqstore`, the shared backend. The GUI is a user interface for the same backend APIs that can also be called directly from Python.
 
 ## Supported file formats
 
-CloudScope currently supports commercial microscopy formats and open scientific image formats, including:
+CloudScope currently supports commercial microscopy formats and open image formats, including:
 
 - Olympus / Evident `.oir`
 - Zeiss `.czi`
 - TIFF `.tif`
 - OME-Zarr `.ome.zarr`
 
-Support for commercial microscopy formats builds on the scientific Python ecosystem. CloudScope gratefully acknowledges [Christoph Gohlke](https://www.cgohlke.com/){target="_blank" rel="noopener"} for long-standing work on microscopy and scientific file-format tooling.
+Support for commercial microscopy formats builds on the Python imaging ecosystem. CloudScope gratefully acknowledges [Christoph Gohlke](https://www.cgohlke.com/){target="_blank" rel="noopener"} for long-standing work on microscopy and file-format tooling.
 
 ## Who is this documentation for?
 
@@ -66,7 +72,7 @@ Support for commercial microscopy formats builds on the scientific Python ecosys
 
     ---
 
-    Install the desktop app, open the web app, load data, run analysis, inspect images, and export results.
+    Install the desktop app, open the web app, load data, run analysis, visualize images, and export results.
 
     [:octicons-arrow-right-24: End User Guide](users/index.md)
 

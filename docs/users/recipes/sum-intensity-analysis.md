@@ -10,25 +10,35 @@ peak locations in a search window around each onset.
 - Load a **line scan kymograph** (`.oir`, `.czi`, `.tif`, or `.ome.zarr`).
 - Select or create a **rectangular ROI** covering the region to analyze.
 
-See [Open data](index.md#open-data) and [Using the GUI](../gui.md) for loading files and ROIs.
+See [Using the GUI](../gui.md) for loading files and ROIs.
 
 ## Run sum intensity analysis in the GUI
 
 1. Select the file, channel, and ROI in the file list.
-2. Open the left navigation toolbar and click **Sum Intensity** (functions icon).
+2. Open the left navigation toolbar and click **Peak Detect** (functions icon).
 3. Choose a **Detection preset** (**fast**, **medium**, or **slow**) or tune individual
    detection parameters.
 4. Click **Run Sum Intensity Analysis**.
-5. Inspect the plot: df/f0 trace, derivative, onset markers, and peak markers.
-6. Use **Save** in the main toolbar to persist results.
+5. Review the plot: df/f0 trace, derivative, onset markers, and peak markers.
+6. Use **Save Selected** or **Save All** in the top header to persist results.
 
-![CloudScope sum intensity analysis view](../../assets/gui/sum-intensity-analysis-view.png){ .cs-screenshot .cs-screenshot-center width="980" loading=lazy }
+![CloudScope sum intensity analysis view](../../assets/gui/sum-intensity-analysis-view.png){ .cs-screenshot .cs-screenshot-center width="640" loading=lazy }
 
 Optional plot overlays (context menu on the sum-intensity plot):
 
 - Show or hide the **derivative** trace on the secondary y-axis.
 - Show or hide a **diameter** trace when diameter analysis has been run on the same file,
   channel, and ROI (default off).
+
+## Results and reproducibility
+
+Review sum-intensity results in the **Peak Detect** panel and the **Sum intensity plot** at
+the bottom of the Home page. Save from the top header to write JSON and CSV files next to the
+source image.
+
+The GUI and scripting workflows share the same `acqstore` backend, so results from the interface
+should match equivalent Python scripts using the same data, ROIs, and parameters. See
+[Saved file formats](../saved-files.md) for output file details.
 
 ## Saved files
 
@@ -39,12 +49,13 @@ my_file.tif.json
 my_file.tif.sum_intensity.csv
 ```
 
-The JSON sidecar stores detection parameters, summary values (for example peak count and F0
+The JSON file stores detection parameters, summary values (for example peak count and F0
 baseline), and event records. The CSV stores per-timepoint tabular traces and onset/peak
 markers.
 
 ## See also
 
+- [Pool plots](../pool-plots.md) — compare peak results across the loaded folder
 - [End-user recipes](index.md)
 - [Sum Intensity Analysis (Data Scientist)](../../scientists/sum-intensity-analysis.md) — detection parameters, presets, and science detail
 - [Sum Intensity Analysis Notebook](../../notebooks/sum-intensity-analysis.ipynb) — scripted workflow

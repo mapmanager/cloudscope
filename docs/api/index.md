@@ -5,7 +5,7 @@ The CloudScope API is organized around two primary concepts:
 - `AcqImage`
 - `AcqImageList`
 
-Most scientific workflows begin by loading data into an `AcqImage` or `AcqImageList` and then applying one or more analysis modules.
+Most workflows begin by loading data into an `AcqImage` or `AcqImageList` and then applying one or more analysis modules.
 
 Current analysis modules include:
 

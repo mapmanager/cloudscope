@@ -1,5 +1,5 @@
 site_name: CloudScope
-site_description: Desktop and browser scientific image loading, visualization, and analysis for acquisition-backed microscopy files.
+site_description: Desktop and browser image loading, visualization, and analysis for acquisition-backed microscopy files.
 site_url: https://mapmanager.github.io/cloudscope/
 repo_url: https://github.com/mapmanager/cloudscope
 repo_name: mapmanager/cloudscope
@@ -83,6 +83,11 @@ nav:
       - users/index.md
       - Install the desktop app: users/install.md
       - Using the GUI: users/gui.md
+      - Pool plots: users/pool-plots.md
+      - "GUI: Experiment metadata": users/gui-experiment-metadata.md
+      - "GUI: Image header": users/gui-image-header.md
+      - "GUI: App config": users/gui-app-config.md
+      - Saved file formats: users/saved-files.md
       - Recipes:
           - users/recipes/index.md
           - Velocity analysis: users/recipes/velocity-analysis.md

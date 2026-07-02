@@ -11,6 +11,7 @@ Site config: `mkdocs.yml`. Source pages: `docs/`.
 
 | Name | When to use | Markdown |
 |---|---|---|
+| **Inline Material icon** | Match a GUI Quasar/Material icon in prose (history menu, etc.) | `:material-menu:{ .middle }` |
 | **Tip block** | Optional shortcut or friendly suggestion | `!!! tip "Title"` |
 | **Info block** | Neutral context, metadata, “validated on” notes | `!!! info "Title"` |
 | **Warning block** | Required step; skipping it causes failure or bad UX | `!!! warning "Title"` |
@@ -118,6 +119,20 @@ See `docs/index.md`.
 ### External links
 
 Add `{target="_blank" rel="noopener"}` to links that leave the doc site (GitHub Releases, web app, etc.).
+
+### Inline Material icons
+
+CloudScope uses [Material for MkDocs icon emoji](https://squidfunk.github.io/mkdocs-material/reference/icons-emojis/) syntax. The site enables this via `pymdownx.emoji` with `material.extensions.emoji.to_svg` in `mkdocs.yml` (same mechanism as `:material-web:` on the home page).
+
+Use **in prose only** (not in tables). Add `{ .middle }` so the icon aligns with surrounding text:
+
+```markdown
+Open the history menu (:material-menu:{ .middle }) and choose …
+```
+
+Icon names use hyphens (`material-menu`, `material-account-tree`). Prefer icons that match the Quasar `icon=` names used in the GUI where a Material equivalent exists.
+
+Reference: live usage in `docs/index.md` (home cards) and `docs/users/gui.md` (history menu).
 
 ### Screenshots
 

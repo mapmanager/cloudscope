@@ -34,9 +34,18 @@ separate left-toolbar icon for this workflow.
 While adding or editing an event, CloudScope shows a notification asking you to click and drag
 in the 2D plot to set the event range.
 
+## Results and reproducibility
+
+Review event statistics in the Velocity panel **Events** section and on the analysis plots.
+Save from the top header to persist event definitions and results in the JSON file for the
+source image.
+
+The GUI and scripting workflows share the same `acqstore` backend. See
+[Saved file formats](../../saved-files.md) for how event analysis is stored.
+
 ## Saved files
 
-Event analysis state is stored in the acquisition **JSON sidecar** (`my_file.tif.json`) together
+Event analysis state is stored in the acquisition JSON file (`my_file.tif.json`) together
 with velocity results and ROI data. There is no separate event CSV file.
 
 ## See also
