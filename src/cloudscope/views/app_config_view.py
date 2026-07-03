@@ -18,6 +18,7 @@ from cloudscope.app_config import (
     DEFAULT_TABLE_FONT_SIZE_PX,
 )
 from cloudscope.event_bus import EventBus
+from cloudscope.events.app_config import BlindedAnalysisModeChanged
 from cloudscope.events.layout import ResetHomeLayoutIntent
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
@@ -102,6 +103,7 @@ class AppConfigView(BaseView):
         super().__init__(event_bus=event_bus, app_state=None, initially_visible=initially_visible)
         self._app_config = app_config
         self._card: SchemaCardWidget | None = None
+        self._blinded_checkbox: ui.checkbox | None = None
 
     def _values_for_card(self) -> dict[str, object]:
         """Map current ``AppConfigData`` fields used by :data:`APP_CONFIG_UI_SCHEMA`.
@@ -208,6 +210,9 @@ class AppConfigView(BaseView):
         """
         if self._card is not None:
             self._card.update_values(self._values_for_card())
+        if self._blinded_checkbox is not None:
+            self._blinded_checkbox.value = self._app_config.get_blinded()
+            self._blinded_checkbox.update()
 
     def _build_card(self) -> None:
         """Build the schema card inside the current NiceGUI slot.
@@ -224,8 +229,30 @@ class AppConfigView(BaseView):
         )
         self._card.build()
         ui.separator()
+        self._blinded_checkbox = ui.checkbox(
+            'Blinded analysis',
+            value=self._app_config.get_blinded(),
+            on_change=self._on_blinded_changed,
+        )
+        ui.separator()
         with ui.row().classes('w-full gap-2'):
             ui.button('Reset View', on_click=self._on_reset_view_clicked).props('outline color=primary')
             ui.button('Factory defaults', on_click=self._on_factory_defaults_clicked).props(
                 'outline color=primary'
             )
+
+    def _on_blinded_changed(self, event: object) -> None:
+        """Persist blinded-analysis mode and notify visible views.
+
+        Args:
+            event: NiceGUI checkbox change event.
+
+        Returns:
+            None.
+        """
+        value = bool(getattr(event, 'value', False))
+        if value == self._app_config.get_blinded():
+            return
+        self._app_config.set_blinded(value)
+        self._app_config.save()
+        self.event_bus.publish(BlindedAnalysisModeChanged(blinded=value))

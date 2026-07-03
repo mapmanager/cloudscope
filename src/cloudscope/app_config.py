@@ -38,6 +38,7 @@ DEFAULT_HOME_ANALYSIS_REFERENCE_SPLITTER_PCT = 50.0
 DEFAULT_HOME_ANALYSIS_SUM_INTENSITY_SPLITTER_PCT = 58.0
 DEFAULT_CONTRAST_AUTO_PERCENTILE_LOW = 1.0
 DEFAULT_CONTRAST_AUTO_PERCENTILE_HIGH = 99.5
+DEFAULT_BLINDED = False
 # Fields edited in ``AppConfigView``; keep in sync with ``APP_CONFIG_UI_SCHEMA``.
 APP_CONFIG_EDITABLE_SETTINGS_FIELDS: tuple[str, ...] = (
     'text_size',
@@ -148,6 +149,20 @@ def _clamp_float(value: object, minimum: float, maximum: float, default: float) 
     return max(float(minimum), min(float(maximum), parsed))
 
 
+def _parse_bool(value: object, default: bool) -> bool:
+    """Return a bool from tolerant JSON config values."""
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return bool(default)
+    text = str(value).strip().lower()
+    if text in {'1', 'true', 'yes', 'on'}:
+        return True
+    if text in {'0', 'false', 'no', 'off'}:
+        return False
+    return bool(default)
+
+
 @dataclass
 class AppConfigData:
     """JSON-serializable GUI config payload."""
@@ -171,6 +186,7 @@ class AppConfigData:
     contrast_auto_percentile_low: float = DEFAULT_CONTRAST_AUTO_PERCENTILE_LOW
     contrast_auto_percentile_high: float = DEFAULT_CONTRAST_AUTO_PERCENTILE_HIGH
     default_channel_color_lut: dict[str, str] = field(default_factory=_default_channel_color_lut)
+    blinded: bool = DEFAULT_BLINDED
 
     def to_json_dict(self) -> dict[str, object]:
         """Return payload as JSON-serializable dictionary."""
@@ -295,6 +311,7 @@ class AppConfigData:
             default_channel_color_lut=_parse_channel_color_lut(
                 payload.get('default_channel_color_lut', {})
             ),
+            blinded=_parse_bool(payload.get('blinded', DEFAULT_BLINDED), DEFAULT_BLINDED),
         )
 
 
@@ -516,6 +533,7 @@ class AppConfig:
         self.data.default_channel_color_lut = _parse_channel_color_lut(
             self.data.default_channel_color_lut
         )
+        self.data.blinded = bool(self.data.blinded)
 
     @staticmethod
     def _normalize_contrast_percentiles(low: object, high: object) -> tuple[float, float]:
@@ -584,6 +602,26 @@ class AppConfig:
             return
         value = str(path).strip()
         self.data.last_path = _normalize_path(value) if value else ''
+
+    def get_blinded(self) -> bool:
+        """Return whether blinded analysis display mode is enabled.
+
+        Returns:
+            True when GUI display strings should hide file identity and
+            experimental metadata.
+        """
+        return bool(self.data.blinded)
+
+    def set_blinded(self, blinded: bool) -> None:
+        """Set blinded analysis display mode in memory.
+
+        Args:
+            blinded: Whether GUI display strings should be blinded.
+
+        Returns:
+            None.
+        """
+        self.data.blinded = bool(blinded)
 
     def set_window_rect(self, x: int, y: int, w: int, h: int) -> None:
         """Set native window rect as ``[x, y, w, h]``."""

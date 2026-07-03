@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from cloudscope.app_config import AppConfig
 from cloudscope.event_bus import EventBus
+from cloudscope.events.app_config import BlindedAnalysisModeChanged
 from cloudscope.views.app_config_view import AppConfigView
 from cloudscope.views.left_panel_file_list_view import LeftPanelFileListView
 from cloudscope.views.left_toolbar_view import LeftPanelReferenceImageView, LeftToolbarView
@@ -14,6 +15,21 @@ from cloudscope.views.sum_intensity_analysis_view import SumIntensityAnalysisVie
 from cloudscope.views.velocity_analysis_view import VelocityAnalysisView
 from cloudscope.views.view_ids import ViewId
 from cloudscope.views.view_manager import ViewManager
+
+
+class _FakeButton:
+    """Minimal button stand-in for toolbar state tests."""
+
+    def __init__(self) -> None:
+        self.enabled = True
+        self.props_values: list[str] = []
+        self.update_count = 0
+
+    def props(self, value: str) -> None:
+        self.props_values.append(value)
+
+    def update(self) -> None:
+        self.update_count += 1
 
 
 def test_left_toolbar_constructs_panel_views(tmp_path) -> None:
@@ -50,3 +66,59 @@ def test_left_toolbar_constructs_panel_views(tmp_path) -> None:
         ViewId.APP_INFO,
     )
     assert view.active_view_id is None
+
+
+def test_left_toolbar_disables_metadata_button_when_blinded(tmp_path) -> None:
+    config = AppConfig.load(config_path=tmp_path / "app_config.json")
+    config.set_blinded(True)
+    view = LeftToolbarView(
+        event_bus=EventBus(),
+        app_state=None,
+        app_config=config,
+        view_manager=ViewManager(),
+    )
+    metadata_button = _FakeButton()
+    config_button = _FakeButton()
+    view._buttons = {  # noqa: SLF001
+        ViewId.EXPERIMENT_METADATA: metadata_button,
+        ViewId.APP_CONFIG: config_button,
+    }
+
+    view._refresh_button_state()  # noqa: SLF001
+
+    assert metadata_button.enabled is False
+    assert config_button.enabled is True
+
+
+def test_left_toolbar_ignores_metadata_click_when_blinded(tmp_path, monkeypatch) -> None:
+    config = AppConfig.load(config_path=tmp_path / "app_config.json")
+    config.set_blinded(True)
+    view = LeftToolbarView(
+        event_bus=EventBus(),
+        app_state=None,
+        app_config=config,
+        view_manager=ViewManager(),
+    )
+    calls: list[ViewId | None] = []
+    monkeypatch.setattr(view, "_apply_active_view", calls.append)
+
+    view._on_tab_clicked(ViewId.EXPERIMENT_METADATA)  # noqa: SLF001
+
+    assert calls == []
+
+
+def test_left_toolbar_closes_metadata_when_blinded_turns_on(tmp_path, monkeypatch) -> None:
+    config = AppConfig.load(config_path=tmp_path / "app_config.json")
+    view = LeftToolbarView(
+        event_bus=EventBus(),
+        app_state=None,
+        app_config=config,
+        view_manager=ViewManager(),
+    )
+    view._active_view_id = ViewId.EXPERIMENT_METADATA  # noqa: SLF001
+    calls: list[ViewId | None] = []
+    monkeypatch.setattr(view, "_apply_active_view", calls.append)
+
+    view.on_blinded_analysis_mode_changed(BlindedAnalysisModeChanged(blinded=True))
+
+    assert calls == [None]

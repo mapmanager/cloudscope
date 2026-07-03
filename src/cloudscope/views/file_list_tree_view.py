@@ -30,7 +30,9 @@ from acqstore.acq_image.tree_rows import (
 )
 from acqstore.schema import ACQ_FILE_LIST_SCHEMA
 
+from cloudscope.blinded_display import mask_tree_rows
 from cloudscope.event_bus import EventBus
+from cloudscope.events.app_config import BlindedAnalysisModeChanged
 from cloudscope.events.acq_image_events import AcqImageEventsChanged
 from cloudscope.events.analysis import AnalysisCompleted
 from cloudscope.events.files import FileListChanged, ImageDataUnloaded, UnloadImageDataIntent
@@ -498,6 +500,11 @@ class AcqImageListTreeView(BaseView):
         self._tree.set_data(self._read_tree_rows_from_state())
         self._sync_table_selection()
 
+    def on_blinded_analysis_mode_changed(self, event: BlindedAnalysisModeChanged) -> None:
+        """Refresh visible file rows after blinded display mode changes."""
+        _ = event
+        self.refresh_from_state()
+
     def _on_analysis_completed(self, event: AnalysisCompleted) -> None:
         """Refresh one file's subtree after analysis completes.
 
@@ -573,7 +580,7 @@ class AcqImageListTreeView(BaseView):
         if acq_image is None:
             logger.error("acq_image not found: %s", file_id)
             return
-        self._tree.replace_group_rows(file_id, acq_image.get_tree_rows())
+        self._tree.replace_group_rows(file_id, self._display_tree_rows(acq_image.get_tree_rows()))
         if self.current_selection.file_id == file_id:
             self._sync_table_selection()
 
@@ -587,7 +594,13 @@ class AcqImageListTreeView(BaseView):
         acq_image_list = self.get_acq_image_list()
         if acq_image_list is None:
             return []
-        return acq_image_list.get_tree_rows()
+        return self._display_tree_rows(acq_image_list.get_tree_rows())
+
+    def _display_tree_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Return rows in the current blinded display state."""
+        if not self.is_blinded():
+            return rows
+        return mask_tree_rows(rows, file_label_map=self.file_label_map())
 
     @staticmethod
     def _resolve_file_id_from_row(row: dict[str, Any]) -> str | None:

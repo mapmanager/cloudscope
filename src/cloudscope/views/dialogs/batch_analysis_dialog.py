@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -11,6 +11,7 @@ from nicegui import ui
 from acqstore.acq_image.analysis.batch.preview import BatchPreviewRow
 from acqstore.acq_image.analysis.batch.roi_mode import RoiBatchMode
 from acqstore.acq_image.analysis.batch.types import BatchFileOutcome, BatchFileResult
+from cloudscope.blinded_display import display_file_name
 from cloudscope.event_bus import EventBus, EventSubscription
 from cloudscope.events.analysis import (
     BatchAnalysisCompleted,
@@ -64,6 +65,8 @@ class BatchAnalysisDialog:
         common_roi_ids: Sequence[int],
         preview_rows_provider: Callable[[RoiBatchMode, int | None], Sequence[BatchPreviewRow]],
         on_run: Callable[[BatchAnalysisDialogResult], None],
+        blinded: bool = False,
+        file_label_map: Mapping[str, str] | None = None,
     ) -> None:
         self._event_bus = event_bus
         self._batch_id = str(batch_id)
@@ -74,6 +77,8 @@ class BatchAnalysisDialog:
         self._common_roi_ids = tuple(int(roi_id) for roi_id in common_roi_ids)
         self._preview_rows_provider = preview_rows_provider
         self._on_run = on_run
+        self._blinded = bool(blinded)
+        self._file_label_map = dict(file_label_map or {})
         self._dialog: ui.dialog | None = None
         self._roi_mode_radio: ui.radio | None = None
         self._roi_select: ui.select | None = None
@@ -321,7 +326,7 @@ class BatchAnalysisDialog:
     def _row_from_preview(self, row: BatchPreviewRow) -> dict[str, str]:
         """Map a preview row to a table row."""
         return {
-            "file": row.file_name,
+            "file": self._display_file_label(row.file_id, fallback=row.file_name),
             "outcome": row.outcome.value,
             "message": row.message,
         }
@@ -329,10 +334,20 @@ class BatchAnalysisDialog:
     def _row_from_result(self, result: BatchFileResult) -> dict[str, str]:
         """Map a final/per-file result to a table row."""
         return {
-            "file": Path(result.file_path).name,
+            "file": self._display_file_label(str(result.file_path)),
             "outcome": self._outcome_label(result.outcome),
             "message": "" if result.outcome is BatchFileOutcome.OK else result.message,
         }
+
+    def _display_file_label(self, file_id: str, *, fallback: str | None = None) -> str:
+        """Return the file label for preview/result rows."""
+        if not self._blinded:
+            return fallback if fallback is not None else Path(file_id).name
+        return display_file_name(
+            file_id,
+            blinded=True,
+            file_label_map=self._file_label_map,
+        )
 
     def _outcome_label(self, outcome: BatchFileOutcome) -> str:
         """Return compact display text for a runtime outcome."""

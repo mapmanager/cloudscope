@@ -102,6 +102,14 @@ class _FakeSumIntensityPool:
         return self.row_ids
 
 
+@dataclass
+class _FakePoolState:
+    """Minimal app-state object exposing display-order file ids."""
+
+    file_ids: list[str]
+    acq_image_list: None = None
+
+
 def test_velocity_pool_view_row_selection_publishes_select_file_intent() -> None:
     """Selecting a pool row should request the matching file/channel/ROI."""
     bus = EventBus()
@@ -115,6 +123,45 @@ def test_velocity_pool_view_row_selection_publishes_select_file_intent() -> None
     )
 
     assert intents == [SelectFileIntent(file_id="file-a", channel=2, roi_id=5)]
+
+
+def test_velocity_pool_view_masks_pool_dataframe_and_maps_selection() -> None:
+    """Blinded pool display should hide paths while preserving real selection."""
+    bus = EventBus()
+    intents: list[SelectFileIntent] = []
+    bus.subscribe(SelectFileIntent, intents.append)
+    state = _FakePoolState(file_ids=["/data/a.oir"])
+    view = VelocityPoolView(event_bus=bus, app_state=state)
+    view.set_blinded_provider(lambda: True)
+    df = pd.DataFrame(
+        [
+            {
+                "pool_row_id": "/data/a.oir|channel=2|roi_id=5",
+                "name": "a.oir",
+                "path": "/data/a.oir",
+                "parent": "condition-a",
+                "grandparent": "genotype-a",
+                "condition": "treated",
+                "genotype": "wt",
+                "channel": 2,
+                "roi_id": 5,
+                "velocity_mean": 1.5,
+            }
+        ]
+    )
+
+    masked = view._display_velocity_dataframe(df)  # noqa: SLF001
+    row = masked.iloc[0].to_dict()
+    display_row_id = str(row["pool_row_id"])
+
+    assert row["path"] == "File 1"
+    assert row["name"] == "File 1"
+    assert row["parent"] == "Blinded"
+    assert "/data/a.oir" not in display_row_id
+
+    view._on_row_selected(display_row_id, row)  # noqa: SLF001
+
+    assert intents == [SelectFileIntent(file_id="/data/a.oir", channel=2, roi_id=5)]
 
 
 def test_empty_velocity_pool_dataframe_uses_full_backend_schema() -> None:

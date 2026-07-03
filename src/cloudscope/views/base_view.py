@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from collections.abc import Callable
 from typing import Any, ClassVar
 
 from nicegui import ui
 
+from cloudscope.blinded_display import build_file_label_map_from_state, display_file_name
 from cloudscope.event_bus import EventBus, EventSubscription
+from cloudscope.events.app_config import BlindedAnalysisModeChanged
 from cloudscope.events.analysis import AppBusyChanged
 from cloudscope.events.selection import (
     ChannelSelectionChanged,
@@ -47,9 +49,11 @@ class BaseView:
         app_state: Any | None = None,
         *,
         initially_visible: bool = True,
+        blinded_provider: Callable[[], bool] | None = None,
     ) -> None:
         self.event_bus = event_bus
         self.app_state = app_state
+        self._blinded_provider = blinded_provider
         self._visible = bool(initially_visible)
         self._built = False
         self.root: ui.element | None = None
@@ -85,6 +89,28 @@ class BaseView:
             True after ``after_build`` has run.
         """
         return self._built
+
+    def set_blinded_provider(self, blinded_provider: Callable[[], bool] | None) -> None:
+        """Set the callable used to read blinded-analysis display state.
+
+        Args:
+            blinded_provider: Callable returning True when display masking is
+                enabled, or None to force unblinded display.
+
+        Returns:
+            None.
+        """
+        self._blinded_provider = blinded_provider
+
+    def is_blinded(self) -> bool:
+        """Return whether this view should mask revealing display strings."""
+        if self._blinded_provider is None:
+            return False
+        return bool(self._blinded_provider())
+
+    def file_label_map(self) -> dict[str, str]:
+        """Return blinded labels for files in current app-state order."""
+        return build_file_label_map_from_state(self.app_state)
 
     def build(self, parent: ui.element | None = None) -> ui.element:
         """Build the view once.
@@ -160,6 +186,7 @@ class BaseView:
             None.
         """
         self.add_subscription(self.event_bus.subscribe(AppBusyChanged, self._on_app_busy_changed))
+        self.add_subscription(self.event_bus.subscribe(BlindedAnalysisModeChanged, self._on_blinded_analysis_mode_changed))
         self.add_subscription(self.event_bus.subscribe(FileSelectionChanged, self._on_file_selection_changed))
         self.add_subscription(self.event_bus.subscribe(ChannelSelectionChanged, self._on_channel_selection_changed))
         self.add_subscription(self.event_bus.subscribe(RoiSelectionChanged, self._on_roi_selection_changed))
@@ -227,6 +254,17 @@ class BaseView:
         Returns:
             None.
         """
+
+    def on_blinded_analysis_mode_changed(self, event: BlindedAnalysisModeChanged) -> None:
+        """Handle blinded-analysis mode changes.
+
+        Args:
+            event: New blinded-analysis mode.
+
+        Returns:
+            None.
+        """
+        _ = event
 
     def set_enabled(self, enabled: bool) -> None:
         """Enable or disable this view's root element.
@@ -381,7 +419,11 @@ class BaseView:
         if selection.file_id is None:
             label.text = "No file selected"
             return
-        file_name = Path(selection.file_id).name
+        file_name = display_file_name(
+            selection.file_id,
+            blinded=self.is_blinded(),
+            file_label_map=self.file_label_map(),
+        )
         channel_text = "—" if selection.channel is None else str(selection.channel)
         roi_text = "—" if selection.roi_id is None else str(selection.roi_id)
         label.text = "\n".join(
@@ -402,6 +444,11 @@ class BaseView:
             None.
         """
         self.handle_app_busy_changed(event)
+
+    def _on_blinded_analysis_mode_changed(self, event: BlindedAnalysisModeChanged) -> None:
+        """Refresh common display labels after blinded mode changes."""
+        self.refresh_selection_label()
+        self.on_blinded_analysis_mode_changed(event)
 
     def _on_file_selection_changed(self, event: FileSelectionChanged) -> None:
         """Update cached primary selection from a file-selection state event.

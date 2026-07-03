@@ -11,7 +11,12 @@ from nicegui import ui
 from acqstore.analysis_pool.base_analysis_pool import AnalysisPool
 from acqstore.analysis_pool.sum_intensity_analysis_pool import SumIntensityAnalysisPool
 from acqstore.analysis_pool.velocity_analysis_pool import VelocityAnalysisPool
+from cloudscope.blinded_display import (
+    PoolSelectionIdentity,
+    mask_pool_dataframe,
+)
 from cloudscope.event_bus import EventBus
+from cloudscope.events.app_config import BlindedAnalysisModeChanged
 from cloudscope.events.selection import SelectFileIntent
 from cloudscope.events.sum_intensity_pool import SumIntensityPoolChanged
 from cloudscope.events.theme import ThemeChanged
@@ -83,8 +88,14 @@ class VelocityPoolView(BaseView):
         initially_visible: bool = True,
         dark_mode: bool = False,
         dark_mode_provider: Callable[[], bool] | None = None,
+        blinded_provider: Callable[[], bool] | None = None,
     ) -> None:
-        super().__init__(event_bus=event_bus, app_state=app_state, initially_visible=initially_visible)
+        super().__init__(
+            event_bus=event_bus,
+            app_state=app_state,
+            initially_visible=initially_visible,
+            blinded_provider=blinded_provider,
+        )
         self._table_font_size_px = int(table_font_size_px)
         self._dark_mode = bool(dark_mode)
         self._dark_mode_provider = dark_mode_provider
@@ -96,6 +107,10 @@ class VelocityPoolView(BaseView):
         self._client: Any | None = None
         self._disposed = False
         self._skip_refresh_from_state_once = False
+        self._velocity_display_to_selection: dict[str, PoolSelectionIdentity] = {}
+        self._velocity_real_to_display_row_id: dict[str, str] = {}
+        self._peaks_display_to_selection: dict[str, PoolSelectionIdentity] = {}
+        self._peaks_real_to_display_row_id: dict[str, str] = {}
 
     def build(self, parent: ui.element | None = None) -> ui.element:
         """Build the tabbed analysis-pool UI.
@@ -234,6 +249,7 @@ class VelocityPoolView(BaseView):
                 channel=int(channel),
                 roi_id=int(roi_id),
             )
+            row_id = self._velocity_real_to_display_row_id.get(row_id, row_id)
             self._velocity_pool.select_points_by_row_id(row_id)
 
         if self._peaks_pool is not None:
@@ -246,6 +262,7 @@ class VelocityPoolView(BaseView):
                 roi_id=int(roi_id),
             )
             if row_ids:
+                row_ids = tuple(self._peaks_real_to_display_row_id.get(row_id, row_id) for row_id in row_ids)
                 self._peaks_pool.select_points_by_row_ids(row_ids)
 
     def refresh_from_state(self) -> None:
@@ -345,6 +362,11 @@ class VelocityPoolView(BaseView):
         _ = event
         self.refresh_from_state()
 
+    def on_blinded_analysis_mode_changed(self, event: BlindedAnalysisModeChanged) -> None:
+        """Refresh pool display DataFrames after blinded mode changes."""
+        _ = event
+        self.refresh_from_state()
+
     def _relayout_active_tab(self) -> None:
         """Relayout the NicePool widget for the currently selected tab.
 
@@ -381,9 +403,10 @@ class VelocityPoolView(BaseView):
         Returns:
             None.
         """
-        file_id = row.get("path")
-        channel = row.get("channel")
-        roi_id = row.get("roi_id")
+        identity = self._selection_identity_for_display_row(_row_id)
+        file_id = identity.file_id if identity is not None else row.get("path")
+        channel = identity.channel if identity is not None else row.get("channel")
+        roi_id = identity.roi_id if identity is not None else row.get("roi_id")
         if file_id is None:
             return
         self.event_bus.publish(
@@ -401,7 +424,7 @@ class VelocityPoolView(BaseView):
         pool = getattr(acq_image_list, "velocity_analysis_pool", None)
         if pool is None:
             return _empty_velocity_pool_dataframe()
-        return pool.get_dataframe()
+        return self._display_velocity_dataframe(pool.get_dataframe())
 
     def _peaks_dataframe_from_state(self) -> pd.DataFrame:
         acq_image_list = getattr(self.app_state, "acq_image_list", None)
@@ -410,7 +433,33 @@ class VelocityPoolView(BaseView):
         pool = getattr(acq_image_list, "sum_intensity_analysis_pool", None)
         if pool is None:
             return _empty_sum_intensity_pool_dataframe()
-        return pool.get_dataframe()
+        return self._display_peaks_dataframe(pool.get_dataframe())
+
+    def _display_velocity_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Return the velocity DataFrame in the current display mode."""
+        if not self.is_blinded():
+            self._velocity_display_to_selection = {}
+            self._velocity_real_to_display_row_id = {}
+            return df
+        display = mask_pool_dataframe(df, file_label_map=self.file_label_map())
+        self._velocity_display_to_selection = display.display_to_real_selection
+        self._velocity_real_to_display_row_id = display.real_to_display_row_id
+        return display.dataframe
+
+    def _display_peaks_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Return the peaks DataFrame in the current display mode."""
+        if not self.is_blinded():
+            self._peaks_display_to_selection = {}
+            self._peaks_real_to_display_row_id = {}
+            return df
+        display = mask_pool_dataframe(df, file_label_map=self.file_label_map())
+        self._peaks_display_to_selection = display.display_to_real_selection
+        self._peaks_real_to_display_row_id = display.real_to_display_row_id
+        return display.dataframe
+
+    def _selection_identity_for_display_row(self, row_id: str) -> PoolSelectionIdentity | None:
+        """Return real selection identity for a possibly blinded pool row."""
+        return self._velocity_display_to_selection.get(row_id) or self._peaks_display_to_selection.get(row_id)
 
     def _sum_intensity_pool_from_state(self) -> SumIntensityAnalysisPool | None:
         acq_image_list = getattr(self.app_state, "acq_image_list", None)

@@ -35,6 +35,7 @@ def pool_page() -> None:
         app_state=runtime.app_state,
         initially_visible=True,
         show_status=False,
+        blinded_provider=runtime.app_config.get_blinded,
     )
     footer.build()
 
@@ -45,6 +46,7 @@ def pool_page() -> None:
         initially_visible=True,
         dark_mode=bool(runtime.app_config.data.dark_mode),
         dark_mode_provider=lambda: bool(runtime.app_config.data.dark_mode),
+        blinded_provider=runtime.app_config.get_blinded,
     )
     with ui.column().classes("w-full h-[calc(100vh-4rem-2rem)] min-h-0 p-2"):
         pool_view.build()

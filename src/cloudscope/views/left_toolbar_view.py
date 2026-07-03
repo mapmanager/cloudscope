@@ -10,6 +10,7 @@ from nicegui import ui
 
 from cloudscope.app_config import AppConfig
 from cloudscope.event_bus import EventBus
+from cloudscope.events.app_config import BlindedAnalysisModeChanged
 from cloudscope.raster_display_cache import RasterDisplayCache
 from cloudscope.views.app_config_view import AppConfigView
 from cloudscope.views.app_info_view import AppInfoView
@@ -95,7 +96,12 @@ class LeftToolbarView(BaseView):
         dark_mode_provider: Callable[[], bool] | None = None,
         raster_display_cache: RasterDisplayCache | None = None,
     ) -> None:
-        super().__init__(event_bus=event_bus, app_state=app_state, initially_visible=initially_visible)
+        super().__init__(
+            event_bus=event_bus,
+            app_state=app_state,
+            initially_visible=initially_visible,
+            blinded_provider=app_config.get_blinded,
+        )
         self._app_config = app_config
         self._view_manager = view_manager
         self._on_panel_open_changed = on_panel_open_changed
@@ -153,6 +159,19 @@ class LeftToolbarView(BaseView):
             event_bus=event_bus,
             initially_visible=False,
         )
+        for child in (
+            self.file_list_view,
+            self.experiment_metadata_view,
+            self.image_header_metadata_view,
+            self.velocity_analysis_view,
+            self.velocity_analysis_view.event_analysis_view,
+            self.diameter_analysis_view,
+            self.sum_intensity_analysis_view,
+            self.reference_image_view,
+            self.app_config_view,
+            self.app_info_view,
+        ):
+            child.set_blinded_provider(app_config.get_blinded)
 
     @property
     def active_view_id(self) -> ViewId | None:
@@ -260,6 +279,8 @@ class LeftToolbarView(BaseView):
         Returns:
             None.
         """
+        if view_id is ViewId.EXPERIMENT_METADATA and self.is_blinded():
+            return
         next_view_id = None if self._active_view_id == view_id else view_id
         self._apply_active_view(next_view_id)
 
@@ -288,8 +309,20 @@ class LeftToolbarView(BaseView):
             None.
         """
         for view_id, button in self._buttons.items():
+            if view_id is ViewId.EXPERIMENT_METADATA and self.is_blinded():
+                button.enabled = False
+                button.update()
+                continue
+            button.enabled = True
             if view_id == self._active_view_id:
                 button.props("flat dense round color=primary")
             else:
                 button.props("flat dense round")
             button.update()
+
+    def on_blinded_analysis_mode_changed(self, event: BlindedAnalysisModeChanged) -> None:
+        """Close and disable experiment metadata while blinded mode is active."""
+        if event.blinded and self._active_view_id is ViewId.EXPERIMENT_METADATA:
+            self._apply_active_view(None)
+            return
+        self._refresh_button_state()

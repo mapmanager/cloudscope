@@ -42,6 +42,16 @@ def test_footer_display_values_all_set() -> None:
     assert footer_display_values("/x/y.z", 2, 7) == ("y.z", "2", "7")
 
 
+def test_footer_display_values_uses_blinded_label_map() -> None:
+    assert footer_display_values(
+        "/x/y.z",
+        2,
+        7,
+        blinded=True,
+        file_label_map={"/x/y.z": "File 4"},
+    ) == ("File 4", "2", "7")
+
+
 def test_footer_view_reacts_to_file_then_channel_and_roi() -> None:
     """View handlers update label text without calling ``build()`` (no NiceGUI slot)."""
     bus = EventBus()

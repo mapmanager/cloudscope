@@ -152,6 +152,7 @@ class FakeAcqImageList:
 class FakeState:
     acq_image_list: FakeAcqImageList | None = None
     selection: PrimarySelection = field(default_factory=PrimarySelection)
+    file_ids: list[str] = field(default_factory=list)
 
 
 def _make_view(state: FakeState | None = None) -> AcqImageListTreeView:
@@ -180,6 +181,24 @@ def test_refresh_from_state_reads_tree_rows_from_app_state() -> None:
     assert view._tree.rows[1][ACQ_TREE_ROW_TYPE_FIELD] == ACQ_TREE_ROW_TYPE_ANALYSIS
     assert view._tree.rows[1]["name"] == "radon_velocity"
     assert view._tree.selected == ["/tmp/a.oir"]
+
+
+def test_refresh_from_state_masks_file_rows_when_blinded() -> None:
+    image = FakeAcqImage("/tmp/a.oir")
+    state = FakeState(
+        acq_image_list=FakeAcqImageList([image]),
+        file_ids=["/tmp/a.oir"],
+        selection=PrimarySelection(file_id="/tmp/a.oir", channel=0, roi_id=1),
+    )
+    view = _make_view(state)
+    view.set_blinded_provider(lambda: True)
+    view.current_selection = state.selection
+
+    view.refresh_from_state()
+
+    assert view._tree is not None
+    assert view._tree.rows[0][ACQ_TREE_ROW_ID_FIELD] == "/tmp/a.oir"
+    assert view._tree.rows[0]["name"] == "File 1"
 
 
 def test_file_list_changed_rebuilds_from_app_state_not_event_rows() -> None:

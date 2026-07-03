@@ -7,7 +7,9 @@ from typing import Any
 from nicegui import ui
 
 from acqstore.schema import ACQ_FILE_LIST_SCHEMA
+from cloudscope.blinded_display import mask_file_list_rows
 from cloudscope.event_bus import EventBus
+from cloudscope.events.app_config import BlindedAnalysisModeChanged
 from cloudscope.events.acq_image_events import AcqImageEventsChanged
 from cloudscope.events.analysis import AnalysisCompleted
 from cloudscope.events.files import FileListChanged, ImageDataUnloaded
@@ -70,7 +72,7 @@ class AcqImageListTableView(BaseView):
         font_px = int(self._table_font_size_px)
         row_h, header_h = scaled_row_header_heights_px(font_px)
         acq_image_list = self.get_acq_image_list()
-        rows = acq_image_list.get_schema_rows() if acq_image_list is not None else []
+        rows = self._display_rows(acq_image_list.get_schema_rows()) if acq_image_list is not None else []
         self._table = TableWidget(
             columns=schema_to_column_defs(ACQ_FILE_LIST_SCHEMA),
             row_id_field=self._row_id_field,
@@ -187,7 +189,7 @@ class AcqImageListTableView(BaseView):
             return
         acq_image_list = self.get_acq_image_list()
         if acq_image_list is not None:
-            self._table.set_data(acq_image_list.get_schema_rows())
+            self._table.set_data(self._display_rows(acq_image_list.get_schema_rows()))
         self._sync_table_selection()
 
     def _on_row_selected(self, row: dict[str, Any]) -> None:
@@ -242,7 +244,7 @@ class AcqImageListTableView(BaseView):
         """
         if self._table is None:
             return
-        self._table.update_row(event.file_id, dict(event.file_list_row))
+        self._table.update_row(event.file_id, self._display_row(dict(event.file_list_row)))
 
     def _on_metadata_changed(self, event: MetadataChanged) -> None:
         """Refresh one table row after metadata apply.
@@ -255,7 +257,7 @@ class AcqImageListTableView(BaseView):
         """
         if self._table is None:
             return
-        self._table.update_row(event.file_id, dict(event.file_list_row))
+        self._table.update_row(event.file_id, self._display_row(dict(event.file_list_row)))
 
     def _on_file_list_changed(self, event: FileListChanged) -> None:
         """Replace table rows when controller publishes a new file list.
@@ -268,7 +270,7 @@ class AcqImageListTableView(BaseView):
         """
         if self._table is None:
             return
-        self._table.set_data(list(event.rows))
+        self._table.set_data(self._display_rows(event.rows))
         self._sync_table_selection()
 
     def _on_analysis_completed(self, event: AnalysisCompleted) -> None:
@@ -335,4 +337,19 @@ class AcqImageListTableView(BaseView):
         if acq_image is None:
             logger.error("acq_image not found: %s", file_id)
             return
-        self._table.update_row(file_id, acq_image.get_schema_row())
+        self._table.update_row(file_id, self._display_row(acq_image.get_schema_row()))
+
+    def on_blinded_analysis_mode_changed(self, event: BlindedAnalysisModeChanged) -> None:
+        """Refresh rows after blinded display mode changes."""
+        _ = event
+        self.refresh_from_state()
+
+    def _display_rows(self, rows: list[dict[str, object]]) -> list[dict[str, object]]:
+        if not self.is_blinded():
+            return rows
+        return mask_file_list_rows(rows, file_label_map=self.file_label_map())
+
+    def _display_row(self, row: dict[str, object]) -> dict[str, object]:
+        if not self.is_blinded():
+            return row
+        return mask_file_list_rows([row], file_label_map=self.file_label_map())[0]

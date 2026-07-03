@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
 from nicegui import ui
 
+from cloudscope.blinded_display import display_file_name
 from cloudscope.event_bus import EventBus
+from cloudscope.events.app_config import BlindedAnalysisModeChanged
 from cloudscope.events.analysis import TaskProgressChanged
 from cloudscope.events.status import AppStatusChanged
 from cloudscope.utils.logging import get_logger
@@ -24,6 +25,9 @@ def footer_display_values(
     file_id: str | None,
     channel: int | None,
     roi_id: int | None,
+    *,
+    blinded: bool = False,
+    file_label_map: dict[str, str] | None = None,
 ) -> tuple[str, str, str]:
     """Compute footer strings for file basename, channel, and ROI.
 
@@ -31,13 +35,15 @@ def footer_display_values(
         file_id: Current file identifier, or None.
         channel: Current channel index, or None.
         roi_id: Current ROI identifier, or None.
+        blinded: Whether to use anonymous file labels.
+        file_label_map: Real file id to blinded label mapping.
 
     Returns:
         ``(file, channel, roi)`` display strings.
     """
     if file_id is None:
         return (_FOOTER_PLACEHOLDER, _FOOTER_PLACEHOLDER, _FOOTER_PLACEHOLDER)
-    basename = str(Path(file_id).name)
+    basename = display_file_name(file_id, blinded=blinded, file_label_map=file_label_map)
     ch = _FOOTER_PLACEHOLDER if channel is None else str(channel)
     roi = _FOOTER_PLACEHOLDER if roi_id is None else str(roi_id)
     return (basename, ch, roi)
@@ -64,8 +70,14 @@ class FooterView(BaseView):
         *,
         initially_visible: bool = True,
         show_status: bool = True,
+        blinded_provider: Callable[[], bool] | None = None,
     ) -> None:
-        super().__init__(event_bus=event_bus, app_state=app_state, initially_visible=initially_visible)
+        super().__init__(
+            event_bus=event_bus,
+            app_state=app_state,
+            initially_visible=initially_visible,
+            blinded_provider=blinded_provider,
+        )
         self._show_status = bool(show_status)
         self._client = None
         self._file_id: str | None = None
@@ -171,10 +183,21 @@ class FooterView(BaseView):
         """
         if self._file_label is None or self._channel_label is None or self._roi_label is None:
             return
-        file_s, ch_s, roi_s = footer_display_values(self._file_id, self._channel, self._roi_id)
+        file_s, ch_s, roi_s = footer_display_values(
+            self._file_id,
+            self._channel,
+            self._roi_id,
+            blinded=self.is_blinded(),
+            file_label_map=self.file_label_map(),
+        )
         self._file_label.text = f'File: {file_s}'
         self._channel_label.text = f'Channel: {ch_s}'
         self._roi_label.text = f'ROI: {roi_s}'
+
+    def on_blinded_analysis_mode_changed(self, event: BlindedAnalysisModeChanged) -> None:
+        """Refresh footer labels after blinded mode changes."""
+        _ = event
+        self._refresh_labels()
 
     def _on_app_status_changed(self, event: AppStatusChanged) -> None:
         """Render latest app-level status in footer.

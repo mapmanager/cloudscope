@@ -122,6 +122,7 @@ class HomePage:
             table_font_size_px=int(self.app_config.data.table_font_size_px),
             initially_visible=False,
         )
+        file_list_panel.set_blinded_provider(self.app_config.get_blinded)
         app_state.visible_file_ids_provider = file_list_panel.get_displayed_file_ids
         load_save_view = LoadSaveView(
             event_bus=self.event_bus,
@@ -177,6 +178,7 @@ class HomePage:
                 initially_visible=False,
                 dark_mode=dark_mode,
                 dark_mode_provider=_dark_mode,
+                blinded_provider=self.app_config.get_blinded,
             )
         right_panel_velocity_pool_view: VelocityPoolView | None = None
         if SHOW_VELOCITY_POOL_RIGHT_PANEL:
@@ -187,11 +189,13 @@ class HomePage:
                 initially_visible=False,
                 dark_mode=dark_mode,
                 dark_mode_provider=_dark_mode,
+                blinded_provider=self.app_config.get_blinded,
             )
         footer = FooterView(
             event_bus=self.event_bus,
             app_state=app_state,
             initially_visible=True,
+            blinded_provider=self.app_config.get_blinded,
         )
         task_progress_dialog = TaskProgressDialogView(
             event_bus=self.event_bus,

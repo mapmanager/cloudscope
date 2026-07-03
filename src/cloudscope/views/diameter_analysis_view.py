@@ -464,6 +464,8 @@ class DiameterAnalysisView(BaseView):
             common_roi_ids=common_roi_ids,
             preview_rows_provider=_preview_rows,
             on_run=_run_batch,
+            blinded=self.is_blinded(),
+            file_label_map=self.file_label_map(),
         ).open()
 
     def _refresh_selection_dependent_ui(self) -> None:

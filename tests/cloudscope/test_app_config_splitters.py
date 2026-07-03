@@ -111,4 +111,22 @@ def test_app_config_data_from_json_accepts_missing_splitter_fields() -> None:
     data = AppConfigData.from_json_dict({'schema_version': 1})
 
     assert data.home_file_list_splitter_pct == DEFAULT_HOME_FILE_LIST_SPLITTER_PCT
+
+
+def test_app_config_blinded_round_trip(tmp_path: Path) -> None:
+    """Blinded analysis mode should persist through app config JSON."""
+    cfg = AppConfig(path=tmp_path / 'app_config.json')
+    cfg.set_blinded(True)
+    cfg.save()
+
+    loaded = AppConfig.load(config_path=cfg.path)
+
+    assert loaded.get_blinded() is True
+
+
+def test_app_config_data_from_json_accepts_string_blinded_value() -> None:
+    """Older/tolerant JSON parsing should normalize bool-like blinded values."""
+    data = AppConfigData.from_json_dict({'schema_version': 1, 'blinded': 'true'})
+
+    assert data.blinded is True
     assert data.home_analysis_sum_intensity_splitter_pct == DEFAULT_HOME_ANALYSIS_SUM_INTENSITY_SPLITTER_PCT
