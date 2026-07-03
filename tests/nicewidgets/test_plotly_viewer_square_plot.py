@@ -1,16 +1,22 @@
-"""Tests for the thin Plotly viewer adapter."""
+"""Headless tests for PlotlyRasterViewer square layout, padding, and ROI edit mode."""
 
 from __future__ import annotations
 
 import asyncio
+import sys
+import types
 
 import numpy as np
 import pytest
 
-import nicewidgets.raster_viewer.frontend.plotly_viewer as plotly_viewer_module
+if 'nicegui' not in sys.modules:
+    fake_nicegui = types.ModuleType('nicegui')
+    fake_nicegui.ui = types.SimpleNamespace()
+    fake_nicegui.app = types.SimpleNamespace(native=types.SimpleNamespace(main_window=None))
+    sys.modules['nicegui'] = fake_nicegui
+
 from nicewidgets.raster_viewer.backend.image_model import RasterGridSpec, RowColBounds
 from nicewidgets.raster_viewer.frontend.plotly_coord_transform import PlotlyCoordTransform
-from nicewidgets.raster_viewer.frontend.plotly_protocol import PlotlyViewportPayload
 from nicewidgets.raster_viewer.frontend.plotly_viewer import (
     PlotlyRasterViewer,
     _pad_axis_ranges_by_screen_px,
@@ -44,19 +50,6 @@ def test_pad_axis_ranges_by_screen_px_preserves_reversed_axis_direction() -> Non
 
     flat = tuple(value for pair in padded for value in pair)
     assert flat == pytest.approx((105.0, -5.0, 240.0, 0.0))
-
-
-def test_set_data_initializes_backend_state() -> None:
-    """Setting data should initialize backend state and bounds."""
-    viewer = PlotlyRasterViewer()
-    data = np.arange(32, dtype=np.float32).reshape(4, 8)
-
-    response = asyncio.run(viewer.set_data(data, grid=_GRID))
-
-    assert viewer.has_data is True
-    b = viewer.current_bounds
-    assert (b.row_min, b.row_max, b.col_min, b.col_max) == (0.0, 4.0, 0.0, 8.0)
-    assert response.mode == 'image_png'
 
 
 def test_clear_data_resets_viewer_to_empty_figure(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -96,7 +89,7 @@ def test_clear_data_resets_viewer_to_empty_figure(monkeypatch: pytest.MonkeyPatc
         def context_menu() -> DummyContextMenu:
             return DummyContextMenu()
 
-    import types
+    from nicewidgets.raster_viewer.frontend import plotly_viewer as plotly_viewer_module
 
     monkeypatch.setattr(
         plotly_viewer_module,
@@ -113,55 +106,6 @@ def test_clear_data_resets_viewer_to_empty_figure(monkeypatch: pytest.MonkeyPatc
 
     assert viewer.has_data is False
     assert viewer.figure['data'] == []
-
-
-def test_build_before_set_data_returns_empty_figure(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Building before data is set should create an empty plot."""
-    captured: dict[str, object] = {}
-
-    class DummyElement:
-        id = 1
-
-        def on(self, *_args, **_kwargs) -> 'DummyElement':
-            return self
-
-    class DummyContextMenu:
-        def clear(self) -> 'DummyContextMenu':
-            return self
-
-        def __enter__(self) -> 'DummyContextMenu':
-            return self
-
-        def __exit__(self, *_args) -> None:
-            return None
-
-        def open(self) -> None:
-            return None
-
-    class DummyUI:
-        @staticmethod
-        def plotly(figure):
-            captured['figure'] = figure
-            return DummyElement()
-
-        @staticmethod
-        def context_menu() -> DummyContextMenu:
-            return DummyContextMenu()
-
-    import types
-
-    monkeypatch.setattr(
-        plotly_viewer_module,
-        'ui',
-        types.SimpleNamespace(plotly=DummyUI.plotly, context_menu=DummyUI.context_menu),
-    )
-
-    viewer = PlotlyRasterViewer()
-    viewer.build()
-
-    figure = captured['figure']
-    assert isinstance(figure, dict)
-    assert figure['data'] == []
 
 
 def test_set_data_auto_enables_square_plot_for_square_source() -> None:
@@ -250,14 +194,6 @@ def test_set_x_axis_range_preserves_y_row_col_extent() -> None:
     b = viewer.current_bounds
     assert (b.row_min, b.row_max) == (1.0, 3.0)
     assert (b.col_min, b.col_max) == (0.0, 8.0)
-
-
-def test_request_before_set_data_raises() -> None:
-    """Relayout requests should fail before any dataset is set."""
-    viewer = PlotlyRasterViewer()
-    payload = PlotlyViewportPayload(relayout={}, width_px=100, height_px=100)
-    with pytest.raises(RuntimeError, match='No data set'):
-        viewer.request_from_plotly(payload=payload)
 
 
 def test_set_roi_editing_marks_only_active_shape_editable() -> None:

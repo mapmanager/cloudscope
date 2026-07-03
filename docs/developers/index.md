@@ -95,6 +95,8 @@ tests/cloudscope/
 tests/nicewidgets/
 ```
 
+Unit tests must live only under the top-level `tests/` tree — never under `src/`.
+
 Run all tests:
 
 ```bash

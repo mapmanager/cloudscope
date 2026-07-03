@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import base64
+import io
+
 import numpy as np
+from PIL import Image
 
 from nicewidgets.raster_viewer.backend.image_model import (
     BackendImage,
@@ -24,6 +28,22 @@ def _service(*, shape: tuple[int, int] = (32, 64), heatmap_max_values: int = 500
     source = BackendImage(data=data, grid=grid)
     pyramid = ImagePyramid(source)
     return RasterViewService(source=source, pyramid=pyramid, heatmap_max_values=heatmap_max_values)
+
+
+def _small_fixture_service() -> RasterViewService:
+    """Build the 16x32 fixture service used by legacy raster_viewer tests."""
+    data = np.arange(16 * 32, dtype=np.float32).reshape(16, 32)
+    grid = RasterGridSpec(dx=1.0, dy=1.0, x_unit='', y_unit='')
+    source = BackendImage(data=data, grid=grid)
+    pyramid = ImagePyramid(source)
+    return RasterViewService(source=source, pyramid=pyramid, heatmap_max_values=20)
+
+
+def _decode_png_rgb(data_uri: str) -> np.ndarray:
+    """Decode a PNG data URI into an RGB ndarray ``(rows, cols, 3)``."""
+    raw = base64.b64decode(data_uri.split(',', 1)[1])
+    with Image.open(io.BytesIO(raw)) as im:
+        return np.asarray(im.convert('RGB'))
 
 
 # ---- normalize_to_uint8 ----
@@ -366,3 +386,89 @@ def test_service_exposes_source_pyramid_grid() -> None:
     assert isinstance(svc.source, BackendImage)
     assert isinstance(svc.pyramid, ImagePyramid)
     assert svc.grid.dx > 0
+
+
+# ---- legacy raster_viewer/tests coverage (ported) ----
+
+
+def test_choose_level_prefers_coarser_level_for_zoomed_out_view() -> None:
+    """Zoomed-out views should prefer a coarser pyramid level."""
+    raster_service = _small_fixture_service()
+    request = ViewRequest(
+        bounds=RowColBounds(row_min=0.0, row_max=8.0, col_min=0.0, col_max=16.0),
+        viewport=ViewportSize(width_px=8, height_px=4),
+    )
+    level = raster_service.choose_level(request)
+    # 16x32 fixture builds levels 0 (512 px) and 1 (128 px) only.
+    assert level == 1
+
+
+def test_full_image_png_default_uses_coarse_overview() -> None:
+    """Without a pixel budget, the overview uses the conservative coarse level."""
+    raster_service = _small_fixture_service()
+    response = raster_service.full_image_png()
+    assert response.level == raster_service.pyramid.num_levels - 1
+
+
+def test_full_image_png_max_pixels_selects_finest_fitting_level() -> None:
+    """A generous budget selects the finest (full-resolution) level."""
+    raster_service = _small_fixture_service()
+    response = raster_service.full_image_png(max_pixels=16 * 32)
+    assert response.level == 0
+
+
+def test_full_image_png_max_pixels_steps_to_coarser_level() -> None:
+    """A tight budget selects the finest level whose size fits the budget."""
+    raster_service = _small_fixture_service()
+    # Level 0 = 512 px (too big), level 1 = 128 px (fits first).
+    response = raster_service.full_image_png(max_pixels=128)
+    assert response.level == 1
+
+
+def test_full_image_png_max_pixels_too_small_uses_coarsest_level() -> None:
+    """When no level fits the budget, the coarsest level is used."""
+    raster_service = _small_fixture_service()
+    response = raster_service.full_image_png(max_pixels=1)
+    assert response.level == raster_service.pyramid.num_levels - 1
+
+
+def test_full_image_png_explicit_level_overrides_max_pixels() -> None:
+    """An explicit ``level`` takes precedence over ``max_pixels``."""
+    raster_service = _small_fixture_service()
+    response = raster_service.full_image_png(level=1, max_pixels=16 * 32)
+    assert response.level == 1
+
+
+def test_png_greys_matches_plotly_js_direction() -> None:
+    """``Greys`` PNG must map low->dark, high->bright to match the Plotly.js heatmap."""
+    arr = np.array([[0.0, 255.0]], dtype=np.float32)
+    style = RasterDisplayStyle(colorscale='Greys', zmin=0.0, zmax=255.0)
+    rgb = _decode_png_rgb(RasterViewService.array_to_png_data_uri(arr, style=style))
+    low, high = rgb[0, 0], rgb[0, 1]
+    assert int(low.mean()) < int(high.mean())
+    np.testing.assert_array_equal(low, (0, 0, 0))
+    np.testing.assert_array_equal(high, (255, 255, 255))
+
+
+def test_png_explicit_inverted_grays_unaffected() -> None:
+    """Explicit stop lists are read literally; the reversal fix must not touch them."""
+    arr = np.array([[0.0, 255.0]], dtype=np.float32)
+    inverted = [[0, 'rgb(255,255,255)'], [1, 'rgb(0,0,0)']]
+    style = RasterDisplayStyle(colorscale=inverted, zmin=0.0, zmax=255.0)
+    rgb = _decode_png_rgb(RasterViewService.array_to_png_data_uri(arr, style=style))
+    np.testing.assert_array_equal(rgb[0, 0], (255, 255, 255))
+    np.testing.assert_array_equal(rgb[0, 1], (0, 0, 0))
+
+
+def test_render_heatmap_uses_display_style_z_window() -> None:
+    """Pinned z-range from :class:`RasterDisplayStyle` should appear on heatmap responses."""
+    raster_service = _small_fixture_service()
+    request = ViewRequest(
+        bounds=RowColBounds(row_min=0.0, row_max=2.0, col_min=0.0, col_max=4.0),
+        viewport=ViewportSize(width_px=400, height_px=200),
+    )
+    style = RasterDisplayStyle(zmin=-1.0, zmax=2.0)
+    response = raster_service.render(request, display_style=style)
+    assert response.mode == 'heatmap_z'
+    assert response.zmin == -1.0
+    assert response.zmax == 2.0

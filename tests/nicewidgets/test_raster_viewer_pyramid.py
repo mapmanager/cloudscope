@@ -1,4 +1,4 @@
-"""Tests for the image pyramid."""
+"""Tests for the raster viewer image pyramid."""
 
 from __future__ import annotations
 
@@ -7,9 +7,18 @@ import numpy as np
 from nicewidgets.raster_viewer.backend.image_model import BackendImage, RasterGridSpec, RowColBounds
 from nicewidgets.raster_viewer.backend.pyramid import MIN_PYRAMID_AXIS, ImagePyramid
 
+_DEFAULT_GRID = RasterGridSpec(dx=1.0, dy=1.0, x_unit='', y_unit='')
 
-def test_pyramid_builds_expected_first_levels(image_pyramid: ImagePyramid) -> None:
+
+def _image_pyramid(*, rows: int = 16, cols: int = 32) -> ImagePyramid:
+    """Return a pyramid built from a small deterministic array."""
+    data = np.arange(rows * cols, dtype=np.float32).reshape(rows, cols)
+    return ImagePyramid(BackendImage(data, grid=_DEFAULT_GRID))
+
+
+def test_pyramid_builds_expected_first_levels() -> None:
     """Pyramid should build power-of-two downsample levels until the short axis cap."""
+    image_pyramid = _image_pyramid()
     info = image_pyramid.level_info()
     assert info[0].downsample == 1
     assert info[0].shape == (16, 32)
@@ -56,8 +65,9 @@ def test_downsample2_averages_2x2_blocks() -> None:
     np.testing.assert_allclose(out, np.array([[3.0]], dtype=np.float32))
 
 
-def test_clip_from_level_uses_source_coordinates(image_pyramid: ImagePyramid) -> None:
+def test_clip_from_level_uses_source_coordinates() -> None:
     """Level clips should map full-resolution row/col bounds through the downsample."""
+    image_pyramid = _image_pyramid()
     bounds = RowColBounds(row_min=4.0, row_max=12.0, col_min=8.0, col_max=24.0)
     clip = image_pyramid.clip_from_level(level=1, bounds=bounds)
     expected = image_pyramid.get_level(1)[2:6, 4:12]
