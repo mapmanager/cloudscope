@@ -11,10 +11,39 @@ import nicewidgets.raster_viewer.frontend.plotly_viewer as plotly_viewer_module
 from nicewidgets.raster_viewer.backend.image_model import RasterGridSpec, RowColBounds
 from nicewidgets.raster_viewer.frontend.plotly_coord_transform import PlotlyCoordTransform
 from nicewidgets.raster_viewer.frontend.plotly_protocol import PlotlyViewportPayload
-from nicewidgets.raster_viewer.frontend.plotly_viewer import PlotlyRasterViewer
+from nicewidgets.raster_viewer.frontend.plotly_viewer import (
+    PlotlyRasterViewer,
+    _pad_axis_ranges_by_screen_px,
+)
 from nicewidgets.raster_viewer.frontend.roi_overlay import RectRoiOverlay
 
 _GRID = RasterGridSpec(dx=1.0, dy=1.0, x_unit='', y_unit='')
+
+
+def test_pad_axis_ranges_by_screen_px_expands_without_moving_center() -> None:
+    """Visual ROI padding should expand display ranges in screen-pixel units."""
+    padded = _pad_axis_ranges_by_screen_px(
+        ((0.0, 100.0), (20.0, 220.0)),
+        width_px=400,
+        height_px=200,
+        padding_px=20,
+    )
+
+    flat = tuple(value for pair in padded for value in pair)
+    assert flat == pytest.approx((-5.0, 105.0, 0.0, 240.0))
+
+
+def test_pad_axis_ranges_by_screen_px_preserves_reversed_axis_direction() -> None:
+    """Visual padding should expand axes even when Plotly stores a reversed range."""
+    padded = _pad_axis_ranges_by_screen_px(
+        ((100.0, 0.0), (220.0, 20.0)),
+        width_px=400,
+        height_px=200,
+        padding_px=20,
+    )
+
+    flat = tuple(value for pair in padded for value in pair)
+    assert flat == pytest.approx((105.0, -5.0, 240.0, 0.0))
 
 
 def test_set_data_initializes_backend_state() -> None:
@@ -247,6 +276,23 @@ def test_set_roi_editing_marks_only_active_shape_editable() -> None:
     editable_by_name = {shape['name']: shape['editable'] for shape in shapes}
     assert editable_by_name == {'roi:1': False, 'roi:2': True}
     assert viewer.figure['config']['edits']['shapePosition'] is True
+
+
+def test_visual_padding_does_not_change_roi_shape_coordinates() -> None:
+    """Visual axis padding must not alter ROI overlay geometry."""
+    viewer = PlotlyRasterViewer()
+    roi = RectRoiOverlay(roi_id=9, x0=1.0, x1=4.0, y0=2.0, y1=5.0)
+    viewer.set_rois([roi])
+
+    _pad_axis_ranges_by_screen_px(
+        ((0.0, 10.0), (0.0, 10.0)),
+        width_px=500,
+        height_px=500,
+        padding_px=16,
+    )
+
+    shape = viewer.figure['layout']['shapes'][0]
+    assert (shape['x0'], shape['x1'], shape['y0'], shape['y1']) == (1.0, 4.0, 2.0, 5.0)
 
 
 def test_roi_shape_relayout_updates_overlay_and_emits_preview() -> None:
