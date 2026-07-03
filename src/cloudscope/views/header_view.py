@@ -24,7 +24,7 @@ from cloudscope.views.load_save_view import LoadSaveView
 
 logger = get_logger(__name__)
 
-CLOUDSCOPE_GITHUB_URL = "https://github.com/mapmanager/cloudscope"
+CLOUDSCOPE_DOCS_URL = "https://mapmanager.github.io/cloudscope/"
 
 
 def _open_external(url: str) -> None:
@@ -100,7 +100,7 @@ def build_main_header(
     load_save_view: LoadSaveView | None = None,
     show_open_pool: bool = False,
     show_open_main: bool = False,
-    show_github: bool = True,
+    show_docs: bool = True,
     on_velocity_pool_toggle: Any | None = None,
 ) -> None:
     """Create the shared page header (layout element, top-level only).
@@ -110,12 +110,12 @@ def build_main_header(
 
     Args:
         title: Left-aligned application title text.
-        app_config: When set, adds a light/dark toggle (persisted) before the GitHub link.
+        app_config: When set, adds a light/dark toggle (persisted) before the docs link.
         event_bus: Optional page-scoped event bus used to publish theme state changes.
         load_save_view: Optional pre-constructed load/save toolbar mounted after the title.
         show_open_pool: When True, add a web button that opens ``/pool`` in a named tab.
         show_open_main: When True, add a button that navigates to ``/``.
-        show_github: When True, render the GitHub repository link.
+        show_docs: When True, render the online documentation link.
         on_velocity_pool_toggle: Optional callback for the Pool Plots header button.
     """
     with ui.header().classes(
@@ -145,12 +145,12 @@ def build_main_header(
                     ),
                 ).props("flat dense round")
                 theme_btn.tooltip("Toggle light / dark theme")
-            if show_github:
-                github_icon = ui.image("https://cdn.simpleicons.org/github/ffffff").classes(
-                    "w-5 h-5 cursor-pointer"
-                )
-                github_icon.on("click", lambda _: _open_external(CLOUDSCOPE_GITHUB_URL))
-                github_icon.tooltip("Open CloudScope GitHub repository")
+            if show_docs:
+                docs_btn = ui.button(
+                    icon="menu_book",
+                    on_click=lambda _: _open_external(CLOUDSCOPE_DOCS_URL),
+                ).props("flat dense round")
+                docs_btn.tooltip("Open CloudScope documentation")
 
 
 def _toggle_dark_mode(

@@ -10,7 +10,7 @@ import pytest
 from cloudscope.app_config import AppConfig
 from cloudscope.event_bus import EventBus
 from cloudscope.events.theme import ThemeChanged
-from cloudscope.views.header_view import CLOUDSCOPE_GITHUB_URL, _open_external, _open_pool, build_main_header, enable_page_dark_mode
+from cloudscope.views.header_view import CLOUDSCOPE_DOCS_URL, _open_external, _open_pool, build_main_header, enable_page_dark_mode
 
 
 def test_build_main_header_signature_accepts_title() -> None:
@@ -29,16 +29,16 @@ def test_build_main_header_is_documented_callable() -> None:
     assert build_main_header.__doc__
 
 
-def test_header_view_exposes_cloudscope_github_url() -> None:
-    assert CLOUDSCOPE_GITHUB_URL == "https://github.com/mapmanager/cloudscope"
+def test_header_view_exposes_cloudscope_docs_url() -> None:
+    assert CLOUDSCOPE_DOCS_URL == "https://mapmanager.github.io/cloudscope/"
 
 
 def test_open_external_uses_system_browser_for_option_c(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr('cloudscope.desktop_launcher.get_pool_launcher', lambda: object())
     with patch('cloudscope.views.header_view.webbrowser.open') as open_url:
         with patch('cloudscope.views.header_view.ui.run_javascript') as run_js:
-            _open_external(CLOUDSCOPE_GITHUB_URL)
-    open_url.assert_called_once_with(CLOUDSCOPE_GITHUB_URL)
+            _open_external(CLOUDSCOPE_DOCS_URL)
+    open_url.assert_called_once_with(CLOUDSCOPE_DOCS_URL)
     run_js.assert_not_called()
 
 

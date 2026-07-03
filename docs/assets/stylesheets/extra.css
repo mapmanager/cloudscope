@@ -32,4 +32,6 @@
     display: flex;
     justify-content: space-between;
     width: 100%;
+    font-size: 0.64rem;
+    line-height: 1.4;
 }

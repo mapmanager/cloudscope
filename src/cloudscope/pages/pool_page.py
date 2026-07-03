@@ -27,7 +27,7 @@ def pool_page() -> None:
     build_main_header(
         title="CloudScope Velocity Pool",
         show_open_main=False,
-        show_github=False,
+        show_docs=False,
     )
 
     footer = FooterView(
