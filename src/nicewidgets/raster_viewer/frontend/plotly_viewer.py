@@ -86,12 +86,6 @@ OnRoiBoundsPreview = Callable[[int, float, float, float, float], None]
 _X_RANGE_ECHO_EPS = 1e-9
 _VIEWPORT_SETTLE_DEBOUNCE_SECONDS = 0.12
 
-# Visual gutter around full-extent raster views so edge-aligned Plotly ROI
-# shapes remain easy to click/drag. This padding is converted from screen
-# pixels to Plotly data units when the browser plot size is available.
-ROI_VISUAL_PADDING_PX = 16
-
-
 def _relayout_has_axis_range(args: dict[str, object]) -> bool:
     """Return whether ``args`` carries any Plotly axis range keys."""
     return any(key.startswith('xaxis.range') or key.startswith('yaxis.range') for key in args)
@@ -136,46 +130,6 @@ def _x_range_equal(
 ) -> bool:
     """Compare two ``(x_min, x_max)`` pairs with float tolerance and ``None`` support."""
     return _range_pair_equal(a, b)
-
-
-def _pad_axis_ranges_by_screen_px(
-    display_axis_ranges: tuple[tuple[float, float], tuple[float, float]],
-    *,
-    width_px: int,
-    height_px: int,
-    padding_px: int = ROI_VISUAL_PADDING_PX,
-) -> tuple[tuple[float, float], tuple[float, float]]:
-    """Return axis ranges expanded by a visual screen-pixel gutter.
-
-    The returned ranges are only display ranges. They must not be written back
-    into ROI overlay coordinates or analysis state.
-    """
-    (x0, x1), (y0, y1) = display_axis_ranges
-    width = max(1, int(width_px))
-    height = max(1, int(height_px))
-    padding = max(0, int(padding_px))
-    if padding == 0:
-        return display_axis_ranges
-
-    x_span = float(x1) - float(x0)
-    y_span = float(y1) - float(y0)
-    if not (math.isfinite(x_span) and math.isfinite(y_span)):
-        return display_axis_ranges
-
-    x_pad = abs(x_span) * padding / width
-    y_pad = abs(y_span) * padding / height
-
-    if x1 >= x0:
-        padded_x = (float(x0) - x_pad, float(x1) + x_pad)
-    else:
-        padded_x = (float(x0) + x_pad, float(x1) - x_pad)
-
-    if y1 >= y0:
-        padded_y = (float(y0) - y_pad, float(y1) + y_pad)
-    else:
-        padded_y = (float(y0) + y_pad, float(y1) - y_pad)
-
-    return padded_x, padded_y
 
 
 class PlotlyRasterViewer:
@@ -380,11 +334,8 @@ if (!plotDiv || !plotDiv.data) return;
         # (carrying the auto-ranged data extent) is suppressed by value, not by
         # a one-shot guard. ``_is_x_range_echo`` compares with float tolerance.
         display_axis_ranges = self._display_axis_ranges_from_bounds(self._current_bounds)
-        initial_display_axis_ranges, applied_visual_padding = (
-            await self._padded_display_axis_ranges_from_bounds(self._current_bounds)
-        )
-        self._last_applied_x_range = initial_display_axis_ranges[0]
-        self._last_display_axis_ranges = initial_display_axis_ranges
+        self._last_applied_x_range = display_axis_ranges[0]
+        self._last_display_axis_ranges = display_axis_ranges
         self._last_applied_response = response
         self._plotly_dict = build_plotly_figure(
             response=response,
@@ -394,15 +345,10 @@ if (!plotDiv || !plotDiv.data) return;
         self._sync_roi_shapes_to_plotly_dict()
         self._sync_trace_overlays_to_plotly_dict()
         self._apply_display_options_to_plotly_dict()
-        if initial_display_axis_ranges != display_axis_ranges:
-            (x_lo, x_hi), (y_lo, y_hi) = initial_display_axis_ranges
-            self._layout_pin_xy_ranges(x_lo=x_lo, x_hi=x_hi, y_lo=y_lo, y_hi=y_hi)
 
         if self._plot is not None:
             self._plot.figure = self._plotly_dict
             self._plot.update()
-            if not applied_visual_padding:
-                await self._apply_visual_padding_to_full_extent()
         return response
 
     async def clear_data(self) -> None:
@@ -436,7 +382,6 @@ if (!plotDiv || !plotDiv.data) return;
         response: RenderResponse,
         *,
         display_axis_ranges: tuple[tuple[float, float], tuple[float, float]] | None = None,
-        apply_display_axis_ranges_to_browser: bool = False,
     ) -> None:
         """Apply a backend response to the browser-side Plotly plot.
 
@@ -446,11 +391,6 @@ if (!plotDiv || !plotDiv.data) return;
                 chosen by Plotly before a relayout-driven raster refresh. When
                 provided, preserve these axis ranges while swapping the raster
                 trace/pyramid data from ``response``.
-            apply_display_axis_ranges_to_browser: When True, push
-                ``display_axis_ranges`` to the browser in the same direct
-                Plotly update as the raster data. This is used for full-reset
-                flows where Plotly has not already applied the desired padded
-                viewport.
         """
         if self._plot is None:
             raise RuntimeError('Viewer must be built before applying responses.')
@@ -470,7 +410,6 @@ if (!plotDiv || !plotDiv.data) return;
         # PNG<->heatmap trace-type switches.
         if (
             display_axis_ranges is not None
-            and not apply_display_axis_ranges_to_browser
             and self._can_restyle_raster_trace(response, previous_trace_type)
         ):
             self._current_bounds = response.bounds
@@ -493,10 +432,7 @@ if (!plotDiv || !plotDiv.data) return;
             self._last_display_axis_ranges = display_axis_ranges
             self._last_applied_x_range = display_axis_ranges[0]
             self._last_applied_response = response
-            if apply_display_axis_ranges_to_browser:
-                await self._react_plotly_data_with_local_layout()
-            else:
-                await self._react_plotly_data_preserving_browser_layout()
+            await self._react_plotly_data_preserving_browser_layout()
             return
 
         self._current_bounds = response.bounds
@@ -604,30 +540,6 @@ Plotly.react(plotDiv, {json.dumps(data)}, plotDiv.layout, {json.dumps(config)});
         except Exception:
             logger.exception('Failed to apply Plotly.react raster update.')
 
-    async def _react_plotly_data_with_local_layout(self) -> None:
-        """Replace Plotly data and layout from the local figure dictionary."""
-        if self._plot is None:
-            return
-        data = self._plotly_dict.get('data', [])
-        layout = self._plotly_dict.get('layout', {})
-        if not isinstance(data, list) or not isinstance(layout, dict):
-            return
-        config = self._plotly_dict.get('config', {})
-        if not isinstance(config, dict):
-            config = dict(RASTER_VIEWER_PLOTLY_CONFIG)
-        js = f"""
-{self._js_plotly_graph_div()}
-Plotly.react(plotDiv, {json.dumps(data)}, {json.dumps(layout)}, {json.dumps(config)});
-"""
-        try:
-            await self._plot.client.run_javascript(js, timeout=10.0)
-        except TimeoutError:
-            logger.warning('Timed out while applying Plotly.react raster/layout update.')
-        except RuntimeError:
-            logger.warning('Could not apply Plotly.react raster/layout update; browser client unavailable.')
-        except Exception:
-            logger.exception('Failed to apply Plotly.react raster/layout update.')
-
     def set_rois(self, rois: Sequence[RectRoiOverlay]) -> None:
         """Replace all rectangular ROI overlays without pushing raster data.
 
@@ -692,6 +604,7 @@ Plotly.react(plotDiv, {json.dumps(data)}, {json.dumps(layout)}, {json.dumps(conf
         """
         self._plotly_rois.set_roi_editing(roi_id if enabled else None)
         self._sync_plotly_config_to_plotly_dict()
+        self._sync_roi_edit_dragmode_to_plotly_dict()
         self._sync_roi_shapes_to_plotly_dict()
         self._react_plotly_config()
         self._relayout_shapes()
@@ -818,11 +731,12 @@ return overlayPromise.then(() => {{
             return
         layout = self._plotly_dict.setdefault('layout', {})
         shapes = layout.get('shapes', [])
+        relayout: dict[str, object] = {'shapes': shapes}
+        if isinstance(layout, dict) and 'dragmode' in layout:
+            relayout['dragmode'] = layout.get('dragmode')
         js = f"""
 {self._js_plotly_graph_div()}
-Plotly.relayout(plotDiv, {{
-  shapes: {json.dumps(shapes)}
-}});
+Plotly.relayout(plotDiv, {json.dumps(relayout)});
 """
         self._plot.client.run_javascript(js, timeout=2.0)
 
@@ -1024,6 +938,7 @@ Plotly.restyle(plotDiv, {{
     def _apply_display_options_to_plotly_dict(self) -> None:
         """Synchronize all display options into the local Plotly dictionary."""
         self._sync_plotly_config_to_plotly_dict()
+        self._sync_roi_edit_dragmode_to_plotly_dict()
         self._sync_theme_to_plotly_dict()
         self._sync_axis_labels_to_plotly_dict()
         self._sync_margins_to_plotly_dict()
@@ -1066,6 +981,14 @@ Plotly.restyle(plotDiv, {{
             'legendPosition': False,
         }
         self._plotly_dict['config'] = config
+
+    def _sync_roi_edit_dragmode_to_plotly_dict(self) -> None:
+        """Disable plot zoom drag while direct ROI shape editing is active."""
+        layout = self._plotly_dict.setdefault('layout', {})
+        if not isinstance(layout, dict):
+            layout = {}
+            self._plotly_dict['layout'] = layout
+        layout['dragmode'] = False if self._plotly_rois.editing_roi_id is not None else 'zoom'
 
     def _any_axis_labels_visible(self) -> bool:
         """Return whether any axis decorations are visible for margin layout."""
@@ -1465,13 +1388,6 @@ Plotly.relayout(plotDiv, {{
 
         full_bounds = self._transform.full_row_col_bounds()
         x_lo, x_hi = self._transform.row_col_to_plot_x_range(full_bounds)
-        if self._last_viewport_size_px is not None:
-            width_px, _height_px = self._last_viewport_size_px
-            (x_lo, x_hi), _ = _pad_axis_ranges_by_screen_px(
-                ((x_lo, x_hi), (0.0, 1.0)),
-                width_px=width_px,
-                height_px=1,
-            )
         new_x_range = (x_lo, x_hi)
         if self._last_display_axis_ranges is not None and _x_range_equal(
             new_x_range,
@@ -1651,18 +1567,7 @@ Plotly.restyle(plotDiv, {{
             display_style=self._display_style(),
             max_pixels=self._overview_max_pixels,
         )
-        display_axis_ranges, applied_visual_padding = (
-            await self._padded_display_axis_ranges_from_bounds(response.bounds)
-        )
-        if applied_visual_padding:
-            await self.apply_response(
-                response,
-                display_axis_ranges=display_axis_ranges,
-                apply_display_axis_ranges_to_browser=True,
-            )
-        else:
-            await self.apply_response(response)
-            await self._apply_visual_padding_to_full_extent()
+        await self.apply_response(response)
         if self._on_x_range_changed is not None:
             self._on_x_range_changed(None, None)
 
@@ -2129,85 +2034,6 @@ return {{
             self._transform.row_col_to_plot_x_range(bounds),
             self._transform.row_col_to_plot_y_range(bounds),
         )
-
-    async def _padded_display_axis_ranges_from_bounds(
-        self,
-        bounds: RowColBounds,
-    ) -> tuple[tuple[tuple[float, float], tuple[float, float]], bool]:
-        """Return display ranges and whether visual padding was applied."""
-        display_axis_ranges = self._display_axis_ranges_from_bounds(bounds)
-        size_px = await self._read_plot_area_size_from_browser()
-        if size_px is None:
-            return display_axis_ranges, False
-        padded_axis_ranges = _pad_axis_ranges_by_screen_px(
-            display_axis_ranges,
-            width_px=size_px[0],
-            height_px=size_px[1],
-        )
-        return padded_axis_ranges, True
-
-    async def _read_plot_area_size_from_browser(self) -> tuple[int, int] | None:
-        """Read the live Plotly plot-area size in screen pixels."""
-        if self._plot is None:
-            return None
-        js = f"""
-{self._js_plotly_graph_div()}
-const fullLayout = plotDiv._fullLayout || plotDiv.layout || {{}};
-const xAxis = fullLayout.xaxis || {{}};
-const yAxis = fullLayout.yaxis || {{}};
-const rect = plotDiv.getBoundingClientRect();
-return {{
-  width_px: Math.max(1, Math.round(Number(xAxis._length) || rect.width || 1)),
-  height_px: Math.max(1, Math.round(Number(yAxis._length) || rect.height || 1)),
-}};
-"""
-        try:
-            result = await self._plot.client.run_javascript(js, timeout=2.0)
-        except (TimeoutError, RuntimeError):
-            return None
-        if not isinstance(result, dict):
-            return None
-        try:
-            width_px = int(result.get('width_px', 0) or 0)
-            height_px = int(result.get('height_px', 0) or 0)
-        except (TypeError, ValueError):
-            return None
-        if width_px <= 0 or height_px <= 0:
-            return None
-        self._last_viewport_size_px = (width_px, height_px)
-        return width_px, height_px
-
-    async def _apply_visual_padding_to_full_extent(self) -> None:
-        """Expand the full-extent viewport by a small visual gutter.
-
-        This method updates only Plotly axis ranges. Raster requests still clip
-        to image bounds and ROI shape coordinates are left unchanged.
-        """
-        if self._plot is None or self._transform is None:
-            return
-        size_px = await self._read_plot_area_size_from_browser()
-        if size_px is None:
-            return
-        display_axis_ranges = self._display_axis_ranges_from_bounds(self._current_bounds)
-        padded_axis_ranges = _pad_axis_ranges_by_screen_px(
-            display_axis_ranges,
-            width_px=size_px[0],
-            height_px=size_px[1],
-        )
-        (x_lo, x_hi), (y_lo, y_hi) = padded_axis_ranges
-        self._layout_pin_xy_ranges(x_lo=x_lo, x_hi=x_hi, y_lo=y_lo, y_hi=y_hi)
-        self._last_display_axis_ranges = padded_axis_ranges
-        self._last_applied_x_range = padded_axis_ranges[0]
-        js = f"""
-{self._js_plotly_graph_div()}
-Plotly.relayout(plotDiv, {{
-  'xaxis.range': [{json.dumps(x_lo)}, {json.dumps(x_hi)}],
-  'xaxis.autorange': false,
-  'yaxis.range': [{json.dumps(y_lo)}, {json.dumps(y_hi)}],
-  'yaxis.autorange': false
-}});
-"""
-        self._plot.client.run_javascript(js, timeout=2.0)
 
     def _display_style(self) -> RasterDisplayStyle:
         """Return backend PNG / heatmap styling derived from viewer state."""

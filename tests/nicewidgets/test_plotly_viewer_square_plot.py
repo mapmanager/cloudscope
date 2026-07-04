@@ -24,39 +24,10 @@ from nicewidgets.raster_viewer.backend.image_model import (
 )
 from nicewidgets.raster_viewer.backend.pyramid import ImagePyramid
 from nicewidgets.raster_viewer.frontend.plotly_coord_transform import PlotlyCoordTransform
-from nicewidgets.raster_viewer.frontend.plotly_viewer import (
-    PlotlyRasterViewer,
-    _pad_axis_ranges_by_screen_px,
-)
+from nicewidgets.raster_viewer.frontend.plotly_viewer import PlotlyRasterViewer
 from nicewidgets.raster_viewer.frontend.roi_overlay import RectRoiOverlay
 
 _GRID = RasterGridSpec(dx=1.0, dy=1.0, x_unit='', y_unit='')
-
-
-def test_pad_axis_ranges_by_screen_px_expands_without_moving_center() -> None:
-    """Visual ROI padding should expand display ranges in screen-pixel units."""
-    padded = _pad_axis_ranges_by_screen_px(
-        ((0.0, 100.0), (20.0, 220.0)),
-        width_px=400,
-        height_px=200,
-        padding_px=20,
-    )
-
-    flat = tuple(value for pair in padded for value in pair)
-    assert flat == pytest.approx((-5.0, 105.0, 0.0, 240.0))
-
-
-def test_pad_axis_ranges_by_screen_px_preserves_reversed_axis_direction() -> None:
-    """Visual padding should expand axes even when Plotly stores a reversed range."""
-    padded = _pad_axis_ranges_by_screen_px(
-        ((100.0, 0.0), (220.0, 20.0)),
-        width_px=400,
-        height_px=200,
-        padding_px=20,
-    )
-
-    flat = tuple(value for pair in padded for value in pair)
-    assert flat == pytest.approx((105.0, -5.0, 240.0, 0.0))
 
 
 def test_clear_data_resets_viewer_to_empty_figure(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -219,27 +190,18 @@ def test_set_roi_editing_marks_only_active_shape_editable() -> None:
     editable_by_name = {shape['name']: shape['editable'] for shape in shapes}
     assert editable_by_name == {'roi:1': False, 'roi:2': True}
     assert viewer.figure['config']['edits']['shapePosition'] is True
+    assert viewer.figure['layout']['dragmode'] is False
+
+    viewer.set_roi_editing(False, 2)
+
+    idle_shapes = viewer.figure['layout']['shapes']
+    assert {shape['name']: shape['editable'] for shape in idle_shapes} == {'roi:1': False, 'roi:2': False}
+    assert viewer.figure['config']['edits']['shapePosition'] is False
+    assert viewer.figure['layout']['dragmode'] == 'zoom'
 
 
-def test_visual_padding_does_not_change_roi_shape_coordinates() -> None:
-    """Visual axis padding must not alter ROI overlay geometry."""
-    viewer = PlotlyRasterViewer()
-    roi = RectRoiOverlay(roi_id=9, x0=1.0, x1=4.0, y0=2.0, y1=5.0)
-    viewer.set_rois([roi])
-
-    _pad_axis_ranges_by_screen_px(
-        ((0.0, 10.0), (0.0, 10.0)),
-        width_px=500,
-        height_px=500,
-        padding_px=16,
-    )
-
-    shape = viewer.figure['layout']['shapes'][0]
-    assert (shape['x0'], shape['x1'], shape['y0'], shape['y1']) == (1.0, 4.0, 2.0, 5.0)
-
-
-def test_set_data_applies_visual_padding_before_first_plot_update() -> None:
-    """Known plot size should let initial render use padded ranges immediately."""
+def test_set_data_updates_plot_with_unpadded_full_extent() -> None:
+    """Initial render should use the real unpadded data extent."""
 
     class _FakePlot:
         id = 'plot-id'
@@ -259,11 +221,6 @@ def test_set_data_applies_visual_padding_before_first_plot_update() -> None:
         viewer = PlotlyRasterViewer()
         fake_plot = _FakePlot()
         viewer._plot = fake_plot
-        viewer._read_plot_area_size_from_browser = lambda: asyncio.sleep(0, (400, 200))  # type: ignore[method-assign]
-        viewer._apply_visual_padding_to_full_extent = lambda: asyncio.sleep(  # type: ignore[method-assign]
-            0,
-            (_ for _ in ()).throw(AssertionError('post-render padding should not run')),
-        )
         data = np.arange(32, dtype=np.float32).reshape(4, 8)
         pyramid = ImagePyramid(BackendImage(data, grid=_GRID))
 
@@ -271,17 +228,17 @@ def test_set_data_applies_visual_padding_before_first_plot_update() -> None:
 
         assert fake_plot.ranges_at_update is not None
         x_range, y_range = fake_plot.ranges_at_update
-        assert x_range == pytest.approx([-0.16, 4.16])
-        assert y_range == pytest.approx([-0.64, 8.64])
+        assert x_range == pytest.approx([0.0, 4.0])
+        assert y_range == pytest.approx([0.0, 8.0])
         assert viewer._last_display_axis_ranges is not None
-        assert viewer._last_display_axis_ranges[0] == pytest.approx((-0.16, 4.16))
-        assert viewer._last_display_axis_ranges[1] == pytest.approx((-0.64, 8.64))
+        assert viewer._last_display_axis_ranges[0] == pytest.approx((0.0, 4.0))
+        assert viewer._last_display_axis_ranges[1] == pytest.approx((0.0, 8.0))
 
     asyncio.run(_run())
 
 
 def test_refresh_full_png_preserves_current_display_ranges() -> None:
-    """Contrast PNG refreshes should not snap padded ranges back to data bounds."""
+    """Contrast PNG refreshes should preserve the current browser display ranges."""
 
     response = RenderResponse(
         mode='image_png',
@@ -309,8 +266,8 @@ def test_refresh_full_png_preserves_current_display_ranges() -> None:
         viewer = PlotlyRasterViewer()
         viewer._plot = object()
         viewer._service = _FakeService()
-        padded = ((-0.16, 4.16), (-0.64, 8.64))
-        viewer._last_display_axis_ranges = padded
+        current_ranges = ((1.0, 3.0), (2.0, 6.0))
+        viewer._last_display_axis_ranges = current_ranges
         captured: dict[str, object] = {}
 
         async def _capture_apply_response(
@@ -325,13 +282,13 @@ def test_refresh_full_png_preserves_current_display_ranges() -> None:
 
         await viewer._refresh_full_png()
 
-        assert captured == {'response': response, 'display_axis_ranges': padded}
+        assert captured == {'response': response, 'display_axis_ranges': current_ranges}
 
     asyncio.run(_run())
 
 
-def test_doubleclick_reset_applies_padded_ranges_without_nicegui_update() -> None:
-    """Double-click full reset should update data and padded layout together."""
+def test_doubleclick_reset_applies_full_unpadded_extent() -> None:
+    """Double-click full reset should apply the current image's real full extent."""
 
     response = RenderResponse(
         mode='image_png',
@@ -382,29 +339,66 @@ def test_doubleclick_reset_applies_padded_ranges_without_nicegui_update() -> Non
         viewer._transform = PlotlyCoordTransform(nrows=4, ncols=8, grid=_GRID)
         viewer._plotly_dict = {
             'data': [{'type': 'image', 'source': 'old', 'x0': 0.0, 'y0': 0.0, 'dx': 1.0, 'dy': 1.0}],
-            'layout': {'xaxis': {'range': [1.0, 2.0]}, 'yaxis': {'range': [3.0, 4.0]}},
+            'layout': {'uirevision': 'old-ui', 'xaxis': {'range': [1.0, 2.0]}, 'yaxis': {'range': [3.0, 4.0]}},
             'config': {},
         }
-        viewer._read_plot_area_size_from_browser = lambda: asyncio.sleep(0, (400, 200))  # type: ignore[method-assign]
-        viewer._apply_visual_padding_to_full_extent = lambda: asyncio.sleep(  # type: ignore[method-assign]
-            0,
-            (_ for _ in ()).throw(AssertionError('post-reset padding relayout should not run')),
-        )
+        viewer._new_uirevision = lambda: 'reset-ui'  # type: ignore[method-assign]
 
         await viewer._on_plotly_doubleclick(object())
 
-        assert fake_plot.updated is False
-        assert len(fake_plot.client.js_calls) == 1
-        js = fake_plot.client.js_calls[0]
-        assert 'Plotly.react' in js
-        assert 'Plotly.relayout' not in js
-        assert '-0.16' in js
-        assert '4.16' in js
-        assert '-0.64' in js
-        assert '8.64' in js
+        assert fake_plot.updated is True
+        assert fake_plot.client.js_calls == []
+        assert viewer.figure['layout']['uirevision'] == 'reset-ui'
+        assert viewer.figure['layout']['xaxis']['range'] == pytest.approx([0.0, 4.0])
+        assert viewer.figure['layout']['yaxis']['range'] == pytest.approx([0.0, 8.0])
         assert viewer._last_display_axis_ranges is not None
-        assert viewer._last_display_axis_ranges[0] == pytest.approx((-0.16, 4.16))
-        assert viewer._last_display_axis_ranges[1] == pytest.approx((-0.64, 8.64))
+        assert viewer._last_display_axis_ranges[0] == pytest.approx((0.0, 4.0))
+        assert viewer._last_display_axis_ranges[1] == pytest.approx((0.0, 8.0))
+        assert x_range_events == [(None, None)]
+
+    asyncio.run(_run())
+
+
+def test_doubleclick_after_second_file_resets_to_second_file_extent() -> None:
+    """Reset after a file switch should use the second file's unpadded extent."""
+
+    class _FakePlot:
+        id = 'plot-id'
+
+        def __init__(self) -> None:
+            self.figure: dict[str, object] = {}
+            self.update_count = 0
+
+        def update(self) -> None:
+            self.update_count += 1
+
+    async def _run() -> None:
+        x_range_events: list[tuple[float | None, float | None]] = []
+        viewer = PlotlyRasterViewer(on_x_range_changed=lambda *args: x_range_events.append(args))
+        fake_plot = _FakePlot()
+        viewer._plot = fake_plot
+        revisions = iter(['file-one', 'file-two', 'reset-two'])
+        viewer._new_uirevision = lambda: next(revisions)  # type: ignore[method-assign]
+
+        first = np.zeros((4, 8), dtype=np.float32)
+        first_pyramid = ImagePyramid(BackendImage(first, grid=_GRID))
+        await viewer.set_data_from_pyramid(first, grid=_GRID, pyramid=first_pyramid)
+
+        second = np.zeros((6, 3), dtype=np.float32)
+        second_pyramid = ImagePyramid(BackendImage(second, grid=_GRID))
+        await viewer.set_data_from_pyramid(second, grid=_GRID, pyramid=second_pyramid)
+
+        viewer.figure['layout']['xaxis']['range'] = [2.0, 3.0]
+        viewer.figure['layout']['yaxis']['range'] = [1.0, 2.0]
+        viewer._last_display_axis_ranges = ((2.0, 3.0), (1.0, 2.0))
+
+        await viewer._on_plotly_doubleclick(object())
+
+        assert fake_plot.update_count == 3
+        assert viewer.figure['layout']['uirevision'] == 'reset-two'
+        assert viewer.figure['layout']['xaxis']['range'] == pytest.approx([0.0, 6.0])
+        assert viewer.figure['layout']['yaxis']['range'] == pytest.approx([0.0, 3.0])
+        assert viewer._last_display_axis_ranges == ((0.0, 6.0), (0.0, 3.0))
         assert x_range_events == [(None, None)]
 
     asyncio.run(_run())

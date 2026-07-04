@@ -45,7 +45,9 @@ class RectRoiStyleConfig:
         selected_fill_color: Selected rectangle fill color.
         editing_line_width: Editing rectangle line width in pixels.
         editing_line_color: Editing rectangle line color.
-        editing_fill_color: Editing rectangle fill color.
+        editing_fill_color: Editing rectangle fill color. Keep this slightly
+            non-transparent so the editable shape body is a reliable pointer
+            target for Plotly shape dragging.
     """
 
     line_width: int = 2
@@ -57,7 +59,7 @@ class RectRoiStyleConfig:
     selected_fill_color: str = 'rgba(0, 0, 0, 0)'
     editing_line_width: int = 3
     editing_line_color: str = 'rgba(0, 188, 212, 1.0)'
-    editing_fill_color: str = 'rgba(0, 0, 0, 0)'
+    editing_fill_color: str = 'rgba(0, 188, 212, 0.05)'
 
 
 class PlotlyRoiOverlayLayer:

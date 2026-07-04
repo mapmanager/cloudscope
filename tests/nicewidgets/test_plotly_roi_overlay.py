@@ -16,12 +16,12 @@ def test_roi_shape_name_is_stable() -> None:
     assert PlotlyRoiOverlayLayer.shape_name(7) == 'roi:7'
 
 
-def test_default_style_uses_transparent_fill_for_all_states() -> None:
-    """ROI rectangles should default to outline-only (fully transparent fill)."""
+def test_default_style_uses_hit_fill_only_for_editing_roi() -> None:
+    """Only the actively edited ROI should have a body hit target by default."""
     style = RectRoiStyleConfig()
     assert style.fill_color == 'rgba(0, 0, 0, 0)'
     assert style.selected_fill_color == 'rgba(0, 0, 0, 0)'
-    assert style.editing_fill_color == 'rgba(0, 0, 0, 0)'
+    assert style.editing_fill_color == 'rgba(0, 188, 212, 0.05)'
 
 
 def test_roi_shape_label_is_positioned_top_left() -> None:
@@ -68,6 +68,25 @@ def test_select_roi_updates_selected_style() -> None:
     assert shapes['roi:2']['line']['color'] == 'selected-line'
     assert shapes['roi:2']['line']['width'] == 5
     assert shapes['roi:2']['fillcolor'] == 'selected-fill'
+
+
+def test_set_roi_editing_applies_hit_fill_only_to_editing_shape() -> None:
+    """Edit mode should make only the active ROI body draggable."""
+    layer = PlotlyRoiOverlayLayer()
+    layer.set_rois([
+        RectRoiOverlay(roi_id=1, x0=0, x1=2, y0=1, y1=3),
+        RectRoiOverlay(roi_id=2, x0=4, x1=5, y0=6, y1=7),
+    ])
+
+    layer.set_roi_editing(2)
+    editing_shapes = {shape['name']: shape for shape in layer.to_shapes()}
+    assert editing_shapes['roi:1']['fillcolor'] == 'rgba(0, 0, 0, 0)'
+    assert editing_shapes['roi:2']['fillcolor'] == 'rgba(0, 188, 212, 0.05)'
+
+    layer.set_roi_editing(None)
+    idle_shapes = {shape['name']: shape for shape in layer.to_shapes()}
+    assert idle_shapes['roi:1']['fillcolor'] == 'rgba(0, 0, 0, 0)'
+    assert idle_shapes['roi:2']['fillcolor'] == 'rgba(0, 0, 0, 0)'
 
 
 def test_add_roi_replaces_duplicate_and_delete_removes() -> None:
