@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import csv
+import logging
 from collections import deque
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
@@ -34,6 +35,8 @@ from .supported_import_extensions import (
     get_allowed_import_extensions,
     path_has_allowed_import_extension,
 )
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from acqstore.acq_image.acq_image import AcqImage
@@ -101,6 +104,15 @@ class SaveEvent(StrEnum):
     CANCELLED = 'cancelled'
 
 
+class LoadErrorType(StrEnum):
+    """Structured non-fatal load warning categories."""
+
+    MISSING_FILE = 'missing_file'
+    UNSUPPORTED_FILE_TYPE = 'unsupported_file_type'
+    LOADER_ERROR = 'loader_error'
+    CSV_ERROR = 'csv_error'
+
+
 class PathKind(StrEnum):
     """Supported input path kinds for file discovery/loading."""
 
@@ -128,11 +140,25 @@ class SaveProgress:
 
 @dataclass(frozen=True, slots=True)
 class LoadWarning:
-    """Non-fatal warning collected during safe loading."""
+    """Non-fatal warning collected during safe loading.
+
+    Attributes:
+        message: Human-readable warning message.
+        path: User-facing path associated with the warning, when available.
+        row_index: One-based CSV row index including the header row, when the
+            warning came from a manifest row.
+        error_type: Structured warning category for GUI and script reporting.
+        rel_path: Manifest-relative path value associated with the warning.
+        resolved_path: Absolute path resolved from ``rel_path`` and the
+            manifest root, when available.
+    """
 
     message: str
     path: str | None = None
     row_index: int | None = None
+    error_type: LoadErrorType | None = None
+    rel_path: str | None = None
+    resolved_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,11 +212,13 @@ class AcqImageList:
         file_factory: Optional factory for creating ``AcqImage``-like objects.
         folder_depth: Maximum directory depth used for folder discovery.
         path_kind: Optional explicit ``PathKind``. When omitted, the kind is
+            inferred from the path.
         load_images: Passed to default ``AcqImage`` construction. Ignored when a
             custom ``file_factory`` is supplied.
         load_analysis_csv: Passed to default ``AcqImage`` construction. Ignored
             when a custom ``file_factory`` is supplied.
-            inferred from the path.
+        root_path: Optional manifest root for CSV loads. When omitted, CSV
+            ``_rel_path`` values are resolved relative to the CSV parent.
     """
 
     def __init__(
@@ -202,6 +230,7 @@ class AcqImageList:
         path_kind: PathKind | str | None = None,
         load_images: bool = True,
         load_analysis_csv: bool = True,
+        root_path: str | Path | None = None,
     ):
         """Load one file, a folder of files, or a CSV file list.
 
@@ -220,6 +249,8 @@ class AcqImageList:
                 loads primary pixels.
             load_analysis_csv: When true, default ``AcqImage`` construction
                 eagerly loads analysis CSV result tables.
+            root_path: Optional manifest root for CSV loads. When omitted, CSV
+                ``_rel_path`` values are resolved relative to the CSV parent.
 
         Raises:
             ValueError: If ``folder_depth`` is less than one or strict CSV
@@ -228,6 +259,7 @@ class AcqImageList:
                 any discovered file cannot be loaded.
         """
         self.path = str(path)
+        self.source_root_path: str | None = None
         if folder_depth < 1:
             raise ValueError(f'folder_depth must be >= 1, got {folder_depth}')
 
@@ -242,11 +274,16 @@ class AcqImageList:
                 detected_kind = PathKind.FILE
 
         if detected_kind == PathKind.FOLDER:
+            self.source_root_path = str(Path(path).expanduser().resolve(strict=False))
             self.file_list = _build_file_list(path, get_allowed_import_extensions(), folder_depth=folder_depth)
         elif detected_kind == PathKind.CSV:
-            self.file_list = self._build_file_list_from_csv(path)
+            csv_root = Path(root_path).expanduser() if root_path is not None else Path(path).expanduser().parent
+            self.source_root_path = str(csv_root.resolve(strict=False))
+            self.file_list = self._build_file_list_from_csv(path, root_path=csv_root)
         else:
-            self.file_list = [str(Path(path).resolve())]
+            file_path = Path(path).expanduser().resolve(strict=False)
+            self.source_root_path = str(file_path.parent)
+            self.file_list = [str(file_path)]
 
         if file_factory is None:
             from acqstore.acq_image.acq_image import AcqImage
@@ -273,6 +310,7 @@ class AcqImageList:
         should_cancel: Callable[[], bool] | None = None,
         load_images: bool = True,
         load_analysis_csv: bool = True,
+        root_path: str | Path | None = None,
     ) -> LoadResult:
         """Load acquisition files while collecting non-fatal warnings.
 
@@ -297,6 +335,8 @@ class AcqImageList:
                 loads primary pixels.
             load_analysis_csv: When true, default ``AcqImage`` construction
                 eagerly loads analysis CSV result tables.
+            root_path: Optional manifest root used for CSV loads. When omitted,
+                CSV ``_rel_path`` values are resolved relative to the CSV parent.
 
         Returns:
             :class:`LoadResult` containing an ``AcqImageList`` and collected
@@ -312,9 +352,10 @@ class AcqImageList:
             try:
                 kind = PathKind(kind)
             except ValueError:
-                warnings.append(LoadWarning(message=f'Unsupported load kind: {kind}', path=base_path))
+                warnings.append(LoadWarning(message=f'Unsupported load kind: {kind}', path=base_path, error_type=LoadErrorType.CSV_ERROR))
                 obj = cls.__new__(cls)
                 obj.path = base_path
+                obj.source_root_path = None
                 obj.file_list = []
                 obj._files = []
                 obj._files_by_id = {}
@@ -324,20 +365,20 @@ class AcqImageList:
         candidate_paths: list[str] = []
         if kind == PathKind.FOLDER:
             if not path_obj.exists() or not path_obj.is_dir():
-                warnings.append(LoadWarning(message='Folder does not exist or is not a directory', path=base_path))
+                warnings.append(LoadWarning(message='Folder does not exist or is not a directory', path=base_path, error_type=LoadErrorType.MISSING_FILE))
             else:
                 candidate_paths = _build_file_list(path_obj, get_allowed_import_extensions(), folder_depth=folder_depth)
         elif kind == PathKind.FILE:
             if not path_obj.exists() or not (path_obj.is_file() or path_has_allowed_import_extension(path_obj)):
-                warnings.append(LoadWarning(message='File does not exist or is not a supported file/store', path=base_path))
+                warnings.append(LoadWarning(message='File does not exist or is not a supported file/store', path=base_path, error_type=LoadErrorType.MISSING_FILE))
             else:
                 candidate_paths = [str(path_obj.resolve())]
         elif kind == PathKind.CSV:
-            csv_paths, csv_warnings = cls._build_file_list_from_csv_safe(path_obj)
+            csv_paths, csv_warnings = cls._build_file_list_from_csv_safe(path_obj, root_path=root_path)
             candidate_paths = csv_paths
             warnings.extend(csv_warnings)
         else:
-            warnings.append(LoadWarning(message=f'Unsupported load kind: {kind}', path=base_path))
+            warnings.append(LoadWarning(message=f'Unsupported load kind: {kind}', path=base_path, error_type=LoadErrorType.CSV_ERROR))
 
         files: list[AcqImage] = []
         total = len(candidate_paths)
@@ -359,81 +400,332 @@ class AcqImageList:
                     built = file_factory(candidate)
                 files.append(built)
             except Exception as exc:
-                warnings.append(LoadWarning(message=f'Failed to load file: {exc}', path=str(Path(candidate).resolve(strict=False))))
+                resolved_candidate = str(Path(candidate).resolve(strict=False))
+                message = f'Failed to load file: {exc}'
+                logger.error('%s: %s', message, resolved_candidate)
+                warnings.append(LoadWarning(message=message, path=resolved_candidate, error_type=LoadErrorType.LOADER_ERROR, resolved_path=resolved_candidate))
             if progress_callback is not None:
                 progress_callback(len(files), total, f'Loaded {len(files)}/{total}')
 
         obj = cls.__new__(cls)
         obj.path = base_path
-        obj.file_list = [file.file_id for file in files]
+        if kind == PathKind.FOLDER:
+            obj.source_root_path = str(path_obj.resolve(strict=False))
+        elif kind == PathKind.CSV:
+            csv_root = Path(root_path).expanduser() if root_path is not None else path_obj.parent
+            obj.source_root_path = str(csv_root.resolve(strict=False))
+        elif kind == PathKind.FILE:
+            obj.source_root_path = str(path_obj.resolve(strict=False).parent)
+        else:
+            obj.source_root_path = None
+        obj.file_list = [str(Path(file.path).resolve(strict=False)) if hasattr(file, 'path') else file.file_id for file in files]
         obj._files = files
         obj._files_by_id = {acq_file.file_id: acq_file for acq_file in files}
         obj._attach_analysis_pools()
         return LoadResult(acq_image_list=obj, warnings=tuple(warnings), discovered_count=total)
 
+    @classmethod
+    def from_manifest_csv(
+        cls,
+        csv_path: str | Path,
+        *,
+        root_path: str | Path | None = None,
+        file_factory: Callable[[str], AcqImage] | None = None,
+        load_images: bool = True,
+        load_analysis_csv: bool = True,
+    ) -> LoadResult:
+        """Safely load an acquisition list from a manifest CSV.
+
+        Args:
+            csv_path: CSV file containing a required ``_rel_path`` column.
+            root_path: Optional manifest root. When omitted, paths are resolved
+                relative to the CSV parent directory.
+            file_factory: Optional file-construction callback for tests or
+                dependency injection.
+            load_images: When true, default ``AcqImage`` construction eagerly
+                loads primary pixels.
+            load_analysis_csv: When true, default ``AcqImage`` construction
+                eagerly loads analysis CSV result tables.
+
+        Returns:
+            Structured load result containing the loaded list and warnings.
+
+        Raises:
+            LoadCancelled: Never raised by this wrapper because no cancellation
+                callback is accepted.
+        """
+        return cls.load_safe(
+            str(csv_path),
+            kind=PathKind.CSV,
+            file_factory=file_factory,
+            load_images=load_images,
+            load_analysis_csv=load_analysis_csv,
+            root_path=root_path,
+        )
+
     @staticmethod
-    def _build_file_list_from_csv_safe(csv_path: Path) -> tuple[list[str], list[LoadWarning]]:
-        """Parse CSV ``rel_path`` rows with per-row warnings."""
+    def _build_file_list_from_csv_safe(
+        csv_path: Path,
+        *,
+        root_path: str | Path | None = None,
+    ) -> tuple[list[str], list[LoadWarning]]:
+        """Parse CSV ``_rel_path`` rows with per-row warnings.
+
+        Args:
+            csv_path: Manifest CSV path.
+            root_path: Optional root directory for resolving ``_rel_path``.
+
+        Returns:
+            Tuple of candidate absolute paths and non-fatal warnings.
+        """
         warnings: list[LoadWarning] = []
         result: list[str] = []
+        csv_resolved = csv_path.expanduser().resolve(strict=False)
         if not csv_path.exists() or not csv_path.is_file():
-            return ([], [LoadWarning(message='CSV file does not exist', path=str(csv_path.resolve(strict=False)))])
+            warning = LoadWarning(
+                message='CSV file does not exist',
+                path=str(csv_resolved),
+                error_type=LoadErrorType.MISSING_FILE,
+            )
+            logger.error('%s: %s', warning.message, warning.path)
+            return ([], [warning])
 
-        csv_parent = csv_path.parent.resolve(strict=False)
+        manifest_root = (
+            Path(root_path).expanduser().resolve(strict=False)
+            if root_path is not None
+            else csv_path.parent.resolve(strict=False)
+        )
+        if root_path is not None and (not manifest_root.exists() or not manifest_root.is_dir()):
+            warning = LoadWarning(
+                message='Manifest root_path does not exist or is not a directory',
+                path=str(manifest_root),
+                error_type=LoadErrorType.MISSING_FILE,
+            )
+            logger.error('%s: %s', warning.message, warning.path)
+            return ([], [warning])
+
         try:
             with csv_path.open('r', encoding='utf-8', newline='') as handle:
                 reader = csv.DictReader(handle)
-                if reader.fieldnames is None or 'rel_path' not in reader.fieldnames:
+                if reader.fieldnames is None or '_rel_path' not in reader.fieldnames:
                     warnings.append(
                         LoadWarning(
-                            message='CSV is missing required column "rel_path"',
-                            path=str(csv_path.resolve(strict=False)),
+                            message='CSV is missing required column "_rel_path"',
+                            path=str(csv_resolved),
+                            error_type=LoadErrorType.CSV_ERROR,
                         )
                     )
                     return ([], warnings)
+                seen_rel_paths: set[str] = set()
                 for index, row in enumerate(reader, start=2):
-                    raw_value = row.get('rel_path')
+                    raw_value = row.get('_rel_path')
                     if raw_value is None or not str(raw_value).strip():
                         warnings.append(
                             LoadWarning(
-                                message='CSV row has blank rel_path',
-                                path=str(csv_path.resolve(strict=False)),
+                                message='CSV row has blank _rel_path',
+                                path=str(csv_resolved),
                                 row_index=index,
+                                error_type=LoadErrorType.CSV_ERROR,
                             )
                         )
                         continue
                     rel_value = str(raw_value).strip()
-                    candidate = (csv_parent / rel_value).resolve(strict=False)
-                    if not candidate.exists() or not (candidate.is_file() or path_has_allowed_import_extension(candidate)):
+                    rel_path = Path(rel_value)
+                    if rel_path.is_absolute():
                         warnings.append(
                             LoadWarning(
-                                message='CSV rel_path target does not exist',
-                                path=str(candidate),
+                                message='CSV _rel_path must be relative',
+                                path=str(csv_resolved),
                                 row_index=index,
+                                error_type=LoadErrorType.CSV_ERROR,
+                                rel_path=rel_value,
                             )
                         )
                         continue
+                    if rel_value in seen_rel_paths:
+                        warnings.append(
+                            LoadWarning(
+                                message='CSV contains duplicate _rel_path',
+                                path=str(csv_resolved),
+                                row_index=index,
+                                error_type=LoadErrorType.CSV_ERROR,
+                                rel_path=rel_value,
+                            )
+                        )
+                        continue
+                    seen_rel_paths.add(rel_value)
+                    candidate = (manifest_root / rel_path).resolve(strict=False)
+                    try:
+                        candidate.relative_to(manifest_root)
+                    except ValueError:
+                        warnings.append(
+                            LoadWarning(
+                                message='CSV _rel_path escapes manifest root',
+                                path=str(csv_resolved),
+                                row_index=index,
+                                error_type=LoadErrorType.CSV_ERROR,
+                                rel_path=rel_value,
+                                resolved_path=str(candidate),
+                            )
+                        )
+                        continue
+                    if not candidate.exists() or not (candidate.is_file() or path_has_allowed_import_extension(candidate)):
+                        warning = LoadWarning(
+                            message='CSV _rel_path target does not exist',
+                            path=str(candidate),
+                            row_index=index,
+                            error_type=LoadErrorType.MISSING_FILE,
+                            rel_path=rel_value,
+                            resolved_path=str(candidate),
+                        )
+                        logger.error('%s: %s', warning.message, warning.path)
+                        warnings.append(warning)
+                        continue
+                    if not path_has_allowed_import_extension(candidate):
+                        warning = LoadWarning(
+                            message='CSV _rel_path target is not a supported file/store',
+                            path=str(candidate),
+                            row_index=index,
+                            error_type=LoadErrorType.UNSUPPORTED_FILE_TYPE,
+                            rel_path=rel_value,
+                            resolved_path=str(candidate),
+                        )
+                        logger.error('%s: %s', warning.message, warning.path)
+                        warnings.append(warning)
+                        continue
                     result.append(str(candidate))
         except Exception as exc:
-            warnings.append(LoadWarning(message=f'Failed to parse CSV: {exc}', path=str(csv_path.resolve(strict=False))))
+            warnings.append(
+                LoadWarning(
+                    message=f'Failed to parse CSV: {exc}',
+                    path=str(csv_resolved),
+                    error_type=LoadErrorType.CSV_ERROR,
+                )
+            )
             return ([], warnings)
 
-        unique: list[str] = []
-        seen: set[str] = set()
-        for item in result:
-            if item in seen:
-                continue
-            seen.add(item)
-            unique.append(item)
-        return (unique, warnings)
+        return (result, warnings)
 
-    def _build_file_list_from_csv(self, path: str | Path) -> list[str]:
-        """Strict CSV parser used by constructor path-kind csv mode."""
-        paths, warnings = self._build_file_list_from_csv_safe(Path(path))
+    def _build_file_list_from_csv(
+        self,
+        path: str | Path,
+        *,
+        root_path: str | Path | None = None,
+    ) -> list[str]:
+        """Strict CSV parser used by constructor path-kind csv mode.
+
+        Args:
+            path: Manifest CSV path.
+            root_path: Optional root directory for resolving ``_rel_path``.
+
+        Returns:
+            Absolute candidate file paths.
+
+        Raises:
+            ValueError: If manifest parsing produces any warning.
+        """
+        paths, warnings = self._build_file_list_from_csv_safe(Path(path), root_path=root_path)
         if warnings:
             first = warnings[0]
             raise ValueError(first.message)
         return paths
+
+    def to_manifest_csv(
+        self,
+        csv_path: str | Path,
+        *,
+        root_path: str | Path | None = None,
+    ) -> Path:
+        """Write all files in this list to a manifest CSV.
+
+        Args:
+            csv_path: Destination CSV path.
+            root_path: Optional root used to compute ``_rel_path`` values.
+
+        Returns:
+            Resolved destination path.
+
+        Raises:
+            ValueError: If a file path cannot be represented relative to the
+                effective root.
+            OSError: If writing fails.
+        """
+        from acqstore.acq_image.acq_image_manifest import AcqImageListManifest
+
+        return AcqImageListManifest(self).write_manifest_csv(csv_path, root_path=root_path)
+
+    def to_randomized_manifest_master_csv(
+        self,
+        csv_path: str | Path,
+        *,
+        groupby_column: str,
+        random_seed: int | None = None,
+        root_path: str | Path | None = None,
+    ) -> Path:
+        """Write the full deterministic randomized manifest for this list.
+
+        Args:
+            csv_path: Destination CSV path.
+            groupby_column: Schema row column used to define groups.
+            random_seed: Optional seed for deterministic shuffling.
+            root_path: Optional root used to compute ``_rel_path`` values.
+
+        Returns:
+            Resolved destination path.
+
+        Raises:
+            KeyError: If ``groupby_column`` is unknown.
+            ValueError: If grouping or relative-path validation fails.
+            OSError: If writing fails.
+        """
+        from acqstore.acq_image.acq_image_manifest import AcqImageListManifest
+
+        return AcqImageListManifest(self).write_randomized_manifest_master_csv(
+            csv_path,
+            groupby_column=groupby_column,
+            random_seed=random_seed,
+            root_path=root_path,
+        )
+
+    def to_randomized_manifest_csv(
+        self,
+        csv_path: str | Path,
+        *,
+        groupby_column: str,
+        n_per_group: int,
+        random_seed: int | None = None,
+        root_path: str | Path | None = None,
+        allow_unbalanced: bool = False,
+    ) -> Path:
+        """Write a sampled deterministic randomized manifest for this list.
+
+        Args:
+            csv_path: Destination CSV path.
+            groupby_column: Schema row column used to define groups.
+            n_per_group: Number of files to keep from each randomized group.
+            random_seed: Optional seed for deterministic shuffling.
+            root_path: Optional root used to compute ``_rel_path`` values.
+            allow_unbalanced: When false, every group must have at least
+                ``n_per_group`` files.
+
+        Returns:
+            Resolved destination path.
+
+        Raises:
+            KeyError: If ``groupby_column`` is unknown.
+            ValueError: If grouping, sampling, or relative-path validation fails.
+            OSError: If writing fails.
+        """
+        from acqstore.acq_image.acq_image_manifest import AcqImageListManifest
+
+        return AcqImageListManifest(self).write_randomized_manifest_csv(
+            csv_path,
+            groupby_column=groupby_column,
+            n_per_group=n_per_group,
+            random_seed=random_seed,
+            root_path=root_path,
+            allow_unbalanced=allow_unbalanced,
+        )
 
     def _attach_analysis_pools(self) -> None:
         """Create collection-level analysis pools owned by this list."""

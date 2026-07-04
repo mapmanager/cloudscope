@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from acqstore.acq_image.acq_image import parent_grandparent_folder_names
-from acqstore.acq_image.acq_image_list import AcqImageList, SaveEvent, _build_file_list
+from acqstore.acq_image.acq_image_list import AcqImageList, LoadErrorType, SaveEvent, _build_file_list
 from acqstore.schema import ACQ_FILE_LIST_SCHEMA
 from acqstore.acq_image.supported_import_extensions import get_allowed_import_extensions
 
@@ -172,14 +172,14 @@ def test_acq_image_list_rejects_non_positive_folder_depth(tmp_path: Path) -> Non
         AcqImageList(str(tmp_path), file_factory=_FakeAcqImage, folder_depth=0)
 
 
-def test_load_safe_csv_rel_path_parent_resolution_and_warnings(tmp_path: Path) -> None:
+def test_load_safe_csv_manifest_parent_resolution_and_warnings(tmp_path: Path) -> None:
     csv_dir = tmp_path / 'csvroot'
     csv_dir.mkdir()
     valid = csv_dir / 'ok.tif'
     valid.write_text('')
     csv_path = csv_dir / 'list.csv'
     csv_path.write_text(
-        'rel_path\n'
+        '_rel_path\n'
         'ok.tif\n'
         '   \n'
         'missing.tif\n',
@@ -194,7 +194,7 @@ def test_load_safe_csv_rel_path_parent_resolution_and_warnings(tmp_path: Path) -
     assert len(result.acq_image_list) == 1
     assert Path(result.acq_image_list.get_files()[0].file_id).name == 'ok.tif'
     assert len(result.warnings) == 2
-    assert any('blank rel_path' in warning.message for warning in result.warnings)
+    assert any('blank _rel_path' in warning.message for warning in result.warnings)
     assert any('does not exist' in warning.message for warning in result.warnings)
 
 
@@ -204,7 +204,7 @@ def test_load_safe_csv_missing_required_column_warns(tmp_path: Path) -> None:
     result = AcqImageList.load_safe(str(csv_path), kind='csv', file_factory=_FakeAcqImage)
     assert len(result.acq_image_list) == 0
     assert len(result.warnings) == 1
-    assert 'missing required column "rel_path"' in result.warnings[0].message
+    assert 'missing required column "_rel_path"' in result.warnings[0].message
 
 
 def test_load_safe_file_missing_returns_warning_not_exception(tmp_path: Path) -> None:
@@ -213,3 +213,198 @@ def test_load_safe_file_missing_returns_warning_not_exception(tmp_path: Path) ->
     assert len(result.acq_image_list) == 0
     assert len(result.warnings) == 1
     assert 'does not exist' in result.warnings[0].message
+
+
+def test_load_safe_csv_duplicate_manifest_path_warns_and_skips_duplicate(tmp_path: Path) -> None:
+    csv_dir = tmp_path / 'csvroot'
+    csv_dir.mkdir()
+    valid = csv_dir / 'ok.tif'
+    valid.write_text('')
+    csv_path = csv_dir / 'list.csv'
+    csv_path.write_text('_rel_path\nok.tif\nok.tif\n', encoding='utf-8')
+
+    result = AcqImageList.load_safe(str(csv_path), kind='csv', file_factory=_FakeAcqImage)
+
+    assert len(result.acq_image_list) == 1
+    assert len(result.warnings) == 1
+    assert result.warnings[0].error_type is LoadErrorType.CSV_ERROR
+    assert 'duplicate _rel_path' in result.warnings[0].message
+
+
+def test_load_safe_csv_absolute_rel_path_rejected(tmp_path: Path) -> None:
+    csv_path = tmp_path / 'list.csv'
+    absolute = tmp_path / 'ok.tif'
+    absolute.write_text('')
+    csv_path.write_text(f'_rel_path\n{absolute}\n', encoding='utf-8')
+
+    result = AcqImageList.load_safe(str(csv_path), kind='csv', file_factory=_FakeAcqImage)
+
+    assert len(result.acq_image_list) == 0
+    assert len(result.warnings) == 1
+    assert '_rel_path must be relative' in result.warnings[0].message
+
+
+def test_load_safe_csv_parent_escape_rejected(tmp_path: Path) -> None:
+    csv_dir = tmp_path / 'csvroot'
+    csv_dir.mkdir()
+    outside = tmp_path / 'outside.tif'
+    outside.write_text('')
+    csv_path = csv_dir / 'list.csv'
+    csv_path.write_text('_rel_path\n../outside.tif\n', encoding='utf-8')
+
+    result = AcqImageList.load_safe(str(csv_path), kind='csv', file_factory=_FakeAcqImage)
+
+    assert len(result.acq_image_list) == 0
+    assert len(result.warnings) == 1
+    assert 'escapes manifest root' in result.warnings[0].message
+
+
+def test_load_safe_csv_missing_file_structured_warning(tmp_path: Path) -> None:
+    csv_path = tmp_path / 'list.csv'
+    csv_path.write_text('_rel_path\nmissing.tif\n', encoding='utf-8')
+
+    result = AcqImageList.load_safe(str(csv_path), kind='csv', file_factory=_FakeAcqImage)
+
+    assert len(result.acq_image_list) == 0
+    assert len(result.warnings) == 1
+    warning = result.warnings[0]
+    assert warning.error_type is LoadErrorType.MISSING_FILE
+    assert warning.rel_path == 'missing.tif'
+    assert warning.resolved_path is not None
+
+
+def test_load_safe_loader_exception_structured_warning(tmp_path: Path) -> None:
+    file_path = tmp_path / 'bad.tif'
+    file_path.write_text('')
+
+    def failing_factory(path: str) -> _FakeAcqImage:
+        raise RuntimeError(f'boom {Path(path).name}')
+
+    result = AcqImageList.load_safe(str(file_path), kind='file', file_factory=failing_factory)
+
+    assert len(result.acq_image_list) == 0
+    assert len(result.warnings) == 1
+    assert result.warnings[0].error_type is LoadErrorType.LOADER_ERROR
+    assert 'boom bad.tif' in result.warnings[0].message
+
+
+def test_source_root_path_set_for_folder_file_and_csv(tmp_path: Path) -> None:
+    file_path = tmp_path / 'root_file.tif'
+    file_path.write_text('')
+    folder_list = AcqImageList(str(tmp_path), file_factory=_FakeAcqImage)
+    file_list = AcqImageList(str(file_path), file_factory=_FakeAcqImage)
+    csv_path = tmp_path / 'list.csv'
+    csv_path.write_text('_rel_path\nroot_file.tif\n', encoding='utf-8')
+    csv_result = AcqImageList.load_safe(str(csv_path), kind='csv', file_factory=_FakeAcqImage)
+
+    assert folder_list.source_root_path == str(tmp_path.resolve())
+    assert file_list.source_root_path == str(tmp_path.resolve())
+    assert csv_result.acq_image_list.source_root_path == str(tmp_path.resolve())
+
+
+def test_to_manifest_csv_writes_manifest_path(tmp_path: Path) -> None:
+    root = tmp_path / 'data'
+    root.mkdir()
+    (root / 'a.tif').write_text('')
+    sub = root / 'sub'
+    sub.mkdir()
+    (sub / 'b.tif').write_text('')
+    file_list = AcqImageList(str(root), file_factory=_FakeAcqImage)
+    csv_path = tmp_path / 'manifest.csv'
+
+    file_list.to_manifest_csv(csv_path, root_path=root)
+
+    assert csv_path.read_text(encoding='utf-8').splitlines() == [
+        '_rel_path',
+        'a.tif',
+        'sub/b.tif',
+    ]
+
+
+def test_randomized_manifest_master_csv_is_deterministic(tmp_path: Path) -> None:
+    root = tmp_path / 'data'
+    for group in ('g1', 'g2'):
+        group_dir = root / group
+        group_dir.mkdir(parents=True)
+        for name in ('a.tif', 'b.tif', 'c.tif'):
+            (group_dir / name).write_text('')
+    file_list = AcqImageList(str(root), file_factory=_FakeAcqImage)
+    first = tmp_path / 'first.csv'
+    second = tmp_path / 'second.csv'
+
+    file_list.to_randomized_manifest_master_csv(first, groupby_column='parent', random_seed=123, root_path=root)
+    file_list.to_randomized_manifest_master_csv(second, groupby_column='parent', random_seed=123, root_path=root)
+
+    assert first.read_text(encoding='utf-8') == second.read_text(encoding='utf-8')
+    assert first.read_text(encoding='utf-8').splitlines()[0] == '_rel_path,_group,_random_order,_source_index'
+
+
+def test_randomized_manifest_csv_samples_n_per_group(tmp_path: Path) -> None:
+    root = tmp_path / 'data'
+    for group in ('g1', 'g2'):
+        group_dir = root / group
+        group_dir.mkdir(parents=True)
+        for name in ('a.tif', 'b.tif', 'c.tif'):
+            (group_dir / name).write_text('')
+    file_list = AcqImageList(str(root), file_factory=_FakeAcqImage)
+    csv_path = tmp_path / 'sampled.csv'
+
+    file_list.to_randomized_manifest_csv(
+        csv_path,
+        groupby_column='parent',
+        n_per_group=2,
+        random_seed=123,
+        root_path=root,
+    )
+
+    lines = csv_path.read_text(encoding='utf-8').splitlines()
+    assert len(lines) == 5
+    assert sum(',g1,' in line for line in lines[1:]) == 2
+    assert sum(',g2,' in line for line in lines[1:]) == 2
+
+
+def test_randomized_manifest_csv_unbalanced_policy(tmp_path: Path) -> None:
+    root = tmp_path / 'data'
+    g1 = root / 'g1'
+    g2 = root / 'g2'
+    g1.mkdir(parents=True)
+    g2.mkdir(parents=True)
+    (g1 / 'a.tif').write_text('')
+    (g2 / 'a.tif').write_text('')
+    (g2 / 'b.tif').write_text('')
+    file_list = AcqImageList(str(root), file_factory=_FakeAcqImage)
+    csv_path = tmp_path / 'sampled.csv'
+
+    with pytest.raises(ValueError, match='fewer than n_per_group'):
+        file_list.to_randomized_manifest_csv(csv_path, groupby_column='parent', n_per_group=2, root_path=root)
+
+    file_list.to_randomized_manifest_csv(
+        csv_path,
+        groupby_column='parent',
+        n_per_group=2,
+        root_path=root,
+        allow_unbalanced=True,
+    )
+    assert len(csv_path.read_text(encoding='utf-8').splitlines()) == 4
+
+
+def test_randomized_manifest_rejects_invalid_groupby_column_and_type(tmp_path: Path) -> None:
+    root = tmp_path / 'data'
+    root.mkdir()
+    (root / 'a.tif').write_text('')
+    file_list = AcqImageList(str(root), file_factory=_FakeAcqImage)
+
+    with pytest.raises(KeyError):
+        file_list.to_randomized_manifest_csv(
+            tmp_path / 'bad.csv',
+            groupby_column='not_a_column',
+            n_per_group=1,
+            root_path=root,
+        )
+    with pytest.raises(ValueError, match='not categorical-like'):
+        file_list.to_randomized_manifest_csv(
+            tmp_path / 'bad.csv',
+            groupby_column='num_channels',
+            n_per_group=1,
+            root_path=root,
+        )
