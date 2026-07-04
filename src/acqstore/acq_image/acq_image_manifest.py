@@ -128,20 +128,16 @@ class AcqImageListManifest:
         self,
         csv_path: str | Path,
         *,
-        groupby_column: str,
+        master_csv_path: str | Path,
         n_per_group: int,
-        random_seed: int | None = None,
-        root_path: str | Path | None = None,
         allow_unbalanced: bool = False,
     ) -> Path:
-        """Write a sampled randomized manifest CSV.
+        """Write a sampled randomized manifest CSV from a master manifest.
 
         Args:
             csv_path: Destination CSV path.
-            groupby_column: Schema row column used to define groups.
-            n_per_group: Number of files to keep from each randomized group.
-            random_seed: Optional seed for deterministic shuffling.
-            root_path: Optional root used to compute ``_rel_path`` values.
+            master_csv_path: Source randomized master CSV path.
+            n_per_group: Number of rows to keep from each randomized group.
             allow_unbalanced: When false, every group must contain at least
                 ``n_per_group`` files. When true, smaller groups contribute all
                 available files.
@@ -150,21 +146,16 @@ class AcqImageListManifest:
             Resolved destination path.
 
         Raises:
-            ValueError: If ``n_per_group`` is less than one, grouping validation
-                fails, or a group is too small while ``allow_unbalanced`` is
-                false.
-            KeyError: If ``groupby_column`` is not in the list schema.
-            OSError: If the output file cannot be written.
+            ValueError: If ``n_per_group`` is less than one, the master CSV is
+                not a randomized manifest, or a group is too small while
+                ``allow_unbalanced`` is false.
+            OSError: If the master CSV cannot be read or the output file cannot
+                be written.
         """
         if n_per_group < 1:
             raise ValueError(f'n_per_group must be >= 1, got {n_per_group}')
         destination = Path(csv_path).expanduser().resolve(strict=False)
-        root = self._resolve_output_root(destination, root_path)
-        rows = self._randomized_rows(
-            groupby_column=groupby_column,
-            random_seed=random_seed,
-            root_path=root,
-        )
+        rows = self._read_randomized_master_rows(master_csv_path)
         groups: dict[str, list[ManifestRow]] = defaultdict(list)
         for row in rows:
             assert row.group is not None
@@ -255,6 +246,69 @@ class AcqImageListManifest:
                 f'Column {groupby_column!r} is not categorical-like; '
                 f'got value_type={field.value_type.value!r}'
             )
+
+    @staticmethod
+    def _read_randomized_master_rows(master_csv_path: str | Path) -> list[ManifestRow]:
+        """Read rows from a randomized master manifest CSV."""
+        required_columns = {
+            MANIFEST_REL_PATH_COLUMN,
+            MANIFEST_GROUP_COLUMN,
+            MANIFEST_RANDOM_ORDER_COLUMN,
+            MANIFEST_SOURCE_INDEX_COLUMN,
+        }
+        source = Path(master_csv_path).expanduser().resolve(strict=False)
+        with source.open('r', encoding='utf-8', newline='') as handle:
+            reader = csv.DictReader(handle)
+            fieldnames = set(reader.fieldnames or [])
+            missing = sorted(required_columns - fieldnames)
+            if missing:
+                raise ValueError(f'Randomized master CSV is missing required column(s): {missing}')
+            rows: list[ManifestRow] = []
+            for index, row in enumerate(reader, start=2):
+                rel_path = AcqImageListManifest._csv_cell(row, MANIFEST_REL_PATH_COLUMN)
+                group = AcqImageListManifest._csv_cell(row, MANIFEST_GROUP_COLUMN)
+                random_order = AcqImageListManifest._parse_int_column(
+                    row,
+                    MANIFEST_RANDOM_ORDER_COLUMN,
+                    row_index=index,
+                )
+                source_index = AcqImageListManifest._parse_int_column(
+                    row,
+                    MANIFEST_SOURCE_INDEX_COLUMN,
+                    row_index=index,
+                )
+                if not rel_path:
+                    raise ValueError(f'Randomized master CSV row {index} has blank {MANIFEST_REL_PATH_COLUMN}')
+                if not group:
+                    raise ValueError(f'Randomized master CSV row {index} has blank {MANIFEST_GROUP_COLUMN}')
+                rows.append(
+                    ManifestRow(
+                        rel_path=rel_path,
+                        group=group,
+                        random_order=random_order,
+                        source_index=source_index,
+                    )
+                )
+        return rows
+
+    @staticmethod
+    def _csv_cell(row: dict[str, str | None], column: str) -> str:
+        """Return a stripped CSV cell value, treating missing cells as blank."""
+        value = row.get(column)
+        return '' if value is None else str(value).strip()
+
+    @staticmethod
+    def _parse_int_column(row: dict[str, str | None], column: str, *, row_index: int) -> int:
+        """Return a required integer column from a CSV row."""
+        value = AcqImageListManifest._csv_cell(row, column)
+        if not value:
+            raise ValueError(f'Randomized master CSV row {row_index} has blank {column}')
+        try:
+            return int(value)
+        except ValueError as exc:
+            raise ValueError(
+                f'Randomized master CSV row {row_index} has non-integer {column}: {value!r}'
+            ) from exc
 
     @staticmethod
     def _write_rows(csv_path: Path, rows: Sequence[ManifestRow], *, include_random_columns: bool) -> None:

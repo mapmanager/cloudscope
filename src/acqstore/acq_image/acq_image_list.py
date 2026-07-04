@@ -691,20 +691,16 @@ class AcqImageList:
         self,
         csv_path: str | Path,
         *,
-        groupby_column: str,
+        master_csv_path: str | Path,
         n_per_group: int,
-        random_seed: int | None = None,
-        root_path: str | Path | None = None,
         allow_unbalanced: bool = False,
     ) -> Path:
-        """Write a sampled deterministic randomized manifest for this list.
+        """Write a sampled randomized manifest from a master CSV.
 
         Args:
             csv_path: Destination CSV path.
-            groupby_column: Schema row column used to define groups.
-            n_per_group: Number of files to keep from each randomized group.
-            random_seed: Optional seed for deterministic shuffling.
-            root_path: Optional root used to compute ``_rel_path`` values.
+            master_csv_path: Source randomized master CSV path.
+            n_per_group: Number of rows to keep from each randomized group.
             allow_unbalanced: When false, every group must have at least
                 ``n_per_group`` files.
 
@@ -712,18 +708,16 @@ class AcqImageList:
             Resolved destination path.
 
         Raises:
-            KeyError: If ``groupby_column`` is unknown.
-            ValueError: If grouping, sampling, or relative-path validation fails.
-            OSError: If writing fails.
+            ValueError: If sampling validation fails.
+            OSError: If the master CSV cannot be read or the output file cannot
+                be written.
         """
         from acqstore.acq_image.acq_image_manifest import AcqImageListManifest
 
         return AcqImageListManifest(self).write_randomized_manifest_csv(
             csv_path,
-            groupby_column=groupby_column,
+            master_csv_path=master_csv_path,
             n_per_group=n_per_group,
-            random_seed=random_seed,
-            root_path=root_path,
             allow_unbalanced=allow_unbalanced,
         )
 

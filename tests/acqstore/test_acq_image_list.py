@@ -340,49 +340,54 @@ def test_randomized_manifest_master_csv_is_deterministic(tmp_path: Path) -> None
 
 
 def test_randomized_manifest_csv_samples_n_per_group(tmp_path: Path) -> None:
-    root = tmp_path / 'data'
-    for group in ('g1', 'g2'):
-        group_dir = root / group
-        group_dir.mkdir(parents=True)
-        for name in ('a.tif', 'b.tif', 'c.tif'):
-            (group_dir / name).write_text('')
-    file_list = AcqImageList(str(root), file_factory=_FakeAcqImage)
+    tmp_path.mkdir(exist_ok=True)
+    master_csv = tmp_path / 'master.csv'
     csv_path = tmp_path / 'sampled.csv'
+    master_csv.write_text(
+        '_rel_path,_group,_random_order,_source_index\n'
+        'g2/b.tif,g2,0,4\n'
+        'g1/c.tif,g1,0,2\n'
+        'g2/a.tif,g2,1,3\n'
+        'g1/a.tif,g1,1,0\n'
+        'g1/b.tif,g1,2,1\n',
+        encoding='utf-8',
+    )
+    file_list = AcqImageList(str(tmp_path), file_factory=_FakeAcqImage)
 
     file_list.to_randomized_manifest_csv(
         csv_path,
-        groupby_column='parent',
+        master_csv_path=master_csv,
         n_per_group=2,
-        random_seed=123,
-        root_path=root,
     )
 
-    lines = csv_path.read_text(encoding='utf-8').splitlines()
-    assert len(lines) == 5
-    assert sum(',g1,' in line for line in lines[1:]) == 2
-    assert sum(',g2,' in line for line in lines[1:]) == 2
+    assert csv_path.read_text(encoding='utf-8').splitlines() == [
+        '_rel_path,_group,_random_order,_source_index',
+        'g1/c.tif,g1,0,2',
+        'g1/a.tif,g1,1,0',
+        'g2/b.tif,g2,0,4',
+        'g2/a.tif,g2,1,3',
+    ]
 
 
 def test_randomized_manifest_csv_unbalanced_policy(tmp_path: Path) -> None:
-    root = tmp_path / 'data'
-    g1 = root / 'g1'
-    g2 = root / 'g2'
-    g1.mkdir(parents=True)
-    g2.mkdir(parents=True)
-    (g1 / 'a.tif').write_text('')
-    (g2 / 'a.tif').write_text('')
-    (g2 / 'b.tif').write_text('')
-    file_list = AcqImageList(str(root), file_factory=_FakeAcqImage)
+    master_csv = tmp_path / 'master.csv'
     csv_path = tmp_path / 'sampled.csv'
+    master_csv.write_text(
+        '_rel_path,_group,_random_order,_source_index\n'
+        'g1/a.tif,g1,0,0\n'
+        'g2/a.tif,g2,0,1\n'
+        'g2/b.tif,g2,1,2\n',
+        encoding='utf-8',
+    )
+    file_list = AcqImageList(str(tmp_path), file_factory=_FakeAcqImage)
 
     with pytest.raises(ValueError, match='fewer than n_per_group'):
-        file_list.to_randomized_manifest_csv(csv_path, groupby_column='parent', n_per_group=2, root_path=root)
+        file_list.to_randomized_manifest_csv(csv_path, master_csv_path=master_csv, n_per_group=2)
 
     file_list.to_randomized_manifest_csv(
         csv_path,
-        groupby_column='parent',
+        master_csv_path=master_csv,
         n_per_group=2,
-        root_path=root,
         allow_unbalanced=True,
     )
     assert len(csv_path.read_text(encoding='utf-8').splitlines()) == 4
@@ -395,16 +400,28 @@ def test_randomized_manifest_rejects_invalid_groupby_column_and_type(tmp_path: P
     file_list = AcqImageList(str(root), file_factory=_FakeAcqImage)
 
     with pytest.raises(KeyError):
-        file_list.to_randomized_manifest_csv(
+        file_list.to_randomized_manifest_master_csv(
             tmp_path / 'bad.csv',
             groupby_column='not_a_column',
-            n_per_group=1,
             root_path=root,
         )
     with pytest.raises(ValueError, match='not categorical-like'):
-        file_list.to_randomized_manifest_csv(
+        file_list.to_randomized_manifest_master_csv(
             tmp_path / 'bad.csv',
             groupby_column='num_channels',
-            n_per_group=1,
             root_path=root,
+        )
+
+
+def test_randomized_manifest_csv_rejects_non_master_csv(tmp_path: Path) -> None:
+    master_csv = tmp_path / 'not_master.csv'
+    csv_path = tmp_path / 'sampled.csv'
+    master_csv.write_text('_rel_path\nsample.tif\n', encoding='utf-8')
+    file_list = AcqImageList(str(tmp_path), file_factory=_FakeAcqImage)
+
+    with pytest.raises(ValueError, match='missing required column'):
+        file_list.to_randomized_manifest_csv(
+            csv_path,
+            master_csv_path=master_csv,
+            n_per_group=1,
         )
