@@ -380,8 +380,19 @@ if (!plotDiv || !plotDiv.data) return;
         # (carrying the auto-ranged data extent) is suppressed by value, not by
         # a one-shot guard. ``_is_x_range_echo`` compares with float tolerance.
         display_axis_ranges = self._display_axis_ranges_from_bounds(self._current_bounds)
-        self._last_applied_x_range = display_axis_ranges[0]
-        self._last_display_axis_ranges = display_axis_ranges
+        initial_display_axis_ranges = display_axis_ranges
+        applied_visual_padding = False
+        if self._plot is not None:
+            size_px = await self._read_plot_area_size_from_browser()
+            if size_px is not None:
+                initial_display_axis_ranges = _pad_axis_ranges_by_screen_px(
+                    display_axis_ranges,
+                    width_px=size_px[0],
+                    height_px=size_px[1],
+                )
+                applied_visual_padding = True
+        self._last_applied_x_range = initial_display_axis_ranges[0]
+        self._last_display_axis_ranges = initial_display_axis_ranges
         self._last_applied_response = response
         self._plotly_dict = build_plotly_figure(
             response=response,
@@ -391,11 +402,15 @@ if (!plotDiv || !plotDiv.data) return;
         self._sync_roi_shapes_to_plotly_dict()
         self._sync_trace_overlays_to_plotly_dict()
         self._apply_display_options_to_plotly_dict()
+        if initial_display_axis_ranges != display_axis_ranges:
+            (x_lo, x_hi), (y_lo, y_hi) = initial_display_axis_ranges
+            self._layout_pin_xy_ranges(x_lo=x_lo, x_hi=x_hi, y_lo=y_lo, y_hi=y_hi)
 
         if self._plot is not None:
             self._plot.figure = self._plotly_dict
             self._plot.update()
-            await self._apply_visual_padding_to_full_extent()
+            if not applied_visual_padding:
+                await self._apply_visual_padding_to_full_extent()
         return response
 
     async def clear_data(self) -> None:
@@ -2155,7 +2170,7 @@ Plotly.relayout(plotDiv, {{
             display_style=self._display_style(),
             max_pixels=self._overview_max_pixels,
         )
-        await self.apply_response(response)
+        await self.apply_response(response, display_axis_ranges=self._last_display_axis_ranges)
 
     def _heatmap_trace_active(self) -> bool:
         """Return ``True`` when the figure's first trace is a heatmap."""

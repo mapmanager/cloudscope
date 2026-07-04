@@ -15,7 +15,14 @@ if 'nicegui' not in sys.modules:
     fake_nicegui.app = types.SimpleNamespace(native=types.SimpleNamespace(main_window=None))
     sys.modules['nicegui'] = fake_nicegui
 
-from nicewidgets.raster_viewer.backend.image_model import RasterGridSpec, RowColBounds
+from nicewidgets.raster_viewer.backend.image_model import (
+    BackendImage,
+    RasterDisplayStyle,
+    RasterGridSpec,
+    RenderResponse,
+    RowColBounds,
+)
+from nicewidgets.raster_viewer.backend.pyramid import ImagePyramid
 from nicewidgets.raster_viewer.frontend.plotly_coord_transform import PlotlyCoordTransform
 from nicewidgets.raster_viewer.frontend.plotly_viewer import (
     PlotlyRasterViewer,
@@ -229,6 +236,98 @@ def test_visual_padding_does_not_change_roi_shape_coordinates() -> None:
 
     shape = viewer.figure['layout']['shapes'][0]
     assert (shape['x0'], shape['x1'], shape['y0'], shape['y1']) == (1.0, 4.0, 2.0, 5.0)
+
+
+def test_set_data_applies_visual_padding_before_first_plot_update() -> None:
+    """Known plot size should let initial render use padded ranges immediately."""
+
+    class _FakePlot:
+        id = 'plot-id'
+
+        def __init__(self) -> None:
+            self.figure: dict[str, object] = {}
+            self.ranges_at_update: tuple[list[float], list[float]] | None = None
+
+        def update(self) -> None:
+            layout = self.figure['layout']
+            self.ranges_at_update = (
+                list(layout['xaxis']['range']),
+                list(layout['yaxis']['range']),
+            )
+
+    async def _run() -> None:
+        viewer = PlotlyRasterViewer()
+        fake_plot = _FakePlot()
+        viewer._plot = fake_plot
+        viewer._read_plot_area_size_from_browser = lambda: asyncio.sleep(0, (400, 200))  # type: ignore[method-assign]
+        viewer._apply_visual_padding_to_full_extent = lambda: asyncio.sleep(  # type: ignore[method-assign]
+            0,
+            (_ for _ in ()).throw(AssertionError('post-render padding should not run')),
+        )
+        data = np.arange(32, dtype=np.float32).reshape(4, 8)
+        pyramid = ImagePyramid(BackendImage(data, grid=_GRID))
+
+        await viewer.set_data_from_pyramid(data, grid=_GRID, pyramid=pyramid)
+
+        assert fake_plot.ranges_at_update is not None
+        x_range, y_range = fake_plot.ranges_at_update
+        assert x_range == pytest.approx([-0.16, 4.16])
+        assert y_range == pytest.approx([-0.64, 8.64])
+        assert viewer._last_display_axis_ranges is not None
+        assert viewer._last_display_axis_ranges[0] == pytest.approx((-0.16, 4.16))
+        assert viewer._last_display_axis_ranges[1] == pytest.approx((-0.64, 8.64))
+
+    asyncio.run(_run())
+
+
+def test_refresh_full_png_preserves_current_display_ranges() -> None:
+    """Contrast PNG refreshes should not snap padded ranges back to data bounds."""
+
+    response = RenderResponse(
+        mode='image_png',
+        level=0,
+        bounds=RowColBounds(row_min=0.0, row_max=4.0, col_min=0.0, col_max=8.0),
+        shape=(4, 8),
+        grid=_GRID,
+        x0=0.0,
+        y0=0.0,
+        dx=1.0,
+        dy=1.0,
+        png_data_uri='data:image/png;base64,',
+    )
+
+    class _FakeService:
+        def full_image_png(
+            self,
+            *,
+            display_style: RasterDisplayStyle,
+            max_pixels: int | None,
+        ) -> RenderResponse:
+            return response
+
+    async def _run() -> None:
+        viewer = PlotlyRasterViewer()
+        viewer._plot = object()
+        viewer._service = _FakeService()
+        padded = ((-0.16, 4.16), (-0.64, 8.64))
+        viewer._last_display_axis_ranges = padded
+        captured: dict[str, object] = {}
+
+        async def _capture_apply_response(
+            response_arg: RenderResponse,
+            *,
+            display_axis_ranges=None,
+        ) -> None:
+            captured['response'] = response_arg
+            captured['display_axis_ranges'] = display_axis_ranges
+
+        viewer.apply_response = _capture_apply_response  # type: ignore[method-assign]
+
+        await viewer._refresh_full_png()
+
+        assert captured == {'response': response, 'display_axis_ranges': padded}
+
+    asyncio.run(_run())
 
 
 def test_roi_shape_relayout_updates_overlay_and_emits_preview() -> None:
