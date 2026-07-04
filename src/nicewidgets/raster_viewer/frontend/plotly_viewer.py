@@ -380,17 +380,9 @@ if (!plotDiv || !plotDiv.data) return;
         # (carrying the auto-ranged data extent) is suppressed by value, not by
         # a one-shot guard. ``_is_x_range_echo`` compares with float tolerance.
         display_axis_ranges = self._display_axis_ranges_from_bounds(self._current_bounds)
-        initial_display_axis_ranges = display_axis_ranges
-        applied_visual_padding = False
-        if self._plot is not None:
-            size_px = await self._read_plot_area_size_from_browser()
-            if size_px is not None:
-                initial_display_axis_ranges = _pad_axis_ranges_by_screen_px(
-                    display_axis_ranges,
-                    width_px=size_px[0],
-                    height_px=size_px[1],
-                )
-                applied_visual_padding = True
+        initial_display_axis_ranges, applied_visual_padding = (
+            await self._padded_display_axis_ranges_from_bounds(self._current_bounds)
+        )
         self._last_applied_x_range = initial_display_axis_ranges[0]
         self._last_display_axis_ranges = initial_display_axis_ranges
         self._last_applied_response = response
@@ -444,6 +436,7 @@ if (!plotDiv || !plotDiv.data) return;
         response: RenderResponse,
         *,
         display_axis_ranges: tuple[tuple[float, float], tuple[float, float]] | None = None,
+        apply_display_axis_ranges_to_browser: bool = False,
     ) -> None:
         """Apply a backend response to the browser-side Plotly plot.
 
@@ -453,6 +446,11 @@ if (!plotDiv || !plotDiv.data) return;
                 chosen by Plotly before a relayout-driven raster refresh. When
                 provided, preserve these axis ranges while swapping the raster
                 trace/pyramid data from ``response``.
+            apply_display_axis_ranges_to_browser: When True, push
+                ``display_axis_ranges`` to the browser in the same direct
+                Plotly update as the raster data. This is used for full-reset
+                flows where Plotly has not already applied the desired padded
+                viewport.
         """
         if self._plot is None:
             raise RuntimeError('Viewer must be built before applying responses.')
@@ -470,7 +468,11 @@ if (!plotDiv || !plotDiv.data) return;
         # client-owned x/y axis ranges are left untouched. Full figure rebuilds
         # remain the path for initial load, reset, ROI/layout changes, and
         # PNG<->heatmap trace-type switches.
-        if display_axis_ranges is not None and self._can_restyle_raster_trace(response, previous_trace_type):
+        if (
+            display_axis_ranges is not None
+            and not apply_display_axis_ranges_to_browser
+            and self._can_restyle_raster_trace(response, previous_trace_type)
+        ):
             self._current_bounds = response.bounds
             self._replace_local_raster_trace(next_plotly_dict)
             self._sync_hover_info_to_plotly_dict()
@@ -491,7 +493,10 @@ if (!plotDiv || !plotDiv.data) return;
             self._last_display_axis_ranges = display_axis_ranges
             self._last_applied_x_range = display_axis_ranges[0]
             self._last_applied_response = response
-            await self._react_plotly_data_preserving_browser_layout()
+            if apply_display_axis_ranges_to_browser:
+                await self._react_plotly_data_with_local_layout()
+            else:
+                await self._react_plotly_data_preserving_browser_layout()
             return
 
         self._current_bounds = response.bounds
@@ -598,6 +603,30 @@ Plotly.react(plotDiv, {json.dumps(data)}, plotDiv.layout, {json.dumps(config)});
             logger.warning('Could not apply Plotly.react raster update; browser client unavailable.')
         except Exception:
             logger.exception('Failed to apply Plotly.react raster update.')
+
+    async def _react_plotly_data_with_local_layout(self) -> None:
+        """Replace Plotly data and layout from the local figure dictionary."""
+        if self._plot is None:
+            return
+        data = self._plotly_dict.get('data', [])
+        layout = self._plotly_dict.get('layout', {})
+        if not isinstance(data, list) or not isinstance(layout, dict):
+            return
+        config = self._plotly_dict.get('config', {})
+        if not isinstance(config, dict):
+            config = dict(RASTER_VIEWER_PLOTLY_CONFIG)
+        js = f"""
+{self._js_plotly_graph_div()}
+Plotly.react(plotDiv, {json.dumps(data)}, {json.dumps(layout)}, {json.dumps(config)});
+"""
+        try:
+            await self._plot.client.run_javascript(js, timeout=10.0)
+        except TimeoutError:
+            logger.warning('Timed out while applying Plotly.react raster/layout update.')
+        except RuntimeError:
+            logger.warning('Could not apply Plotly.react raster/layout update; browser client unavailable.')
+        except Exception:
+            logger.exception('Failed to apply Plotly.react raster/layout update.')
 
     def set_rois(self, rois: Sequence[RectRoiOverlay]) -> None:
         """Replace all rectangular ROI overlays without pushing raster data.
@@ -1622,8 +1651,18 @@ Plotly.restyle(plotDiv, {{
             display_style=self._display_style(),
             max_pixels=self._overview_max_pixels,
         )
-        await self.apply_response(response)
-        await self._apply_visual_padding_to_full_extent()
+        display_axis_ranges, applied_visual_padding = (
+            await self._padded_display_axis_ranges_from_bounds(response.bounds)
+        )
+        if applied_visual_padding:
+            await self.apply_response(
+                response,
+                display_axis_ranges=display_axis_ranges,
+                apply_display_axis_ranges_to_browser=True,
+            )
+        else:
+            await self.apply_response(response)
+            await self._apply_visual_padding_to_full_extent()
         if self._on_x_range_changed is not None:
             self._on_x_range_changed(None, None)
 
@@ -2090,6 +2129,22 @@ return {{
             self._transform.row_col_to_plot_x_range(bounds),
             self._transform.row_col_to_plot_y_range(bounds),
         )
+
+    async def _padded_display_axis_ranges_from_bounds(
+        self,
+        bounds: RowColBounds,
+    ) -> tuple[tuple[tuple[float, float], tuple[float, float]], bool]:
+        """Return display ranges and whether visual padding was applied."""
+        display_axis_ranges = self._display_axis_ranges_from_bounds(bounds)
+        size_px = await self._read_plot_area_size_from_browser()
+        if size_px is None:
+            return display_axis_ranges, False
+        padded_axis_ranges = _pad_axis_ranges_by_screen_px(
+            display_axis_ranges,
+            width_px=size_px[0],
+            height_px=size_px[1],
+        )
+        return padded_axis_ranges, True
 
     async def _read_plot_area_size_from_browser(self) -> tuple[int, int] | None:
         """Read the live Plotly plot-area size in screen pixels."""

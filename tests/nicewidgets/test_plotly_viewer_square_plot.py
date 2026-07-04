@@ -330,6 +330,86 @@ def test_refresh_full_png_preserves_current_display_ranges() -> None:
     asyncio.run(_run())
 
 
+def test_doubleclick_reset_applies_padded_ranges_without_nicegui_update() -> None:
+    """Double-click full reset should update data and padded layout together."""
+
+    response = RenderResponse(
+        mode='image_png',
+        level=0,
+        bounds=RowColBounds(row_min=0.0, row_max=4.0, col_min=0.0, col_max=8.0),
+        shape=(4, 8),
+        grid=_GRID,
+        x0=0.0,
+        y0=0.0,
+        dx=1.0,
+        dy=1.0,
+        png_data_uri='data:image/png;base64,NEW',
+    )
+
+    class _FakeService:
+        def full_image_png(
+            self,
+            *,
+            display_style: RasterDisplayStyle,
+            max_pixels: int | None,
+        ) -> RenderResponse:
+            return response
+
+    class _FakeClient:
+        def __init__(self) -> None:
+            self.js_calls: list[str] = []
+
+        async def run_javascript(self, js: str, timeout: float) -> None:
+            self.js_calls.append(js)
+            assert timeout == 10.0
+
+    class _FakePlot:
+        def __init__(self) -> None:
+            self.id = 'plot-id'
+            self.figure: dict[str, object] = {}
+            self.updated = False
+            self.client = _FakeClient()
+
+        def update(self) -> None:
+            self.updated = True
+
+    async def _run() -> None:
+        x_range_events: list[tuple[float | None, float | None]] = []
+        viewer = PlotlyRasterViewer(on_x_range_changed=lambda *args: x_range_events.append(args))
+        fake_plot = _FakePlot()
+        viewer._plot = fake_plot
+        viewer._service = _FakeService()
+        viewer._transform = PlotlyCoordTransform(nrows=4, ncols=8, grid=_GRID)
+        viewer._plotly_dict = {
+            'data': [{'type': 'image', 'source': 'old', 'x0': 0.0, 'y0': 0.0, 'dx': 1.0, 'dy': 1.0}],
+            'layout': {'xaxis': {'range': [1.0, 2.0]}, 'yaxis': {'range': [3.0, 4.0]}},
+            'config': {},
+        }
+        viewer._read_plot_area_size_from_browser = lambda: asyncio.sleep(0, (400, 200))  # type: ignore[method-assign]
+        viewer._apply_visual_padding_to_full_extent = lambda: asyncio.sleep(  # type: ignore[method-assign]
+            0,
+            (_ for _ in ()).throw(AssertionError('post-reset padding relayout should not run')),
+        )
+
+        await viewer._on_plotly_doubleclick(object())
+
+        assert fake_plot.updated is False
+        assert len(fake_plot.client.js_calls) == 1
+        js = fake_plot.client.js_calls[0]
+        assert 'Plotly.react' in js
+        assert 'Plotly.relayout' not in js
+        assert '-0.16' in js
+        assert '4.16' in js
+        assert '-0.64' in js
+        assert '8.64' in js
+        assert viewer._last_display_axis_ranges is not None
+        assert viewer._last_display_axis_ranges[0] == pytest.approx((-0.16, 4.16))
+        assert viewer._last_display_axis_ranges[1] == pytest.approx((-0.64, 8.64))
+        assert x_range_events == [(None, None)]
+
+    asyncio.run(_run())
+
+
 def test_roi_shape_relayout_updates_overlay_and_emits_preview() -> None:
     """Shape relayout during edit mode should update the active ROI preview."""
     previews: list[tuple[int, float, float, float, float]] = []
