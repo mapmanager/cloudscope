@@ -31,7 +31,6 @@ class FakeViewer:
     selected_roi: list[int | None] = field(default_factory=list)
     clear_trace_calls: int = 0
     set_trace_calls: list[list[object]] = field(default_factory=list)
-    has_data: bool = False
 
     def set_rois(self, overlays):
         self.rois_calls.append(list(overlays))
@@ -354,42 +353,6 @@ def test_on_primary_selection_changed_refreshes_raster() -> None:
     view.on_primary_selection_changed()
 
     assert calls == ["r"]
-
-
-def test_on_primary_selection_changed_refreshes_overlays_for_roi_only_change() -> None:
-    """ROI-only selection should not reload raster pixels for the displayed plane."""
-    view = _view_with_fake_viewer()
-    view.current_selection = PrimarySelection(file_id="f", channel=0, roi_id=2)
-    view._displayed_file_id = "f"
-    view._displayed_channel = 0
-    view._current_grid = RasterGridSpec(dx=1.0, dy=1.0, x_unit="r", y_unit="c")
-    view._viewer.has_data = True
-    calls: list[str] = []
-    view._refresh_raster_from_current_selection = lambda: calls.append("raster")  # type: ignore[method-assign]
-    view._refresh_roi_overlays_from_current_selection = lambda: calls.append("roi")  # type: ignore[method-assign]
-    view._refresh_diameter_trace_overlays_from_current_selection = lambda: calls.append("trace")  # type: ignore[method-assign]
-
-    view.on_primary_selection_changed()
-
-    assert calls == ["roi", "trace"]
-
-
-def test_on_primary_selection_changed_reloads_when_channel_changes() -> None:
-    """Channel changes must still reload the raster plane."""
-    view = _view_with_fake_viewer()
-    view.current_selection = PrimarySelection(file_id="f", channel=1, roi_id=2)
-    view._displayed_file_id = "f"
-    view._displayed_channel = 0
-    view._current_grid = RasterGridSpec(dx=1.0, dy=1.0, x_unit="r", y_unit="c")
-    view._viewer.has_data = True
-    calls: list[str] = []
-    view._refresh_raster_from_current_selection = lambda: calls.append("raster")  # type: ignore[method-assign]
-    view._refresh_roi_overlays_from_current_selection = lambda: calls.append("roi")  # type: ignore[method-assign]
-    view._refresh_diameter_trace_overlays_from_current_selection = lambda: calls.append("trace")  # type: ignore[method-assign]
-
-    view.on_primary_selection_changed()
-
-    assert calls == ["raster"]
 
 
 def test_refresh_from_state_delegates_to_refresh() -> None:

@@ -12,6 +12,7 @@ import pytest
 if 'nicegui' not in sys.modules:
     fake_nicegui = types.ModuleType('nicegui')
     fake_nicegui.ui = types.SimpleNamespace()
+    fake_nicegui.run = types.SimpleNamespace()
     fake_nicegui.app = types.SimpleNamespace(native=types.SimpleNamespace(main_window=None))
     sys.modules['nicegui'] = fake_nicegui
 
@@ -190,14 +191,12 @@ def test_set_roi_editing_marks_only_active_shape_editable() -> None:
     editable_by_name = {shape['name']: shape['editable'] for shape in shapes}
     assert editable_by_name == {'roi:1': False, 'roi:2': True}
     assert viewer.figure['config']['edits']['shapePosition'] is True
-    assert viewer.figure['layout']['dragmode'] is False
 
     viewer.set_roi_editing(False, 2)
 
     idle_shapes = viewer.figure['layout']['shapes']
     assert {shape['name']: shape['editable'] for shape in idle_shapes} == {'roi:1': False, 'roi:2': False}
     assert viewer.figure['config']['edits']['shapePosition'] is False
-    assert viewer.figure['layout']['dragmode'] == 'zoom'
 
 
 def test_set_data_updates_plot_with_unpadded_full_extent() -> None:
@@ -237,8 +236,8 @@ def test_set_data_updates_plot_with_unpadded_full_extent() -> None:
     asyncio.run(_run())
 
 
-def test_refresh_full_png_preserves_current_display_ranges() -> None:
-    """Contrast PNG refreshes should preserve the current browser display ranges."""
+def test_refresh_full_png_applies_full_response() -> None:
+    """Contrast PNG refreshes should use the baseline full-response path."""
 
     response = RenderResponse(
         mode='image_png',
@@ -266,8 +265,6 @@ def test_refresh_full_png_preserves_current_display_ranges() -> None:
         viewer = PlotlyRasterViewer()
         viewer._plot = object()
         viewer._service = _FakeService()
-        current_ranges = ((1.0, 3.0), (2.0, 6.0))
-        viewer._last_display_axis_ranges = current_ranges
         captured: dict[str, object] = {}
 
         async def _capture_apply_response(
@@ -282,7 +279,7 @@ def test_refresh_full_png_preserves_current_display_ranges() -> None:
 
         await viewer._refresh_full_png()
 
-        assert captured == {'response': response, 'display_axis_ranges': current_ranges}
+        assert captured == {'response': response, 'display_axis_ranges': None}
 
     asyncio.run(_run())
 

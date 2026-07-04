@@ -86,6 +86,7 @@ OnRoiBoundsPreview = Callable[[int, float, float, float, float], None]
 _X_RANGE_ECHO_EPS = 1e-9
 _VIEWPORT_SETTLE_DEBOUNCE_SECONDS = 0.12
 
+
 def _relayout_has_axis_range(args: dict[str, object]) -> bool:
     """Return whether ``args`` carries any Plotly axis range keys."""
     return any(key.startswith('xaxis.range') or key.startswith('yaxis.range') for key in args)
@@ -333,8 +334,10 @@ if (!plotDiv || !plotDiv.data) return;
         # ``plotly_relayout`` Plotly fires after ``_uirevision`` rotation
         # (carrying the auto-ranged data extent) is suppressed by value, not by
         # a one-shot guard. ``_is_x_range_echo`` compares with float tolerance.
-        display_axis_ranges = self._display_axis_ranges_from_bounds(self._current_bounds)
-        self._last_applied_x_range = display_axis_ranges[0]
+        x_lo_data, x_hi_data = self._transform.row_col_to_plot_x_range(self._current_bounds)
+        y_lo_data, y_hi_data = self._transform.row_col_to_plot_y_range(self._current_bounds)
+        display_axis_ranges = ((x_lo_data, x_hi_data), (y_lo_data, y_hi_data))
+        self._last_applied_x_range = (x_lo_data, x_hi_data)
         self._last_display_axis_ranges = display_axis_ranges
         self._last_applied_response = response
         self._plotly_dict = build_plotly_figure(
@@ -408,10 +411,7 @@ if (!plotDiv || !plotDiv.data) return;
         # client-owned x/y axis ranges are left untouched. Full figure rebuilds
         # remain the path for initial load, reset, ROI/layout changes, and
         # PNG<->heatmap trace-type switches.
-        if (
-            display_axis_ranges is not None
-            and self._can_restyle_raster_trace(response, previous_trace_type)
-        ):
+        if display_axis_ranges is not None and self._can_restyle_raster_trace(response, previous_trace_type):
             self._current_bounds = response.bounds
             self._replace_local_raster_trace(next_plotly_dict)
             self._sync_hover_info_to_plotly_dict()
@@ -443,7 +443,9 @@ if (!plotDiv || !plotDiv.data) return;
 
         if display_axis_ranges is None:
             if self._transform is not None:
-                display_axis_ranges = self._display_axis_ranges_from_bounds(response.bounds)
+                x_range = self._transform.row_col_to_plot_x_range(response.bounds)
+                y_range = self._transform.row_col_to_plot_y_range(response.bounds)
+                display_axis_ranges = (x_range, y_range)
         else:
             (x_lo, x_hi), (y_lo, y_hi) = display_axis_ranges
             self._layout_pin_xy_ranges(x_lo=x_lo, x_hi=x_hi, y_lo=y_lo, y_hi=y_hi)
@@ -604,7 +606,6 @@ Plotly.react(plotDiv, {json.dumps(data)}, plotDiv.layout, {json.dumps(config)});
         """
         self._plotly_rois.set_roi_editing(roi_id if enabled else None)
         self._sync_plotly_config_to_plotly_dict()
-        self._sync_roi_edit_dragmode_to_plotly_dict()
         self._sync_roi_shapes_to_plotly_dict()
         self._react_plotly_config()
         self._relayout_shapes()
@@ -731,12 +732,11 @@ return overlayPromise.then(() => {{
             return
         layout = self._plotly_dict.setdefault('layout', {})
         shapes = layout.get('shapes', [])
-        relayout: dict[str, object] = {'shapes': shapes}
-        if isinstance(layout, dict) and 'dragmode' in layout:
-            relayout['dragmode'] = layout.get('dragmode')
         js = f"""
 {self._js_plotly_graph_div()}
-Plotly.relayout(plotDiv, {json.dumps(relayout)});
+Plotly.relayout(plotDiv, {{
+  shapes: {json.dumps(shapes)}
+}});
 """
         self._plot.client.run_javascript(js, timeout=2.0)
 
@@ -938,7 +938,6 @@ Plotly.restyle(plotDiv, {{
     def _apply_display_options_to_plotly_dict(self) -> None:
         """Synchronize all display options into the local Plotly dictionary."""
         self._sync_plotly_config_to_plotly_dict()
-        self._sync_roi_edit_dragmode_to_plotly_dict()
         self._sync_theme_to_plotly_dict()
         self._sync_axis_labels_to_plotly_dict()
         self._sync_margins_to_plotly_dict()
@@ -981,14 +980,6 @@ Plotly.restyle(plotDiv, {{
             'legendPosition': False,
         }
         self._plotly_dict['config'] = config
-
-    def _sync_roi_edit_dragmode_to_plotly_dict(self) -> None:
-        """Disable plot zoom drag while direct ROI shape editing is active."""
-        layout = self._plotly_dict.setdefault('layout', {})
-        if not isinstance(layout, dict):
-            layout = {}
-            self._plotly_dict['layout'] = layout
-        layout['dragmode'] = False if self._plotly_rois.editing_roi_id is not None else 'zoom'
 
     def _any_axis_labels_visible(self) -> bool:
         """Return whether any axis decorations are visible for margin layout."""
@@ -1568,6 +1559,12 @@ Plotly.restyle(plotDiv, {{
             max_pixels=self._overview_max_pixels,
         )
         await self.apply_response(response)
+        if self._transform is not None:
+            x_lo_data, x_hi_data = self._transform.row_col_to_plot_x_range(self._current_bounds)
+            y_lo_data, y_hi_data = self._transform.row_col_to_plot_y_range(self._current_bounds)
+            display_axis_ranges = ((x_lo_data, x_hi_data), (y_lo_data, y_hi_data))
+            self._last_applied_x_range = (x_lo_data, x_hi_data)
+            self._last_display_axis_ranges = display_axis_ranges
         if self._on_x_range_changed is not None:
             self._on_x_range_changed(None, None)
 
@@ -2023,18 +2020,6 @@ return {{
         self._apply_display_options_to_plotly_dict()
         return self._plotly_dict
 
-    def _display_axis_ranges_from_bounds(
-        self,
-        bounds: RowColBounds,
-    ) -> tuple[tuple[float, float], tuple[float, float]]:
-        """Return unpadded Plotly display ranges for row/column bounds."""
-        if self._transform is None:
-            raise RuntimeError('Coordinate transform missing; call set_data() first.')
-        return (
-            self._transform.row_col_to_plot_x_range(bounds),
-            self._transform.row_col_to_plot_y_range(bounds),
-        )
-
     def _display_style(self) -> RasterDisplayStyle:
         """Return backend PNG / heatmap styling derived from viewer state."""
         return RasterDisplayStyle(
@@ -2051,7 +2036,7 @@ return {{
             display_style=self._display_style(),
             max_pixels=self._overview_max_pixels,
         )
-        await self.apply_response(response, display_axis_ranges=self._last_display_axis_ranges)
+        await self.apply_response(response)
 
     def _heatmap_trace_active(self) -> bool:
         """Return ``True`` when the figure's first trace is a heatmap."""

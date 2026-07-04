@@ -252,8 +252,6 @@ class PrimaryImageView(BaseView):
         self._viewer_originated_x_range = False
         self._raster_display_cache = raster_display_cache
         self._idle_label: ui.label | None = None
-        self._displayed_file_id: str | None = None
-        self._displayed_channel: int | None = None
 
     def build(self, parent: ui.element | None = None) -> ui.element:
         """Create the card, title, and Plotly raster element.
@@ -455,22 +453,7 @@ class PrimaryImageView(BaseView):
         Returns:
             None.
         """
-        if self._selection_matches_displayed_raster():
-            self._refresh_roi_overlays_from_current_selection()
-            self._refresh_diameter_trace_overlays_from_current_selection()
-            return
         self._refresh_raster_from_current_selection()
-
-    def _selection_matches_displayed_raster(self) -> bool:
-        """Return whether the selected file/channel already backs the raster."""
-        selection = self.current_selection
-        return (
-            self._viewer.has_data
-            and self._current_grid is not None
-            and selection.file_id is not None
-            and selection.file_id == self._displayed_file_id
-            and selection.channel == self._displayed_channel
-        )
 
     def _set_idle_visible(self, visible: bool, message: str = _IDLE_MESSAGE) -> None:
         """Show or hide the idle-state label over the raster viewer.
@@ -501,8 +484,6 @@ class PrimaryImageView(BaseView):
         except RuntimeError as exc:
             logger.warning('Primary image clear_data failed: %s', exc)
         self._current_grid = None
-        self._displayed_file_id = None
-        self._displayed_channel = None
         self._run_ui(lambda: self._set_idle_visible(True, message))
 
     def refresh_from_state(self) -> None:
@@ -597,8 +578,6 @@ class PrimaryImageView(BaseView):
                 await self._viewer.set_data(plane, grid=grid)
             else:
                 await self._viewer.set_data_from_pyramid(plane, grid=grid, pyramid=pyramid)
-            self._displayed_file_id = file_id
-            self._displayed_channel = int(channel) if channel is not None else None
             self._refresh_roi_overlays(acq_image=acq_image, grid=grid)
             self._refresh_diameter_trace_overlays(acq_image=acq_image, grid=grid)
             if not is_placeholder and file_id is not None and channel is not None and acq_image is not None:
