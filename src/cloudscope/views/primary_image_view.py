@@ -725,14 +725,14 @@ class PrimaryImageView(BaseView):
         file_id = self.current_selection.file_id
         acq_image = self.get_selected_acq_image()
         channel = self.current_selection.channel
-        logger.debug(
-            'Primary raster Path B (Z/T scrub): file_id=%s channel=%s z=%s t=%s gen=%s',
-            file_id,
-            channel,
-            self._z,
-            self._t,
-            generation,
-        )
+        # logger.debug(
+        #     'Primary raster Path B (Z/T scrub): file_id=%s channel=%s z=%s t=%s gen=%s',
+        #     file_id,
+        #     channel,
+        #     self._z,
+        #     self._t,
+        #     generation,
+        # )
         _schedule_coro(
             self._refresh_raster_async(
                 file_id,
@@ -769,9 +769,9 @@ class PrimaryImageView(BaseView):
             None.
         """
         if self._suppress_slider_events:
-            logger.debug('Z slider change suppressed')
+            # logger.debug('Z slider change suppressed')
             return
-        logger.debug('Z slider changed: value=%s', event.value)
+        # logger.debug('Z slider changed: value=%s', event.value)
         self._z = int(event.value)
         self._refresh_raster_for_slice_change()
 
@@ -785,24 +785,24 @@ class PrimaryImageView(BaseView):
             return
         acq_image = self._acq_image_for_slice_sliders()
         if acq_image is None:
-            logger.debug(
-                'slice slider sync: no acq_image for file_id=%s',
-                self.current_selection.file_id,
-            )
+            # logger.debug(
+            #     'slice slider sync: no acq_image for file_id=%s',
+            #     self.current_selection.file_id,
+            # )
             self._run_ui(self._hide_slice_sliders)
             return
 
         header = acq_image.images.header
         t_spec = slice_slider_spec_for_header(header, 'T')
         z_spec = slice_slider_spec_for_header(header, 'Z')
-        logger.debug(
-            'slice slider sync: file_id=%s z_spec=%s t_spec=%s view_z=%s view_t=%s',
-            self.current_selection.file_id,
-            z_spec,
-            t_spec,
-            self._z,
-            self._t,
-        )
+        # logger.debug(
+        #     'slice slider sync: file_id=%s z_spec=%s t_spec=%s view_z=%s view_t=%s',
+        #     self.current_selection.file_id,
+        #     z_spec,
+        #     t_spec,
+        #     self._z,
+        #     self._t,
+        # )
 
         def _apply() -> None:
             assert self._t_slider is not None
@@ -885,28 +885,28 @@ class PrimaryImageView(BaseView):
                 return True
             return False
 
-        logger.debug(
-            'Primary raster refresh start: path=%s file_id=%s channel=%s z=%s t=%s gen=%s',
-            path_label,
-            file_id,
-            channel,
-            z,
-            t,
-            slice_generation,
-        )
+        # logger.debug(
+        #     'Primary raster refresh start: path=%s file_id=%s channel=%s z=%s t=%s gen=%s',
+        #     path_label,
+        #     file_id,
+        #     channel,
+        #     z,
+        #     t,
+        #     slice_generation,
+        # )
 
         if _refresh_context_stale():
-            logger.debug(
-                'Primary raster refresh dropped (stale before load): path=%s '
-                'file_id=%s channel=%s z=%s t=%s gen=%s current_gen=%s',
-                path_label,
-                file_id,
-                channel,
-                z,
-                t,
-                slice_generation,
-                self._slice_refresh_generation,
-            )
+            # logger.debug(
+            #     'Primary raster refresh dropped (stale before load): path=%s '
+            #     'file_id=%s channel=%s z=%s t=%s gen=%s current_gen=%s',
+            #     path_label,
+            #     file_id,
+            #     channel,
+            #     z,
+            #     t,
+            #     slice_generation,
+            #     self._slice_refresh_generation,
+            # )
             return
         try:
             payload = await run.io_bound(
@@ -935,17 +935,17 @@ class PrimaryImageView(BaseView):
             return
 
         if _refresh_context_stale():
-            logger.debug(
-                'Primary raster refresh dropped (stale after load): path=%s '
-                'file_id=%s channel=%s z=%s t=%s gen=%s current_gen=%s',
-                path_label,
-                file_id,
-                channel,
-                z,
-                t,
-                slice_generation,
-                self._slice_refresh_generation,
-            )
+            # logger.debug(
+            #     'Primary raster refresh dropped (stale after load): path=%s '
+            #     'file_id=%s channel=%s z=%s t=%s gen=%s current_gen=%s',
+            #     path_label,
+            #     file_id,
+            #     channel,
+            #     z,
+            #     t,
+            #     slice_generation,
+            #     self._slice_refresh_generation,
+            # )
             return
 
         plane, grid, pyramid, is_placeholder = payload
@@ -957,17 +957,17 @@ class PrimaryImageView(BaseView):
             self._current_grid = grid
             self._run_ui(lambda: self._set_idle_visible(False))
             if _refresh_context_stale():
-                logger.debug(
-                    'Primary raster refresh dropped (stale before viewer): path=%s '
-                    'file_id=%s channel=%s z=%s t=%s gen=%s current_gen=%s',
-                    path_label,
-                    file_id,
-                    channel,
-                    z,
-                    t,
-                    slice_generation,
-                    self._slice_refresh_generation,
-                )
+                # logger.debug(
+                #     'Primary raster refresh dropped (stale before viewer): path=%s '
+                #     'file_id=%s channel=%s z=%s t=%s gen=%s current_gen=%s',
+                #     path_label,
+                #     file_id,
+                #     channel,
+                #     z,
+                #     t,
+                #     slice_generation,
+                #     self._slice_refresh_generation,
+                # )
                 return
             if pyramid is None:
                 await self._viewer.set_data(plane, grid=grid)
@@ -979,13 +979,13 @@ class PrimaryImageView(BaseView):
                     pyramid=pyramid,
                     display_axis_ranges=preserved_viewport,
                 )
-                logger.debug(
-                    'Primary raster Path B pushed to viewer: mode=%s level=%s z=%s t=%s',
-                    response.mode,
-                    response.level,
-                    z,
-                    t,
-                )
+                # logger.debug(
+                #     'Primary raster Path B pushed to viewer: mode=%s level=%s z=%s t=%s',
+                #     response.mode,
+                #     response.level,
+                #     z,
+                #     t,
+                # )
             else:
                 await self._viewer.set_data_from_pyramid(
                     plane, grid=grid, pyramid=pyramid

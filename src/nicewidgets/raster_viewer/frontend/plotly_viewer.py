@@ -376,13 +376,13 @@ if (!plotDiv || !plotDiv.data) return;
         if self._plot is not None:
             self._plot.figure = self._plotly_dict
             self._plot.update()
-        logger.debug(
-            'set_data_from_pyramid: mode=%s level=%s bounds=%s trace=%s',
-            response.mode,
-            response.level,
-            response.bounds,
-            self._raster_trace_type(),
-        )
+        # logger.debug(
+        #     'set_data_from_pyramid: mode=%s level=%s bounds=%s trace=%s',
+        #     response.mode,
+        #     response.level,
+        #     response.bounds,
+        #     self._raster_trace_type(),
+        # )
         return response
 
     async def swap_slice_plane(
@@ -439,11 +439,11 @@ if (!plotDiv || !plotDiv.data) return;
             )
             self._current_bounds = response.bounds
             await self.apply_response(response)
-            logger.debug(
-                'swap_slice_plane: no cached viewport mode=%s level=%s',
-                response.mode,
-                response.level,
-            )
+            # logger.debug(
+            #     'swap_slice_plane: no cached viewport mode=%s level=%s',
+            #     response.mode,
+            #     response.level,
+            # )
             return response
 
         clamped = self._clamp_display_axis_ranges(display_axis_ranges)
@@ -463,11 +463,11 @@ if (!plotDiv || !plotDiv.data) return;
             self._last_display_axis_ranges = clamped
             self._last_applied_response = response
             await self.apply_response(response, display_axis_ranges=clamped)
-            logger.debug(
-                'swap_slice_plane: full extent mode=%s level=%s',
-                response.mode,
-                response.level,
-            )
+            # logger.debug(
+            #     'swap_slice_plane: full extent mode=%s level=%s',
+            #     response.mode,
+            #     response.level,
+            # )
             return response
 
         self._current_bounds = self._transform.plot_xy_ranges_to_row_col(
@@ -483,12 +483,12 @@ if (!plotDiv || !plotDiv.data) return;
         self._last_display_axis_ranges = clamped
         self._last_applied_response = response
         await self.apply_response(response, display_axis_ranges=clamped)
-        logger.debug(
-            'swap_slice_plane: preserve viewport mode=%s level=%s bounds=%s',
-            response.mode,
-            response.level,
-            response.bounds,
-        )
+        # logger.debug(
+        #     'swap_slice_plane: preserve viewport mode=%s level=%s bounds=%s',
+        #     response.mode,
+        #     response.level,
+        #     response.bounds,
+        # )
         return response
 
     async def clear_data(self) -> None:
@@ -536,13 +536,13 @@ if (!plotDiv || !plotDiv.data) return;
             raise RuntimeError('Viewer must be built before applying responses.')
 
         previous_trace_type = self._raster_trace_type()
-        logger.debug(
-            'apply_response: mode=%s level=%s prev_trace=%s preserve_viewport=%s',
-            response.mode,
-            response.level,
-            previous_trace_type,
-            display_axis_ranges is not None,
-        )
+        # logger.debug(
+        #     'apply_response: mode=%s level=%s prev_trace=%s preserve_viewport=%s',
+        #     response.mode,
+        #     response.level,
+        #     previous_trace_type,
+        #     display_axis_ranges is not None,
+        # )
         next_plotly_dict = build_plotly_figure(
             response=response,
             uirevision=self._uirevision,
@@ -556,7 +556,7 @@ if (!plotDiv || !plotDiv.data) return;
         # remain the path for initial load, reset, ROI/layout changes, and
         # PNG<->heatmap trace-type switches.
         if display_axis_ranges is not None and self._can_restyle_raster_trace(response, previous_trace_type):
-            logger.debug('apply_response: restyle trace 0 (preserve browser axes)')
+            # logger.debug('apply_response: restyle trace 0 (preserve browser axes)')
             self._current_bounds = response.bounds
             self._replace_local_raster_trace(next_plotly_dict)
             self._sync_hover_info_to_plotly_dict()
@@ -569,7 +569,7 @@ if (!plotDiv || !plotDiv.data) return;
             return
 
         if display_axis_ranges is not None:
-            logger.debug('apply_response: react data preserving browser layout')
+            # logger.debug('apply_response: react data preserving browser layout')
             self._current_bounds = response.bounds
             self._replace_local_raster_trace(next_plotly_dict)
             self._sync_hover_info_to_plotly_dict()
@@ -603,7 +603,7 @@ if (!plotDiv || !plotDiv.data) return;
 
         self._plot.figure = self._plotly_dict
         self._plot.update()
-        logger.debug('apply_response: full figure rebuild trace=%s', self._raster_trace_type())
+        # logger.debug('apply_response: full figure rebuild trace=%s', self._raster_trace_type())
 
     def _raster_trace_type(self) -> str | None:
         """Return the current raster trace type for trace 0, if present."""
@@ -1696,7 +1696,7 @@ Plotly.restyle(plotDiv, {{
         self._contrast_zmax = z_hi
 
         if self._heatmap_trace_active():
-            logger.debug('set_heatmap_style: restyle heatmap (zmin=%s zmax=%s)', z_lo, z_hi)
+            # logger.debug('set_heatmap_style: restyle heatmap (zmin=%s zmax=%s)', z_lo, z_hi)
             data = self._plotly_dict.get('data', [])
             skip_restyle = False
             if isinstance(data, list) and data and isinstance(data[0], dict):
@@ -1722,12 +1722,12 @@ Plotly.restyle(plotDiv, {{
 """
                 self._plot.client.run_javascript(js, timeout=2.0)
         elif self._image_trace_active():
-            logger.debug(
-                'set_heatmap_style: re-encode overview PNG (zmin=%s zmax=%s preserve=%s)',
-                z_lo,
-                z_hi,
-                preserve_viewport,
-            )
+            # logger.debug(
+            #     'set_heatmap_style: re-encode overview PNG (zmin=%s zmax=%s preserve=%s)',
+            #     z_lo,
+            #     z_hi,
+            #     preserve_viewport,
+            # )
             viewport = self.get_viewport() if preserve_viewport else None
             await self._refresh_full_png(display_axis_ranges=viewport)
         else:
@@ -1746,7 +1746,7 @@ Plotly.restyle(plotDiv, {{
             display_style=self._display_style(),
             max_pixels=self._overview_max_pixels,
         )
-        logger.debug('doubleclick reset: overview PNG level=%s', response.level)
+        # logger.debug('doubleclick reset: overview PNG level=%s', response.level)
         await self.apply_response(response)
         if self._transform is not None:
             x_lo_data, x_hi_data = self._transform.row_col_to_plot_x_range(self._current_bounds)
@@ -1776,13 +1776,13 @@ Plotly.restyle(plotDiv, {{
         if not _relayout_has_axis_range(args):
             return
         if self._is_display_viewport_echo(args):
-            logger.debug('plotly_relayout: ignored display viewport echo keys=%s', list(args.keys()))
+            # logger.debug('plotly_relayout: ignored display viewport echo keys=%s', list(args.keys()))
             return
         if _is_normalized_only_relayout(args) or _relayout_has_bracket_axis_range(args):
-            logger.debug('plotly_relayout: schedule viewport settle keys=%s', list(args.keys()))
+            # logger.debug('plotly_relayout: schedule viewport settle keys=%s', list(args.keys()))
             self._schedule_viewport_settle()
             return
-        logger.debug('plotly_relayout: ignored axis relayout keys=%s', list(args.keys()))
+        # logger.debug('plotly_relayout: ignored axis relayout keys=%s', list(args.keys()))
 
     def _is_display_viewport_echo(self, args: dict[str, object]) -> bool:
         """Return whether ``args`` repeats the last programmatic display viewport.
@@ -1818,7 +1818,7 @@ Plotly.restyle(plotDiv, {{
 
                 settled = await self._read_live_viewport_from_browser()
                 if settled is None:
-                    logger.debug('viewport settle: live browser viewport unavailable')
+                    # logger.debug('viewport settle: live browser viewport unavailable')
                     return
 
                 payload, display_axis_ranges = settled
@@ -1854,13 +1854,13 @@ Plotly.restyle(plotDiv, {{
             return
         request = self.request_from_plotly(payload)
         response = self._service.render(request, display_style=self._display_style())
-        logger.debug(
-            'viewport raster refresh: bounds=%s mode=%s level=%s adequate=%s',
-            request.bounds,
-            response.mode,
-            response.level,
-            self._response_is_adequate(response, visible_bounds=request.bounds),
-        )
+        # logger.debug(
+        #     'viewport raster refresh: bounds=%s mode=%s level=%s adequate=%s',
+        #     request.bounds,
+        #     response.mode,
+        #     response.level,
+        #     self._response_is_adequate(response, visible_bounds=request.bounds),
+        # )
         if self._response_is_adequate(response, visible_bounds=request.bounds):
             return
         await self.apply_response(response, display_axis_ranges=display_axis_ranges)
@@ -2254,12 +2254,12 @@ return {{
             display_style=self._display_style(),
             max_pixels=self._overview_max_pixels,
         )
-        logger.debug(
-            '_refresh_full_png: level=%s mode=%s preserve_viewport=%s',
-            response.level,
-            response.mode,
-            display_axis_ranges is not None,
-        )
+        # logger.debug(
+        #     '_refresh_full_png: level=%s mode=%s preserve_viewport=%s',
+        #     response.level,
+        #     response.mode,
+        #     display_axis_ranges is not None,
+        # )
         await self.apply_response(response, display_axis_ranges=display_axis_ranges)
 
     def _heatmap_trace_active(self) -> bool:
