@@ -10,7 +10,11 @@ from nicegui import ui
 from acqstore.acq_image.acq_image import AcqImage
 from acqstore.acq_image.image_contrast import contrast_clip_min_max
 from cloudscope.app_config import AppConfig
-from cloudscope.contrast_seeding import contrast_auto_percentiles, ensure_channel_contrast_from_plane
+from cloudscope.contrast_seeding import (
+    contrast_auto_percentiles,
+    default_channel_color_lut,
+    ephemeral_auto_contrast_from_plane,
+)
 from cloudscope.event_bus import EventBus
 from cloudscope.events.contrast import ImageContrastChanged, UpdateImageContrastIntent
 from cloudscope.events.raster import PrimaryPlaneLoaded
@@ -208,6 +212,7 @@ class ImageToolbarView(BaseView):
                 color_lut=intent.color_lut,
                 value_min=intent.value_min,
                 value_max=intent.value_max,
+                from_auto=intent.from_auto,
             )
         )
 
@@ -226,20 +231,17 @@ class ImageToolbarView(BaseView):
         selection = self.current_selection
         if event.file_id != selection.file_id or selection.channel != int(event.channel):
             return
-        acq_image = self.current_acq_image
-        if acq_image is None or self._contrast is None:
+        if self._contrast is None:
             return
-        contrast = ensure_channel_contrast_from_plane(
-            acq_image,
-            int(event.channel),
-            event.plane,
-            self._app_config,
-        )
         self._contrast.set_image_ext(event.plane)
-        self._contrast.set_lut_ext(contrast.color_lut)
-        self._contrast.set_range_ext(
-            value_min=contrast.value_min, value_max=contrast.value_max
-        )
+        if event.use_auto_contrast:
+            value_min, value_max = ephemeral_auto_contrast_from_plane(
+                event.plane,
+                self._app_config,
+            )
+            color_lut = default_channel_color_lut(self._app_config, int(event.channel))
+            self._contrast.set_lut_ext(color_lut)
+            self._contrast.set_range_ext(value_min=value_min, value_max=value_max)
         self._contrast.set_enabled_ext(True)
 
     def _on_image_contrast_changed(self, event: ImageContrastChanged) -> None:

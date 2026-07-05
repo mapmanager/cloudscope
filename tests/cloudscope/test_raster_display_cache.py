@@ -31,9 +31,32 @@ def test_resolve_raster_display_cache_max_entries_clamps_to_one(
     assert resolve_raster_display_cache_max_entries() == 1
 
 
+def test_cache_keys_differ_for_distinct_z_and_t() -> None:
+    cache = RasterDisplayCache(max_entries=4)
+    key_z0 = RasterDisplayCacheKey('file-a', 0, 0, 0, RasterDisplayPlaneKind.PRIMARY)
+    key_z1 = RasterDisplayCacheKey('file-a', 0, 1, 0, RasterDisplayPlaneKind.PRIMARY)
+    key_t1 = RasterDisplayCacheKey('file-a', 0, 0, 1, RasterDisplayPlaneKind.PRIMARY)
+
+    entry_z0 = cache.get_or_build(
+        key_z0,
+        plane_loader=lambda: np.full((2, 2), 1.0, dtype=np.float32),
+    )
+    entry_z1 = cache.get_or_build(
+        key_z1,
+        plane_loader=lambda: np.full((2, 2), 2.0, dtype=np.float32),
+    )
+    entry_t1 = cache.get_or_build(
+        key_t1,
+        plane_loader=lambda: np.full((2, 2), 3.0, dtype=np.float32),
+    )
+
+    assert entry_z0.pyramid is not entry_z1.pyramid
+    assert entry_z0.pyramid is not entry_t1.pyramid
+
+
 def test_get_or_build_reuses_pyramid_on_hit() -> None:
     cache = RasterDisplayCache(max_entries=2)
-    key = RasterDisplayCacheKey('file-a', 0, RasterDisplayPlaneKind.PRIMARY)
+    key = RasterDisplayCacheKey('file-a', 0, 0, 0, RasterDisplayPlaneKind.PRIMARY)
     loads = {'count': 0}
 
     def loader() -> np.ndarray:
@@ -51,9 +74,9 @@ def test_get_or_build_reuses_pyramid_on_hit() -> None:
 def test_lru_evicts_oldest_entry() -> None:
     cache = RasterDisplayCache(max_entries=2)
     keys = [
-        RasterDisplayCacheKey('a', 0, RasterDisplayPlaneKind.PRIMARY),
-        RasterDisplayCacheKey('b', 0, RasterDisplayPlaneKind.PRIMARY),
-        RasterDisplayCacheKey('c', 0, RasterDisplayPlaneKind.PRIMARY),
+        RasterDisplayCacheKey('a', 0, 0, 0, RasterDisplayPlaneKind.PRIMARY),
+        RasterDisplayCacheKey('b', 0, 0, 0, RasterDisplayPlaneKind.PRIMARY),
+        RasterDisplayCacheKey('c', 0, 0, 0, RasterDisplayPlaneKind.PRIMARY),
     ]
     loads = {'count': 0}
 
@@ -73,8 +96,8 @@ def test_lru_evicts_oldest_entry() -> None:
 
 def test_primary_and_reference_planes_are_distinct() -> None:
     cache = RasterDisplayCache(max_entries=2)
-    primary_key = RasterDisplayCacheKey('file-a', 1, RasterDisplayPlaneKind.PRIMARY)
-    reference_key = RasterDisplayCacheKey('file-a', 1, RasterDisplayPlaneKind.REFERENCE)
+    primary_key = RasterDisplayCacheKey('file-a', 1, 0, 0, RasterDisplayPlaneKind.PRIMARY)
+    reference_key = RasterDisplayCacheKey('file-a', 1, 0, 0, RasterDisplayPlaneKind.REFERENCE)
 
     primary = cache.get_or_build(
         primary_key,
@@ -93,11 +116,11 @@ def test_primary_and_reference_planes_are_distinct() -> None:
 def test_invalidate_file_removes_matching_entries() -> None:
     cache = RasterDisplayCache(max_entries=3)
     cache.get_or_build(
-        RasterDisplayCacheKey('a', 0, RasterDisplayPlaneKind.PRIMARY),
+        RasterDisplayCacheKey('a', 0, 0, 0, RasterDisplayPlaneKind.PRIMARY),
         plane_loader=lambda: np.ones((2, 2), dtype=np.float32),
     )
     cache.get_or_build(
-        RasterDisplayCacheKey('b', 0, RasterDisplayPlaneKind.PRIMARY),
+        RasterDisplayCacheKey('b', 0, 0, 0, RasterDisplayPlaneKind.PRIMARY),
         plane_loader=lambda: np.ones((2, 2), dtype=np.float32),
     )
 
@@ -115,8 +138,10 @@ def test_load_primary_display_payload_uses_cache() -> None:
             self._plane = plane
             self.header = header
 
-        def get_slice_data_loaded(self, channel: int) -> np.ndarray:
+        def get_slice_data_loaded(self, channel: int, *, z: int = 0, t: int = 0) -> np.ndarray:
             assert channel == 0
+            assert z == 0
+            assert t == 0
             return self._plane
 
     class _Header:
@@ -136,8 +161,12 @@ def test_load_primary_display_payload_uses_cache() -> None:
     plane = np.arange(6, dtype=np.float32).reshape(2, 3)
     acq_image = _AcqImage(plane)
 
-    _, _, pyramid_1, is_placeholder_1 = _load_primary_display_payload('f1', acq_image, 0, cache)
-    _, _, pyramid_2, is_placeholder_2 = _load_primary_display_payload('f1', acq_image, 0, cache)
+    _, _, pyramid_1, is_placeholder_1 = _load_primary_display_payload(
+        'f1', acq_image, 0, cache, z=0, t=0
+    )
+    _, _, pyramid_2, is_placeholder_2 = _load_primary_display_payload(
+        'f1', acq_image, 0, cache, z=0, t=0
+    )
 
     assert is_placeholder_1 is False
     assert is_placeholder_2 is False

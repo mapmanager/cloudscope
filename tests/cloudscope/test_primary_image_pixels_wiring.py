@@ -16,7 +16,7 @@ class _Images:
         self.slice_calls = 0
         self.implicit_load_calls = 0
 
-    def get_slice_data_loaded(self, channel: int) -> np.ndarray:
+    def get_slice_data_loaded(self, channel: int, *, z: int = 0, t: int = 0) -> np.ndarray:
         self.slice_calls += 1
         assert channel == 0
         return self._plane
@@ -64,9 +64,12 @@ def test_load_primary_display_payload_returns_none_without_selection() -> None:
 def test_on_primary_selection_changed_triggers_refresh() -> None:
     bus = EventBus()
     view = PrimaryImageView(bus)
-    calls: list[str] = []
-    view._refresh_raster_from_current_selection = lambda: calls.append('refresh')  # type: ignore[method-assign]
+    calls: list[bool] = []
+    view._sync_slice_sliders_from_header = lambda: None  # type: ignore[method-assign]
+    view._refresh_raster_from_current_selection = lambda **kwargs: calls.append(  # type: ignore[method-assign]
+        kwargs.get('include_overlays', True)
+    )
 
     view.on_primary_selection_changed()
 
-    assert calls == ['refresh']
+    assert calls == [True]

@@ -18,8 +18,11 @@ class ContrastChangedIntent:
             :data:`nicewidgets.contrast_widget.colorscales.COLORSCALE_OPTIONS`.
         value_min: Current minimum intensity in the displayed range.
         value_max: Current maximum intensity in the displayed range.
+        from_auto: ``True`` when emitted by the Auto button; ``False`` for
+            manual LUT or range slider edits.
     """
 
     color_lut: str
     value_min: int
     value_max: int
+    from_auto: bool = False

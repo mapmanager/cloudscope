@@ -9,7 +9,9 @@ from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader
 
 from cloudscope.views.primary_image_view import (
     _load_plane_payload,
+    _load_primary_display_payload,
     raster_grid_spec_from_image_header,
+    slice_slider_spec_for_header,
 )
 
 
@@ -74,6 +76,124 @@ def test_raster_grid_spec_raises_on_nan_calibration() -> None:
 
 def test_load_plane_payload_returns_none_without_acq() -> None:
     assert _load_plane_payload('/x', None, 0) is None
+
+
+def test_slice_slider_spec_for_header() -> None:
+    h = _minimal_header(
+        dims=('C', 'T', 'Y', 'X'),
+        shape=(2, 139, 10, 20),
+        sizes={'C': 2, 'T': 139, 'Y': 10, 'X': 20},
+        physical_units=(1.0, 1.0, 1.0, 1.0),
+    )
+    assert slice_slider_spec_for_header(h, 'T') == (0, 138)
+    assert slice_slider_spec_for_header(h, 'Z') is None
+
+    z_only = _minimal_header(
+        dims=('Z', 'Y', 'X'),
+        shape=(151, 512, 512),
+        sizes={'Z': 151, 'Y': 512, 'X': 512},
+        physical_units=(1.0, 1.0, 1.0),
+    )
+    assert slice_slider_spec_for_header(z_only, 'Z') == (0, 150)
+    assert slice_slider_spec_for_header(z_only, 'T') is None
+
+
+def test_load_plane_payload_passes_z_and_t_to_loader() -> None:
+    calls: list[tuple[int, int, int]] = []
+
+    class _Images:
+        header = _minimal_header(
+            dims=('T', 'Y', 'X'),
+            shape=(3, 4, 5),
+            sizes={'T': 3, 'Y': 4, 'X': 5},
+            physical_units=(1.0, 1.0, 1.0),
+        )
+
+        def get_slice_data_loaded(self, channel: int, *, z: int = 0, t: int = 0) -> np.ndarray:
+            calls.append((channel, z, t))
+            return np.zeros((4, 5), dtype=np.uint8)
+
+    class _Acq:
+        images = _Images()
+
+    result = _load_plane_payload('f', _Acq(), 0, z=2, t=1)
+    assert result is not None
+    assert calls == [(0, 2, 1)]
+
+
+def test_load_primary_display_payload_cache_keys_differ_by_z_and_t() -> None:
+    from cloudscope.raster_display_cache import RasterDisplayCache
+
+    loads: list[tuple[int, int]] = []
+
+    class _Images:
+        header = _minimal_header(
+            dims=('Z', 'Y', 'X'),
+            shape=(2, 3, 4),
+            sizes={'Z': 2, 'Y': 3, 'X': 4},
+            physical_units=(1.0, 1.0, 1.0),
+        )
+
+        def get_slice_data_loaded(self, channel: int, *, z: int = 0, t: int = 0) -> np.ndarray:
+            loads.append((z, t))
+            return np.full((3, 4), float(z), dtype=np.float32)
+
+    class _Acq:
+        images = _Images()
+
+    cache = RasterDisplayCache(max_entries=4)
+    acq = _Acq()
+    p0, _, pyramid_0, _ = _load_primary_display_payload('f', acq, 0, cache, z=0, t=0)
+    p1, _, pyramid_1, _ = _load_primary_display_payload('f', acq, 0, cache, z=1, t=0)
+    assert loads == [(0, 0), (1, 0)]
+    assert pyramid_0 is not pyramid_1
+    assert float(p0[0, 0]) == 0.0
+    assert float(p1[0, 0]) == 1.0
+
+
+def test_on_primary_selection_changed_resets_z_t_on_file_change() -> None:
+    view = PrimaryImageView(EventBus())
+    view._z = 5
+    view._t = 7
+    view._last_file_id = 'a'
+    view._last_channel = 0
+    view.current_selection = PrimarySelection(file_id='b', channel=0)
+    view._sync_slice_sliders_from_header = lambda: None  # type: ignore[method-assign]
+    calls: list[bool] = []
+    view._refresh_raster_from_current_selection = lambda **kwargs: calls.append(  # type: ignore[method-assign]
+        kwargs.get('include_overlays', True)
+    )
+    view.on_primary_selection_changed()
+    assert view._z == 0
+    assert view._t == 0
+    assert view._contrast_auto_per_slice is True
+    assert calls == [True]
+
+
+def test_on_primary_selection_changed_preserves_z_t_on_channel_change() -> None:
+    view = PrimaryImageView(EventBus())
+    view._z = 5
+    view._t = 7
+    view._last_file_id = 'a'
+    view._last_channel = 0
+    view._contrast_auto_per_slice = False
+    view.current_selection = PrimarySelection(file_id='a', channel=1)
+    view._sync_slice_sliders_from_header = lambda: None  # type: ignore[method-assign]
+    view._refresh_raster_from_current_selection = lambda **kwargs: None  # type: ignore[method-assign]
+    view.on_primary_selection_changed()
+    assert view._z == 5
+    assert view._t == 7
+    assert view._contrast_auto_per_slice is True
+
+
+def test_slice_refresh_skips_overlay_refresh() -> None:
+    view = PrimaryImageView(EventBus())
+    calls: list[bool] = []
+    view._refresh_raster_from_current_selection = lambda **kwargs: calls.append(  # type: ignore[method-assign]
+        kwargs.get('include_overlays', True)
+    )
+    view._refresh_raster_for_slice_change()
+    assert calls == [False]
 
 
 import asyncio
@@ -273,7 +393,14 @@ def test_publishes_primary_plane_loaded_after_set_data() -> None:
         view._refresh_roi_overlays = lambda **_k: None  # type: ignore[assignment]
         view._refresh_diameter_trace_overlays = lambda **_k: None  # type: ignore[assignment]
         try:
-            await view._refresh_raster_async('f', _Acq(), 0)
+            await view._refresh_raster_async(
+                'f',
+                _Acq(),
+                0,
+                z=0,
+                t=0,
+                include_overlays=True,
+            )
         finally:
             pim._load_primary_display_payload = original
 
@@ -281,6 +408,9 @@ def test_publishes_primary_plane_loaded_after_set_data() -> None:
     assert len(seen) == 1
     assert seen[0].file_id == 'f'
     assert seen[0].channel == 0
+    assert seen[0].z == 0
+    assert seen[0].t == 0
+    assert seen[0].use_auto_contrast is True
     assert seen[0].plane.flags.writeable is False
 
 
@@ -307,7 +437,14 @@ def test_does_not_publish_primary_plane_loaded_when_selection_cleared() -> None:
     view._refresh_diameter_trace_overlays = lambda **_k: None  # type: ignore[assignment]
 
     async def _run() -> None:
-        await view._refresh_raster_async(None, None, None)
+        await view._refresh_raster_async(
+            None,
+            None,
+            None,
+            z=0,
+            t=0,
+            include_overlays=True,
+        )
 
     asyncio.run(_run())
     assert seen == []

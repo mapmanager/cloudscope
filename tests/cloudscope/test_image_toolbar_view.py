@@ -188,11 +188,16 @@ def test_contrast_widget_intent_publishes_update_image_contrast_intent() -> None
     seen: list[UpdateImageContrastIntent] = []
     bus.subscribe(UpdateImageContrastIntent, seen.append)
     view._on_contrast_intent(
-        ContrastChangedIntent(color_lut='Plasma', value_min=5, value_max=240)
+        ContrastChangedIntent(color_lut='Plasma', value_min=5, value_max=240, from_auto=False)
     )
     assert seen == [
         UpdateImageContrastIntent(
-            file_id='f', channel=0, color_lut='Plasma', value_min=5, value_max=240
+            file_id='f',
+            channel=0,
+            color_lut='Plasma',
+            value_min=5,
+            value_max=240,
+            from_auto=False,
         )
     ]
 
@@ -230,24 +235,51 @@ class _AcqStub:
         return self._contrast
 
 
-def test_on_plane_loaded_seeds_widget_and_calls_ensure_once() -> None:
+def test_on_plane_loaded_seeds_widget_with_ephemeral_auto_contrast() -> None:
     bus = EventBus()
     view = ImageToolbarView(event_bus=bus)
     view.current_selection = PrimarySelection(file_id='f', channel=0)
-    acq = _AcqStub()
-    view.current_acq_image = acq  # type: ignore[assignment]
     spy = _ContrastSpy()
     view._contrast = spy  # type: ignore[assignment]
     plane = np.array([[0, 100, 200, 255]], dtype=np.uint8)
 
-    view._on_plane_loaded(PrimaryPlaneLoaded(file_id='f', channel=0, plane=plane))
+    view._on_plane_loaded(
+        PrimaryPlaneLoaded(
+            file_id='f',
+            channel=0,
+            z=0,
+            t=0,
+            plane=plane,
+            use_auto_contrast=True,
+        )
+    )
 
-    assert len(acq.ensure_calls) == 1
-    assert acq.ensure_calls[0]['channel'] == 0
-    assert acq.ensure_calls[0]['plane_shape'] == plane.shape
     names = [c[0] for c in spy.calls]
     assert names == ['set_image_ext', 'set_lut_ext', 'set_range_ext', 'set_enabled_ext']
     assert spy.calls[3] == ('set_enabled_ext', (True,), {})
+
+
+def test_on_plane_loaded_sticky_contrast_updates_image_bounds_only() -> None:
+    bus = EventBus()
+    view = ImageToolbarView(event_bus=bus)
+    view.current_selection = PrimarySelection(file_id='f', channel=0)
+    spy = _ContrastSpy()
+    view._contrast = spy  # type: ignore[assignment]
+    plane = np.array([[0, 100, 200, 255]], dtype=np.uint8)
+
+    view._on_plane_loaded(
+        PrimaryPlaneLoaded(
+            file_id='f',
+            channel=0,
+            z=2,
+            t=0,
+            plane=plane,
+            use_auto_contrast=False,
+        )
+    )
+
+    names = [c[0] for c in spy.calls]
+    assert names == ['set_image_ext', 'set_enabled_ext']
 
 
 def test_on_plane_loaded_ignored_for_non_matching_selection() -> None:
@@ -260,7 +292,13 @@ def test_on_plane_loaded_ignored_for_non_matching_selection() -> None:
     view._contrast = spy  # type: ignore[assignment]
 
     view._on_plane_loaded(
-        PrimaryPlaneLoaded(file_id='other', channel=0, plane=np.zeros((2, 2)))
+        PrimaryPlaneLoaded(
+            file_id='other',
+            channel=0,
+            z=0,
+            t=0,
+            plane=np.zeros((2, 2)),
+        )
     )
     assert acq.ensure_calls == []
     assert spy.calls == []

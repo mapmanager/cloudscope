@@ -7,8 +7,9 @@ before :class:`FileSelectionChanged` is published. This view refreshes from
 :meth:`BaseFileLoader.get_slice_data_loaded` (no implicit disk I/O).
 
 ``z`` / ``t`` are **not** raster-viewer concepts. They belong to
-:meth:`BaseFileLoader.get_slice_data_loaded`, which defaults to ``z=0`` and ``t=0``
-when omitted; CloudScope relies on those defaults for v1.
+:meth:`BaseFileLoader.get_slice_data_loaded`. :class:`PrimaryImageView` owns
+view-local ``z`` and ``t`` indices (default ``0``) and optional T/Z sliders
+when the loaded header exposes multi-element ``T`` or ``Z`` axes.
 
 Pixel arrays are passed through from AcqStore without forced dtype conversion;
 the raster pipeline casts where needed (e.g. PNG encoding uses ``float32``
@@ -30,10 +31,13 @@ from acqstore.acq_image.roi import RectROI, RectRoiBounds
 from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader
 from acqstore.acq_image.metadata import ImageHeaderMetadata
 from cloudscope.app_config import AppConfig, home_stack_layout_margins_profile
-from cloudscope.contrast_seeding import ensure_channel_contrast_from_plane
+from cloudscope.contrast_seeding import (
+    default_channel_color_lut,
+    ephemeral_auto_contrast_from_plane,
+)
 from cloudscope.event_bus import EventBus
 from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind
-from cloudscope.events.contrast import ImageContrastChanged
+from cloudscope.events.contrast import ImageContrastChanged, UpdateImageContrastIntent
 from cloudscope.events.metadata import MetadataChanged
 from cloudscope.events.raster import PrimaryPlaneLoaded
 from cloudscope.events.roi import RoiChanged, RoiEditModeChanged, RoiEditPreviewChanged
@@ -61,6 +65,25 @@ from nicewidgets.raster_viewer.frontend.trace_overlay import PlotlyTraceOverlay
 logger = get_logger(__name__)
 
 _IDLE_MESSAGE = 'No file selected'
+
+
+def slice_slider_spec_for_header(header: ImageHeader, dim: str) -> tuple[int, int] | None:
+    """Return inclusive slider bounds for one stack axis, or ``None`` when hidden.
+
+    Args:
+        header: Loader header describing file axis order and sizes.
+        dim: Axis label, typically ``'T'`` or ``'Z'``.
+
+    Returns:
+        ``(min_index, max_index)`` when ``dim`` is present with size ``> 1``;
+        otherwise ``None``.
+    """
+    if dim not in header.dims:
+        return None
+    count = int(header.sizes.get(dim, 1))
+    if count <= 1:
+        return None
+    return 0, count - 1
 
 
 def raster_grid_spec_from_image_header(header: ImageHeader) -> RasterGridSpec:
@@ -101,6 +124,9 @@ def _load_plane_payload(
     file_id: str | None,
     acq_image: AcqImage | None,
     channel: int | None,
+    *,
+    z: int = 0,
+    t: int = 0,
 ) -> tuple[np.ndarray, RasterGridSpec, bool] | None:
     """Load ``(array, grid, is_placeholder)`` for a selection.
 
@@ -110,6 +136,8 @@ def _load_plane_payload(
         file_id: Selected file id, if any.
         acq_image: Resolved acquisition object, if any.
         channel: Selected channel index, if any.
+        z: Index along ``Z`` when present; ignored when absent.
+        t: Index along ``T`` when present; ignored when absent.
 
     Returns:
         Tuple of two-dimensional array ``(Y, X)``, its :class:`RasterGridSpec`,
@@ -123,7 +151,9 @@ def _load_plane_payload(
     if file_id is None or acq_image is None or channel is None:
         return None
     grid = raster_grid_spec_from_image_header(acq_image.images.header)
-    plane = np.asarray(acq_image.images.get_slice_data_loaded(channel))
+    plane = np.asarray(
+        acq_image.images.get_slice_data_loaded(int(channel), z=int(z), t=int(t))
+    )
     if plane.ndim != 2:
         raise ValueError(f'Expected 2D slice (Y, X), got shape={plane.shape}')
     return plane, grid, False
@@ -134,6 +164,9 @@ def _load_primary_display_payload(
     acq_image: AcqImage | None,
     channel: int | None,
     cache: RasterDisplayCache | None,
+    *,
+    z: int = 0,
+    t: int = 0,
 ) -> tuple[np.ndarray, RasterGridSpec, ImagePyramid | None, bool] | None:
     """Load primary display payload, optionally using the raster display cache.
 
@@ -144,6 +177,8 @@ def _load_primary_display_payload(
         acq_image: Resolved acquisition object, if any.
         channel: Selected channel index, if any.
         cache: Optional shared LRU cache for planes and pyramids.
+        z: Index along ``Z`` when present; ignored when absent.
+        t: Index along ``T`` when present; ignored when absent.
 
     Returns:
         Tuple of plane, grid, optional cached pyramid, and placeholder flag.
@@ -159,9 +194,17 @@ def _load_primary_display_payload(
 
     grid = raster_grid_spec_from_image_header(acq_image.images.header)
     channel_index = int(channel)
+    z_index = int(z)
+    t_index = int(t)
 
     def _load_plane() -> np.ndarray:
-        plane = np.asarray(acq_image.images.get_slice_data_loaded(channel_index))
+        plane = np.asarray(
+            acq_image.images.get_slice_data_loaded(
+                channel_index,
+                z=z_index,
+                t=t_index,
+            )
+        )
         if plane.ndim != 2:
             raise ValueError(f'Expected 2D slice (Y, X), got shape={plane.shape}')
         return plane
@@ -172,6 +215,8 @@ def _load_primary_display_payload(
     key = RasterDisplayCacheKey(
         file_id=file_id,
         channel=channel_index,
+        z=z_index,
+        t=t_index,
         kind=RasterDisplayPlaneKind.PRIMARY,
     )
     entry = cache.get_or_build(key, plane_loader=_load_plane)
@@ -252,6 +297,17 @@ class PrimaryImageView(BaseView):
         self._viewer_originated_x_range = False
         self._raster_display_cache = raster_display_cache
         self._idle_label: ui.label | None = None
+        self._z = 0
+        self._t = 0
+        self._last_file_id: str | None = None
+        self._last_channel: int | None = None
+        self._contrast_auto_per_slice = True
+        self._manual_contrast_lut = 'Gray'
+        self._manual_contrast_range: tuple[int, int] | None = None
+        self._suppress_slider_events = False
+        self._slice_row: ui.row | None = None
+        self._t_slider: ui.slider | None = None
+        self._z_slider: ui.slider | None = None
 
     def build(self, parent: ui.element | None = None) -> ui.element:
         """Create the card, title, and Plotly raster element.
@@ -272,6 +328,15 @@ class PrimaryImageView(BaseView):
                     self._idle_label = ui.label(_IDLE_MESSAGE).classes(
                         'absolute inset-0 flex items-center justify-center opacity-70 pointer-events-none'
                     )
+                with ui.row().classes('w-full items-center gap-2 px-1 py-1 shrink-0') as self._slice_row:
+                    self._t_slider = ui.slider(min=0, max=0, value=0, step=1).classes('hidden flex-1')
+                    self._t_slider.props('label-always label')
+                    self._t_slider.props('label="T"')
+                    self._t_slider.on_value_change(self._on_t_slider_changed)
+                    self._z_slider = ui.slider(min=0, max=0, value=0, step=1).classes('hidden flex-1')
+                    self._z_slider.props('label-always label')
+                    self._z_slider.props('label="Z"')
+                    self._z_slider.on_value_change(self._on_z_slider_changed)
 
         if parent is None:
             _build()
@@ -300,6 +365,9 @@ class PrimaryImageView(BaseView):
         self.add_subscription(self.event_bus.subscribe(ThemeChanged, self._on_theme_changed))
         self.add_subscription(
             self.event_bus.subscribe(ImageContrastChanged, self._on_image_contrast_changed)
+        )
+        self.add_subscription(
+            self.event_bus.subscribe(UpdateImageContrastIntent, self._on_update_contrast_intent)
         )
         self.add_subscription(
             self.event_bus.subscribe(PrimaryXRangeChanged, self._on_primary_x_range_changed)
@@ -453,7 +521,20 @@ class PrimaryImageView(BaseView):
         Returns:
             None.
         """
-        self._refresh_raster_from_current_selection()
+        file_id = self.current_selection.file_id
+        channel = self.current_selection.channel
+        if file_id != self._last_file_id:
+            self._z = 0
+            self._t = 0
+            self._contrast_auto_per_slice = True
+            self._manual_contrast_range = None
+        elif channel != self._last_channel:
+            self._contrast_auto_per_slice = True
+            self._manual_contrast_range = None
+        self._last_file_id = file_id
+        self._last_channel = channel
+        self._sync_slice_sliders_from_header()
+        self._refresh_raster_from_current_selection(include_overlays=True)
 
     def _set_idle_visible(self, visible: bool, message: str = _IDLE_MESSAGE) -> None:
         """Show or hide the idle-state label over the raster viewer.
@@ -515,8 +596,12 @@ class PrimaryImageView(BaseView):
                 return
             self._client.safe_invoke(fn)
 
-    def _refresh_raster_from_current_selection(self) -> None:
+    def _refresh_raster_from_current_selection(self, *, include_overlays: bool = True) -> None:
         """Schedule async reload of the raster from the current selection.
+
+        Args:
+            include_overlays: When ``True``, refresh ROI and diameter overlays
+                after the plane loads. Slice-only refreshes pass ``False``.
 
         Returns:
             None.
@@ -524,13 +609,115 @@ class PrimaryImageView(BaseView):
         file_id = self.current_selection.file_id
         acq_image = self.get_selected_acq_image()
         channel = self.current_selection.channel
-        _schedule_coro(self._refresh_raster_async(file_id, acq_image, channel))
+        _schedule_coro(
+            self._refresh_raster_async(
+                file_id,
+                acq_image,
+                channel,
+                z=self._z,
+                t=self._t,
+                include_overlays=include_overlays,
+            )
+        )
+
+    def _refresh_raster_for_slice_change(self) -> None:
+        """Schedule a plane-only reload after a T/Z slider change.
+
+        Returns:
+            None.
+        """
+        self._refresh_raster_from_current_selection(include_overlays=False)
+
+    def _on_t_slider_changed(self, event: Any) -> None:
+        """Update the view-local ``t`` index and reload the display plane.
+
+        Args:
+            event: NiceGUI slider value-change event.
+
+        Returns:
+            None.
+        """
+        if self._suppress_slider_events:
+            return
+        self._t = int(event.value)
+        self._refresh_raster_for_slice_change()
+
+    def _on_z_slider_changed(self, event: Any) -> None:
+        """Update the view-local ``z`` index and reload the display plane.
+
+        Args:
+            event: NiceGUI slider value-change event.
+
+        Returns:
+            None.
+        """
+        if self._suppress_slider_events:
+            return
+        self._z = int(event.value)
+        self._refresh_raster_for_slice_change()
+
+    def _sync_slice_sliders_from_header(self) -> None:
+        """Show or hide T/Z sliders and sync values from the current header.
+
+        Returns:
+            None.
+        """
+        if self._t_slider is None or self._z_slider is None:
+            return
+        acq_image = self.get_selected_acq_image()
+        if acq_image is None:
+            self._run_ui(self._hide_slice_sliders)
+            return
+
+        header = acq_image.images.header
+        t_spec = slice_slider_spec_for_header(header, 'T')
+        z_spec = slice_slider_spec_for_header(header, 'Z')
+
+        def _apply() -> None:
+            assert self._t_slider is not None
+            assert self._z_slider is not None
+            self._suppress_slider_events = True
+            try:
+                if t_spec is None:
+                    self._t_slider.classes(add='hidden', remove='flex-1')
+                else:
+                    t_min, t_max = t_spec
+                    self._t = max(t_min, min(t_max, self._t))
+                    self._t_slider.min = t_min
+                    self._t_slider.max = t_max
+                    self._t_slider.value = self._t
+                    self._t_slider.classes(remove='hidden', add='flex-1')
+
+                if z_spec is None:
+                    self._z_slider.classes(add='hidden', remove='flex-1')
+                else:
+                    z_min, z_max = z_spec
+                    self._z = max(z_min, min(z_max, self._z))
+                    self._z_slider.min = z_min
+                    self._z_slider.max = z_max
+                    self._z_slider.value = self._z
+                    self._z_slider.classes(remove='hidden', add='flex-1')
+            finally:
+                self._suppress_slider_events = False
+
+        self._run_ui(_apply)
+
+    def _hide_slice_sliders(self) -> None:
+        """Hide both slice sliders when no file is selected."""
+        if self._t_slider is not None:
+            self._t_slider.classes(add='hidden', remove='flex-1')
+        if self._z_slider is not None:
+            self._z_slider.classes(add='hidden', remove='flex-1')
 
     async def _refresh_raster_async(
         self,
         file_id: str | None,
         acq_image: AcqImage | None,
         channel: int | None,
+        *,
+        z: int,
+        t: int,
+        include_overlays: bool,
     ) -> None:
         """Load and display one raster snapshot asynchronously.
 
@@ -538,6 +725,9 @@ class PrimaryImageView(BaseView):
             file_id: Snapshot file id.
             acq_image: Snapshot acquisition image.
             channel: Snapshot channel.
+            z: Snapshot ``Z`` slice index.
+            t: Snapshot ``T`` slice index.
+            include_overlays: When ``True``, refresh ROI and diameter overlays.
 
         Returns:
             None.
@@ -549,6 +739,8 @@ class PrimaryImageView(BaseView):
                 acq_image,
                 channel,
                 self._raster_display_cache,
+                z=z,
+                t=t,
             )
         except Exception as exc:
             presentation = format_raster_load_error(
@@ -578,23 +770,25 @@ class PrimaryImageView(BaseView):
                 await self._viewer.set_data(plane, grid=grid)
             else:
                 await self._viewer.set_data_from_pyramid(plane, grid=grid, pyramid=pyramid)
-            self._refresh_roi_overlays(acq_image=acq_image, grid=grid)
-            self._refresh_diameter_trace_overlays(acq_image=acq_image, grid=grid)
+            if include_overlays:
+                self._refresh_roi_overlays(acq_image=acq_image, grid=grid)
+                self._refresh_diameter_trace_overlays(acq_image=acq_image, grid=grid)
             if not is_placeholder and file_id is not None and channel is not None and acq_image is not None:
-                ensure_channel_contrast_from_plane(
-                    acq_image,
-                    int(channel),
-                    plane,
-                    self._app_config,
-                )
-                await self._apply_contrast(acq_image, int(channel))
+                await self._apply_display_contrast(plane, int(channel))
                 try:
                     plane.setflags(write=False)
                 except (AttributeError, ValueError):
                     # Non-ndarray or already read-only; safe to proceed.
                     pass
                 self.event_bus.publish(
-                    PrimaryPlaneLoaded(file_id=file_id, channel=int(channel), plane=plane)
+                    PrimaryPlaneLoaded(
+                        file_id=file_id,
+                        channel=int(channel),
+                        z=int(z),
+                        t=int(t),
+                        plane=plane,
+                        use_auto_contrast=self._contrast_auto_per_slice,
+                    )
                 )
             # Re-apply any non-auto app-level x-range that survives ``set_data``
             # (e.g. analysis-row click within the same file). When the cached
@@ -622,6 +816,57 @@ class PrimaryImageView(BaseView):
         if acq_image is None:
             return
         _schedule_coro(self._apply_contrast(acq_image, int(event.channel)))
+
+    def _on_update_contrast_intent(self, event: UpdateImageContrastIntent) -> None:
+        """Track auto vs sticky manual contrast mode from toolbar edits.
+
+        Args:
+            event: User contrast update intent.
+
+        Returns:
+            None.
+        """
+        selection = self.current_selection
+        if selection.file_id != event.file_id or selection.channel != int(event.channel):
+            return
+        if event.from_auto:
+            self._contrast_auto_per_slice = True
+            self._manual_contrast_range = None
+            return
+        self._contrast_auto_per_slice = False
+        self._manual_contrast_lut = str(event.color_lut)
+        self._manual_contrast_range = (int(event.value_min), int(event.value_max))
+
+    async def _apply_display_contrast(self, plane: np.ndarray, channel: int) -> None:
+        """Apply ephemeral auto or sticky manual contrast to the viewer.
+
+        Does not write contrast state to :class:`AcqImage` on slice navigation.
+
+        Args:
+            plane: Current 2D display plane.
+            channel: Zero-based channel index.
+
+        Returns:
+            None.
+        """
+        if self._contrast_auto_per_slice:
+            value_min, value_max = ephemeral_auto_contrast_from_plane(plane, self._app_config)
+            color_lut = default_channel_color_lut(self._app_config, channel)
+        else:
+            color_lut = self._manual_contrast_lut
+            if self._manual_contrast_range is None:
+                value_min, value_max = ephemeral_auto_contrast_from_plane(plane, self._app_config)
+            else:
+                value_min, value_max = self._manual_contrast_range
+        scale = get_colorscale(color_lut)
+        try:
+            await self._viewer.set_heatmap_style(
+                colorscale=scale,
+                zmin=float(value_min),
+                zmax=float(value_max),
+            )
+        except RuntimeError as exc:
+            logger.warning('Skipping contrast apply (viewer not ready): %s', exc)
 
     async def _apply_contrast(self, acq_image: AcqImage, channel: int) -> None:
         """Apply the AcqImage's stored contrast for ``channel`` to the viewer.

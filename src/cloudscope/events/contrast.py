@@ -28,6 +28,8 @@ class UpdateImageContrastIntent(IntentEvent):
         color_lut: Selected LUT identifier.
         value_min: Minimum intensity displayed.
         value_max: Maximum intensity displayed.
+        from_auto: ``True`` when the user clicked the contrast widget Auto
+            button; ``False`` for manual LUT or range edits.
     """
 
     file_id: str
@@ -35,6 +37,7 @@ class UpdateImageContrastIntent(IntentEvent):
     color_lut: str
     value_min: int
     value_max: int
+    from_auto: bool = False
 
 
 @dataclass(frozen=True)

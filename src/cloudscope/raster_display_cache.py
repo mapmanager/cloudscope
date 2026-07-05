@@ -16,7 +16,7 @@ from nicewidgets.raster_viewer.backend.pyramid import ImagePyramid
 
 # Default LRU cap for cloud deployments with limited memory. Override with
 # ``CLOUDSCOPE_RASTER_DISPLAY_CACHE_MAX_ENTRIES`` (minimum 1).
-DEFAULT_RASTER_DISPLAY_CACHE_MAX_ENTRIES = 5
+DEFAULT_RASTER_DISPLAY_CACHE_MAX_ENTRIES = 20
 
 # Grid used only when constructing ``BackendImage`` for pyramid build; pyramid
 # math ignores calibration and uses raw array shape only.
@@ -32,10 +32,12 @@ class RasterDisplayPlaneKind(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class RasterDisplayCacheKey:
-    """Cache key for one display plane within one file and channel."""
+    """Cache key for one display plane within one file, channel, and slice."""
 
     file_id: str
     channel: int
+    z: int
+    t: int
     kind: RasterDisplayPlaneKind
 
 
@@ -51,7 +53,7 @@ def resolve_raster_display_cache_max_entries() -> int:
     """Resolve the LRU capacity from the environment or factory default.
 
     Returns:
-        Maximum number of cached ``(file_id, channel, kind)`` entries, at least 1.
+        Maximum number of cached ``(file_id, channel, z, t, kind)`` entries, at least 1.
     """
     raw = os.environ.get('CLOUDSCOPE_RASTER_DISPLAY_CACHE_MAX_ENTRIES', '').strip()
     if not raw:
@@ -103,7 +105,7 @@ class RasterDisplayCache:
         """Return a cached entry or load the plane and build a pyramid on miss.
 
         Args:
-            key: File, channel, and plane kind.
+            key: File, channel, ``z``/``t`` slice indices, and plane kind.
             plane_loader: Callable that returns a 2D ``(Y, X)`` array. Invoked
                 only on cache miss.
 

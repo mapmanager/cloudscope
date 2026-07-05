@@ -27,9 +27,18 @@ class PrimaryPlaneLoaded(StateEvent):
     Args:
         file_id: Stable file identifier the plane belongs to.
         channel: Zero-based channel index decoded.
+        z: Index along ``Z`` when present; ``0`` when the axis is absent.
+        t: Index along ``T`` when present; ``0`` when the axis is absent.
         plane: 2D ``(Y, X)`` ndarray. Read-only.
+        use_auto_contrast: When ``True``, subscribers should derive display
+            contrast from ``plane`` (ephemeral auto). When ``False``, the user
+            has locked manual contrast and subscribers should update image
+            bounds only.
     """
 
     file_id: str
     channel: int
+    z: int
+    t: int
     plane: np.ndarray
+    use_auto_contrast: bool = True

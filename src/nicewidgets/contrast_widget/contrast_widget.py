@@ -234,6 +234,7 @@ class ContrastWidget:
                 color_lut=self._color_lut,
                 value_min=self._value_min,
                 value_max=self._value_max,
+                from_auto=False,
             )
         )
 
@@ -253,6 +254,7 @@ class ContrastWidget:
                 color_lut=self._color_lut,
                 value_min=self._value_min,
                 value_max=self._value_max,
+                from_auto=False,
             )
         )
 
@@ -291,6 +293,7 @@ class ContrastWidget:
                 color_lut=self._color_lut,
                 value_min=self._value_min,
                 value_max=self._value_max,
+                from_auto=True,
             )
         )
 

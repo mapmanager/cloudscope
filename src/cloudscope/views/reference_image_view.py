@@ -130,6 +130,8 @@ def _load_reference_display_payload(
     key = RasterDisplayCacheKey(
         file_id=file_id,
         channel=int(channel),
+        z=0,
+        t=0,
         kind=RasterDisplayPlaneKind.REFERENCE,
     )
 

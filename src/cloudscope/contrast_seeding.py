@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from acqstore.acq_image.acq_image import AcqImage
-from acqstore.acq_image.image_contrast import ImageContrast
+from acqstore.acq_image.image_contrast import ImageContrast, contrast_clip_min_max
 from cloudscope.app_config import AppConfig
 
 
@@ -36,6 +36,29 @@ def default_channel_color_lut(app_config: AppConfig | None, channel: int) -> str
     if app_config is None:
         return 'Gray'
     return app_config.get_default_channel_color_lut(int(channel))
+
+
+def ephemeral_auto_contrast_from_plane(
+    plane: np.ndarray,
+    app_config: AppConfig | None,
+) -> tuple[int, int]:
+    """Return ephemeral auto ``(value_min, value_max)`` for one display plane.
+
+    Does not read or write :class:`AcqImage` contrast state.
+
+    Args:
+        plane: 2D ``(Y, X)`` display plane.
+        app_config: Shared application config for percentile defaults.
+
+    Returns:
+        Integer intensity window derived from ``plane`` histogram percentiles.
+    """
+    percentile_low, percentile_high = contrast_auto_percentiles(app_config)
+    return contrast_clip_min_max(
+        plane,
+        percentile_low=percentile_low,
+        percentile_high=percentile_high,
+    )
 
 
 def ensure_channel_contrast_from_plane(
