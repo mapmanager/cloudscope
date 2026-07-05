@@ -14,6 +14,7 @@ from cloudscope.views.primary_image_view import (
     _configure_nicegui_slider_bounds,
     _load_plane_payload,
     _load_primary_display_payload,
+    format_slice_slider_display,
     raster_grid_spec_from_image_header,
     slice_slider_spec_for_header,
 )
@@ -121,6 +122,13 @@ def test_acq_image_for_slice_sliders_accepts_matching_cache() -> None:
 
     view.current_acq_image = _Acq()
     assert view._acq_image_for_slice_sliders() is view.current_acq_image
+
+
+def test_format_slice_slider_display() -> None:
+    assert format_slice_slider_display(0, 9) == '1/10'
+    assert format_slice_slider_display(9, 9) == '10/10'
+    assert format_slice_slider_display(0, 0) == '1/1'
+    assert format_slice_slider_display(4, 138) == '5/139'
 
 
 def test_slice_slider_spec_for_header() -> None:

@@ -89,6 +89,23 @@ def slice_slider_spec_for_header(header: ImageHeader, dim: str) -> tuple[int, in
     return 0, count - 1
 
 
+def format_slice_slider_display(value: int, max_index: int) -> str:
+    """Format a 0-based slice index and max for display beside a T/Z slider.
+
+    Internal slider state and :meth:`BaseFileLoader.get_slice_data_loaded`
+    indices remain 0-based; this helper is display-only and uses 1-based
+    slice numbers (e.g. index ``0`` of ``10`` planes → ``'1/10'``).
+
+    Args:
+        value: Current 0-based slider value (inclusive lower bound is ``0``).
+        max_index: Current 0-based slider maximum (inclusive).
+
+    Returns:
+        Human-readable ``'{display_value}/{display_count}'`` string.
+    """
+    return f'{int(value) + 1}/{int(max_index) + 1}'
+
+
 def _configure_nicegui_slider_bounds(
     slider: ui.slider,
     *,
@@ -363,7 +380,13 @@ class PrimaryImageView(BaseView):
         self._suppress_slider_events = False
         self._slice_refresh_generation = 0
         self._slice_row: ui.row | None = None
+        self._t_group: ui.row | None = None
+        self._z_group: ui.row | None = None
+        self._t_axis_label: ui.label | None = None
+        self._t_slice_label: ui.label | None = None
         self._t_slider: ui.slider | None = None
+        self._z_axis_label: ui.label | None = None
+        self._z_slice_label: ui.label | None = None
         self._z_slider: ui.slider | None = None
 
     def build(self, parent: ui.element | None = None) -> ui.element:
@@ -386,14 +409,20 @@ class PrimaryImageView(BaseView):
                         'absolute inset-0 flex items-center justify-center opacity-70 pointer-events-none'
                     )
                 with ui.row().classes('w-full items-center gap-2 px-1 py-1 shrink-0') as self._slice_row:
-                    self._t_slider = ui.slider(min=0, max=0, value=0, step=1).classes('hidden flex-1')
-                    # self._t_slider.props('label-always label')
-                    self._t_slider.props('label="T"')
-                    self._t_slider.on_value_change(self._on_t_slider_changed)
-                    self._z_slider = ui.slider(min=0, max=0, value=0, step=1).classes('hidden flex-1')
-                    # self._z_slider.props('label-always label')
-                    self._z_slider.props('label="Z"')
-                    self._z_slider.on_value_change(self._on_z_slider_changed)
+                    with ui.row().classes('hidden items-center gap-2 flex-1 min-w-0') as self._t_group:
+                        self._t_axis_label = ui.label('T').classes('shrink-0 text-sm font-medium')
+                        self._t_slider = ui.slider(min=0, max=0, value=0, step=1).classes('flex-1 min-w-0')
+                        self._t_slice_label = ui.label('1/1').classes(
+                            'shrink-0 tabular-nums text-sm'
+                        )
+                        self._t_slider.on_value_change(self._on_t_slider_changed)
+                    with ui.row().classes('hidden items-center gap-2 flex-1 min-w-0') as self._z_group:
+                        self._z_axis_label = ui.label('Z').classes('shrink-0 text-sm font-medium')
+                        self._z_slider = ui.slider(min=0, max=0, value=0, step=1).classes('flex-1 min-w-0')
+                        self._z_slice_label = ui.label('1/1').classes(
+                            'shrink-0 tabular-nums text-sm'
+                        )
+                        self._z_slider.on_value_change(self._on_z_slider_changed)
 
         if parent is None:
             _build()
@@ -757,6 +786,11 @@ class PrimaryImageView(BaseView):
         if self._suppress_slider_events:
             return
         self._t = int(event.value)
+        if self._t_slider is not None and self._t_slice_label is not None:
+            self._t_slice_label.text = format_slice_slider_display(
+                self._t,
+                int(self._t_slider._props['max']),
+            )
         self._refresh_raster_for_slice_change()
 
     def _on_z_slider_changed(self, event: Any) -> None:
@@ -773,6 +807,11 @@ class PrimaryImageView(BaseView):
             return
         # logger.debug('Z slider changed: value=%s', event.value)
         self._z = int(event.value)
+        if self._z_slider is not None and self._z_slice_label is not None:
+            self._z_slice_label.text = format_slice_slider_display(
+                self._z,
+                int(self._z_slider._props['max']),
+            )
         self._refresh_raster_for_slice_change()
 
     def _sync_slice_sliders_from_header(self) -> None:
@@ -781,7 +820,14 @@ class PrimaryImageView(BaseView):
         Returns:
             None.
         """
-        if self._t_slider is None or self._z_slider is None:
+        if (
+            self._t_group is None
+            or self._z_group is None
+            or self._t_slider is None
+            or self._z_slider is None
+            or self._t_slice_label is None
+            or self._z_slice_label is None
+        ):
             return
         acq_image = self._acq_image_for_slice_sliders()
         if acq_image is None:
@@ -805,12 +851,16 @@ class PrimaryImageView(BaseView):
         # )
 
         def _apply() -> None:
+            assert self._t_group is not None
+            assert self._z_group is not None
             assert self._t_slider is not None
             assert self._z_slider is not None
+            assert self._t_slice_label is not None
+            assert self._z_slice_label is not None
             self._suppress_slider_events = True
             try:
                 if t_spec is None:
-                    self._t_slider.classes(add='hidden', remove='flex-1')
+                    self._t_group.classes(add='hidden', remove='flex-1')
                 else:
                     t_min, t_max = t_spec
                     self._t = _configure_nicegui_slider_bounds(
@@ -819,10 +869,11 @@ class PrimaryImageView(BaseView):
                         max_index=t_max,
                         value=self._t,
                     )
-                    self._t_slider.classes(remove='hidden', add='flex-1')
+                    self._t_slice_label.text = format_slice_slider_display(self._t, t_max)
+                    self._t_group.classes(remove='hidden', add='flex-1')
 
                 if z_spec is None:
-                    self._z_slider.classes(add='hidden', remove='flex-1')
+                    self._z_group.classes(add='hidden', remove='flex-1')
                 else:
                     z_min, z_max = z_spec
                     self._z = _configure_nicegui_slider_bounds(
@@ -831,18 +882,19 @@ class PrimaryImageView(BaseView):
                         max_index=z_max,
                         value=self._z,
                     )
-                    self._z_slider.classes(remove='hidden', add='flex-1')
+                    self._z_slice_label.text = format_slice_slider_display(self._z, z_max)
+                    self._z_group.classes(remove='hidden', add='flex-1')
             finally:
                 self._suppress_slider_events = False
 
         self._run_ui(_apply)
 
     def _hide_slice_sliders(self) -> None:
-        """Hide both slice sliders when no file is selected."""
-        if self._t_slider is not None:
-            self._t_slider.classes(add='hidden', remove='flex-1')
-        if self._z_slider is not None:
-            self._z_slider.classes(add='hidden', remove='flex-1')
+        """Hide both T/Z slice control groups when no file is selected."""
+        if self._t_group is not None:
+            self._t_group.classes(add='hidden', remove='flex-1')
+        if self._z_group is not None:
+            self._z_group.classes(add='hidden', remove='flex-1')
 
     async def _refresh_raster_async(
         self,
