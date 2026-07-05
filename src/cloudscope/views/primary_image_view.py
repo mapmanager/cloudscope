@@ -387,11 +387,11 @@ class PrimaryImageView(BaseView):
                     )
                 with ui.row().classes('w-full items-center gap-2 px-1 py-1 shrink-0') as self._slice_row:
                     self._t_slider = ui.slider(min=0, max=0, value=0, step=1).classes('hidden flex-1')
-                    self._t_slider.props('label-always label')
+                    # self._t_slider.props('label-always label')
                     self._t_slider.props('label="T"')
                     self._t_slider.on_value_change(self._on_t_slider_changed)
                     self._z_slider = ui.slider(min=0, max=0, value=0, step=1).classes('hidden flex-1')
-                    self._z_slider.props('label-always label')
+                    # self._z_slider.props('label-always label')
                     self._z_slider.props('label="Z"')
                     self._z_slider.on_value_change(self._on_z_slider_changed)
 
@@ -870,7 +870,7 @@ class PrimaryImageView(BaseView):
         Returns:
             None.
         """
-        path_label = 'B-slice' if not include_overlays else 'A-selection'
+        # path_label = 'B-slice' if not include_overlays else 'A-selection'
 
         def _refresh_context_stale() -> bool:
             if (
