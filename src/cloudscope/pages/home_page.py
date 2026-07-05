@@ -143,6 +143,7 @@ class HomePage:
             dark_mode_provider=_dark_mode,
             raster_display_cache=get_current_runtime().raster_display_cache,
             app_config=self.app_config,
+            app_state=app_state,
         )
         acq_analysis_plot = AcqAnalysisPlotView(
             self.event_bus,

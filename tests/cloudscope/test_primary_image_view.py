@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
+import types
+
 import numpy as np
 import pytest
 
 from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader
 
 from cloudscope.views.primary_image_view import (
+    PrimaryImageView,
     _configure_nicegui_slider_bounds,
     _load_plane_payload,
     _load_primary_display_payload,
     raster_grid_spec_from_image_header,
     slice_slider_spec_for_header,
 )
+from cloudscope.event_bus import EventBus
+from cloudscope.state import PrimarySelection
 
 
 def _minimal_header(
@@ -79,15 +84,43 @@ def test_load_plane_payload_returns_none_without_acq() -> None:
     assert _load_plane_payload('/x', None, 0) is None
 
 
-def test_configure_nicegui_slider_bounds_updates_props_not_python_attrs() -> None:
+def test_configure_nicegui_slider_bounds_matches_slider_demo_pattern() -> None:
+    """Bounds update must follow sandbox/slider_demo.py (_props, value, update)."""
     from nicegui import ui
 
-    slider = ui.slider(min=0, max=0, value=0, step=1)
-    clamped = _configure_nicegui_slider_bounds(slider, min_index=0, max_index=150, value=42)
-    assert clamped == 42
-    assert slider._props['min'] == 0
-    assert slider._props['max'] == 150
-    assert slider.value == 42
+    slider = ui.slider(min=0, max=100, value=50, step=1)
+    updates: list[bool] = []
+    slider.update = lambda: updates.append(True)  # type: ignore[method-assign]
+
+    clamped = _configure_nicegui_slider_bounds(slider, min_index=10, max_index=50, value=10)
+
+    assert clamped == 10
+    assert slider._props['min'] == 10
+    assert slider._props['max'] == 50
+    assert slider.value == 10
+    assert len(updates) >= 1
+
+
+def test_acq_image_for_slice_sliders_rejects_stale_cache() -> None:
+    view = PrimaryImageView(EventBus())
+    view.current_selection = PrimarySelection(file_id='/b.oir', channel=0)
+
+    class _Acq:
+        file_id = '/a.oir'
+
+    view.current_acq_image = _Acq()
+    assert view._acq_image_for_slice_sliders() is None
+
+
+def test_acq_image_for_slice_sliders_accepts_matching_cache() -> None:
+    view = PrimaryImageView(EventBus())
+    view.current_selection = PrimarySelection(file_id='/b.oir', channel=0)
+
+    class _Acq:
+        file_id = '/b.oir'
+
+    view.current_acq_image = _Acq()
+    assert view._acq_image_for_slice_sliders() is view.current_acq_image
 
 
 def test_slice_slider_spec_for_header() -> None:
@@ -198,14 +231,279 @@ def test_on_primary_selection_changed_preserves_z_t_on_channel_change() -> None:
     assert view._contrast_auto_per_slice is True
 
 
-def test_slice_refresh_skips_overlay_refresh() -> None:
+def test_slice_refresh_schedules_plane_only_reload(monkeypatch) -> None:
+    """Z/T scrub should schedule ``include_overlays=False`` with a generation token."""
+    from cloudscope.views import primary_image_view as pim
+
     view = PrimaryImageView(EventBus())
-    calls: list[bool] = []
-    view._refresh_raster_from_current_selection = lambda **kwargs: calls.append(  # type: ignore[method-assign]
-        kwargs.get('include_overlays', True)
-    )
+    seen: list[dict[str, object]] = []
+
+    async def _fake_async(*_a, **kwargs) -> None:
+        seen.append(dict(kwargs))
+
+    view._refresh_raster_async = _fake_async  # type: ignore[method-assign]
+    monkeypatch.setattr(pim, '_schedule_coro', lambda coro: __import__('asyncio').run(coro))
+
     view._refresh_raster_for_slice_change()
-    assert calls == [False]
+
+    assert len(seen) == 1
+    assert seen[0]['include_overlays'] is False
+    assert seen[0]['slice_generation'] == 1
+
+
+def test_slice_refresh_skips_primary_x_range_reapply() -> None:
+    """Path B must not re-apply app-level x-range after ``set_data``."""
+    import asyncio
+
+    bus = EventBus()
+    view = PrimaryImageView(bus)
+    x_calls: list[bool] = []
+    view.current_selection = PrimarySelection(file_id='f', channel=0)
+    view._z = 2
+    view._t = 0
+    view._apply_primary_x_range_to_viewer = lambda **kwargs: x_calls.append(  # type: ignore[method-assign]
+        kwargs.get('include_auto', True)
+    )
+
+    class _Viewer:
+        has_data = True
+
+        def get_viewport(self):
+            return ((1.0, 4.0), (2.0, 5.0))
+
+        async def swap_slice_plane(self, *_a, **kwargs) -> None:
+            return None
+
+        async def set_heatmap_style(self, **_k) -> None:
+            return None
+
+    view._viewer = _Viewer()  # type: ignore[assignment]
+
+    plane = np.array([[1, 2], [3, 4]], dtype=np.uint8)
+
+    class _Acq:
+        rois: list = []  # type: ignore[assignment]
+
+        def get_image_contrast(self, _c: int):
+            return ImageContrast(
+                color_lut='Gray', value_min=0, value_max=4, img_min=0, img_max=4
+            )
+
+    async def _run() -> None:
+        from cloudscope.views import primary_image_view as pim
+        from nicewidgets.raster_viewer.backend.image_model import RasterGridSpec as RGS
+
+        original = pim._load_primary_display_payload
+        pim._load_primary_display_payload = (
+            lambda *_a, **_k: (plane, RGS(dx=1.0, dy=1.0, x_unit='Y', y_unit='X'), object(), False)
+        )
+        try:
+            await view._refresh_raster_async(
+                'f',
+                _Acq(),
+                0,
+                z=2,
+                t=0,
+                include_overlays=False,
+                slice_generation=1,
+            )
+        finally:
+            pim._load_primary_display_payload = original
+
+    asyncio.run(_run())
+    assert x_calls == []
+
+
+def test_stale_slice_refresh_is_dropped() -> None:
+    """Superseded Z/T scrubs should not mutate the viewer after load completes."""
+    import asyncio
+
+    view = PrimaryImageView(EventBus())
+    view.current_selection = PrimarySelection(file_id='f', channel=0)
+    view._z = 1
+    view._t = 0
+    viewer_calls: list[str] = []
+
+    class _Viewer:
+        has_data = True
+
+        def get_viewport(self):
+            return ((1.0, 4.0), (2.0, 5.0))
+
+        async def swap_slice_plane(self, *_a, **_k) -> None:
+            viewer_calls.append('swap')
+
+        async def set_heatmap_style(self, **_k) -> None:
+            viewer_calls.append('style')
+
+    view._viewer = _Viewer()  # type: ignore[assignment]
+    view._slice_refresh_generation = 2
+
+    plane = np.array([[1, 2], [3, 4]], dtype=np.uint8)
+
+    class _Acq:
+        rois: list = []  # type: ignore[assignment]
+
+        def get_image_contrast(self, _c: int):
+            return ImageContrast(
+                color_lut='Gray', value_min=0, value_max=4, img_min=0, img_max=4
+            )
+
+    async def _run() -> None:
+        from cloudscope.views import primary_image_view as pim
+        from nicewidgets.raster_viewer.backend.image_model import RasterGridSpec as RGS
+
+        original = pim._load_primary_display_payload
+        pim._load_primary_display_payload = (
+            lambda *_a, **_k: (plane, RGS(dx=1.0, dy=1.0, x_unit='Y', y_unit='X'), object(), False)
+        )
+        try:
+            await view._refresh_raster_async(
+                'f',
+                _Acq(),
+                0,
+                z=1,
+                t=0,
+                include_overlays=False,
+                slice_generation=1,
+            )
+        finally:
+            pim._load_primary_display_payload = original
+
+    asyncio.run(_run())
+    assert viewer_calls == []
+
+
+def test_slice_refresh_passes_preserved_viewport_to_viewer() -> None:
+    """Path B should swap planes with the current viewer viewport."""
+    import asyncio
+
+    view = PrimaryImageView(EventBus())
+    view.current_selection = PrimarySelection(file_id='f', channel=0)
+    view._z = 2
+    view._t = 0
+    view._slice_refresh_generation = 1
+    preserved = ((10.0, 20.0), (30.0, 40.0))
+    swap_calls: list[object] = []
+    style_calls: list[bool] = []
+
+    class _Viewer:
+        has_data = True
+
+        def get_viewport(self):
+            return preserved
+
+        async def swap_slice_plane(self, *_a, **kwargs) -> object:
+            swap_calls.append(kwargs.get('display_axis_ranges'))
+            return types.SimpleNamespace(mode='heatmap_z', level=1)
+
+        async def set_heatmap_style(self, **kwargs) -> None:
+            style_calls.append(bool(kwargs.get('preserve_viewport')))
+
+    view._viewer = _Viewer()  # type: ignore[assignment]
+
+    plane = np.array([[1, 2], [3, 4]], dtype=np.uint8)
+
+    class _Acq:
+        rois: list = []  # type: ignore[assignment]
+
+        def get_image_contrast(self, _c: int):
+            return ImageContrast(
+                color_lut='Gray', value_min=0, value_max=4, img_min=0, img_max=4
+            )
+
+    async def _run() -> None:
+        from cloudscope.views import primary_image_view as pim
+        from nicewidgets.raster_viewer.backend.image_model import RasterGridSpec as RGS
+
+        original = pim._load_primary_display_payload
+        pim._load_primary_display_payload = (
+            lambda *_a, **_k: (plane, RGS(dx=1.0, dy=1.0, x_unit='Y', y_unit='X'), object(), False)
+        )
+        try:
+            await view._refresh_raster_async(
+                'f',
+                _Acq(),
+                0,
+                z=2,
+                t=0,
+                include_overlays=False,
+                slice_generation=1,
+            )
+        finally:
+            pim._load_primary_display_payload = original
+
+    asyncio.run(_run())
+    assert swap_calls == [preserved]
+    assert style_calls == [True]
+
+
+def test_selection_change_bumps_slice_generation() -> None:
+    """File/channel selection must invalidate in-flight Z/T slice reloads."""
+    view = PrimaryImageView(EventBus())
+    view._slice_refresh_generation = 3
+    view._last_file_id = 'old'
+    view.current_selection = PrimarySelection(file_id='new', channel=0)
+    view._sync_slice_sliders_from_header = lambda: None  # type: ignore[method-assign]
+    view._refresh_raster_from_current_selection = lambda **kwargs: None  # type: ignore[method-assign]
+    view.on_primary_selection_changed()
+    assert view._slice_refresh_generation == 4
+
+
+def test_stale_refresh_dropped_when_file_changes_during_load() -> None:
+    """Async load snapshots must match the current selection before mutating the viewer."""
+    import asyncio
+
+    view = PrimaryImageView(EventBus())
+    view.current_selection = PrimarySelection(file_id='b', channel=0)
+    view._z = 0
+    view._t = 0
+    viewer_calls: list[str] = []
+
+    class _Viewer:
+        has_data = True
+
+        async def set_data_from_pyramid(self, *_a, **_k) -> None:
+            viewer_calls.append('set_data')
+
+        async def set_heatmap_style(self, **_k) -> None:
+            viewer_calls.append('style')
+
+    view._viewer = _Viewer()  # type: ignore[assignment]
+
+    plane = np.array([[1, 2], [3, 4]], dtype=np.uint8)
+
+    class _Acq:
+        rois: list = []  # type: ignore[assignment]
+
+        def get_image_contrast(self, _c: int):
+            return ImageContrast(
+                color_lut='Gray', value_min=0, value_max=4, img_min=0, img_max=4
+            )
+
+    async def _run() -> None:
+        from cloudscope.views import primary_image_view as pim
+        from nicewidgets.raster_viewer.backend.image_model import RasterGridSpec as RGS
+
+        original = pim._load_primary_display_payload
+        pim._load_primary_display_payload = (
+            lambda *_a, **_k: (plane, RGS(dx=1.0, dy=1.0, x_unit='Y', y_unit='X'), object(), False)
+        )
+        try:
+            await view._refresh_raster_async(
+                'a',
+                _Acq(),
+                0,
+                z=0,
+                t=0,
+                include_overlays=False,
+                slice_generation=1,
+            )
+        finally:
+            pim._load_primary_display_payload = original
+
+    asyncio.run(_run())
+    assert viewer_calls == []
 
 
 import asyncio
@@ -244,7 +542,12 @@ class _FakeViewer:
         self.contrast_calls: list[tuple[float, float]] = []
 
     async def set_heatmap_style(
-        self, *, colorscale, zmin: float, zmax: float
+        self,
+        *,
+        colorscale,
+        zmin: float,
+        zmax: float,
+        preserve_viewport: bool = False,
     ) -> None:
         self.style_calls.append((colorscale, float(zmin), float(zmax)))
         self.colorscale_calls.append(colorscale)
@@ -383,6 +686,9 @@ def test_on_update_contrast_intent_applies_style_immediately() -> None:
 def test_publishes_primary_plane_loaded_after_set_data() -> None:
     bus = EventBus()
     view = PrimaryImageView(bus)
+    view.current_selection = PrimarySelection(file_id='f', channel=0)
+    view._z = 0
+    view._t = 0
     fake = _FakeViewer()
 
     class _DataViewer(_FakeViewer):

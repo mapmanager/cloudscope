@@ -22,7 +22,9 @@ PlotlyColorscale = str | list[list[float | str]]
 # ``responsive: true`` lets the plot resize with the NiceGUI container.
 # See https://plotly.com/javascript/configuration-options/
 RASTER_VIEWER_PLOTLY_CONFIG: dict[str, object] = {
-    'doubleClick': False,
+    # ``False`` suppresses Plotly's ``plotly_doubleclick`` event; ``reset`` lets
+    # the custom handler reload the overview PNG after zoom.
+    'doubleClick': 'reset',
     'scrollZoom': True,
     'responsive': True,
 }

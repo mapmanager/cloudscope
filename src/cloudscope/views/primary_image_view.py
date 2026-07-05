@@ -22,6 +22,8 @@ import asyncio
 from collections.abc import Callable, Coroutine
 from typing import Any
 
+from pathlib import Path
+
 import numpy as np
 from nicegui import run, ui
 
@@ -94,14 +96,14 @@ def _configure_nicegui_slider_bounds(
     max_index: int,
     value: int,
 ) -> int:
-    """Apply ``min``/``max``/``value`` to a NiceGUI ``ui.slider`` after construction.
+    """Apply ``min``/``max``/``value`` to an existing NiceGUI ``ui.slider``.
 
-    NiceGUI's :class:`~nicegui.elements.slider.Slider` stores bounds in
-    ``slider._props['min']`` and ``slider._props['max']`` (see
-    ``nicegui/elements/slider.py``). There are no public ``.min``/``.max``
-    attributes; assigning those names does not update the Quasar component.
-    Updating ``_props`` triggers :meth:`~nicegui.element.Element.update` via
-    :class:`~nicegui.props.Props`.
+    Follows the working pattern in ``sandbox/slider_demo.py``:
+
+    1. Mutate ``slider._props['min']`` / ``['max']`` directly (never
+       ``slider.props('min=… max=…')`` for bounds — that breaks Quasar).
+    2. Assign ``slider.value``.
+    3. Call ``slider.update()`` to push state to the browser.
 
     Args:
         slider: Built NiceGUI slider element.
@@ -113,9 +115,29 @@ def _configure_nicegui_slider_bounds(
         Clamped value written to the slider.
     """
     clamped = max(min_index, min(max_index, int(value)))
-    slider._props['min'] = min_index
-    slider._props['max'] = max_index
-    slider.set_value(clamped)
+    
+    # print('====================')
+    # logger.info(f'min_index={min_index} {type(min_index)}')
+    # logger.info(f'max_index={max_index} {type(max_index)}')
+    # logger.info(f'value={value} {type(value)}')
+    # logger.info(f'clamped={clamped} {type(clamped)}')
+    # logger.info(f'slider._props={slider._props}')
+
+    slider._props['min'] = int(min_index)
+    slider._props['max'] = int(max_index)
+    slider.value = clamped
+    slider.update()
+
+    # logger.debug(
+    #     'slider bounds updated: min=%s max=%s value=%s',
+    #     min_index,
+    #     max_index,
+    #     clamped,
+    # )
+
+    # logger.info('=== AFTER')
+    # logger.info(f'slider._props={slider._props}')
+
     return clamped
 
 
@@ -303,8 +325,9 @@ class PrimaryImageView(BaseView):
         dark_mode_provider: Callable[[], bool] | None = None,
         raster_display_cache: RasterDisplayCache | None = None,
         app_config: AppConfig | None = None,
+        app_state: Any | None = None,
     ) -> None:
-        super().__init__(event_bus=event_bus, app_state=None, initially_visible=initially_visible)
+        super().__init__(event_bus=event_bus, app_state=app_state, initially_visible=initially_visible)
         self._title = title
         self._client: Any = None
         self._app_config = app_config
@@ -338,6 +361,7 @@ class PrimaryImageView(BaseView):
         self._manual_contrast_lut = 'Gray'
         self._manual_contrast_range: tuple[int, int] | None = None
         self._suppress_slider_events = False
+        self._slice_refresh_generation = 0
         self._slice_row: ui.row | None = None
         self._t_slider: ui.slider | None = None
         self._z_slider: ui.slider | None = None
@@ -426,6 +450,39 @@ class PrimaryImageView(BaseView):
             return
         self._viewer_originated_x_range = True
         self.event_bus.publish(SetPrimaryXRangeIntent(x_min=x_min, x_max=x_max))
+
+    def _acq_image_for_slice_sliders(self) -> AcqImage | None:
+        """Return the acquisition image whose header drives T/Z slider bounds.
+
+        ``PrimaryImageView`` is built without ``app_state``; slider bounds must
+        come from ``current_acq_image`` on :class:`FileSelectionChanged`. Reject
+        a cached image whose ``file_id`` differs from ``current_selection`` so a
+        stale header cannot leave the browser slider at the previous file's
+        ``max`` (including ``max=0`` from the placeholder build).
+
+        Returns:
+            Matching :class:`AcqImage`, or ``None`` when unavailable or stale.
+        """
+        file_id = self.current_selection.file_id
+        if file_id is None:
+            return None
+        acq_image = self.current_acq_image
+        if acq_image is None:
+            acq_image = self.get_acq_image_by_file_id(file_id)
+        if acq_image is None:
+            return None
+        try:
+            paths_match = Path(acq_image.file_id).resolve() == Path(file_id).resolve()
+        except OSError:
+            paths_match = str(acq_image.file_id) == str(file_id)
+        if not paths_match:
+            logger.warning(
+                'slice slider sync skipped: stale acq_image file_id=%s selection=%s',
+                acq_image.file_id,
+                file_id,
+            )
+            return None
+        return acq_image
 
     def _on_viewer_roi_bounds_preview(
         self,
@@ -566,6 +623,9 @@ class PrimaryImageView(BaseView):
             self._manual_contrast_range = None
         self._last_file_id = file_id
         self._last_channel = channel
+        # Cancel in-flight Z/T slice reloads from the previous selection so a
+        # stale Path B completion cannot overwrite the new file's viewer state.
+        self._slice_refresh_generation += 1
         self._sync_slice_sliders_from_header()
         self._refresh_raster_from_current_selection(include_overlays=True)
 
@@ -660,7 +720,30 @@ class PrimaryImageView(BaseView):
         Returns:
             None.
         """
-        self._refresh_raster_from_current_selection(include_overlays=False)
+        self._slice_refresh_generation += 1
+        generation = self._slice_refresh_generation
+        file_id = self.current_selection.file_id
+        acq_image = self.get_selected_acq_image()
+        channel = self.current_selection.channel
+        logger.debug(
+            'Primary raster Path B (Z/T scrub): file_id=%s channel=%s z=%s t=%s gen=%s',
+            file_id,
+            channel,
+            self._z,
+            self._t,
+            generation,
+        )
+        _schedule_coro(
+            self._refresh_raster_async(
+                file_id,
+                acq_image,
+                channel,
+                z=self._z,
+                t=self._t,
+                include_overlays=False,
+                slice_generation=generation,
+            )
+        )
 
     def _on_t_slider_changed(self, event: Any) -> None:
         """Update the view-local ``t`` index and reload the display plane.
@@ -686,7 +769,9 @@ class PrimaryImageView(BaseView):
             None.
         """
         if self._suppress_slider_events:
+            logger.debug('Z slider change suppressed')
             return
+        logger.debug('Z slider changed: value=%s', event.value)
         self._z = int(event.value)
         self._refresh_raster_for_slice_change()
 
@@ -698,14 +783,26 @@ class PrimaryImageView(BaseView):
         """
         if self._t_slider is None or self._z_slider is None:
             return
-        acq_image = self.get_selected_acq_image()
+        acq_image = self._acq_image_for_slice_sliders()
         if acq_image is None:
+            logger.debug(
+                'slice slider sync: no acq_image for file_id=%s',
+                self.current_selection.file_id,
+            )
             self._run_ui(self._hide_slice_sliders)
             return
 
         header = acq_image.images.header
         t_spec = slice_slider_spec_for_header(header, 'T')
         z_spec = slice_slider_spec_for_header(header, 'Z')
+        logger.debug(
+            'slice slider sync: file_id=%s z_spec=%s t_spec=%s view_z=%s view_t=%s',
+            self.current_selection.file_id,
+            z_spec,
+            t_spec,
+            self._z,
+            self._t,
+        )
 
         def _apply() -> None:
             assert self._t_slider is not None
@@ -756,6 +853,7 @@ class PrimaryImageView(BaseView):
         z: int,
         t: int,
         include_overlays: bool,
+        slice_generation: int | None = None,
     ) -> None:
         """Load and display one raster snapshot asynchronously.
 
@@ -766,10 +864,50 @@ class PrimaryImageView(BaseView):
             z: Snapshot ``Z`` slice index.
             t: Snapshot ``T`` slice index.
             include_overlays: When ``True``, refresh ROI and diameter overlays.
+            slice_generation: When set, drop stale completions from superseded
+                Z/T scrubs so only the latest slice reload mutates the viewer.
 
         Returns:
             None.
         """
+        path_label = 'B-slice' if not include_overlays else 'A-selection'
+
+        def _refresh_context_stale() -> bool:
+            if (
+                slice_generation is not None
+                and slice_generation != self._slice_refresh_generation
+            ):
+                return True
+            sel = self.current_selection
+            if file_id != sel.file_id or channel != sel.channel:
+                return True
+            if z != self._z or t != self._t:
+                return True
+            return False
+
+        logger.debug(
+            'Primary raster refresh start: path=%s file_id=%s channel=%s z=%s t=%s gen=%s',
+            path_label,
+            file_id,
+            channel,
+            z,
+            t,
+            slice_generation,
+        )
+
+        if _refresh_context_stale():
+            logger.debug(
+                'Primary raster refresh dropped (stale before load): path=%s '
+                'file_id=%s channel=%s z=%s t=%s gen=%s current_gen=%s',
+                path_label,
+                file_id,
+                channel,
+                z,
+                t,
+                slice_generation,
+                self._slice_refresh_generation,
+            )
+            return
         try:
             payload = await run.io_bound(
                 _load_primary_display_payload,
@@ -796,6 +934,20 @@ class PrimaryImageView(BaseView):
             await self._clear_primary_display()
             return
 
+        if _refresh_context_stale():
+            logger.debug(
+                'Primary raster refresh dropped (stale after load): path=%s '
+                'file_id=%s channel=%s z=%s t=%s gen=%s current_gen=%s',
+                path_label,
+                file_id,
+                channel,
+                z,
+                t,
+                slice_generation,
+                self._slice_refresh_generation,
+            )
+            return
+
         plane, grid, pyramid, is_placeholder = payload
         if is_placeholder:
             await self._clear_primary_display()
@@ -804,10 +956,40 @@ class PrimaryImageView(BaseView):
         try:
             self._current_grid = grid
             self._run_ui(lambda: self._set_idle_visible(False))
+            if _refresh_context_stale():
+                logger.debug(
+                    'Primary raster refresh dropped (stale before viewer): path=%s '
+                    'file_id=%s channel=%s z=%s t=%s gen=%s current_gen=%s',
+                    path_label,
+                    file_id,
+                    channel,
+                    z,
+                    t,
+                    slice_generation,
+                    self._slice_refresh_generation,
+                )
+                return
             if pyramid is None:
                 await self._viewer.set_data(plane, grid=grid)
+            elif not include_overlays:
+                preserved_viewport = self._viewer.get_viewport()
+                response = await self._viewer.swap_slice_plane(
+                    plane,
+                    grid=grid,
+                    pyramid=pyramid,
+                    display_axis_ranges=preserved_viewport,
+                )
+                logger.debug(
+                    'Primary raster Path B pushed to viewer: mode=%s level=%s z=%s t=%s',
+                    response.mode,
+                    response.level,
+                    z,
+                    t,
+                )
             else:
-                await self._viewer.set_data_from_pyramid(plane, grid=grid, pyramid=pyramid)
+                await self._viewer.set_data_from_pyramid(
+                    plane, grid=grid, pyramid=pyramid
+                )
             if include_overlays:
                 self._refresh_roi_overlays(acq_image=acq_image, grid=grid)
                 self._refresh_diameter_trace_overlays(acq_image=acq_image, grid=grid)
@@ -820,7 +1002,11 @@ class PrimaryImageView(BaseView):
                         plane,
                         self._app_config,
                     )
-                await self._apply_display_contrast(plane, channel_index)
+                await self._apply_display_contrast(
+                    plane,
+                    channel_index,
+                    preserve_viewport=not include_overlays,
+                )
                 try:
                     plane.setflags(write=False)
                 except (AttributeError, ValueError):
@@ -839,8 +1025,12 @@ class PrimaryImageView(BaseView):
             # Re-apply any non-auto app-level x-range that survives ``set_data``
             # (e.g. analysis-row click within the same file). When the cached
             # range is ``(None, None)`` this is a no-op and ``set_data``'s own
-            # auto-range stands.
-            self._apply_primary_x_range_to_viewer(include_auto=False)
+            # auto-range stands. Z/T slice scrubs must not re-apply x-only zoom
+            # on top of a full ``set_data`` reset — that leaves inconsistent
+            # x/y viewport state and breaks double-click reset and Z/T sliders.
+            if include_overlays:
+                self._apply_primary_x_range_to_viewer(include_auto=False)
+                self._sync_slice_sliders_from_header()
         except RuntimeError as exc:
             logger.exception('set_data failed: %s', exc)
             err_msg = str(exc)
@@ -895,6 +1085,8 @@ class PrimaryImageView(BaseView):
         color_lut: str,
         value_min: int,
         value_max: int,
+        *,
+        preserve_viewport: bool = False,
     ) -> None:
         """Push one LUT/intensity window to the Plotly viewer.
 
@@ -902,6 +1094,8 @@ class PrimaryImageView(BaseView):
             color_lut: LUT identifier.
             value_min: Heatmap minimum intensity.
             value_max: Heatmap maximum intensity.
+            preserve_viewport: When ``True``, keep the current Plotly viewport
+                during overview PNG re-encode on slice scrubs.
 
         Returns:
             None.
@@ -912,11 +1106,18 @@ class PrimaryImageView(BaseView):
                 colorscale=scale,
                 zmin=float(value_min),
                 zmax=float(value_max),
+                preserve_viewport=preserve_viewport,
             )
         except RuntimeError as exc:
             logger.warning('Skipping contrast apply (viewer not ready): %s', exc)
 
-    async def _apply_display_contrast(self, plane: np.ndarray, channel: int) -> None:
+    async def _apply_display_contrast(
+        self,
+        plane: np.ndarray,
+        channel: int,
+        *,
+        preserve_viewport: bool = False,
+    ) -> None:
         """Apply ephemeral auto or sticky manual contrast to the viewer.
 
         Does not write contrast state to :class:`AcqImage` on slice navigation.
@@ -924,6 +1125,8 @@ class PrimaryImageView(BaseView):
         Args:
             plane: Current 2D display plane.
             channel: Zero-based channel index.
+            preserve_viewport: When ``True``, keep the current Plotly viewport
+                during overview PNG re-encode on slice scrubs.
 
         Returns:
             None.
@@ -937,7 +1140,7 @@ class PrimaryImageView(BaseView):
                 value_min, value_max = ephemeral_auto_contrast_from_plane(plane, self._app_config)
             else:
                 value_min, value_max = self._manual_contrast_range
-        await self._apply_contrast_style(color_lut, value_min, value_max)
+        await self._apply_contrast_style(color_lut, value_min, value_max, preserve_viewport=preserve_viewport)
 
     async def _apply_contrast(self, acq_image: AcqImage, channel: int) -> None:
         """Apply the AcqImage's stored contrast for ``channel`` to the viewer.

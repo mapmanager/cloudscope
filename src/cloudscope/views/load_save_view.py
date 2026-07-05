@@ -344,12 +344,12 @@ class LoadSaveView(BaseView):
             if self._recent_menu is not None:
                 self._recent_menu.close()
         except Exception:
-            logger.debug('recent menu close failed', exc_info=True)
+            logger.error('recent menu close failed', exc_info=True)
         try:
             if self._recent_menu is not None:
                 self._recent_menu.delete()
         except Exception:
-            logger.debug('recent menu delete failed', exc_info=True)
+            logger.error('recent menu delete failed', exc_info=True)
         self._recent_menu = None
         with self._history_menu_container:
             with ui.menu() as menu:

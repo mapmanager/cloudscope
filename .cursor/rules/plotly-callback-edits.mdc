@@ -1,0 +1,43 @@
+---
+description: Require explicit disclosure before editing NiceGUI Plotly event callbacks
+globs: src/nicewidgets/raster_viewer/**/*.py,src/cloudscope/views/*image*.py
+alwaysApply: true
+---
+
+# Plotly / NiceGUI callback edits (STRICT)
+
+Before changing any logic wired to Plotly or NiceGUI browser events, the agent
+**must tell the user prominently in chat** before or when opening the PR/diff.
+
+## In scope (disclosure required)
+
+- Handlers registered with ``plot.on('plotly_relayout', ...)``,
+  ``plot.on('plotly_doubleclick', ...)``, or other Plotly events
+- Methods those handlers call when the change affects filtering, scheduling,
+  debouncing, or early-return behavior (e.g. ``_on_plotly_relayout``,
+  ``_schedule_viewport_settle``, ``_debounced_viewport_settle_loop``)
+- ``RASTER_VIEWER_PLOTLY_CONFIG`` when it affects gesture/event behavior
+
+## Out of scope (no special disclosure)
+
+- Pure DEBUG logging inside callbacks (no branch/behavior change)
+- Backend raster render code with no callback wiring change
+- Unit tests that call handlers directly without changing handler logic
+
+## Required chat format
+
+Use a visible header, e.g.:
+
+**PLOTLY CALLBACK EDIT** — `<file>` `<handler>` — `<one-line behavior change>`
+
+Example:
+
+**PLOTLY CALLBACK EDIT** — `plotly_viewer.py` `_on_plotly_relayout` — schedule
+viewport settle for normalized scroll-zoom relayout when not an echo.
+
+## Workflow
+
+1. State the disclosure **before** implementing or in the first message that
+   includes the diff.
+2. Prefer a failing unit test for the intended relayout/gesture case when feasible.
+3. Do not combine unrelated callback refactors with other ticket work.

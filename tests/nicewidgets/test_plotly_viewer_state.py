@@ -31,6 +31,7 @@ from nicewidgets.raster_viewer.frontend.plotly_coord_transform import (
 )
 from nicewidgets.raster_viewer.frontend.plotly_protocol import (
     DEFAULT_HEATMAP_COLORSCALE,
+    RASTER_VIEWER_PLOTLY_CONFIG,
     PlotlyViewportPayload,
     build_plotly_figure,
     parse_relayout_payload,
@@ -160,6 +161,11 @@ def test_merge_partial_relayout_accepts_bracket_keys() -> None:
 
 
 # ---------- plotly_protocol helpers ----------
+
+
+def test_raster_viewer_plotly_config_enables_doubleclick_reset() -> None:
+    """Double-click must reach the custom overview-PNG reset handler."""
+    assert RASTER_VIEWER_PLOTLY_CONFIG['doubleClick'] == 'reset'
 
 
 def test_parse_relayout_payload_returns_view_request() -> None:
@@ -874,8 +880,35 @@ def test_display_axis_ranges_from_relayout_uses_cache_for_missing_axis() -> None
     assert ranges == ((11.0, 12.0), (30.0, 40.0))
 
 
-def test_on_plotly_relayout_ignores_normalized_only_payload() -> None:
-    """Normalized-only relayout payloads should not schedule viewport settle."""
+def test_on_plotly_relayout_ignores_normalized_echo_of_last_display_viewport() -> None:
+    """Post-``set_data`` normalized relayout echoes must not schedule viewport settle."""
+
+    async def run() -> None:
+        viewer = PlotlyRasterViewer()
+        await viewer.set_data(np.zeros((4, 4), dtype=np.float32), grid=_grid())
+        viewer._plot = types.SimpleNamespace(id='p')
+        assert viewer._last_display_axis_ranges is not None
+        (x_lo, x_hi), (y_lo, y_hi) = viewer._last_display_axis_ranges
+
+        await viewer._on_plotly_relayout(
+            types.SimpleNamespace(
+                args={
+                    'xaxis.range': [x_lo, x_hi],
+                    'xaxis.autorange': False,
+                    'yaxis.range': [y_lo, y_hi],
+                    'yaxis.autorange': False,
+                }
+            )
+        )
+
+        assert viewer._viewport_settle_requested is False
+        assert viewer._viewport_settle_task is None
+
+    asyncio.run(run())
+
+
+def test_on_plotly_relayout_schedules_settle_for_normalized_user_zoom() -> None:
+    """Scroll-zoom normalized relayout must schedule viewport settle when ranges differ."""
 
     async def run() -> None:
         viewer = PlotlyRasterViewer()
@@ -893,8 +926,8 @@ def test_on_plotly_relayout_ignores_normalized_only_payload() -> None:
             )
         )
 
-        assert viewer._viewport_settle_requested is False
-        assert viewer._viewport_settle_task is None
+        assert viewer._viewport_settle_requested is True
+        assert viewer._viewport_settle_task is not None
 
     asyncio.run(run())
 
@@ -1255,3 +1288,55 @@ def test_apply_response_restyles_same_heatmap_trace_without_layout_update() -> N
         assert viewer.figure['data'][0]['z'] == [[1.0, 2.0], [3.0, 4.0]]
 
     asyncio.run(run())
+
+
+def test_get_viewport_returns_last_display_ranges_after_set_data() -> None:
+    """``get_viewport`` should expose the viewer's cached Plotly axis ranges."""
+    viewer = PlotlyRasterViewer()
+    data = np.arange(100, dtype=np.float32).reshape(10, 10)
+    grid = RasterGridSpec(dx=1.0, dy=1.0, x_unit='s', y_unit='um')
+
+    asyncio.run(viewer.set_data(data, grid=grid))
+
+    viewport = viewer.get_viewport()
+    assert viewport is not None
+    assert viewport[0] == (0.0, 10.0)
+    assert viewport[1] == (0.0, 10.0)
+
+
+def test_swap_slice_plane_preserves_zoomed_viewport() -> None:
+    """Slice reloads should render at the cached viewport without a full reset."""
+    from nicewidgets.raster_viewer.backend.image_model import BackendImage
+    from nicewidgets.raster_viewer.backend.pyramid import ImagePyramid
+    from nicewidgets.raster_viewer.frontend.plotly_viewer import DisplayAxisRanges
+
+    viewer = PlotlyRasterViewer()
+    data = np.arange(100, dtype=np.float32).reshape(10, 10)
+    grid = RasterGridSpec(dx=1.0, dy=1.0, x_unit='s', y_unit='um')
+    asyncio.run(viewer.set_data(data, grid=grid))
+
+    zoomed: DisplayAxisRanges = ((2.0, 6.0), (3.0, 7.0))
+    viewer._last_display_axis_ranges = zoomed  # noqa: SLF001
+    viewer._last_viewport_size_px = (400, 300)  # noqa: SLF001
+
+    next_plane = np.arange(100, 200, dtype=np.float32).reshape(10, 10)
+    pyramid = ImagePyramid(BackendImage(next_plane, grid=grid))
+
+    apply_calls: list[DisplayAxisRanges | None] = []
+
+    async def _fake_apply(response, *, display_axis_ranges=None) -> None:  # type: ignore[no-untyped-def]
+        apply_calls.append(display_axis_ranges)
+
+    viewer.apply_response = _fake_apply  # type: ignore[method-assign]
+
+    asyncio.run(
+        viewer.swap_slice_plane(
+            next_plane,
+            grid=grid,
+            pyramid=pyramid,
+            display_axis_ranges=zoomed,
+        )
+    )
+
+    assert apply_calls == [zoomed]
+    assert viewer.get_viewport() == zoomed
