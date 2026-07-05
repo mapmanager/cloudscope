@@ -138,7 +138,7 @@ def test_auto_button_uses_callback_and_emits_once() -> None:
     w._on_auto_click()
     assert w.get_range() == (5, 250)
     assert seen == [
-        ContrastChangedIntent(color_lut='Green', value_min=5, value_max=250)
+        ContrastChangedIntent(color_lut='Green', value_min=5, value_max=250, from_auto=True)
     ]
 
 
@@ -167,7 +167,7 @@ def test_auto_swaps_inverted_callback_result() -> None:
     w._on_auto_click()
     assert w.get_range() == (8, 240)
     assert seen == [
-        ContrastChangedIntent(color_lut=DEFAULT_LUT, value_min=8, value_max=240)
+        ContrastChangedIntent(color_lut=DEFAULT_LUT, value_min=8, value_max=240, from_auto=True)
     ]
 
 

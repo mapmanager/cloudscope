@@ -347,20 +347,25 @@ def test_roi_local_traces_to_plotly_overlays_skips_invisible_or_empty() -> None:
 def test_on_primary_selection_changed_refreshes_raster() -> None:
     """File selection refresh is driven by the BaseView selection hook."""
     view = _view_with_fake_viewer()
-    calls: list[str] = []
-    view._refresh_raster_from_current_selection = lambda: calls.append("r")  # type: ignore[method-assign]
+    calls: list[bool] = []
+    view._sync_slice_sliders_from_header = lambda: None  # type: ignore[method-assign]
+    view._refresh_raster_from_current_selection = lambda **kwargs: calls.append(  # type: ignore[method-assign]
+        kwargs.get('include_overlays', True)
+    )
 
     view.on_primary_selection_changed()
 
-    assert calls == ["r"]
+    assert calls == [True]
 
 
 def test_refresh_from_state_delegates_to_refresh() -> None:
     """refresh_from_state should delegate to _refresh_raster_from_current_selection."""
     view = _view_with_fake_viewer()
-    calls: list[str] = []
-    view._refresh_raster_from_current_selection = lambda: calls.append("r")  # type: ignore[method-assign]
+    calls: list[bool] = []
+    view._refresh_raster_from_current_selection = lambda **kwargs: calls.append(  # type: ignore[method-assign]
+        kwargs.get('include_overlays', True)
+    )
 
     view.refresh_from_state()
 
-    assert calls == ["r"]
+    assert calls == [True]

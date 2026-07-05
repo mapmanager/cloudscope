@@ -56,8 +56,8 @@ def test_acq_image_rejects_unsupported_extension_via_factory(tmp_path: Path) -> 
 
 
 def test_factory_obeys_runtime_extension_set(tmp_path: Path) -> None:
-    set_allowed_import_extensions(['abc'])
-    assert get_allowed_import_extensions() == ('abc',)
+    set_allowed_import_extensions(['oir'])
+    assert get_allowed_import_extensions() == ('oir',)
     path = tmp_path / 'x.tif'
     path.write_text('')
     with pytest.raises(ValueError, match='Unsupported acquisition file extension'):
