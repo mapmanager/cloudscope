@@ -33,6 +33,7 @@ from acqstore.acq_image.metadata import ImageHeaderMetadata
 from cloudscope.app_config import AppConfig, home_stack_layout_margins_profile
 from cloudscope.contrast_seeding import (
     default_channel_color_lut,
+    ensure_channel_contrast_from_plane,
     ephemeral_auto_contrast_from_plane,
 )
 from cloudscope.event_bus import EventBus
@@ -84,6 +85,38 @@ def slice_slider_spec_for_header(header: ImageHeader, dim: str) -> tuple[int, in
     if count <= 1:
         return None
     return 0, count - 1
+
+
+def _configure_nicegui_slider_bounds(
+    slider: ui.slider,
+    *,
+    min_index: int,
+    max_index: int,
+    value: int,
+) -> int:
+    """Apply ``min``/``max``/``value`` to a NiceGUI ``ui.slider`` after construction.
+
+    NiceGUI's :class:`~nicegui.elements.slider.Slider` stores bounds in
+    ``slider._props['min']`` and ``slider._props['max']`` (see
+    ``nicegui/elements/slider.py``). There are no public ``.min``/``.max``
+    attributes; assigning those names does not update the Quasar component.
+    Updating ``_props`` triggers :meth:`~nicegui.element.Element.update` via
+    :class:`~nicegui.props.Props`.
+
+    Args:
+        slider: Built NiceGUI slider element.
+        min_index: Lower bound (inclusive).
+        max_index: Upper bound (inclusive).
+        value: Desired slider position before clamping.
+
+    Returns:
+        Clamped value written to the slider.
+    """
+    clamped = max(min_index, min(max_index, int(value)))
+    slider._props['min'] = min_index
+    slider._props['max'] = max_index
+    slider.set_value(clamped)
+    return clamped
 
 
 def raster_grid_spec_from_image_header(header: ImageHeader) -> RasterGridSpec:
@@ -574,6 +607,7 @@ class PrimaryImageView(BaseView):
             None.
         """
         self._sync_theme_from_provider()
+        self._sync_slice_sliders_from_header()
         self._refresh_raster_from_current_selection()
 
     def _run_ui(self, fn: Callable[[], None]) -> None:
@@ -682,20 +716,24 @@ class PrimaryImageView(BaseView):
                     self._t_slider.classes(add='hidden', remove='flex-1')
                 else:
                     t_min, t_max = t_spec
-                    self._t = max(t_min, min(t_max, self._t))
-                    self._t_slider.min = t_min
-                    self._t_slider.max = t_max
-                    self._t_slider.value = self._t
+                    self._t = _configure_nicegui_slider_bounds(
+                        self._t_slider,
+                        min_index=t_min,
+                        max_index=t_max,
+                        value=self._t,
+                    )
                     self._t_slider.classes(remove='hidden', add='flex-1')
 
                 if z_spec is None:
                     self._z_slider.classes(add='hidden', remove='flex-1')
                 else:
                     z_min, z_max = z_spec
-                    self._z = max(z_min, min(z_max, self._z))
-                    self._z_slider.min = z_min
-                    self._z_slider.max = z_max
-                    self._z_slider.value = self._z
+                    self._z = _configure_nicegui_slider_bounds(
+                        self._z_slider,
+                        min_index=z_min,
+                        max_index=z_max,
+                        value=self._z,
+                    )
                     self._z_slider.classes(remove='hidden', add='flex-1')
             finally:
                 self._suppress_slider_events = False
@@ -774,7 +812,15 @@ class PrimaryImageView(BaseView):
                 self._refresh_roi_overlays(acq_image=acq_image, grid=grid)
                 self._refresh_diameter_trace_overlays(acq_image=acq_image, grid=grid)
             if not is_placeholder and file_id is not None and channel is not None and acq_image is not None:
-                await self._apply_display_contrast(plane, int(channel))
+                channel_index = int(channel)
+                if acq_image.get_image_contrast(channel_index) is None:
+                    ensure_channel_contrast_from_plane(
+                        acq_image,
+                        channel_index,
+                        plane,
+                        self._app_config,
+                    )
+                await self._apply_display_contrast(plane, channel_index)
                 try:
                     plane.setflags(write=False)
                 except (AttributeError, ValueError):
@@ -832,10 +878,43 @@ class PrimaryImageView(BaseView):
         if event.from_auto:
             self._contrast_auto_per_slice = True
             self._manual_contrast_range = None
-            return
-        self._contrast_auto_per_slice = False
-        self._manual_contrast_lut = str(event.color_lut)
-        self._manual_contrast_range = (int(event.value_min), int(event.value_max))
+        else:
+            self._contrast_auto_per_slice = False
+            self._manual_contrast_lut = str(event.color_lut)
+            self._manual_contrast_range = (int(event.value_min), int(event.value_max))
+        _schedule_coro(
+            self._apply_contrast_style(
+                str(event.color_lut),
+                int(event.value_min),
+                int(event.value_max),
+            )
+        )
+
+    async def _apply_contrast_style(
+        self,
+        color_lut: str,
+        value_min: int,
+        value_max: int,
+    ) -> None:
+        """Push one LUT/intensity window to the Plotly viewer.
+
+        Args:
+            color_lut: LUT identifier.
+            value_min: Heatmap minimum intensity.
+            value_max: Heatmap maximum intensity.
+
+        Returns:
+            None.
+        """
+        scale = get_colorscale(color_lut)
+        try:
+            await self._viewer.set_heatmap_style(
+                colorscale=scale,
+                zmin=float(value_min),
+                zmax=float(value_max),
+            )
+        except RuntimeError as exc:
+            logger.warning('Skipping contrast apply (viewer not ready): %s', exc)
 
     async def _apply_display_contrast(self, plane: np.ndarray, channel: int) -> None:
         """Apply ephemeral auto or sticky manual contrast to the viewer.
@@ -858,15 +937,7 @@ class PrimaryImageView(BaseView):
                 value_min, value_max = ephemeral_auto_contrast_from_plane(plane, self._app_config)
             else:
                 value_min, value_max = self._manual_contrast_range
-        scale = get_colorscale(color_lut)
-        try:
-            await self._viewer.set_heatmap_style(
-                colorscale=scale,
-                zmin=float(value_min),
-                zmax=float(value_max),
-            )
-        except RuntimeError as exc:
-            logger.warning('Skipping contrast apply (viewer not ready): %s', exc)
+        await self._apply_contrast_style(color_lut, value_min, value_max)
 
     async def _apply_contrast(self, acq_image: AcqImage, channel: int) -> None:
         """Apply the AcqImage's stored contrast for ``channel`` to the viewer.
@@ -886,15 +957,11 @@ class PrimaryImageView(BaseView):
         contrast = acq_image.get_image_contrast(int(channel))
         if contrast is None:
             return
-        scale = get_colorscale(contrast.color_lut)
-        try:
-            await self._viewer.set_heatmap_style(
-                colorscale=scale,
-                zmin=float(contrast.value_min),
-                zmax=float(contrast.value_max),
-            )
-        except RuntimeError as exc:
-            logger.warning('Skipping contrast apply (viewer not ready): %s', exc)
+        await self._apply_contrast_style(
+            contrast.color_lut,
+            contrast.value_min,
+            contrast.value_max,
+        )
 
     def _on_roi_changed(self, event: RoiChanged) -> None:
         """Refresh ROI overlays after the selected file ROI model changes.

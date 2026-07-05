@@ -8,6 +8,7 @@ import pytest
 from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader
 
 from cloudscope.views.primary_image_view import (
+    _configure_nicegui_slider_bounds,
     _load_plane_payload,
     _load_primary_display_payload,
     raster_grid_spec_from_image_header,
@@ -76,6 +77,17 @@ def test_raster_grid_spec_raises_on_nan_calibration() -> None:
 
 def test_load_plane_payload_returns_none_without_acq() -> None:
     assert _load_plane_payload('/x', None, 0) is None
+
+
+def test_configure_nicegui_slider_bounds_updates_props_not_python_attrs() -> None:
+    from nicegui import ui
+
+    slider = ui.slider(min=0, max=0, value=0, step=1)
+    clamped = _configure_nicegui_slider_bounds(slider, min_index=0, max_index=150, value=42)
+    assert clamped == 42
+    assert slider._props['min'] == 0
+    assert slider._props['max'] == 150
+    assert slider.value == 42
 
 
 def test_slice_slider_spec_for_header() -> None:
@@ -200,7 +212,7 @@ import asyncio
 
 from acqstore.acq_image.image_contrast import ImageContrast
 from cloudscope.event_bus import EventBus
-from cloudscope.events.contrast import ImageContrastChanged
+from cloudscope.events.contrast import ImageContrastChanged, UpdateImageContrastIntent
 from cloudscope.events.raster import PrimaryPlaneLoaded
 from cloudscope.state import PrimarySelection
 from cloudscope.views.base_view import BaseView
@@ -343,6 +355,31 @@ def test_on_image_contrast_changed_only_for_current_selection() -> None:
     assert fake.contrast_calls == [(10.0, 200.0)]
 
 
+def test_on_update_contrast_intent_applies_style_immediately() -> None:
+    view = PrimaryImageView(EventBus())
+    fake = _FakeViewer()
+    view._viewer = fake  # type: ignore[assignment]
+    view.current_selection = PrimarySelection(file_id='f', channel=0)
+    view._on_update_contrast_intent(
+        UpdateImageContrastIntent(
+            file_id='f',
+            channel=0,
+            color_lut='Plasma',
+            value_min=12,
+            value_max=200,
+            from_auto=False,
+        )
+    )
+
+    async def _drain() -> None:
+        for _ in range(5):
+            await asyncio.sleep(0)
+
+    asyncio.run(_drain())
+    assert fake.style_calls == [('Plasma', 12.0, 200.0)]
+    assert view._contrast_auto_per_slice is False
+
+
 def test_publishes_primary_plane_loaded_after_set_data() -> None:
     bus = EventBus()
     view = PrimaryImageView(bus)
@@ -369,13 +406,16 @@ def test_publishes_primary_plane_loaded_after_set_data() -> None:
 
     class _Acq:
         rois: list = []  # type: ignore[assignment]
+        ensure_calls = 0
 
         def get_image_contrast(self, _c: int):
-            return contrast
+            return None
 
         def ensure_image_contrast_from_plane(self, _channel: int, _plane, **_kwargs):
+            self.ensure_calls += 1
             return contrast
 
+    acq = _Acq()
     seen: list[PrimaryPlaneLoaded] = []
     bus.subscribe(PrimaryPlaneLoaded, seen.append)
 
@@ -395,7 +435,7 @@ def test_publishes_primary_plane_loaded_after_set_data() -> None:
         try:
             await view._refresh_raster_async(
                 'f',
-                _Acq(),
+                acq,
                 0,
                 z=0,
                 t=0,
@@ -406,6 +446,7 @@ def test_publishes_primary_plane_loaded_after_set_data() -> None:
 
     asyncio.run(_run())
     assert len(seen) == 1
+    assert acq.ensure_calls == 1
     assert seen[0].file_id == 'f'
     assert seen[0].channel == 0
     assert seen[0].z == 0
