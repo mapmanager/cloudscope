@@ -8,10 +8,7 @@ from acqstore.acq_image.supported_import_extensions import (
 )
 
 from .base_file_loader import BaseFileLoader
-from .czi_file_loader import CziFileLoader
-from .oir_file_loader import OirFileLoader
-from .ome_zarr_file_loader import OmeZarrFileLoader
-from .tiff_file_loader import TiffFileLoader
+from .loader_registry import create_registered_file_loader
 
 
 def create_file_loader(path: str) -> BaseFileLoader:
@@ -37,12 +34,4 @@ def create_file_loader(path: str) -> BaseFileLoader:
         raise ValueError(
             f'Unsupported acquisition file extension {suffix!r}; expected one of: {allowed_text}'
         )
-    if suffix == 'tif':
-        return TiffFileLoader(path, load_olympus_header=True)
-    if suffix == 'oir':
-        return OirFileLoader(path)
-    if suffix == 'czi':
-        return CziFileLoader(path)
-    if suffix in {'ome.zarr', 'cs.ome.zarr'}:
-        return OmeZarrFileLoader(path)
-    raise ValueError(f'No loader registered for extension {suffix!r}')
+    return create_registered_file_loader(path, suffix)

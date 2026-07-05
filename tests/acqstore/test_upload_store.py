@@ -39,7 +39,10 @@ def test_get_upload_dir_uses_platformdirs_default(monkeypatch: pytest.MonkeyPatc
     assert (tmp_path / upload_store.DEFAULT_APP_NAME / 'uploads').is_dir()
 
 
-@pytest.mark.parametrize('filename', ['file.tif', 'file.TIF', 'file.oir', 'file.czi'])
+@pytest.mark.parametrize(
+    'filename',
+    ['file.tif', 'file.TIF', 'file.oir', 'file.czi', 'file.ome.zarr', 'file.cs.ome.zarr'],
+)
 def test_validate_acq_filename_accepts_allowed_extensions(filename: str) -> None:
     assert validate_acq_filename(filename) == filename
 

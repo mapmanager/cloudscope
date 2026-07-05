@@ -9,7 +9,10 @@ from uuid import uuid4
 
 from platformdirs import user_data_dir
 
-from acqstore.acq_image.supported_import_extensions import get_allowed_import_extensions
+from acqstore.acq_image.supported_import_extensions import (
+    get_allowed_import_extensions,
+    normalize_import_extension_for_path,
+)
 from acqstore.sample_data import DEFAULT_APP_NAME
 
 UPLOAD_DIR_ENV = 'CLOUDSCOPE_UPLOAD_DIR'
@@ -77,7 +80,7 @@ def validate_acq_filename(filename: str) -> str:
     if name in {'.', '..'}:
         raise ValueError(f'Uploaded filename is not valid: {filename!r}')
 
-    suffix = Path(name).suffix.lower().lstrip('.')
+    suffix = normalize_import_extension_for_path(name)
     allowed = set(get_allowed_import_extensions())
     if suffix not in allowed:
         allowed_text = ', '.join(sorted(allowed))

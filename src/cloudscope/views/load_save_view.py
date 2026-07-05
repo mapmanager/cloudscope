@@ -579,7 +579,12 @@ class LoadSaveView(BaseView):
             return await _prompt_for_path(initial, dialog_type='folder')
         if kind == LoadPathKind.CSV:
             return await _prompt_for_path(initial, dialog_type='file', file_extension='.csv')
-        return await _prompt_for_path(initial, dialog_type='file', file_extension='.tif')
+        return await _prompt_for_path(
+            initial,
+            dialog_type='file',
+            file_extensions=_accepted_acquisition_extensions(),
+            file_type_label='Acquisition files',
+        )
 
     def _on_save_selected_clicked(self) -> None:
         """Emit save-selected intent without asking for an analysis CSV path.
@@ -745,7 +750,12 @@ class LoadSaveView(BaseView):
 
 def _accepted_upload_extensions() -> str:
     """Return browser accept text for acquisition uploads."""
-    return ','.join(f'.{extension}' for extension in get_allowed_import_extensions())
+    return ','.join(_accepted_acquisition_extensions())
+
+
+def _accepted_acquisition_extensions() -> tuple[str, ...]:
+    """Return dotted acquisition extensions accepted by AcqImage loading."""
+    return tuple(f'.{extension}' for extension in get_allowed_import_extensions())
 
 
 @dataclass(slots=True)

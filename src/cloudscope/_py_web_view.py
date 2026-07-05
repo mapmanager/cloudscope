@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Literal
 
@@ -8,6 +9,51 @@ from nicegui import app, run
 from cloudscope.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def _normalize_file_dialog_extensions(
+    *,
+    file_extension: str | None,
+    file_extensions: Sequence[str] | None,
+) -> tuple[str, ...]:
+    """Return normalized dotted extensions for a native file dialog."""
+    if file_extension is not None and file_extensions is not None:
+        raise ValueError('Pass either file_extension or file_extensions, not both')
+    raw_extensions = (
+        file_extensions
+        if file_extensions is not None
+        else ('.tif',)
+        if file_extension is None
+        else (file_extension,)
+    )
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw_extension in raw_extensions:
+        ext = raw_extension.strip()
+        if not ext:
+            raise ValueError('File dialog extension must not be empty')
+        if not ext.startswith('.'):
+            ext = f'.{ext}'
+        ext = ext.lower()
+        if ext in seen:
+            continue
+        seen.add(ext)
+        normalized.append(ext)
+    if not normalized:
+        raise ValueError('File dialog extensions must not be empty')
+    return tuple(normalized)
+
+
+def _format_file_type_filter(extensions: Sequence[str], *, label: str | None) -> str:
+    """Return one pywebview file-type filter for ``extensions``."""
+    patterns = ';'.join(f'*{extension}' for extension in extensions)
+    if label is not None:
+        display = label
+    elif len(extensions) == 1:
+        display = f'{extensions[0][1:].upper()} files'
+    else:
+        display = 'Supported files'
+    return f'{display} ({patterns})'
 
 
 def _resolve_dialog_window() -> Any | None:
@@ -63,6 +109,8 @@ async def _prompt_for_path(
     *,
     dialog_type: Literal['folder', 'file'] = 'folder',
     file_extension: str | None = None,
+    file_extensions: Sequence[str] | None = None,
+    file_type_label: str | None = None,
 ) -> str | None:
     """Open native folder or file picker dialog using pywebview.
 
@@ -71,6 +119,9 @@ async def _prompt_for_path(
         dialog_type: Type of dialog to open - "folder" or "file". Defaults to "folder".
         file_extension: File extension to filter for when dialog_type="file"
             (e.g., ".tif", ".csv"). Defaults to ".tif" if not provided for file dialogs.
+        file_extensions: Multiple file extensions to filter for when
+            dialog_type="file". Mutually exclusive with ``file_extension``.
+        file_type_label: Optional label for the pywebview file type filter.
 
     Returns:
         Selected path as string, or None if cancelled or error.
@@ -101,19 +152,23 @@ async def _prompt_for_path(
         else:
             dialog_type_enum = webview.FileDialog.OPEN  # type: ignore[attr-defined]
 
-            if file_extension is None:
-                ext = '.tif'
-            else:
-                ext = file_extension.strip()
-                if not ext.startswith('.'):
-                    ext = f'.{ext}'
-
-            ext_display = ext[1:].upper()
+            extensions = _normalize_file_dialog_extensions(
+                file_extension=file_extension,
+                file_extensions=file_extensions,
+            )
+            file_type_filter = _format_file_type_filter(extensions, label=file_type_label)
+            ext_display = (
+                file_type_label
+                if file_type_label is not None
+                else extensions[0][1:].upper()
+                if len(extensions) == 1
+                else 'supported'
+            )
 
             dialog_params = {
                 'directory': str(initial),
                 'allow_multiple': False,
-                'file_types': (f'{ext_display} files (*{ext})',),
+                'file_types': (file_type_filter,),
             }
             log_prefix = f'{ext_display} file'
             logger.debug(f'[picker] using webview.FileDialog.OPEN for {ext_display} file dialog')

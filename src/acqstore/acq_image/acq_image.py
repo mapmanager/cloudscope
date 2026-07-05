@@ -28,6 +28,7 @@ from .supported_import_extensions import (
     DEFAULT_IMPORT_EXTENSIONS,
     add_allowed_import_extension,
     get_allowed_import_extensions,
+    get_supported_import_extensions,
     remove_allowed_import_extension,
     reset_allowed_import_extensions,
     set_allowed_import_extensions,
@@ -124,6 +125,7 @@ def parent_grandparent_folder_names(
 __all__ = [
     'DEFAULT_IMPORT_EXTENSIONS',
     'get_allowed_import_extensions',
+    'get_supported_import_extensions',
     'set_allowed_import_extensions',
     'add_allowed_import_extension',
     'remove_allowed_import_extension',

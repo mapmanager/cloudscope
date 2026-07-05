@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -142,6 +143,64 @@ def test_resolve_initial_directory_falls_back_to_home(tmp_path) -> None:
     """When no useful ``last_path`` is set, the home directory should be returned."""
     view = _new_view(tmp_path)
     assert view._resolve_initial_directory() == Path.home()
+
+
+def test_pick_load_path_file_uses_acqstore_acquisition_extensions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The native Load File picker should advertise every AcqImage-loadable suffix."""
+    from acqstore.acq_image.supported_import_extensions import get_allowed_import_extensions
+    import cloudscope.views.load_save_view as load_save_module
+
+    view = _new_view(tmp_path)
+    calls: list[dict[str, object]] = []
+
+    async def fake_prompt_for_path(initial: Path, **kwargs) -> str:
+        calls.append({'initial': initial, **kwargs})
+        return '/tmp/sample.oir'
+
+    monkeypatch.setattr(load_save_module, '_prompt_for_path', fake_prompt_for_path)
+
+    result = asyncio.run(view._pick_load_path(LoadPathKind.FILE))
+
+    assert result == '/tmp/sample.oir'
+    assert calls == [
+        {
+            'initial': Path.home(),
+            'dialog_type': 'file',
+            'file_extensions': tuple(f'.{extension}' for extension in get_allowed_import_extensions()),
+            'file_type_label': 'Acquisition files',
+        }
+    ]
+
+
+def test_pick_load_path_csv_keeps_csv_filter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CSV manifests should keep their separate single-extension picker filter."""
+    import cloudscope.views.load_save_view as load_save_module
+
+    view = _new_view(tmp_path)
+    calls: list[dict[str, object]] = []
+
+    async def fake_prompt_for_path(initial: Path, **kwargs) -> str:
+        calls.append({'initial': initial, **kwargs})
+        return '/tmp/list.csv'
+
+    monkeypatch.setattr(load_save_module, '_prompt_for_path', fake_prompt_for_path)
+
+    result = asyncio.run(view._pick_load_path(LoadPathKind.CSV))
+
+    assert result == '/tmp/list.csv'
+    assert calls == [
+        {
+            'initial': Path.home(),
+            'dialog_type': 'file',
+            'file_extension': '.csv',
+        }
+    ]
 
 
 # ---- _is_native_mode ----
