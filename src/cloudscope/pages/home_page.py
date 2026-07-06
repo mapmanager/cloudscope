@@ -20,7 +20,7 @@ from cloudscope.controllers.roi_controller import RoiController
 from cloudscope.controllers.velocity_pool_controller import VelocityPoolController
 from cloudscope.controllers.x_range_controller import XRangeController
 from cloudscope.event_bus import EventBus
-from cloudscope.runtime import get_current_runtime
+from cloudscope.runtime import CloudScopeRuntime, get_current_runtime
 from cloudscope.task_runner import TaskRunner
 from cloudscope.user_context import UserContext
 from cloudscope.events.layout import ResetHomeLayoutIntent
@@ -43,6 +43,62 @@ from cloudscope.views.splitter_manager import HOME_SPLITTER_PRESETS, SplitterId,
 from cloudscope.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def _selection_snapshot(runtime: CloudScopeRuntime) -> str:
+    """Return a compact primary-selection string for session-state logs.
+
+    Args:
+        runtime: Active CloudScope runtime for the current client.
+
+    Returns:
+        Human-readable selection summary.
+    """
+    sel = runtime.home_page_controller.state.selection
+    return (
+        f'file_id={sel.file_id!r} channel={sel.channel} roi_id={sel.roi_id} '
+        f'analysis_name={sel.analysis_name!r}'
+    )
+
+
+def _log_home_session_state(
+    phase: str,
+    *,
+    runtime: CloudScopeRuntime,
+    client_id: str | None = None,
+    view_count: int | None = None,
+    note: str = '',
+) -> None:
+    """Log runtime vs config state during home-page connect/build/disconnect.
+
+    Args:
+        phase: Short label for the point in the home-page lifecycle.
+        runtime: Active CloudScope runtime for the current client.
+        client_id: NiceGUI client id when available.
+        view_count: Number of registered views after ``HomePage.build()``.
+        note: Optional extra context appended to the log line.
+
+    Returns:
+        None.
+    """
+    state = runtime.home_page_controller.state
+    acq_list = state.acq_image_list
+    acq_image_list_status = 'loaded' if acq_list is not None else 'none'
+    file_count = len(state.file_ids) if acq_list is not None else 0
+    config_last_path = runtime.app_config.get_last_path()
+
+    logger.info('home_page [%s]', phase)
+    logger.info('  client_id=%s', client_id)
+    logger.info('  runtime_initialized=%s', runtime.initialized)
+    logger.info('  acq_image_list=%s', acq_image_list_status)
+    logger.info('  file_count=%s', file_count)
+    logger.info('  selection=%s', _selection_snapshot(runtime))
+    logger.info('  config_last_path=%r', config_last_path)
+    if view_count is not None:
+        logger.info('  view_count=%s', view_count)
+    if note:
+        logger.info('  note=%s', note)
+
 
 SHOW_EMBEDDED_VELOCITY_POOL = False
 SHOW_VELOCITY_POOL_RIGHT_PANEL = True
@@ -87,7 +143,12 @@ class HomePage:
         Returns:
             None.
         """
-        logger.info('!!! BUILDING HOME PAGE !!!')
+        logger.info('=== === === build(start) === === ===')
+        _log_home_session_state(
+            'build(start)',
+            runtime=get_current_runtime(),
+            client_id=getattr(ui.context.client, 'id', None),
+        )
 
         text_size = self.app_config.get_attribute('text_size')
         setUpGuiDefaults(text_size)
@@ -829,12 +890,26 @@ class HomePage:
         x_range_controller.bind()
 
         def _on_client_disconnect() -> None:
+            _log_home_session_state(
+                'client_disconnect',
+                runtime=get_current_runtime(),
+                client_id=getattr(ui.context.client, 'id', None),
+                view_count=len(view_manager.view_ids()),
+                note='hiding views; runtime state should remain in process registry',
+            )
             for view_id in view_manager.view_ids():
                 view_manager.get(view_id).on_hide()
 
         ui.context.client.on_disconnect(_on_client_disconnect)
 
-        logger.info('!!! HOME PAGE BUILD COMPLETED !!!')
+        _log_home_session_state(
+            'build(complete)',
+            runtime=get_current_runtime(),
+            client_id=getattr(ui.context.client, 'id', None),
+            view_count=len(view_manager.view_ids()),
+            note='GUI widgets rebuilt; views hydrate from runtime state and/or pending load events',
+        )
+        logger.info('=== === === build(complete) === === ===')
 
     # abb 20260323 pywebview native save png (clipboard)
     def _native_resize(self, e):# we also can do this:
@@ -916,7 +991,52 @@ def home_page() -> None:
         None.
     """
     runtime = get_current_runtime()
+    client_id = getattr(ui.context.client, 'id', None)
+    was_initialized = runtime.initialized
+    had_acq_image_list = runtime.home_page_controller.state.acq_image_list is not None
+    config_last_path = runtime.app_config.get_last_path().strip()
+
+    _log_home_session_state(
+        'connect(before initialize_once)',
+        runtime=runtime,
+        client_id=client_id,
+    )
+
     runtime.initialize_once()
+
+    if not was_initialized:
+        if had_acq_image_list:
+            logger.info(
+                'home_page bootstrap: initialize_once skipped LoadPathIntent because '
+                'acq_image_list was already loaded before first initialize_once'
+            )
+        elif config_last_path:
+            logger.info(
+                'home_page bootstrap: initialize_once published LoadPathIntent for '
+                'config last_path=%r (load is async; GUI build may run before load completes)',
+                config_last_path,
+            )
+        else:
+            logger.info(
+                'home_page bootstrap: initialize_once finished with no config last_path; '
+                'starting from empty demo file list'
+            )
+    else:
+        logger.info(
+            'home_page reconnect: initialize_once skipped (runtime_initialized=True); '
+            'repopulating GUI from existing runtime state (no new LoadPathIntent). '
+            'acq_image_list=%s selection=%s config_last_path=%r',
+            'loaded' if runtime.home_page_controller.state.acq_image_list is not None else 'none',
+            _selection_snapshot(runtime),
+            config_last_path or None,
+        )
+
+    _log_home_session_state(
+        'connect(after initialize_once)',
+        runtime=runtime,
+        client_id=client_id,
+    )
+
     page = HomePage(
         controller=runtime.home_page_controller,
         load_save_controller=runtime.load_save_controller,
