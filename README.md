@@ -53,12 +53,19 @@ Clone the repository, install dependencies with `uv`, and run the app locally:
 
 ```bash
 uv sync
-uv run python src/cloudscope/app.py
+./scripts/run app
 ```
 
 Run in browser mode:
 
 ```bash
+./scripts/run web
+```
+
+Equivalent direct launches (from the repository root):
+
+```bash
+uv run python src/cloudscope/app.py
 CLOUDSCOPE_NATIVE=0 uv run python src/cloudscope/app.py
 ```
 

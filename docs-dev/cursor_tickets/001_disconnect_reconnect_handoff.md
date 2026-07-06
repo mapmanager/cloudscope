@@ -21,7 +21,7 @@ This file replaces cross-workspace chat history. Chat threads are not portable b
 
 ## 1. Problem summary
 
-CloudScope native desktop app (`./run app`, NiceGUI + pywebview). On WebSocket disconnect and **hard reconnect** (new browser client, full page rebuild), runtime state survives but **1D Plotly plots** often stay empty:
+CloudScope native desktop app (`./scripts/run app`, NiceGUI + pywebview). On WebSocket disconnect and **hard reconnect** (new browser client, full page rebuild), runtime state survives but **1D Plotly plots** often stay empty:
 
 - **Acq analysis plot** (`AcqAnalysisPlotView`)
 - **Sum intensity plot** (`SumIntensityPlotView`)
@@ -30,7 +30,7 @@ CloudScope native desktop app (`./run app`, NiceGUI + pywebview). On WebSocket d
 
 **Workaround (confirmed):** select a different file, then return to the original selection → both plots populate.
 
-**Triggers observed:** long macOS sleep, idle WebSocket timeout, `./run app` native. DevTools offline in `./run web` usually hard-reconnects successfully (plots OK) — same log shape as failures; difference is timing, not log pattern.
+**Triggers observed:** long macOS sleep, idle WebSocket timeout, `./scripts/run app` native. DevTools offline in `./scripts/run web` usually hard-reconnects successfully (plots OK) — same log shape as failures; difference is timing, not log pattern.
 
 ---
 
@@ -179,7 +179,7 @@ Numbering above is provisional; use next free `NNN` in `cursor_tickets/` when op
 
 ### Manual acceptance
 
-1. `./run app` — load sample data, select file with analyses.
+1. `./scripts/run app` — load sample data, select file with analyses.
 2. Idle or sleep until reconnect (or reproduce known bad case).
 3. After reconnect: both 1D plots show data **without** clicking another file.
 4. File selection and primary image still correct.
