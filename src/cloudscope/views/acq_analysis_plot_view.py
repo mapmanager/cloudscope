@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import asyncio
+from collections.abc import Callable, Coroutine
 from typing import Any
 
-from nicegui import ui
+from nicegui import run, ui
 
 from acqstore.acq_image.analysis.model import AnalysisKey, AnalysisPlotData
 from acqstore.acq_image.analysis.event_analysis.event_analysis import EventAnalysis
@@ -34,6 +35,21 @@ from cloudscope.utils.logging import get_logger
 logger = get_logger(__name__)
 
 PRIMARY_KYMOGRAPH_GROUP = "primary_kymograph"
+
+
+def _schedule_coro(coro: Coroutine[Any, Any, None]) -> None:
+    """Run ``coro`` on the running loop, or ``asyncio.run`` when no loop exists.
+
+    Args:
+        coro: Coroutine to schedule.
+
+    Returns:
+        None.
+    """
+    try:
+        asyncio.get_running_loop().create_task(coro)
+    except RuntimeError:
+        asyncio.run(coro)
 
 
 class AcqAnalysisPlotView(BaseView):
@@ -77,6 +93,7 @@ class AcqAnalysisPlotView(BaseView):
         # (same file) where the controller intentionally does not reset.
         self._primary_x_range: tuple[float | None, float | None] = (None, None)
         self._chart_originated_x_range = False
+        self._plot_refresh_generation = 0
 
     def build(self, parent: ui.element | None = None) -> ui.element:
         """Build the analysis plot view.
@@ -95,6 +112,7 @@ class AcqAnalysisPlotView(BaseView):
                 with ui.column().classes("w-full h-full min-h-0 flex flex-col overflow-hidden flex-1") as self.root:
                     self._build_content()
         self.after_build()
+        self._refresh_plot_from_current_selection()
         return self.root
 
     def subscribe_events(self) -> None:
@@ -121,7 +139,7 @@ class AcqAnalysisPlotView(BaseView):
             None.
         """
         self._sync_theme_from_provider()
-        self._refresh_plot()
+        self._refresh_plot_from_current_selection()
 
     def on_primary_selection_changed(self) -> None:
         """Refresh the plot when file/channel/ROI selection changes.
@@ -129,9 +147,7 @@ class AcqAnalysisPlotView(BaseView):
         Returns:
             None.
         """
-        # logger.info('')
-
-        self._refresh_plot()
+        self._refresh_plot_from_current_selection()
 
     def set_x_axis_limits(self, x_min: float | None, x_max: float | None) -> None:
         """Set chart x-axis limits.
@@ -191,9 +207,7 @@ class AcqAnalysisPlotView(BaseView):
         if event.selection.roi_id != self.current_selection.roi_id:
             return
         
-        logger.warning('')
-
-        self._refresh_plot()
+        self._refresh_plot_from_current_selection()
 
     def _on_roi_changed(self, event: RoiChanged) -> None:
         """Refresh the plot when ROI mutation may have removed analysis.
@@ -207,9 +221,7 @@ class AcqAnalysisPlotView(BaseView):
         if event.selection.file_id != self.current_selection.file_id:
             return
 
-        logger.warning('')
-
-        self._refresh_plot()
+        self._refresh_plot_from_current_selection()
 
     def _on_begin_plot_x_range_selection(self, event: BeginPlotXRangeSelection) -> None:
         """Enter chart x-range selection mode when selection matches.
@@ -358,6 +370,32 @@ class AcqAnalysisPlotView(BaseView):
             channel=self.current_selection.channel,
             roi_id=self.current_selection.roi_id,
         )
+
+    def _refresh_plot_from_current_selection(self) -> None:
+        """Schedule async plot refresh from the current selection.
+
+        Returns:
+            None.
+        """
+        self._plot_refresh_generation += 1
+        generation = self._plot_refresh_generation
+        _schedule_coro(self._refresh_plot_async(generation))
+
+    async def _refresh_plot_async(self, generation: int) -> None:
+        """Push plot data after the NiceGUI client finishes mounting.
+
+        Args:
+            generation: Monotonic refresh token; stale tasks are dropped after
+                superseding selection refreshes (for example build-time empty
+                refreshes after async load publishes selection).
+
+        Returns:
+            None.
+        """
+        await run.io_bound(lambda: None)
+        if generation != self._plot_refresh_generation:
+            return
+        self._refresh_plot()
 
     def _refresh_plot(self) -> None:
         """Refresh chart data from the selected AcqImage analysis.

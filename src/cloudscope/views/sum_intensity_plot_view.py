@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import asyncio
+from collections.abc import Callable, Coroutine
 from typing import Any
 
-from nicegui import ui
+from nicegui import run, ui
 
 from acqstore.acq_image.analysis.diameter_analysis.diameter_analysis import DiameterAnalysis
 from acqstore.acq_image.analysis.model import AnalysisKey, AnalysisPlotData
@@ -40,6 +41,21 @@ from nicewidgets.plotly_plot.widget import PlotlyPlotWidget
 _DIAMETER_TRACE_NAME = "Diameter"
 _DERIVATIVE_TRACE_NAME = "Derivative of df/f0"
 _DERIVATIVE_Y2_LABEL = "d(df/f0)/dt (1/s)"
+
+
+def _schedule_coro(coro: Coroutine[Any, Any, None]) -> None:
+    """Run ``coro`` on the running loop, or ``asyncio.run`` when no loop exists.
+
+    Args:
+        coro: Coroutine to schedule.
+
+    Returns:
+        None.
+    """
+    try:
+        asyncio.get_running_loop().create_task(coro)
+    except RuntimeError:
+        asyncio.run(coro)
 
 
 class SumIntensityPlotView(BaseView):
@@ -80,6 +96,7 @@ class SumIntensityPlotView(BaseView):
         self._primary_x_range: tuple[float | None, float | None] = (None, None)
         self._plot_originated_x_range = False
         self._last_measurement_event: MeasurementChangeEvent | None = None
+        self._plot_refresh_generation = 0
 
     @property
     def last_measurement_event(self) -> MeasurementChangeEvent | None:
@@ -103,6 +120,7 @@ class SumIntensityPlotView(BaseView):
                 with ui.column().classes("w-full h-full min-h-0 flex flex-col overflow-hidden flex-1") as self.root:
                     self._build_content()
         self.after_build()
+        self._refresh_plot_from_current_selection()
         return self.root
 
     def subscribe_events(self) -> None:
@@ -123,7 +141,7 @@ class SumIntensityPlotView(BaseView):
             None.
         """
         self._sync_theme_from_provider()
-        self._refresh_plot()
+        self._refresh_plot_from_current_selection()
 
     def on_primary_selection_changed(self) -> None:
         """Refresh the plot when the selected file/channel/ROI changes.
@@ -131,7 +149,7 @@ class SumIntensityPlotView(BaseView):
         Returns:
             None.
         """
-        self._refresh_plot()
+        self._refresh_plot_from_current_selection()
 
     def set_x_axis_limits(self, x_min: float | None, x_max: float | None) -> None:
         """Set Plotly x-axis limits.
@@ -190,7 +208,7 @@ class SumIntensityPlotView(BaseView):
             return
         if event.selection.roi_id != self.current_selection.roi_id:
             return
-        self._refresh_plot()
+        self._refresh_plot_from_current_selection()
 
     def _on_roi_changed(self, event: RoiChanged) -> None:
         """Refresh when ROI changes may affect selected analysis results.
@@ -203,7 +221,7 @@ class SumIntensityPlotView(BaseView):
         """
         if event.selection.file_id != self.current_selection.file_id:
             return
-        self._refresh_plot()
+        self._refresh_plot_from_current_selection()
 
     def _on_plot_x_range_changed(self, x_min: float | None, x_max: float | None) -> None:
         """Publish user-driven Plotly x-range changes as app-level intent.
@@ -322,6 +340,32 @@ class SumIntensityPlotView(BaseView):
             self._plot.reset_x_axis_limits()
             return
         self._plot.set_x_axis_limits(x_min, x_max)
+
+    def _refresh_plot_from_current_selection(self) -> None:
+        """Schedule async plot refresh from the current selection.
+
+        Returns:
+            None.
+        """
+        self._plot_refresh_generation += 1
+        generation = self._plot_refresh_generation
+        _schedule_coro(self._refresh_plot_async(generation))
+
+    async def _refresh_plot_async(self, generation: int) -> None:
+        """Push plot data after the NiceGUI client finishes mounting.
+
+        Args:
+            generation: Monotonic refresh token; stale tasks are dropped after
+                superseding selection refreshes (for example build-time empty
+                refreshes after async load publishes selection).
+
+        Returns:
+            None.
+        """
+        await run.io_bound(lambda: None)
+        if generation != self._plot_refresh_generation:
+            return
+        self._refresh_plot()
 
     def _refresh_plot(self) -> None:
         """Refresh Plotly traces and overlays from selected sum-intensity analysis.

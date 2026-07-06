@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Coroutine
+from typing import Any
+
+import pytest
+
 from acqstore.acq_image.analysis.model import AnalysisKey, AnalysisPlotData  # noqa: F401
 from cloudscope.event_bus import EventBus
 from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind
 from cloudscope.events.roi import RoiChanged, RoiChangeKind
+from cloudscope.events.selection import FileSelectionChanged
 from cloudscope.state import PrimarySelection
+import cloudscope.views.acq_analysis_plot_view as acq_analysis_plot_view_module
 from cloudscope.views.acq_analysis_plot_view import AcqAnalysisPlotView
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
@@ -131,7 +139,7 @@ def test_acq_analysis_plot_view_refreshes_on_matching_analysis_completed() -> No
     view = AcqAnalysisPlotView(event_bus=EventBus())
     view.current_selection = PrimarySelection(file_id="file", channel=0, roi_id=1)
     calls = []
-    view._refresh_plot = lambda: calls.append("refresh")  # type: ignore[method-assign]
+    view._refresh_plot_from_current_selection = lambda: calls.append("refresh")  # type: ignore[method-assign]
 
     view._on_analysis_completed(
         AnalysisCompleted(
@@ -163,7 +171,7 @@ def test_acq_analysis_plot_view_refreshes_on_roi_changed_for_current_file() -> N
     view = AcqAnalysisPlotView(event_bus=EventBus())
     view.current_selection = PrimarySelection(file_id="file", channel=0, roi_id=1)
     calls = []
-    view._refresh_plot = lambda: calls.append("refresh")  # type: ignore[method-assign]
+    view._refresh_plot_from_current_selection = lambda: calls.append("refresh")  # type: ignore[method-assign]
 
     view._on_roi_changed(
         RoiChanged(
@@ -564,3 +572,161 @@ def test_overlay_row_object_defaults_event_type_to_user() -> None:
     """A row without event_type should default to 'user'."""
     obj = _OverlayRowObject({"id": "1", "x0": 0.0, "x1": 1.0})
     assert obj.event_type == "user"
+
+
+class _FakePlotContainer:
+    """Minimal NiceGUI container stand-in for build tests."""
+
+    def classes(self, *_args: object, **_kwargs: object) -> _FakePlotContainer:
+        return self
+
+
+class _BuildFakePlotlyWidget(_FakeChart):
+    """PlotlyPlotWidget stand-in used by build() tests."""
+
+    def __init__(self, **_kwargs: object) -> None:
+        super().__init__()
+        self.container = _FakePlotContainer()
+
+
+def test_stale_plot_refresh_generation_is_dropped(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Build-time empty refreshes must not clear a later selection refresh."""
+    scheduled: list[Coroutine[Any, Any, None]] = []
+
+    def _capture_schedule(coro: Coroutine[Any, Any, None]) -> None:
+        scheduled.append(coro)
+
+    monkeypatch.setattr(acq_analysis_plot_view_module, '_schedule_coro', _capture_schedule)
+
+    view = _view_with_fake_chart()
+    refresh_calls: list[str] = []
+    view._refresh_plot = lambda: refresh_calls.append('refresh')  # type: ignore[method-assign]
+
+    view._refresh_plot_from_current_selection()
+    view._refresh_plot_from_current_selection()
+
+    assert len(scheduled) == 2
+    assert refresh_calls == []
+
+    asyncio.run(scheduled[0])
+
+    assert refresh_calls == []
+
+
+def test_build_schedules_refresh_plot_from_current_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """build() should schedule plot refresh via _refresh_plot_from_current_selection."""
+    scheduled: list[Coroutine[Any, Any, None]] = []
+
+    def _capture_schedule(coro: Coroutine[Any, Any, None]) -> None:
+        scheduled.append(coro)
+
+    monkeypatch.setattr(
+        acq_analysis_plot_view_module,
+        'PlotlyPlotWidget',
+        _BuildFakePlotlyWidget,
+    )
+    monkeypatch.setattr(acq_analysis_plot_view_module, '_schedule_coro', _capture_schedule)
+
+    view = AcqAnalysisPlotView(event_bus=EventBus(), initially_visible=False)
+    refresh_calls: list[str] = []
+    view._refresh_plot = lambda: refresh_calls.append('refresh')  # type: ignore[method-assign]
+
+    view.build()
+
+    assert view.is_built
+    assert len(scheduled) == 1
+    assert refresh_calls == []
+
+    asyncio.run(scheduled[0])
+
+    assert refresh_calls == ['refresh']
+
+
+def test_on_primary_selection_changed_schedules_refresh_plot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Selection changes should schedule async plot refresh, not push synchronously."""
+    scheduled: list[Coroutine[Any, Any, None]] = []
+
+    def _capture_schedule(coro: Coroutine[Any, Any, None]) -> None:
+        scheduled.append(coro)
+
+    monkeypatch.setattr(acq_analysis_plot_view_module, '_schedule_coro', _capture_schedule)
+
+    view = AcqAnalysisPlotView(event_bus=EventBus())
+    refresh_calls: list[str] = []
+    view._refresh_plot = lambda: refresh_calls.append('refresh')  # type: ignore[method-assign]
+
+    view.on_primary_selection_changed()
+
+    assert len(scheduled) == 1
+    assert refresh_calls == []
+    asyncio.run(scheduled[0])
+    assert refresh_calls == ['refresh']
+
+
+def test_refresh_from_state_schedules_refresh_plot(monkeypatch: pytest.MonkeyPatch) -> None:
+    """refresh_from_state should schedule async plot refresh after theme sync."""
+    scheduled: list[Coroutine[Any, Any, None]] = []
+
+    def _capture_schedule(coro: Coroutine[Any, Any, None]) -> None:
+        scheduled.append(coro)
+
+    monkeypatch.setattr(acq_analysis_plot_view_module, '_schedule_coro', _capture_schedule)
+
+    view = _view_with_fake_chart()
+    refresh_calls: list[str] = []
+    view._refresh_plot = lambda: refresh_calls.append('refresh')  # type: ignore[method-assign]
+
+    view.refresh_from_state()
+
+    assert len(scheduled) == 1
+    assert refresh_calls == []
+    asyncio.run(scheduled[0])
+    assert refresh_calls == ['refresh']
+
+
+def test_file_selection_changed_schedules_plot_data_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bootstrap-style FileSelectionChanged should schedule a deferred plot push."""
+    scheduled: list[Coroutine[Any, Any, None]] = []
+
+    def _capture_schedule(coro: Coroutine[Any, Any, None]) -> None:
+        scheduled.append(coro)
+
+    monkeypatch.setattr(acq_analysis_plot_view_module, '_schedule_coro', _capture_schedule)
+
+    bus = EventBus()
+    view = AcqAnalysisPlotView(event_bus=bus)
+    view._chart = _FakeChart()  # type: ignore[assignment]
+    view._disposed = False
+    view.add_subscription(bus.subscribe(FileSelectionChanged, view._on_file_selection_changed))
+
+    acq_image = FakeAcqImage()
+    plot = AnalysisPlotData(
+        x=(0.0, 1.0),
+        y=(2.0, 3.0),
+        x_label='Time (s)',
+        y_label='Velocity',
+        series_name='Radon velocity',
+    )
+    acq_image.analysis_set.set_primary_kymograph(channel=0, roi_id=1, analysis=FakeAnalysis(plot))
+
+    bus.publish(
+        FileSelectionChanged(
+            file_id='file',
+            acq_image=acq_image,
+            channel=0,
+            roi_id=1,
+        )
+    )
+
+    assert len(scheduled) == 1
+    asyncio.run(scheduled[0])
+
+    assert view._chart.series_calls
+    trace = view._chart.series_calls[-1]['traces'][0]
+    assert trace.name == 'Radon velocity'

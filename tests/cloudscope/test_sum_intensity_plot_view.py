@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Coroutine
 from typing import Any
 
 import numpy as np
+import pytest
 
 from acqstore.acq_image.analysis.diameter_analysis.diameter_analysis import DiameterAnalysis
 from acqstore.acq_image.analysis.model import AnalysisKey, AnalysisPlotData
@@ -20,9 +23,11 @@ from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_core impor
 from cloudscope.event_bus import EventBus
 from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind
 from cloudscope.events.roi import RoiChangeKind, RoiChanged
+from cloudscope.events.selection import FileSelectionChanged
 from cloudscope.events.theme import ThemeChanged
 from cloudscope.events.x_range import PrimaryXRangeChanged, SetPrimaryXRangeIntent
 from cloudscope.state import PrimarySelection
+import cloudscope.views.sum_intensity_plot_view as sum_intensity_plot_view_module
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.sum_intensity_plot_view import SumIntensityPlotView
 from cloudscope.views.view_ids import ViewId
@@ -468,7 +473,7 @@ def test_matching_analysis_completion_refreshes_plot() -> None:
     view = SumIntensityPlotView(event_bus=EventBus())
     view.current_selection = PrimarySelection(file_id="file", channel=0, roi_id=1)
     calls: list[str] = []
-    view._refresh_plot = lambda: calls.append("refresh")  # type: ignore[method-assign]
+    view._refresh_plot_from_current_selection = lambda: calls.append("refresh")  # type: ignore[method-assign]
 
     view._on_analysis_completed(
         AnalysisCompleted(
@@ -500,7 +505,7 @@ def test_roi_changed_refreshes_for_current_file_only() -> None:
     view = SumIntensityPlotView(event_bus=EventBus())
     view.current_selection = PrimarySelection(file_id="file", channel=0, roi_id=1)
     calls: list[str] = []
-    view._refresh_plot = lambda: calls.append("refresh")  # type: ignore[method-assign]
+    view._refresh_plot_from_current_selection = lambda: calls.append("refresh")  # type: ignore[method-assign]
 
     view._on_roi_changed(
         RoiChanged(
@@ -595,3 +600,156 @@ def test_sync_theme_from_provider_uses_current_app_theme() -> None:
     view._sync_theme_from_provider()
 
     assert view._plot.dark_mode is True
+
+
+class _FakePlotContainer:
+    """Minimal NiceGUI container stand-in for build tests."""
+
+    def classes(self, *_args: object, **_kwargs: object) -> _FakePlotContainer:
+        return self
+
+
+class _BuildFakePlotlyWidget(_FakePlot):
+    """PlotlyPlotWidget stand-in used by build() tests."""
+
+    def __init__(self, **_kwargs: object) -> None:
+        super().__init__()
+        self.container = _FakePlotContainer()
+
+
+def test_stale_plot_refresh_generation_is_dropped(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Build-time empty refreshes must not clear a later selection refresh."""
+    scheduled: list[Coroutine[Any, Any, None]] = []
+
+    def _capture_schedule(coro: Coroutine[Any, Any, None]) -> None:
+        scheduled.append(coro)
+
+    monkeypatch.setattr(sum_intensity_plot_view_module, '_schedule_coro', _capture_schedule)
+
+    view = _view_with_fake_plot()
+    refresh_calls: list[str] = []
+    view._refresh_plot = lambda: refresh_calls.append('refresh')  # type: ignore[method-assign]
+
+    view._refresh_plot_from_current_selection()
+    view._refresh_plot_from_current_selection()
+
+    assert len(scheduled) == 2
+    assert refresh_calls == []
+
+    asyncio.run(scheduled[0])
+
+    assert refresh_calls == []
+
+
+def test_build_schedules_refresh_plot_from_current_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """build() should schedule plot refresh via _refresh_plot_from_current_selection."""
+    scheduled: list[Coroutine[Any, Any, None]] = []
+
+    def _capture_schedule(coro: Coroutine[Any, Any, None]) -> None:
+        scheduled.append(coro)
+
+    monkeypatch.setattr(
+        sum_intensity_plot_view_module,
+        'PlotlyPlotWidget',
+        _BuildFakePlotlyWidget,
+    )
+    monkeypatch.setattr(sum_intensity_plot_view_module, '_schedule_coro', _capture_schedule)
+
+    view = SumIntensityPlotView(event_bus=EventBus(), initially_visible=False)
+    refresh_calls: list[str] = []
+    view._refresh_plot = lambda: refresh_calls.append('refresh')  # type: ignore[method-assign]
+
+    view.build()
+
+    assert view.is_built
+    assert len(scheduled) == 1
+    assert refresh_calls == []
+
+    asyncio.run(scheduled[0])
+
+    assert refresh_calls == ['refresh']
+
+
+def test_on_primary_selection_changed_schedules_refresh_plot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Selection changes should schedule async plot refresh, not push synchronously."""
+    scheduled: list[Coroutine[Any, Any, None]] = []
+
+    def _capture_schedule(coro: Coroutine[Any, Any, None]) -> None:
+        scheduled.append(coro)
+
+    monkeypatch.setattr(sum_intensity_plot_view_module, '_schedule_coro', _capture_schedule)
+
+    view = SumIntensityPlotView(event_bus=EventBus())
+    refresh_calls: list[str] = []
+    view._refresh_plot = lambda: refresh_calls.append('refresh')  # type: ignore[method-assign]
+
+    view.on_primary_selection_changed()
+
+    assert len(scheduled) == 1
+    assert refresh_calls == []
+    asyncio.run(scheduled[0])
+    assert refresh_calls == ['refresh']
+
+
+def test_refresh_from_state_schedules_refresh_plot(monkeypatch: pytest.MonkeyPatch) -> None:
+    """refresh_from_state should schedule async plot refresh after theme sync."""
+    scheduled: list[Coroutine[Any, Any, None]] = []
+
+    def _capture_schedule(coro: Coroutine[Any, Any, None]) -> None:
+        scheduled.append(coro)
+
+    monkeypatch.setattr(sum_intensity_plot_view_module, '_schedule_coro', _capture_schedule)
+
+    view = _view_with_fake_plot()
+    refresh_calls: list[str] = []
+    view._refresh_plot = lambda: refresh_calls.append('refresh')  # type: ignore[method-assign]
+
+    view.refresh_from_state()
+
+    assert len(scheduled) == 1
+    assert refresh_calls == []
+    asyncio.run(scheduled[0])
+    assert refresh_calls == ['refresh']
+
+
+def test_file_selection_changed_schedules_plot_data_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bootstrap-style FileSelectionChanged should schedule a deferred plot push."""
+    scheduled: list[Coroutine[Any, Any, None]] = []
+
+    def _capture_schedule(coro: Coroutine[Any, Any, None]) -> None:
+        scheduled.append(coro)
+
+    monkeypatch.setattr(sum_intensity_plot_view_module, '_schedule_coro', _capture_schedule)
+
+    bus = EventBus()
+    view = SumIntensityPlotView(event_bus=bus)
+    view._plot = _FakePlot()  # type: ignore[assignment]
+    view._plot.register_series_menu_items(SumIntensityPlotView._sum_intensity_series_menu_items())  # type: ignore[attr-defined]
+    view._disposed = False
+    view.add_subscription(bus.subscribe(FileSelectionChanged, view._on_file_selection_changed))
+
+    acq = _FakeAcqImage()
+    analysis = _FakeSumIntensityAnalysis()
+    acq.analysis_set.set(AnalysisKey('sum_intensity', 0, 1), analysis)
+
+    bus.publish(
+        FileSelectionChanged(
+            file_id='file',
+            acq_image=acq,
+            channel=0,
+            roi_id=1,
+        )
+    )
+
+    assert len(scheduled) == 1
+    asyncio.run(scheduled[0])
+
+    assert view._plot.set_series_calls >= 1
+    assert view._plot.traces
+    assert view._plot.traces[0].name == 'df/f0 signal'

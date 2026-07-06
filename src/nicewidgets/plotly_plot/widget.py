@@ -2016,6 +2016,7 @@ if (newData.length > 0) {{
 }}
 """
         self._run_plotly_javascript(js)
+        self._plot_element.update()
 
     def _run_plotly_javascript(self, js: str) -> None:
         """Run Plotly JavaScript while suppressing programmatic relayout echo.

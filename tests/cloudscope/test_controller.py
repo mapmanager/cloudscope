@@ -11,6 +11,7 @@ from cloudscope.events.selection import (
     SelectFileIntent,
     SelectRoiIntent,
 )
+from cloudscope.state import PrimarySelection
 
 
 def test_load_demo_files_publishes_file_list_and_file_selection_only() -> None:
@@ -134,3 +135,28 @@ def test_select_channel_and_roi_publish_narrow_state_events() -> None:
     assert channels[0].channel == 2
     assert len(rois) == 1
     assert rois[0].roi_id == 2
+
+
+def test_republish_selection_from_state_publishes_current_selection() -> None:
+    """Reconnect republish should emit FileSelectionChanged matching state.selection."""
+    event_bus = EventBus()
+    controller = HomePageController(event_bus=event_bus)
+    controller.load_demo_files(['file-a', 'file-b'])
+    controller.state.selection = PrimarySelection(
+        file_id='file-b',
+        channel=1,
+        roi_id=2,
+        analysis_name='radon_velocity',
+    )
+
+    published: list[FileSelectionChanged] = []
+    event_bus.subscribe(FileSelectionChanged, published.append)
+
+    controller.republish_selection_from_state()
+
+    assert len(published) == 1
+    assert published[0].file_id == 'file-b'
+    assert published[0].channel == 1
+    assert published[0].roi_id == 2
+    assert published[0].analysis_name == 'radon_velocity'
+    assert published[0].acq_image is None

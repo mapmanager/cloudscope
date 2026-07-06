@@ -1051,3 +1051,6 @@ def home_page() -> None:
     )
     page.build()
 
+    if was_initialized:
+        runtime.home_page_controller.republish_selection_from_state()
+

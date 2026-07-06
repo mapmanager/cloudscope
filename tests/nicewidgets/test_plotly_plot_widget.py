@@ -67,6 +67,10 @@ class _FakePlotlyElement:
         """
         self.handlers[event_name] = handler
 
+    def update(self) -> None:
+        """Record NiceGUI figure sync calls."""
+        return None
+
 
 class _FakeUiElement:
     """Small stand-in for generic NiceGUI container elements."""

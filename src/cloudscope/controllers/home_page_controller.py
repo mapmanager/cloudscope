@@ -156,6 +156,17 @@ class HomePageController:
         )
         self._publish_file_selection_after_lazy_data_loaded()
 
+    def republish_selection_from_state(self) -> None:
+        """Republish the current file selection after a reconnect build.
+
+        Ensures lazy pixel data stays loaded before views receive
+        :class:`FileSelectionChanged`.
+
+        Returns:
+            None.
+        """
+        self._publish_file_selection_after_lazy_data_loaded()
+
     def _on_select_file(self, event: SelectFileIntent) -> None:
         """Handle file selection changes.
 
