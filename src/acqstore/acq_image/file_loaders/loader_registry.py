@@ -7,6 +7,7 @@ from collections.abc import Callable
 from .base_file_loader import BaseFileLoader
 from .czi_file_loader import CziFileLoader
 from .oir_file_loader import OirFileLoader
+from .nd2_file_loader import Nd2FileLoader
 from .ome_zarr_file_loader import OmeZarrFileLoader
 from .tiff_file_loader import TiffFileLoader
 
@@ -16,6 +17,7 @@ _FILE_LOADER_FACTORIES: dict[str, FileLoaderFactory] = {
     'tif': lambda path: TiffFileLoader(path, load_olympus_header=True),
     'oir': OirFileLoader,
     'czi': CziFileLoader,
+    'nd2': Nd2FileLoader,
     'ome.zarr': OmeZarrFileLoader,
     'cs.ome.zarr': OmeZarrFileLoader,
 }

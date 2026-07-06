@@ -10,6 +10,7 @@ import tifffile
 from dataclasses import replace
 
 from acqstore.acq_image.acq_image import AcqImage
+from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader
 from acqstore.acq_image.file_loaders.file_loader_factory import create_file_loader
 from acqstore.acq_image.supported_import_extensions import (
     add_allowed_import_extension,
@@ -17,7 +18,22 @@ from acqstore.acq_image.supported_import_extensions import (
     remove_allowed_import_extension,
     set_allowed_import_extensions,
 )
+from acqstore.acq_image.file_loaders.nd2_file_loader import Nd2FileLoader
 from acqstore.acq_image.file_loaders.tiff_file_loader import TiffFileLoader
+
+
+def _nd2_header() -> ImageHeader:
+    return ImageHeader(
+        path='/tmp/a.nd2',
+        shape=(1, 1),
+        dims=('Y', 'X'),
+        sizes={'Y': 1, 'X': 1},
+        dtype=np.dtype('uint16'),
+        num_channels=1,
+        num_scenes=1,
+        physical_units=(1.0, 1.0),
+        physical_units_labels=('Pixels', 'Pixels'),
+    )
 
 
 def test_create_file_loader_rejects_unknown_suffix(tmp_path: Path) -> None:
@@ -39,6 +55,13 @@ def test_create_file_loader_tif_returns_tiff_loader(tmp_path: Path) -> None:
     tifffile.imwrite(path, np.zeros((2, 2), dtype=np.uint8))
     loader = create_file_loader(str(path))
     assert isinstance(loader, TiffFileLoader)
+
+
+def test_create_file_loader_nd2_returns_nd2_loader(monkeypatch: pytest.MonkeyPatch) -> None:
+    header = _nd2_header()
+    monkeypatch.setattr(Nd2FileLoader, 'read_header', lambda self: header)
+    loader = create_file_loader('/tmp/a.nd2')
+    assert isinstance(loader, Nd2FileLoader)
 
 
 def test_create_file_loader_uppercase_suffix_tif(tmp_path: Path) -> None:
