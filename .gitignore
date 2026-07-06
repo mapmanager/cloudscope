@@ -15,7 +15,7 @@ site/
 .cache/
 
 # Local docs development
-docs-dev/
+# docs-dev/
 
 # Downloaded sample data
 example-data/sample-data/
