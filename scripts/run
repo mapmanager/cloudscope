@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+
+# Exit immediately if a command exits with a non-zero status
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+cd "$ROOT"
+
+if [[ ! -f "${ROOT}/src/cloudscope/app.py" ]]; then
+    echo "Error: repo root not found (expected ${ROOT}/src/cloudscope/app.py)" >&2
+    exit 1
+fi
+
+WEBSERVER_PORT=8877
+
+_port_in_use() {
+    lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
+}
+
+_require_webserver_port_free() {
+    if ! _port_in_use "${WEBSERVER_PORT}"; then
+        return 0
+    fi
+
+    local listener
+    listener="$(lsof -nP -iTCP:"${WEBSERVER_PORT}" -sTCP:LISTEN 2>/dev/null | awk 'NR == 2 { print $2 ":" $1 }')"
+    echo "Error: port ${WEBSERVER_PORT} is already in use${listener:+ (${listener#*:} PID ${listener%%:*})}" >&2
+    echo "Stop the existing CloudScope server: pkill -f 'src/cloudscope/app.py'" >&2
+    echo "Or inspect the process: lsof -nP -iTCP:${WEBSERVER_PORT} -sTCP:LISTEN" >&2
+    exit 1
+}
+
+_run_webserver() {
+    local data_dir="${ROOT}/data"
+    if [[ ! -d "$data_dir" ]]; then
+        echo "Error: data directory not found: ${data_dir}" >&2
+        echo "Create ./data before running ./scripts/run webserver." >&2
+        exit 1
+    fi
+
+    _require_webserver_port_free
+
+    export PYTHONUNBUFFERED=1
+    export CLOUDSCOPE_REMOTE=1
+    export CLOUDSCOPE_NATIVE=0
+    export CLOUDSCOPE_SINGLE_WINDOW=1
+    export CLOUDSCOPE_RELOAD=0
+    export CLOUDSCOPE_HOST=0.0.0.0
+    export PORT="${WEBSERVER_PORT}"
+    export CLOUDSCOPE_DATA_DIR="${data_dir}"
+    export CLOUDSCOPE_SAMPLE_DATA_DIR="${data_dir}/shared/sample-data"
+    export CLOUDSCOPE_DEMO_SESSION_QUOTA_MB=500
+    export CLOUDSCOPE_DEMO_MAX_UPLOAD_MB=250
+    export CLOUDSCOPE_DEMO_MAX_SESSION_AGE_HOURS=24
+
+    local manning_preset="${ROOT}/../cloudscope-data/data/manning_velocity_20260625"
+    if [[ -d "$manning_preset" ]]; then
+        export CLOUDSCOPE_PRESET_DATA_MANNING="${manning_preset}"
+    else
+        unset CLOUDSCOPE_PRESET_DATA_MANNING
+    fi
+
+    echo "Running webserver ... http://localhost:${WEBSERVER_PORT}"
+    uv run python src/cloudscope/app.py
+}
+
+# Check if an argument was provided
+if [ -z "$1" ]; then
+    echo "Usage: ./scripts/run [app|web|webserver]"
+    exit 1
+fi
+
+case "$1" in
+    app)
+        echo "Running app ... uv run python src/cloudscope/app.py"
+        uv run python src/cloudscope/app.py
+        ;;
+    web)
+        echo "Running web ... CLOUDSCOPE_NATIVE=0 uv run python src/cloudscope/app.py"
+        CLOUDSCOPE_NATIVE=0 uv run python src/cloudscope/app.py
+        ;;
+    webserver)
+        _run_webserver
+        ;;
+    *)
+        echo "Error: Invalid argument '$1'"
+        echo "Usage: ./scripts/run [app|web|webserver]"
+        exit 1
+        ;;
+esac
