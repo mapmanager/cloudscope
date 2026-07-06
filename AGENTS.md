@@ -139,20 +139,25 @@ See also `.cursor/rules/no-readme-driveby.mdc`.
 
 ## Required Ticket Report File
 
-Every ticket MUST create or update a report file under:
+Every ticket worked in **Cursor** MUST create or update a report file under:
 
 ```text
-docs-dev/codex_tickets/
+docs-dev/cursor_tickets/
 ```
+
+### Legacy `codex_tickets/` (frozen)
+
+Older reports live in ``docs-dev/codex_tickets/``. **Do not** add, renumber, or
+edit files there. New Cursor work uses ``cursor_tickets/`` only.
 
 ### Ticket numbering
 
-Pick the next **unused three-digit prefix** by listing that directory and
-finding the highest ``NNN_`` prefix (for example ``083_``). Use the next
+Pick the next **unused three-digit prefix** by listing ``docs-dev/cursor_tickets/``
+and finding the highest ``NNN_`` prefix (for example ``001_``). Use the next
 integer for the new report:
 
 ```text
-docs-dev/codex_tickets/084_short_title_report.md
+docs-dev/cursor_tickets/002_short_title_report.md
 ```
 
 Older reports without a numeric prefix can be ignored for sequencing. The
@@ -163,10 +168,18 @@ The report filename MUST include the ticket number and short title.
 Example:
 
 ```text
-docs-dev/codex_tickets/001_add_import_path_discovery_report.md
+docs-dev/cursor_tickets/001_disconnect_reconnect_handoff.md
 ```
 
-The report file MUST include:
+### Handoff vs implementation tickets
+
+- **Handoff / planning** tickets document problem, architecture, and an
+  implementation spec for a follow-on ticket. They may omit “files changed”
+  until work lands elsewhere.
+- **Implementation** tickets MUST include the sections below when the ticket
+  is complete.
+
+Implementation report files MUST include:
 
 - Files changed
 - Summary of implementation
