@@ -15,7 +15,6 @@ from cloudscope.events.files import LoadPathIntent, LoadPathKind
 from cloudscope.views.load_save_view import (
     LoadSaveView,
     _accepted_upload_extensions,
-    _path_display,
     _recent_target_exists,
 )
 
@@ -64,24 +63,6 @@ def test_recent_target_exists_csv_treated_as_file(tmp_path) -> None:
     fp = tmp_path / "list.csv"
     fp.write_text("x", encoding="utf-8")
     assert _recent_target_exists(str(fp), LoadPathKind.CSV) is True
-
-
-# ---- _path_display ----
-
-
-def test_path_display_shortens_home_relative_path() -> None:
-    """Paths under the user home should display as ``~/...``."""
-    home = Path.home()
-    target = home / "scratch" / "x.tif"
-    out = _path_display(str(target))
-    assert out.startswith("~")
-    assert "scratch" in out
-
-
-def test_path_display_returns_path_unchanged_outside_home() -> None:
-    """Paths outside the user home should round-trip unchanged."""
-    target = "/var/tmp/some/file.tif"
-    assert _path_display(target) == target
 
 
 # ---- _recent_item_matches_app_path ----

@@ -36,6 +36,7 @@ from cloudscope.preset_data import get_manning_preset_path, is_loadable_preset_f
 from cloudscope.quota import QuotaExceededError, ensure_within_quota
 from cloudscope.user_context import UserContext, UserContextKind
 from cloudscope.utils.logging import get_logger
+from cloudscope.utils.utils import _path_display
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
 from nicewidgets.upload_widget import CancelToken, UploadWidget
@@ -63,17 +64,6 @@ def _recent_target_exists(path: str, kind: LoadPathKind) -> bool:
     if kind == LoadPathKind.FOLDER:
         return resolved.is_dir()
     return resolved.is_file()
-
-
-def _path_display(path: str) -> str:
-    """Shorten absolute paths under the user home to ``~/…`` for menu labels."""
-    try:
-        p = Path(path).expanduser()
-        home = Path.home()
-        rel = p.resolve(strict=False).relative_to(home.resolve(strict=False))
-        return str(Path('~') / rel)
-    except (ValueError, OSError, RuntimeError):
-        return path
 
 
 class LoadSaveView(BaseView):
