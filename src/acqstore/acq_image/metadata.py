@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, fields, asdict, MISSING, replace
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any, ClassVar
 
 import pandas as pd
@@ -666,6 +666,44 @@ class ImageHeaderMetadata:
         }
         validate_values_for_schema(self.get_schema(), values)
         return values
+
+    @classmethod
+    def editable_field_names(cls) -> frozenset[str]:
+        """Return schema field names that may be hydrated from a sidecar patch."""
+        return frozenset(
+            field.name for field in IMAGE_HEADER_METADATA_SCHEMA.fields if field.editable
+        )
+
+    @classmethod
+    def editable_patch_from_sidecar(cls, raw: Mapping[str, object]) -> dict[str, object]:
+        """Return editable calibration keys present in one sidecar header dict.
+
+        Non-editable and unknown keys are ignored so file-derived structural
+        header fields remain authoritative on load.
+
+        Args:
+            raw: ``image_header_metadata`` object from an AcqImage sidecar.
+
+        Returns:
+            Patch suitable for :meth:`update_values` (may be empty).
+        """
+        editable = cls.editable_field_names()
+        return {name: raw[name] for name in raw if name in editable}
+
+    def apply_sidecar_calibration(self, raw: Mapping[str, object]) -> None:
+        """Apply editable calibration from sidecar without marking the section dirty.
+
+        Args:
+            raw: ``image_header_metadata`` object from an AcqImage sidecar.
+
+        Raises:
+            ValueError: If ``raw`` contains invalid editable calibration values.
+        """
+        patch = self.editable_patch_from_sidecar(raw)
+        if not patch:
+            return
+        self.update_values(patch)
+        self.set_clean()
 
     def update_values(self, patch: dict[str, object]) -> None:
         """Apply editable calibration patch and write back to loader header."""
