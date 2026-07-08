@@ -89,3 +89,57 @@ def js_on_cell_key_down_select_prev_next(*, emit_event: str, row_id_field: str) 
   }}
 }}
 """.strip()
+
+
+def js_on_row_group_opened(*, emit_event: str, row_id_field: str) -> str:
+    """Build AG Grid ``onRowGroupOpened`` callback for tree expansion tracking.
+
+    Args:
+        emit_event: NiceGUI ``ui.on`` event name to emit.
+        row_id_field: Row dict key whose value is the unique row id.
+
+    Returns:
+        JS arrow-function source for ``:onRowGroupOpened``.
+    """
+    return f"""
+(params) => {{
+  try {{
+    const data = params?.data ?? null;
+    const rowId = data ? String(data['{row_id_field}']) : null;
+    if (!rowId) return;
+    emitEvent('{emit_event}', {{
+      rowId: rowId,
+      expanded: true,
+    }});
+  }} catch (err) {{
+    console.warn('[tree_widget] onRowGroupOpened failed', err);
+  }}
+}}
+""".strip()
+
+
+def js_on_row_group_closed(*, emit_event: str, row_id_field: str) -> str:
+    """Build AG Grid ``onRowGroupClosed`` callback for tree expansion tracking.
+
+    Args:
+        emit_event: NiceGUI ``ui.on`` event name to emit.
+        row_id_field: Row dict key whose value is the unique row id.
+
+    Returns:
+        JS arrow-function source for ``:onRowGroupClosed``.
+    """
+    return f"""
+(params) => {{
+  try {{
+    const data = params?.data ?? null;
+    const rowId = data ? String(data['{row_id_field}']) : null;
+    if (!rowId) return;
+    emitEvent('{emit_event}', {{
+      rowId: rowId,
+      expanded: false,
+    }});
+  }} catch (err) {{
+    console.warn('[tree_widget] onRowGroupClosed failed', err);
+  }}
+}}
+""".strip()

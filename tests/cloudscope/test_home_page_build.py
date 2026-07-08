@@ -58,7 +58,7 @@ def test_home_page_wires_runtime_into_home_page(monkeypatch: pytest.MonkeyPatch)
         def __init__(self, **kwargs) -> None:
             captured_kwargs.append(kwargs)
 
-        def build(self) -> None:
+        def build(self, *, reconnect: bool = False) -> None:
             built.append(self)
 
     monkeypatch.setattr('cloudscope.pages.home_page.HomePage', FakeHomePage)

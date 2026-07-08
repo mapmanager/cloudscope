@@ -21,6 +21,7 @@ from cloudscope.controllers.velocity_pool_controller import VelocityPoolControll
 from cloudscope.controllers.x_range_controller import XRangeController
 from cloudscope.event_bus import EventBus
 from cloudscope.runtime import CloudScopeRuntime, get_current_runtime
+from cloudscope.session_state import HomePageChromeState, HomePageSessionSnapshot
 from cloudscope.task_runner import TaskRunner
 from cloudscope.user_context import UserContext
 from cloudscope.events.layout import ResetHomeLayoutIntent
@@ -137,13 +138,22 @@ class HomePage:
     velocity_pool_controller: VelocityPoolController
     task_runner: TaskRunner
 
-    def build(self) -> None:
+    def build(self, *, reconnect: bool = False) -> None:
         """Build the page UI and load initial AcqStore state.
+
+        Args:
+            reconnect: When True, restore page chrome from the last disconnect
+                snapshot and defer view hydrates until
+                :class:`HomePageSessionReconnectRestore`.
 
         Returns:
             None.
         """
         logger.info('=== === === build(start) === === ===')
+        runtime = get_current_runtime()
+        reconnect_chrome: HomePageChromeState | None = None
+        if reconnect and runtime.session_snapshot is not None:
+            reconnect_chrome = runtime.session_snapshot.chrome
         _log_home_session_state(
             'build(start)',
             runtime=get_current_runtime(),
@@ -273,11 +283,28 @@ class HomePage:
             'velocity_pool': None,
         }
         file_list_header_chevron_ref: dict[str, ui.icon | None] = {'value': None}
+        chrome_defaults = HomePageChromeState.defaults()
         panel_open_state = {
-            'file_list': False,
-            'analysis_plot': True,
-            'reference_image': False,
-            'velocity_pool': True,
+            'file_list': (
+                reconnect_chrome.file_list_open
+                if reconnect_chrome is not None
+                else chrome_defaults.file_list_open
+            ),
+            'analysis_plot': (
+                reconnect_chrome.analysis_plot_open
+                if reconnect_chrome is not None
+                else chrome_defaults.analysis_plot_open
+            ),
+            'reference_image': (
+                reconnect_chrome.reference_image_open
+                if reconnect_chrome is not None
+                else chrome_defaults.reference_image_open
+            ),
+            'velocity_pool': (
+                reconnect_chrome.velocity_pool_open
+                if reconnect_chrome is not None
+                else chrome_defaults.velocity_pool_open
+            ),
         }
 
         def _pane_classes(extra: str = '') -> str:
@@ -528,6 +555,25 @@ class HomePage:
             panel_open_state['velocity_pool'] = False
             velocity_pool_view.hide()
 
+        def _sync_panels_from_chrome() -> None:
+            """Apply ``panel_open_state`` to visible panels and splitters.
+
+            Returns:
+                None.
+            """
+            if panel_open_state['file_list']:
+                _open_file_list_panel()
+            else:
+                _close_file_list_panel()
+            if panel_open_state['analysis_plot']:
+                _open_analysis_plot_panel()
+            else:
+                _close_analysis_plot_panel()
+            if panel_open_state['velocity_pool']:
+                _open_velocity_pool_panel()
+            else:
+                _close_velocity_pool_panel()
+
         def _reset_home_expansions() -> None:
             """Restore Home page panels to their default open state.
 
@@ -653,7 +699,6 @@ class HomePage:
                                 ):
                                     file_list_panel.build()
                                 view_manager.register(file_list_panel)
-                                _close_file_list_panel()
 
                         with file_list_splitter.after:
                             primary_preset = HOME_SPLITTER_PRESETS[SplitterId.PRIMARY_IMAGE]
@@ -768,6 +813,8 @@ class HomePage:
                             lambda _event=None: _capture(SplitterId.FILE_LIST),
                             throttle=0.2,
                         )
+
+                    _sync_panels_from_chrome()
 
         left_preset = HOME_SPLITTER_PRESETS[SplitterId.LEFT_TOOLBAR]
         with ui.splitter(
@@ -890,12 +937,17 @@ class HomePage:
         x_range_controller.bind()
 
         def _on_client_disconnect() -> None:
+            runtime = get_current_runtime()
+            runtime.session_snapshot = HomePageSessionSnapshot(
+                chrome=HomePageChromeState.from_panel_open(panel_open_state),
+                views=view_manager.collect_session_state(),
+            )
             _log_home_session_state(
                 'client_disconnect',
-                runtime=get_current_runtime(),
+                runtime=runtime,
                 client_id=getattr(ui.context.client, 'id', None),
                 view_count=len(view_manager.view_ids()),
-                note='hiding views; runtime state should remain in process registry',
+                note='captured session snapshot; hiding views',
             )
             for view_id in view_manager.view_ids():
                 view_manager.get(view_id).on_hide()
@@ -1049,8 +1101,12 @@ def home_page() -> None:
         velocity_pool_controller=runtime.velocity_pool_controller,
         task_runner=runtime.task_runner,
     )
-    page.build()
+    if was_initialized:
+        runtime.reconnect_build_in_progress = True
+    page.build(reconnect=was_initialized)
 
     if was_initialized:
-        runtime.home_page_controller.republish_selection_from_state()
+        snapshot = runtime.session_snapshot or HomePageSessionSnapshot.empty()
+        runtime.home_page_controller.publish_session_reconnect_restore(snapshot)
+    runtime.reconnect_build_in_progress = False
 

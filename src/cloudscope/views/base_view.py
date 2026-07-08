@@ -16,8 +16,13 @@ from cloudscope.events.selection import (
     FileSelectionChanged,
     RoiSelectionChanged,
 )
+from cloudscope.events.session_reconnect import HomePageSessionReconnectRestore
+from cloudscope.session_state import selection_guard_matches
 from cloudscope.state import PrimarySelection
+from cloudscope.utils.logging import get_logger
 from cloudscope.views.view_ids import ViewId
+
+logger = get_logger(__name__)
 
 
 class BaseView:
@@ -190,6 +195,16 @@ class BaseView:
         self.add_subscription(self.event_bus.subscribe(FileSelectionChanged, self._on_file_selection_changed))
         self.add_subscription(self.event_bus.subscribe(ChannelSelectionChanged, self._on_channel_selection_changed))
         self.add_subscription(self.event_bus.subscribe(RoiSelectionChanged, self._on_roi_selection_changed))
+        self.add_subscription(
+            self.event_bus.subscribe(
+                HomePageSessionReconnectRestore,
+                self._on_session_reconnect_restore,
+            )
+        )
+        if self._should_suppress_reconnect_hydrate():
+            self._sync_selection_cache_from_state()
+            self.subscribe_events()
+            return
         self._refresh_primary_selection_from_state()
         self.subscribe_events()
         self.refresh_from_state()
@@ -244,6 +259,34 @@ class BaseView:
         Returns:
             None.
         """
+
+    def export_session_state(self) -> dict[str, Any]:
+        """Return reconnect session chrome for this view.
+
+        Returns:
+            View-local session blob. Default empty mapping.
+        """
+        return {}
+
+    def apply_session_state(self, data: dict[str, Any]) -> None:
+        """Apply reconnect session chrome captured on disconnect.
+
+        Args:
+            data: View-local session blob from :meth:`export_session_state`.
+
+        Returns:
+            None.
+        """
+
+    def on_session_reconnect_restore(self) -> None:
+        """Handle the one-shot reconnect hydrate for this view.
+
+        Default behavior matches a primary selection change.
+
+        Returns:
+            None.
+        """
+        self.on_primary_selection_changed()
 
     def on_primary_selection_changed(self) -> None:
         """Handle a primary selection change.
@@ -493,6 +536,76 @@ class BaseView:
         self.current_selection.roi_id = event.roi_id
         self.current_selection.analysis_name = None
         self.on_primary_selection_changed()
+
+    def _on_session_reconnect_restore(self, event: HomePageSessionReconnectRestore) -> None:
+        """Apply one-shot reconnect hydrate from controller state and blobs.
+
+        Args:
+            event: Reconnect restore state event.
+
+        Returns:
+            None.
+        """
+        self.current_selection = PrimarySelection(
+            file_id=event.file_id,
+            channel=event.channel,
+            roi_id=event.roi_id,
+            analysis_name=event.analysis_name,
+        )
+        self.current_acq_image = event.acq_image
+        self._cache_reconnect_primary_x_range(event.primary_x_range)
+        blob = event.view_session.get(self.view_id.value)
+        if blob:
+            if selection_guard_matches(blob, self.current_selection):
+                self.apply_session_state(blob)
+            else:
+                logger.warning(
+                    '%s.apply_session_state skipped: selection guard mismatch',
+                    self.__class__.__name__,
+                )
+        self.on_session_reconnect_restore()
+
+    def _cache_reconnect_primary_x_range(
+        self,
+        primary_x_range: tuple[float | None, float | None],
+    ) -> None:
+        """Cache shared x-range from a reconnect hydrate event.
+
+        Args:
+            primary_x_range: Authoritative x-range from ``HomePageState``.
+
+        Returns:
+            None.
+        """
+
+    def _should_suppress_reconnect_hydrate(self) -> bool:
+        """Return whether reconnect build should defer hydrate until restore event.
+
+        Returns:
+            True when a reconnect build is in progress.
+        """
+        try:
+            from cloudscope.runtime import get_current_runtime
+        except ImportError:
+            return False
+        return bool(get_current_runtime().reconnect_build_in_progress)
+
+    def _sync_selection_cache_from_state(self) -> None:
+        """Refresh cached selection from ``app_state`` without notifying subclasses.
+
+        Returns:
+            None.
+        """
+        if self.app_state is None:
+            return
+        selection = self.app_state.selection
+        self.current_selection = PrimarySelection(
+            file_id=selection.file_id,
+            channel=selection.channel,
+            roi_id=selection.roi_id,
+            analysis_name=selection.analysis_name,
+        )
+        self.current_acq_image = self.get_acq_image_by_file_id(self.current_selection.file_id)
 
     def _refresh_primary_selection_from_state(self) -> None:
         """Refresh cached selection from ``app_state`` when available.

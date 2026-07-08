@@ -19,6 +19,7 @@ from cloudscope.controllers.velocity_pool_controller import VelocityPoolControll
 from cloudscope.event_bus import EventBus
 from cloudscope.events.files import LoadPathIntent, LoadPathKind
 from cloudscope.raster_display_cache import RasterDisplayCache, resolve_raster_display_cache_max_entries
+from cloudscope.session_state import HomePageSessionSnapshot
 from cloudscope.task_runner import TaskRunner
 from cloudscope.user_context import (
     UserContext,
@@ -64,6 +65,9 @@ class CloudScopeRuntime:
         raster_display_cache: Shared LRU cache of raster planes and pyramids.
         initialized: Whether one-time bootstrap has completed.
         controllers_bound: Whether controller ``bind()`` has run.
+        session_snapshot: Last captured reconnect session snapshot, if any.
+        reconnect_build_in_progress: True while ``HomePage.build(reconnect=True)``
+            is running before the reconnect hydrate event is published.
     """
 
     user_context: UserContext
@@ -81,6 +85,8 @@ class CloudScopeRuntime:
     raster_display_cache: RasterDisplayCache
     initialized: bool = False
     controllers_bound: bool = False
+    session_snapshot: HomePageSessionSnapshot | None = None
+    reconnect_build_in_progress: bool = False
 
     @property
     def app_state(self) -> HomePageState:

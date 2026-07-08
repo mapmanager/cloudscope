@@ -40,6 +40,12 @@ from cloudscope.events.metadata import MetadataChanged
 from cloudscope.events.roi import RoiChanged
 from cloudscope.events.selection import SelectFileIntent
 from cloudscope.schema_adapters import schema_to_column_defs
+from cloudscope.session_state import (
+    VIEW_SESSION_SCHEMA_VERSION,
+    require_keys,
+    require_schema_version,
+    selection_guard_from_selection,
+)
 from nicewidgets.aggrid_common.column_def import ColumnDef
 from cloudscope.utils.file_manager import reveal_in_file_manager
 from cloudscope.utils.logging import get_logger
@@ -114,6 +120,7 @@ class AcqImageListTreeView(BaseView):
         self._table_font_size_px = int(table_font_size_px)
         self._default_visible_columns = default_visible_columns
         self._tree: TreeWidget | None = None
+        self._pending_reconnect_tree_state: dict[str, Any] | None = None
 
     def _build_schema_column_defs(self, font_px: int) -> list[ColumnDef]:
         """Return tree column definitions for the file-list schema.
@@ -199,6 +206,77 @@ class AcqImageListTreeView(BaseView):
 
         self.after_build()
         return self.root
+
+    def export_session_state(self) -> dict[str, Any]:
+        """Return reconnect session chrome for the file-list tree.
+
+        Returns:
+            Session blob with expanded group row ids.
+        """
+        expanded_group_ids = (
+            sorted(self._tree.expanded_group_ids())
+            if self._tree is not None
+            else []
+        )
+        return {
+            'schema_version': VIEW_SESSION_SCHEMA_VERSION,
+            'selection_guard': selection_guard_from_selection(self.current_selection),
+            'expanded_group_ids': expanded_group_ids,
+        }
+
+    def apply_session_state(self, data: dict[str, Any]) -> None:
+        """Apply reconnect tree expansion and selection chrome.
+
+        Args:
+            data: Session blob from :meth:`export_session_state`.
+
+        Returns:
+            None.
+        """
+        require_schema_version(data)
+        require_keys(data, 'selection_guard', 'expanded_group_ids')
+        self._pending_reconnect_tree_state = data
+        self._restore_tree_ui_from_blob(data)
+
+    def on_session_reconnect_restore(self) -> None:
+        """Refresh subtree rows and re-apply tree chrome after reconnect.
+
+        Returns:
+            None.
+        """
+        if self._tree is None:
+            return
+        file_id = self.current_selection.file_id
+        if file_id is None:
+            self._tree.clear_selection()
+            return
+        acq_image = self.get_acq_image_by_file_id(file_id)
+        if acq_image is not None and acq_image.images_loaded:
+            self._replace_group_rows_from_acq_image(file_id)
+            if self._pending_reconnect_tree_state is not None:
+                self._restore_tree_ui_from_blob(self._pending_reconnect_tree_state)
+                self._pending_reconnect_tree_state = None
+            return
+        self._sync_table_selection()
+
+    def _restore_tree_ui_from_blob(self, data: dict[str, Any]) -> None:
+        """Expand groups and sync selection from a reconnect tree blob.
+
+        Args:
+            data: Tree session blob.
+
+        Returns:
+            None.
+        """
+        if self._tree is None:
+            return
+        expanded_group_ids = data['expanded_group_ids']
+        for group_id in expanded_group_ids:
+            self._tree.expand_group(str(group_id))
+        file_id = self.current_selection.file_id
+        if file_id is not None:
+            self._tree.expand_group(file_id)
+        self._sync_table_selection()
 
     def _build_context_menu(self, _tree: TreeWidget) -> None:
         """Add file-list-specific actions to the tree context menu.

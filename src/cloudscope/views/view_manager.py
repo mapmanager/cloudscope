@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from typing import Any
+
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
 
@@ -113,3 +115,11 @@ class ViewManager:
             Registered view ids in insertion order.
         """
         return tuple(self._views)
+
+    def collect_session_state(self) -> dict[str, dict[str, Any]]:
+        """Collect reconnect session blobs from all registered views.
+
+        Returns:
+            Mapping of ``ViewId`` string values to export blobs.
+        """
+        return {view_id.value: self._views[view_id].export_session_state() for view_id in self._views}

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Coroutine
+from dataclasses import asdict
 from typing import Any
 
 from pathlib import Path
@@ -50,6 +51,12 @@ from cloudscope.raster_display_cache import (
     RasterDisplayCache,
     RasterDisplayCacheKey,
     RasterDisplayPlaneKind,
+)
+from cloudscope.session_state import (
+    VIEW_SESSION_SCHEMA_VERSION,
+    require_keys,
+    require_schema_version,
+    selection_guard_from_selection,
 )
 from cloudscope.utils.load_errors import format_raster_load_error
 from cloudscope.utils.logging import get_logger
@@ -388,6 +395,7 @@ class PrimaryImageView(BaseView):
         self._z_axis_label: ui.label | None = None
         self._z_slice_label: ui.label | None = None
         self._z_slider: ui.slider | None = None
+        self._pending_viewport_xy: dict[str, list[float]] | None = None
 
     def build(self, parent: ui.element | None = None) -> ui.element:
         """Create the card, title, and Plotly raster element.
@@ -431,8 +439,139 @@ class PrimaryImageView(BaseView):
                 _build()
 
         self.after_build()
-        self._refresh_raster_from_current_selection()
+        if not self._should_suppress_reconnect_hydrate():
+            self._refresh_raster_from_current_selection()
         return self.root
+
+    def export_session_state(self) -> dict[str, Any]:
+        """Return reconnect session chrome for the primary raster view.
+
+        Returns:
+            Session blob with slice indices, contrast, display options, and viewport.
+        """
+        viewport_xy: dict[str, list[float]] | None = None
+        viewport = self._viewer.get_viewport()
+        if viewport is not None:
+            (x_lo, x_hi), (y_lo, y_hi) = viewport
+            viewport_xy = {'x': [x_lo, x_hi], 'y': [y_lo, y_hi]}
+        display_options = asdict(self._viewer.display_options)
+        manual_contrast_range = self._manual_contrast_range
+        return {
+            'schema_version': VIEW_SESSION_SCHEMA_VERSION,
+            'selection_guard': selection_guard_from_selection(self.current_selection),
+            'z': self._z,
+            't': self._t,
+            'contrast_auto_per_slice': self._contrast_auto_per_slice,
+            'manual_contrast_lut': self._manual_contrast_lut,
+            'manual_contrast_range': (
+                [manual_contrast_range[0], manual_contrast_range[1]]
+                if manual_contrast_range is not None
+                else None
+            ),
+            'display_options': display_options,
+            'viewport_xy': viewport_xy,
+        }
+
+    def apply_session_state(self, data: dict[str, Any]) -> None:
+        """Apply reconnect session chrome before raster refresh on reconnect.
+
+        Args:
+            data: Session blob from :meth:`export_session_state`.
+
+        Returns:
+            None.
+        """
+        require_schema_version(data)
+        require_keys(
+            data,
+            'selection_guard',
+            'z',
+            't',
+            'contrast_auto_per_slice',
+            'manual_contrast_lut',
+            'manual_contrast_range',
+            'display_options',
+            'viewport_xy',
+        )
+        self._z = data['z']
+        self._t = data['t']
+        self._contrast_auto_per_slice = data['contrast_auto_per_slice']
+        self._manual_contrast_lut = data['manual_contrast_lut']
+        manual_contrast_range = data['manual_contrast_range']
+        self._manual_contrast_range = (
+            (manual_contrast_range[0], manual_contrast_range[1])
+            if manual_contrast_range is not None
+            else None
+        )
+        self._apply_raster_display_options(
+            PlotlyRasterViewerDisplayOptions(**data['display_options'])
+        )
+        viewport_xy = data['viewport_xy']
+        self._pending_viewport_xy = dict(viewport_xy) if viewport_xy is not None else None
+        self._sync_slice_sliders_from_header()
+
+    def on_session_reconnect_restore(self) -> None:
+        """Refresh raster and apply pending viewport after reconnect hydrate.
+
+        Returns:
+            None.
+        """
+        self._sync_theme_from_provider()
+        self._refresh_raster_from_current_selection()
+
+    def _cache_reconnect_primary_x_range(
+        self,
+        primary_x_range: tuple[float | None, float | None],
+    ) -> None:
+        """Cache shared x-range from reconnect hydrate.
+
+        Args:
+            primary_x_range: Authoritative x-range from ``HomePageState``.
+
+        Returns:
+            None.
+        """
+        self._primary_x_range = primary_x_range
+
+    def _apply_raster_display_options(self, options: PlotlyRasterViewerDisplayOptions) -> None:
+        """Push raster viewer display options to the Plotly widget.
+
+        Args:
+            options: Desired viewer display options.
+
+        Returns:
+            None.
+        """
+        viewer = self._viewer
+        viewer.set_plotly_toolbar_visible(options.show_plotly_toolbar)
+        viewer.set_roi_overlays_visible(options.show_rois)
+        viewer.set_roi_labels_visible(options.show_roi_labels)
+        viewer.set_trace_overlays_visible(options.show_trace_overlays)
+        viewer.set_x_axis_labels_visible(options.show_x_axis_labels)
+        viewer.set_y_axis_labels_visible(options.show_y_axis_labels)
+        viewer.set_square_plot(options.square_plot)
+        viewer.set_hover_info_visible(options.show_hover_info)
+
+    async def _apply_pending_viewport_xy_if_needed(self) -> None:
+        """Apply a stored 2D viewport after raster data is loaded.
+
+        Returns:
+            None.
+        """
+        if self._pending_viewport_xy is None:
+            return
+        if not self._viewer.has_data:
+            return
+        viewport_xy = self._pending_viewport_xy
+        self._pending_viewport_xy = None
+        x_vals = viewport_xy['x']
+        y_vals = viewport_xy['y']
+        await self._viewer.set_axis_ranges(
+            x_min=float(x_vals[0]),
+            x_max=float(x_vals[1]),
+            y_min=float(y_vals[0]),
+            y_max=float(y_vals[1]),
+        )
 
     def subscribe_events(self) -> None:
         """Subscribe to primary-image-specific events while visible.
@@ -1083,6 +1222,7 @@ class PrimaryImageView(BaseView):
             if include_overlays:
                 self._apply_primary_x_range_to_viewer(include_auto=False)
                 self._sync_slice_sliders_from_header()
+                await self._apply_pending_viewport_xy_if_needed()
         except RuntimeError as exc:
             logger.exception('set_data failed: %s', exc)
             err_msg = str(exc)

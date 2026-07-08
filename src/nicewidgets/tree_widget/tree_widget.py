@@ -19,6 +19,8 @@ from nicewidgets.tree_widget.config import TreeWidgetConfig, font_scaled_column_
 from nicewidgets.tree_widget.js_hooks import (
     js_on_cell_key_down_select_prev_next,
     js_on_row_clicked,
+    js_on_row_group_closed,
+    js_on_row_group_opened,
 )
 from nicewidgets.utils.desktop import is_pywebview_desktop
 from nicewidgets.utils.logging import get_logger
@@ -162,6 +164,7 @@ class TreeWidget:
         self._selection_origin = 'internal'
 
         self._evt_select = f'tree_widget_select_{id(self)}'
+        self._evt_expand = f'tree_widget_expand_{id(self)}'
 
         self._index_field: str | None = None
         if self._config.show_index_column:
@@ -210,12 +213,14 @@ class TreeWidget:
         self._selected_row_ids: list[str] = []
         self._selected_rows: list[dict[str, Any]] = []
         self._last_selected_row_id: str | None = None
+        self._expanded_group_ids: set[str] = set()
 
         self._root: ui.column | None = None
         self._grid: ui.aggrid | None = None
         self._context_menu: ui.context_menu | None = None
 
         ui.on(self._evt_select, self._on_select_emitted)
+        ui.on(self._evt_expand, self._on_expand_emitted)
 
     def build(self, parent: ui.element | None = None) -> ui.column:
         """Create the wrapper + context menu + AG Grid under ``parent``.
@@ -427,9 +432,14 @@ class TreeWidget:
         if self._grid is None:
             return
         self._grid.run_grid_method('expandAll')
+        for row in self._rows:
+            row_id = row.get(self._row_id_field)
+            if isinstance(row_id, str) and row_id:
+                self._expanded_group_ids.add(row_id)
 
     def collapse_all_nodes(self) -> None:
         """Collapse every tree group on the client."""
+        self._expanded_group_ids.clear()
         if self._grid is None:
             return
         self._grid.run_grid_method('collapseAll')
@@ -440,9 +450,18 @@ class TreeWidget:
         Args:
             group_id: Row id of the depth-1 group row.
         """
+        self._expanded_group_ids.add(group_id)
         if self._grid is None:
             return
         self._grid.run_row_method(group_id, 'setExpanded', True)
+
+    def expanded_group_ids(self) -> frozenset[str]:
+        """Return file-group row ids currently expanded in the tree.
+
+        Returns:
+            Frozen set of expanded group row ids tracked in Python.
+        """
+        return frozenset(self._expanded_group_ids)
 
     async def get_displayed_rows(self) -> list[dict[str, Any]]:
         """Return AG Grid rows after browser-side filtering/sorting.
@@ -550,6 +569,14 @@ class TreeWidget:
                 emit_event=self._evt_select,
                 row_id_field=self._row_id_field,
             )
+        base[':onRowGroupOpened'] = js_on_row_group_opened(
+            emit_event=self._evt_expand,
+            row_id_field=self._row_id_field,
+        )
+        base[':onRowGroupClosed'] = js_on_row_group_closed(
+            emit_event=self._evt_expand,
+            row_id_field=self._row_id_field,
+        )
 
         merged = _deep_merge_aggrid_options(base, self._config.extra_grid_options)
         return _deep_merge_aggrid_options(merged, self._grid_options_user)
@@ -633,6 +660,24 @@ class TreeWidget:
 
         if self._on_row_selected is not None and isinstance(row_data, dict) and row_data:
             self._on_row_selected(dict(row_data))
+
+    def _on_expand_emitted(self, e: events.GenericEventArguments) -> None:
+        """Track expanded/collapsed tree groups from AG Grid callbacks.
+
+        Args:
+            e: NiceGUI event payload from the expand JS hook.
+
+        Returns:
+            None.
+        """
+        args: dict[str, Any] = e.args or {}
+        row_id = args.get('rowId')
+        if not isinstance(row_id, str) or not row_id:
+            return
+        if bool(args.get('expanded')):
+            self._expanded_group_ids.add(row_id)
+        else:
+            self._expanded_group_ids.discard(row_id)
 
     def _track_added(self, row: Mapping[str, Any]) -> None:
         path = row.get(self._path_field) or []

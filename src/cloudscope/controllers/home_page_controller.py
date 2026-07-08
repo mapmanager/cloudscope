@@ -20,6 +20,8 @@ from cloudscope.events.selection import (
     SelectFileIntent,
     SelectRoiIntent,
 )
+from cloudscope.events.session_reconnect import HomePageSessionReconnectRestore
+from cloudscope.session_state import HomePageSessionSnapshot
 from cloudscope.state import PrimarySelection
 
 if TYPE_CHECKING:
@@ -86,6 +88,7 @@ class HomePageController:
             selection=PrimarySelection(),
             acq_image_list=None,
         )
+        self._pending_reconnect_snapshot: HomePageSessionSnapshot | None = None
 
     @property
     def state(self) -> HomePageState:
@@ -156,16 +159,57 @@ class HomePageController:
         )
         self._publish_file_selection_after_lazy_data_loaded()
 
-    def republish_selection_from_state(self) -> None:
-        """Republish the current file selection after a reconnect build.
+    def publish_session_reconnect_restore(self, snapshot: HomePageSessionSnapshot) -> None:
+        """Publish one reconnect hydrate event after a hard client rebuild.
 
         Ensures lazy pixel data stays loaded before views receive
-        :class:`FileSelectionChanged`.
+        :class:`HomePageSessionReconnectRestore`.
+
+        Args:
+            snapshot: Session snapshot captured on the previous disconnect.
 
         Returns:
             None.
         """
-        self._publish_file_selection_after_lazy_data_loaded()
+        self._pending_reconnect_snapshot = snapshot
+        self._publish_reconnect_restore_after_lazy_data_loaded()
+
+    def _publish_reconnect_restore_after_lazy_data_loaded(self) -> None:
+        """Ensure lazy data is loaded, then publish reconnect restore once.
+
+        Returns:
+            None.
+        """
+        if self._acq_image_data_controller is None:
+            self._publish_session_reconnect_restore_event()
+            return
+
+        self._acq_image_data_controller.ensure_loaded_for_selection(
+            self._state.selection.file_id,
+            self._resolved_acq_image_for_selection(),
+            on_complete=self._publish_session_reconnect_restore_event,
+        )
+
+    def _publish_session_reconnect_restore_event(self) -> None:
+        """Publish the reconnect hydrate event from current state and snapshot.
+
+        Returns:
+            None.
+        """
+        snapshot = self._pending_reconnect_snapshot or HomePageSessionSnapshot.empty()
+        self._pending_reconnect_snapshot = None
+        selection = self._state.selection
+        self._event_bus.publish(
+            HomePageSessionReconnectRestore(
+                file_id=selection.file_id,
+                acq_image=self._resolved_acq_image_for_selection(),
+                channel=selection.channel,
+                roi_id=selection.roi_id,
+                analysis_name=selection.analysis_name,
+                primary_x_range=self._state.primary_x_range,
+                view_session=dict(snapshot.views),
+            )
+        )
 
     def _on_select_file(self, event: SelectFileIntent) -> None:
         """Handle file selection changes.

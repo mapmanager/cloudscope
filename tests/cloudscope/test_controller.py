@@ -11,6 +11,8 @@ from cloudscope.events.selection import (
     SelectFileIntent,
     SelectRoiIntent,
 )
+from cloudscope.events.session_reconnect import HomePageSessionReconnectRestore
+from cloudscope.session_state import HomePageSessionSnapshot
 from cloudscope.state import PrimarySelection
 
 
@@ -137,8 +139,8 @@ def test_select_channel_and_roi_publish_narrow_state_events() -> None:
     assert rois[0].roi_id == 2
 
 
-def test_republish_selection_from_state_publishes_current_selection() -> None:
-    """Reconnect republish should emit FileSelectionChanged matching state.selection."""
+def test_publish_session_reconnect_restore_publishes_current_state() -> None:
+    """Reconnect restore should emit one hydrate event matching state + snapshot."""
     event_bus = EventBus()
     controller = HomePageController(event_bus=event_bus)
     controller.load_demo_files(['file-a', 'file-b'])
@@ -148,15 +150,21 @@ def test_republish_selection_from_state_publishes_current_selection() -> None:
         roi_id=2,
         analysis_name='radon_velocity',
     )
+    controller.state.primary_x_range = (10.0, 20.0)
+    snapshot = HomePageSessionSnapshot.empty()
+    snapshot.views['primary_image'] = {'schema_version': 1}
 
-    published: list[FileSelectionChanged] = []
-    event_bus.subscribe(FileSelectionChanged, published.append)
+    published: list[HomePageSessionReconnectRestore] = []
+    event_bus.subscribe(HomePageSessionReconnectRestore, published.append)
 
-    controller.republish_selection_from_state()
+    controller.publish_session_reconnect_restore(snapshot)
 
     assert len(published) == 1
-    assert published[0].file_id == 'file-b'
-    assert published[0].channel == 1
-    assert published[0].roi_id == 2
-    assert published[0].analysis_name == 'radon_velocity'
-    assert published[0].acq_image is None
+    event = published[0]
+    assert event.file_id == 'file-b'
+    assert event.channel == 1
+    assert event.roi_id == 2
+    assert event.analysis_name == 'radon_velocity'
+    assert event.primary_x_range == (10.0, 20.0)
+    assert event.view_session == {'primary_image': {'schema_version': 1}}
+    assert event.acq_image is None

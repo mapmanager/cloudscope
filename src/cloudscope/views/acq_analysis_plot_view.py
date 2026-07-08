@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Coroutine
+from dataclasses import asdict
 from typing import Any
 
 from nicegui import run, ui
@@ -26,9 +27,16 @@ from cloudscope.events.roi import RoiChanged
 from cloudscope.events.theme import ThemeChanged
 from cloudscope.events.x_range import PrimaryXRangeChanged, SetPrimaryXRangeIntent, x_ranges_equal
 from cloudscope.plot_axis_labels import kymograph_time_x_label
+from cloudscope.session_state import (
+    VIEW_SESSION_SCHEMA_VERSION,
+    require_keys,
+    require_schema_version,
+    selection_guard_from_selection,
+)
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
 from nicewidgets.plotly_plot.models import PlotlyTraceData
+from nicewidgets.plotly_plot.display_options import PlotlyPlotDisplayOptions
 from nicewidgets.plotly_plot.widget import PlotlyPlotWidget
 
 from cloudscope.utils.logging import get_logger
@@ -112,8 +120,73 @@ class AcqAnalysisPlotView(BaseView):
                 with ui.column().classes("w-full h-full min-h-0 flex flex-col overflow-hidden flex-1") as self.root:
                     self._build_content()
         self.after_build()
-        self._refresh_plot_from_current_selection()
+        if not self._should_suppress_reconnect_hydrate():
+            self._refresh_plot_from_current_selection()
         return self.root
+
+    def export_session_state(self) -> dict[str, Any]:
+        """Return reconnect session chrome for the analysis plot.
+
+        Returns:
+            Session blob with display options and event overlay visibility.
+        """
+        chart = self._chart
+        display_options = (
+            asdict(chart.display_options)
+            if chart is not None
+            else asdict(PlotlyPlotDisplayOptions())
+        )
+        return {
+            'schema_version': VIEW_SESSION_SCHEMA_VERSION,
+            'selection_guard': selection_guard_from_selection(self.current_selection),
+            'events_visible': self._events_visible,
+            'display_options': display_options,
+        }
+
+    def apply_session_state(self, data: dict[str, Any]) -> None:
+        """Apply reconnect session chrome to the analysis plot widget.
+
+        Args:
+            data: Session blob from :meth:`export_session_state`.
+
+        Returns:
+            None.
+        """
+        require_schema_version(data)
+        require_keys(data, 'selection_guard', 'events_visible', 'display_options')
+        self._events_visible = data['events_visible']
+        self._apply_plot_display_options(PlotlyPlotDisplayOptions(**data['display_options']))
+
+    def _cache_reconnect_primary_x_range(
+        self,
+        primary_x_range: tuple[float | None, float | None],
+    ) -> None:
+        """Cache shared x-range from reconnect hydrate.
+
+        Args:
+            primary_x_range: Authoritative x-range from ``HomePageState``.
+
+        Returns:
+            None.
+        """
+        self._primary_x_range = primary_x_range
+
+    def _apply_plot_display_options(self, options: PlotlyPlotDisplayOptions) -> None:
+        """Push display options into the child Plotly widget.
+
+        Args:
+            options: Desired widget display options.
+
+        Returns:
+            None.
+        """
+        if self._chart is None:
+            return
+        self._chart.set_x_axis_labels_visible(options.show_x_axis_labels)
+        self._chart.set_y_axis_labels_visible(options.show_y_axis_labels)
+        self._chart.set_plotly_toolbar_visible(options.show_plotly_toolbar)
+        self._chart.set_hover_info_visible(options.show_hover_info)
+        self._chart.set_legend_visible(options.show_legend)
 
     def subscribe_events(self) -> None:
         """Subscribe to analysis/ROI state events while visible.
