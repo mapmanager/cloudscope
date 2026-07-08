@@ -102,3 +102,8 @@ outputs/
 # NiceGUI runtime (if used)
 # -----------------------------
 nicegui_storage/
+
+# -----------------------------
+# Jupyter notebook checkpoints
+# -----------------------------
+.ipynb_checkpoints/

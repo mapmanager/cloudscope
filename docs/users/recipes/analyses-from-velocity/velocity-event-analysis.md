@@ -38,10 +38,7 @@ in the 2D plot to set the event range.
 
 Review event statistics in the Velocity panel **Events** section and on the analysis plots.
 Save from the top header to persist event definitions and results in the JSON file for the
-source image.
-
-The GUI and scripting workflows share the same `acqstore` backend. See
-[Saved file formats](../../saved-files.md) for how event analysis is stored.
+source image. See [Saved file formats](../../saved-files.md) for how event analysis is stored.
 
 ## Saved files
 

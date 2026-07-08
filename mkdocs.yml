@@ -82,7 +82,9 @@ nav:
   - End User:
       - users/index.md
       - Install the desktop app: users/install.md
+      - Supported file formats: users/supported-file-formats.md
       - Using the GUI: users/gui.md
+      - Blinded analysis mode: users/blinded-mode.md
       - Pool plots: users/pool-plots.md
       - "GUI: Experiment metadata": users/gui-experiment-metadata.md
       - "GUI: Image header": users/gui-image-header.md
@@ -92,7 +94,7 @@ nav:
           - users/recipes/index.md
           - Velocity analysis: users/recipes/velocity-analysis.md
           - Diameter analysis: users/recipes/diameter-analysis.md
-          - Sum intensity analysis: users/recipes/sum-intensity-analysis.md
+          - Peak detection: users/recipes/sum-intensity-analysis.md
           - Analyses from velocity:
               - users/recipes/analyses-from-velocity/index.md
               - Velocity event analysis: users/recipes/analyses-from-velocity/velocity-event-analysis.md
@@ -102,6 +104,7 @@ nav:
       - Velocity Analysis: scientists/velocity-analysis.md
       - Diameter Analysis: scientists/diameter-analysis.md
       - Sum Intensity Analysis: scientists/sum-intensity-analysis.md
+      - Heart Rate Analysis: scientists/heart-rate-analysis.md
       - AcqImage Metadata: scientists/acqimage-metadata.md
       - Notebooks:
           - scientists/notebooks.md
@@ -112,6 +115,7 @@ nav:
           - Kymograph Reference Images: notebooks/kymograph-reference-image.ipynb
           - Heart Rate Analysis Notebook: notebooks/heart-rate-analysis.ipynb
           - Heart Rate Batch Analysis Notebook: notebooks/heart-rate-batch-analysis.ipynb
+          - Generating a Randomized File Subset: notebooks/generating-randomized-file-for-analysis.ipynb
       - Reproducibility: scientists/reproducibility.md
   - Developer:
       - developers/index.md
@@ -127,4 +131,7 @@ nav:
       - Velocity Analysis: api/velocity-analysis.md
       - Diameter Analysis: api/diameter-analysis.md
       - Sum Intensity Analysis: api/sum-intensity-analysis.md
+      - Heart Rate Analysis: api/heart-rate-analysis.md
+      - Event Analysis: api/event-analysis.md
+      - Analysis Pools: api/analysis-pools.md
       - Batch Analysis: api/batch-analysis.md

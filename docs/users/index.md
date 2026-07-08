@@ -4,11 +4,9 @@ CloudScope lets you load raw image files, visualize image data, define and selec
 
 Current quantitative analysis workflows are designed for **line scan kymographs** and include:
 
-- *in vivo* blood flow velocity analysis
-- vessel diameter analysis
-- sum intensity peak analysis for functional fluorescence reporters (like GCaMP)
-
-CloudScope can load and visualize a range of image formats, but the currently implemented quantitative analyses are designed for line scan data.
+- [*in vivo* blood flow velocity analysis](recipes/velocity-analysis.md)
+- [vessel diameter analysis](recipes/diameter-analysis.md)
+- [peak detection](recipes/sum-intensity-analysis.md) for functional fluorescence reporters (like GCaMP)
 
 ## Try CloudScope in a browser
 
@@ -16,7 +14,7 @@ The fastest way to try CloudScope is the public browser application:
 
 [Open the CloudScope Web Application](https://cloudscope.mapmanager.net){target="_blank" rel="noopener"}
 
-The browser application uses the same CloudScope GUI and the same `acqstore` backend as the desktop application.
+The browser app provides the same GUI and analysis workflows as the desktop app.
 
 ## Install the desktop app
 
@@ -29,20 +27,28 @@ checksum files, and matching source code are archived so you can return to the s
 
 ## Supported file formats
 
-CloudScope supports commercial microscopy formats and open image formats:
+CloudScope supports these **commercial microscopy formats**:
 
 | Format | Notes |
 |---|---|
 | `.oir` | Olympus / Evident |
 | `.czi` | Zeiss |
+| `.nd2` | Nikon |
+
+and these **open image formats**:
+
+| Format | Notes |
+|---|---|
 | `.tif` | TIFF image files |
 | `.ome.zarr` | OME-Zarr datasets |
+
+See [Supported file formats](supported-file-formats.md) for format-specific notes.
 
 Support for commercial microscopy formats builds on the Python imaging ecosystem. CloudScope gratefully acknowledges [Christoph Gohlke](https://www.cgohlke.com/){target="_blank" rel="noopener"} for long-standing work on microscopy and file-format tooling.
 
 ## Sample data
 
-CloudScope integrates with the [cloudscope-data Repository](https://github.com/mapmanager/cloudscope-data){target="_blank" rel="noopener"}. From the top header **history menu** (:material-menu:{ .middle }), choose:
+CloudScope integrates with the [cloudscope-data Repository](https://github.com/mapmanager/cloudscope-data){target="_blank" rel="noopener"}. From the [top header history menu](gui.md#top-header-and-loadsave-controls) (:material-menu:{ .middle }), choose:
 
 - **Load Velocity Sample Data** — OIR kymograph data for velocity analysis
 - **Load Diameter Sample Data** — TIFF kymograph data for diameter analysis

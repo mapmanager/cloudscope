@@ -20,12 +20,17 @@ CloudScope provides native support for commercial microscopy formats and open sc
 
 - Olympus / Evident `.oir`
 - Zeiss `.czi`
+- Nikon `.nd2`
 - TIFF `.tif`
 - OME-Zarr `.ome.zarr`
 
+See [Supported file formats](https://mapmanager.github.io/cloudscope/users/supported-file-formats/) for the full list and format-specific notes.
+
 ## Scientific workflows
 
-CloudScope supports ROI-based image analysis workflows including velocity analysis and diameter analysis. The GUI is optimized for interactive use with linked panels and widgets, while the backend analysis engine remains scriptable through Python.
+CloudScope supports ROI-based image analysis workflows including velocity analysis, diameter analysis, sum-intensity peak detection, and velocity-derived heart-rate and event analyses. The GUI is optimized for interactive use with linked panels and widgets, while the backend analysis engine remains scriptable through Python.
+
+For unbiased review, CloudScope supports a [blinded analysis mode](https://mapmanager.github.io/cloudscope/users/blinded-mode/) that hides file and condition identity in the GUI, and can be combined with a [randomized file subset](https://mapmanager.github.io/cloudscope/notebooks/generating-randomized-file-for-analysis/) drawn from a large dataset.
 
 Visualization and analysis are optimized separately. CloudScope can use image pyramids to display only the resolution required for the current view while preserving full-resolution image data for backend `acqstore` analysis. Intensive analysis paths can use multiprocessing or multithreading where available, and the same acceleration paths are available from the GUI and scripts.
 
@@ -35,14 +40,14 @@ Example datasets are maintained in the companion repository:
 
 <https://github.com/mapmanager/cloudscope-data>
 
-The CloudScope GUI includes a menu item to load sample data. The same data can also be fetched from Python scripts and notebooks through `acqstore.sample_data`.
+The CloudScope GUI includes menu items to load the `velocity-sample-data` and `diameter-sample-data` datasets. The same datasets can also be fetched from Python scripts and notebooks through `acqstore.sample_data.ensure_sample()`.
 
 ## Documentation
 
 Full documentation is built with MkDocs and organized by user type:
 
-- End users: installing, launching, opening data, running analysis, and using the GUI.
-- Scientific users and data scientists: algorithms, parameters, results, notebooks, and scripting with `acqstore`.
+- End users: installing, launching, opening data, running analysis, using the GUI, blinded analysis mode, and supported file formats.
+- Scientific users and data scientists: algorithms, parameters, results, runnable notebooks (load and plot, velocity, diameter, sum-intensity, heart rate, and generating a randomized file subset), and scripting with `acqstore`.
 - Developers: architecture, local development, testing, desktop builds, deployment, and contributing.
 
 Documentation site: <https://mapmanager.github.io/cloudscope/>

@@ -6,32 +6,106 @@ This project uses a simple changelog format inspired by Keep a Changelog. During
 
 ## [Unreleased]
 
-### Added
+### acqstore (backend / data model)
 
+Added:
+
+- ND2 (Nikon) file loader wired into the loader factory, registry, and supported import extensions.
+- Sum-intensity (ΔF/F₀) analysis module: core detection, event features, detection presets, and a synthetic data generator.
+- Heart-rate analysis and velocity-event analysis as first-class dependent analyses computed from a parent `radon_velocity` analysis.
+- Self-populating analysis registry with a `get_analysis_by_type` lookup.
+- Analysis pools for collection-level summaries: sum-intensity, velocity, and a shared base analysis pool.
+- Randomized manifest / master-sampling API (`AcqImageManifest`) for blinded review workflows.
+- Registered downloadable sample datasets `diameter-sample-data` and `velocity-sample-data` via `acqstore.sample_data.ensure_sample()` (same keys as the GUI sample-data menu items).
+- Image-header physical-unit metadata loaded from a sidecar on file open.
 - Analysis run metadata (`analysis_date`, `analysis_time`, `analysis_version`) stamped into velocity, diameter, heart-rate, and event summaries via `BaseAnalysis.finalize_summary()`.
 - `DiameterAnalysis.summary_columns` schema for collection-level analysis pools.
-- Right-side velocity pool panel on the home page with collapsible splitter, persisted open width, and header toggle button.
-- `analysis_summary_display` helpers for formatted velocity/diameter result summary expansions.
-- Option C desktop quit flow with native Save / Don't Save / Cancel dialog and synchronous dirty-file save on quit.
-- `NicePool.relayout_plots()` and `VelocityPoolView.relayout_plots()` for plot refresh after embedded pool resize.
-- `SplitterManager` right-pool open/collapse helpers and `RIGHT_POOL` splitter preset.
 
-### Changed
+Changed:
 
-- Desktop launcher defaults back to single-window mode; velocity pool is embedded in the home page right panel instead of requiring a separate native window.
-- Home page layout refactor for natural scrolling and right-toolbar velocity pool integration.
-- Velocity and diameter analysis views show a collapsed summary expansion instead of a raw summary dict label.
-- Velocity analysis pool column naming: metric keys such as `velocity_mean` are no longer double-prefixed (`velocity_velocity_mean`).
-- Analysis summary display rounds float values to three decimal places.
-- `WindowGeometryTracker` syncs live geometry on window close before persisting config to disk.
-- NicePool embedded layout uses `h-full` / `min-h-0` sizing instead of `h-screen` for splitter panes.
+- OIR loader emits proper x/y axis labels; OIR and CZI folder-load performance improvements.
+- CZI line-scan t→y dimension remap and reference-image dimension handling.
+- Structured load-error reporting (`LoadErrorType`) for missing files, unsupported types, loader errors, and CSV errors, including clearer failed-TIFF messages (e.g. Olympus 2-channel).
 
-### Fixed
+### nicewidgets (reusable NiceGUI widgets)
 
-- Option C desktop window geometry could be lost when closing because persistence ran after the pywebview window was destroyed.
-- Embedded velocity pool plots could fail to relayout correctly after the right-panel splitter was resized.
+Added:
+
+- New Plotly-based `plotly_plot` widget (context menu, display options, event overlay, models), replacing the ECharts analysis plot.
+- Interactive velocity-event create/edit/delete in `plotly_plot` via selection handling.
+- Reusable `ContrastWidget` (LUT select, Auto, and min/max range) embedded in the image toolbar.
+- `UploadWidget` for browser file upload.
+- Interactive ROI editing in the raster viewer (create / move / resize ROI overlays).
+- `tree_widget` promoted into nicewidgets with an index column.
+- NicePool plot presets (save/load/delete), pool control panel, selection handler, preset validation, and table metadata display.
+- Compact select styles and compact image-toolbar UI.
+- `plotly_axis_layout` / `plotly_layout_margins` helpers for aligned x-axes across stacked plots.
+- `NicePool.relayout_plots()` for plot refresh after embedded resize.
+
+Changed:
+
+- Raster viewer migrated to Plotly: relayout-based zoom/pan, trace and ROI overlays, margin alignment with `plotly_plot`.
+- NicePool single-scrollbar toolbar layout; embedded `h-full` / `min-h-0` sizing instead of `h-screen`.
+
+Fixed:
+
+- Plotly user-set x-range infinite-loop (echo) fix.
+- ROI rectangle edit flashing/padding in the raster viewer.
+
+### cloudscope (app / GUI)
+
+Added:
+
+- Sum-intensity analysis view, parameters view, plot view, and pool integration.
+- Right-side velocity pool panel on the home page: collapsible splitter, persisted open width, header toggle, and lazy build.
+- Primary-image t/z slicing sliders with viewport preservation while scrubbing.
+- Blinded display mode.
+- App Info log viewer (Open Logs button + in-app log preview) backed by a unified `cloudscope.log`.
+- Batch-analysis dialog with ROI-mode selection, preview rows, live per-file results, progress, and cancellation.
+- Split experiment-metadata and image-header metadata into distinct views with a dedicated left-toolbar button.
+- `analysis_summary_display` helpers for formatted velocity/diameter summary expansions.
+- Factory reset in runtime and the options view.
+- Reference-image scan-path traces; reference image relocated to the left toolbar.
+- x-range controller, sum-intensity pool controller, and velocity pool controller.
+- `VelocityPoolView.relayout_plots()`, `SplitterManager` right-pool helpers, and `RIGHT_POOL` splitter preset.
+
+Changed:
+
+- Home page layout refactor for natural scrolling and right-toolbar pool integration.
+- Velocity and diameter analysis views show a collapsed summary expansion instead of a raw dict; summary floats rounded to three decimals.
+- Velocity pool column naming no longer double-prefixed (`velocity_velocity_mean` → `velocity_mean`).
+- App-config table font and dark-mode UI polish.
+- File tree auto-fits to splitter height; load file/folder buttons disabled in web-server mode.
+
+Fixed:
+
+- Reference image view when no reference image is present (clear on missing).
+- Diameter analysis int→float mapping bug.
+
+### Desktop app
+
+Added:
+
+- Option C desktop quit flow with a native Save / Don't Save / Cancel dialog and synchronous dirty-file save on quit.
+- Native window menu title.
+
+Changed:
+
+- Desktop launcher defaults back to single-window mode; the velocity pool is embedded in the home page instead of a separate native window.
+- `WindowGeometryTracker` syncs live geometry on window close before persisting config.
+
+Fixed:
+
+- Option C window geometry could be lost when closing because persistence ran after the pywebview window was destroyed.
+- Embedded velocity pool plots could fail to relayout after the right-panel splitter was resized.
 
 ### Documentation
+
+- Major MkDocs restructure with expanded end-user recipes (velocity, diameter, sum-intensity, velocity-event, heart-rate).
+- New notebooks: sum intensity, heart rate, heart-rate batch, kymograph reference image, and generating a randomized file subset for unbiased analysis.
+- New blinded-mode and supported-file-formats end-user pages; a heart-rate data-scientist page; and heart-rate, event-analysis, and analysis-pool API pages.
+- MkDocs notebooks transition from the retired `demo-small` sample to the registered `diameter-sample-data` and `velocity-sample-data` datasets.
+- New install-desktop-app guide; empty-`__init__` and no-README-driveby contributor policies.
 
 ---
 

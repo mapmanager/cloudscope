@@ -21,7 +21,7 @@ CloudScope app configuration file on disk.
 
 The auto-contrast percentiles define which pixel intensity range is mapped to the visible colormap
 (for example clipping at the 2nd and 98th percentile of the current image plane). Analysis always
-uses full-resolution source data from `acqstore`, independent of these display settings.
+uses full-resolution source data, independent of these display settings.
 
 ## Additional actions
 

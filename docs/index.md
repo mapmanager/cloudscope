@@ -11,13 +11,13 @@ CloudScope is an image loading, visualization, and analysis application.
 
 It provides desktop and browser interfaces for working with acquisition-backed image data. Current quantitative analysis workflows are designed for **line scan kymographs** and include:
 
-- *in vivo* blood flow velocity analysis using a Radon-transform-based method
-- vessel diameter analysis
-- sum intensity analysis for functional fluorescence reporters (like GCaMP)
-
-The same `acqstore` backend is used by the desktop application, browser application, Python scripts, and Jupyter notebooks.
+- [*in vivo* blood flow velocity analysis](users/recipes/velocity-analysis.md) using a Radon-transform-based method
+- [vessel diameter analysis](users/recipes/diameter-analysis.md)
+- [peak detection](users/recipes/sum-intensity-analysis.md) for functional fluorescence reporters (like GCaMP)
 
 For folder-level comparison of analysis results across many files, CloudScope provides **pool plots** — interactive velocity and peak summaries that update as you load data and run analyses. See the [Pool plots](users/pool-plots.md) guide.
+
+New to the interface? Start with [Using the GUI](users/gui.md) — load sample data from the [top header](users/gui.md#top-header-and-loadsave-controls), select files and ROIs, and run analyses from the left toolbar.
 
 <div class="cs-clear"></div>
 
@@ -51,16 +51,22 @@ This architecture helps keep analysis behavior reproducible across interfaces an
 
 ![CloudScope architecture](assets/cloudscope-architecture.svg){ .cs-screenshot .cs-screenshot-center width="760" loading=lazy }
 
-CloudScope is built around `acqstore`, the shared backend. The GUI is a user interface for the same backend APIs that can also be called directly from Python.
+CloudScope is built around a shared scientific backend. The GUI is a user interface for the same analysis code that can also be called directly from Python notebooks and scripts — so a measurement run in the app can be reproduced and extended in code without reimplementing the algorithm.
 
 ## Supported file formats
 
-CloudScope currently supports commercial microscopy formats and open image formats, including:
+CloudScope supports these **commercial microscopy formats**:
 
 - Olympus / Evident `.oir`
 - Zeiss `.czi`
+- Nikon `.nd2`
+
+and these **open image formats**:
+
 - TIFF `.tif`
 - OME-Zarr `.ome.zarr`
+
+See [Supported file formats](users/supported-file-formats.md) for format-specific notes.
 
 Support for commercial microscopy formats builds on the Python imaging ecosystem. CloudScope gratefully acknowledges [Christoph Gohlke](https://www.cgohlke.com/){target="_blank" rel="noopener"} for long-standing work on microscopy and file-format tooling.
 

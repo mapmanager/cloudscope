@@ -13,6 +13,7 @@ The notebooks are rendered in the documentation site and are not currently execu
 - [Kymograph Reference Images](../notebooks/kymograph-reference-image.ipynb)
 - [Heart Rate Analysis](../notebooks/heart-rate-analysis.ipynb) — see also the [End User heart rate recipe](../users/recipes/analyses-from-velocity/heart-rate-analysis.md) (no GUI yet)
 - [Heart Rate Batch Analysis](../notebooks/heart-rate-batch-analysis.ipynb)
+- [Generating a Randomized File Subset](../notebooks/generating-randomized-file-for-analysis.ipynb) — sample a large dataset into an unbiased per-condition subset for [blinded analysis](../users/blinded-mode.md)
 
 ## Plotting
 

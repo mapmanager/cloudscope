@@ -1,18 +1,20 @@
-# Sum intensity analysis
+# Peak detection
 
-Sum intensity analysis measures **normalized line intensity** along a line scan kymograph ROI
+Peak detection measures **normalized line intensity** along a line scan kymograph ROI
 and detects transient peaks from a **functional reporter (like GCaMP)**. The analysis computes
 delta-F over F0 (df/f0), applies derivative-threshold onset detection by default, and refines
 peak locations in a search window around each onset.
 
+In the CloudScope GUI this workflow is labeled **Peak Detect** on the left toolbar.
+
 ## Before you start
 
-- Load a **line scan kymograph** (`.oir`, `.czi`, `.tif`, or `.ome.zarr`).
+- Load a **line scan kymograph** (`.oir`, `.czi`, `.nd2`, `.tif`, or `.ome.zarr`).
 - Select or create a **rectangular ROI** covering the region to analyze.
 
 See [Using the GUI](../gui.md) for loading files and ROIs.
 
-## Run sum intensity analysis in the GUI
+## Run peak detection in the GUI
 
 1. Select the file, channel, and ROI in the file list.
 2. Open the left navigation toolbar and click **Peak Detect** (functions icon).
@@ -20,25 +22,21 @@ See [Using the GUI](../gui.md) for loading files and ROIs.
    detection parameters.
 4. Click **Run Sum Intensity Analysis**.
 5. Review the plot: df/f0 trace, derivative, onset markers, and peak markers.
-6. Use **Save Selected** or **Save All** in the top header to persist results.
+6. Use **Save Selected** or **Save All** in the [top header](../gui.md#top-header-and-loadsave-controls) to persist results.
 
-![CloudScope sum intensity analysis view](../../assets/gui/sum-intensity-analysis-view.png){ .cs-screenshot .cs-screenshot-center width="640" loading=lazy }
+![CloudScope peak detection view](../../assets/gui/sum-intensity-analysis-view.png){ .cs-screenshot .cs-screenshot-center width="640" loading=lazy }
 
-Optional plot overlays (context menu on the sum-intensity plot):
+Optional plot overlays (context menu on the peak-detection plot):
 
 - Show or hide the **derivative** trace on the secondary y-axis.
 - Show or hide a **diameter** trace when diameter analysis has been run on the same file,
   channel, and ROI (default off).
 
-## Results and reproducibility
+## Results
 
-Review sum-intensity results in the **Peak Detect** panel and the **Sum intensity plot** at
+Review peak-detection results in the **Peak Detect** panel and the **Peak detection plot** at
 the bottom of the Home page. Save from the top header to write JSON and CSV files next to the
-source image.
-
-The GUI and scripting workflows share the same `acqstore` backend, so results from the interface
-should match equivalent Python scripts using the same data, ROIs, and parameters. See
-[Saved file formats](../saved-files.md) for output file details.
+source image. See [Saved file formats](../saved-files.md) for output file details.
 
 ## Saved files
 

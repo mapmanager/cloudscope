@@ -10,7 +10,7 @@ Line scan kymograph analyses:
 |---|---|---|
 | [Velocity analysis](velocity-analysis.md) | Yes | *In vivo* blood flow velocity from a Radon-transform-based method |
 | [Diameter analysis](diameter-analysis.md) | Yes | Vessel diameter measurement |
-| [Sum intensity analysis](sum-intensity-analysis.md) | Yes | Functional fluorescence reporters (like GCaMP) from normalized line intensity |
+| [Peak detection](sum-intensity-analysis.md) | Yes | Functional fluorescence reporters (like GCaMP) from normalized line intensity |
 
 Analyses that require a completed [velocity analysis](velocity-analysis.md) on the same
 channel and ROI — see [Analyses from velocity](analyses-from-velocity/index.md):

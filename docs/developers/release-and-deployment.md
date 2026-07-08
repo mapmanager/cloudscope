@@ -75,6 +75,7 @@ The public deployment supports:
 - user file upload
 - `.oir` files
 - `.czi` files
+- `.nd2` files
 - `.tif` files
 
 Uploaded files remain separate from the CloudScope source repository.

@@ -23,10 +23,7 @@ See [Using the GUI](../gui.md) for loading files and ROIs.
 ## Results and reproducibility
 
 Review diameter results in the Diameter panel and the **Analysis plot**. Save from the top
-header to write JSON and CSV files next to the source image.
-
-The GUI and scripting workflows share the same `acqstore` backend, so results from the interface
-should match equivalent Python scripts using the same data, ROIs, and parameters. See
+header to write JSON and CSV files next to the source image. See
 [Saved file formats](../saved-files.md) for output file details.
 
 ## Saved files

@@ -5,7 +5,7 @@ Radon-transform-based method.
 
 ## Before you start
 
-- Load a **line scan kymograph** (`.oir`, `.czi`, `.tif`, or `.ome.zarr`).
+- Load a **line scan kymograph** (`.oir`, `.czi`, `.nd2`, `.tif`, or `.ome.zarr`).
 - Select or create an **ROI** covering the region to analyze.
 
 See [Using the GUI](../gui.md) for loading files and ROIs.
@@ -27,10 +27,7 @@ files with shared ROI settings.
 ## Results and reproducibility
 
 Review velocity results in the Velocity panel, the **Analysis plot**, and the primary image
-viewer. Save from the top header to write JSON and CSV files next to the source image.
-
-The GUI and scripting workflows share the same `acqstore` backend, so results from the interface
-should match equivalent Python scripts using the same data, ROIs, and parameters. See
+viewer. Save from the top header to write JSON and CSV files next to the source image. See
 [Saved file formats](../saved-files.md) for output file details.
 
 ## Saved files
