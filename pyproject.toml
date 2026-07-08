@@ -44,6 +44,7 @@ dependencies = [
     "tabulate>=0.10.0",
     "zarr>=3.2.1",
     "ome-zarr>=0.17.0",
+    "pyabf>=2.3.8",
     "ngff-zarr>=0.35.1",
     "dask[array]>=2026.6.0",
 ]

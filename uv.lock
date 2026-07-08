@@ -491,6 +491,7 @@ dependencies = [
     { name = "platformdirs" },
     { name = "plotly" },
     { name = "pooch" },
+    { name = "pyabf" },
     { name = "pyperclip" },
     { name = "pyperclipimg" },
     { name = "pywebview" },
@@ -533,6 +534,7 @@ requires-dist = [
     { name = "platformdirs", specifier = ">=4.9.6" },
     { name = "plotly", specifier = ">=6.7.0" },
     { name = "pooch", specifier = ">=1.9.0" },
+    { name = "pyabf", specifier = ">=2.3.8" },
     { name = "pyperclip" },
     { name = "pyperclipimg", specifier = ">=0.2.0" },
     { name = "pywebview", specifier = ">=6.2.1" },
@@ -2862,6 +2864,20 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/cd/05/0a34433a064256a578f1783a10da6df098ceaa4a57bbeaa96a6c0352786b/pure_eval-0.2.3.tar.gz", hash = "sha256:5f4e983f40564c576c7c8635ae88db5956bb2229d7e9237d03b3c0b0190eaf42", size = 19752, upload-time = "2024-07-21T12:58:21.801Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/8e/37/efad0257dc6e593a18957422533ff0f87ede7c9c6ea010a2177d738fb82f/pure_eval-0.2.3-py3-none-any.whl", hash = "sha256:1db8e35b67b3d218d818ae653e27f06c3aa420901fa7b081ca98cbedc874e0d0", size = 11842, upload-time = "2024-07-21T12:58:20.04Z" },
+]
+
+[[package]]
+name = "pyabf"
+version = "2.3.8"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/08/8c/60694c3129f22766e69e413c8172a263a46f363a99498da63bda411cfe28/pyabf-2.3.8.tar.gz", hash = "sha256:4a4cf5701149eed75adc4dc8ea975c61c43c1678e5bcf468426140ec52302109", size = 44207, upload-time = "2023-08-02T23:21:56.906Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b4/28/b05be29bc66faa4683b18aaa67cb24edde881f54b0e368adf8975b78fd02/pyabf-2.3.8-py3-none-any.whl", hash = "sha256:32c59da0db9afdb69568b6bd0f8aa4b409193fe325a461d906c6ae22e5bff391", size = 53007, upload-time = "2023-08-02T23:21:55.164Z" },
 ]
 
 [[package]]
