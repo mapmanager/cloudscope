@@ -22,7 +22,7 @@ See [Using the GUI](../gui.md) for loading files and ROIs.
    detection parameters.
 4. Click **Run Sum Intensity Analysis**.
 5. Review the plot: df/f0 trace, derivative, onset markers, and peak markers.
-6. Use **Save Selected** or **Save All** in the [top header](../gui.md#top-header-and-loadsave-controls) to persist results.
+6. Use **Save Selected** or **Save All** in the [load/save controls](../gui.md#top-header-and-loadsave-controls) to persist results.
 
 ![CloudScope peak detection view](../../assets/gui/sum-intensity-analysis-view.png){ .cs-screenshot .cs-screenshot-center width="640" loading=lazy }
 
@@ -35,7 +35,7 @@ Optional plot overlays (context menu on the peak-detection plot):
 ## Results
 
 Review peak-detection results in the **Peak Detect** panel and the **Peak detection plot** at
-the bottom of the Home page. Save from the top header to write JSON and CSV files next to the
+the bottom of the Home page. Save from the load/save controls to write JSON and CSV files next to the
 source image. See [Saved file formats](../saved-files.md) for output file details.
 
 ## Saved files

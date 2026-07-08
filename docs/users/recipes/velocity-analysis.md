@@ -17,7 +17,7 @@ See [Using the GUI](../gui.md) for loading files and ROIs.
 3. Review **Detection parameters** in the Velocity panel.
 4. Click **Run Radon Analysis**.
 5. Review the results summary and plotted output.
-6. Use **Save Selected** or **Save All** in the top header to keep results.
+6. Use **Save Selected** or **Save All** in the load/save controls to keep results.
 
 ![CloudScope velocity analysis panel](../../assets/gui/velocity-analysis-panel.png){ .cs-screenshot .cs-screenshot-center width="640" loading=lazy }
 
@@ -27,7 +27,7 @@ files with shared ROI settings.
 ## Results and reproducibility
 
 Review velocity results in the Velocity panel, the **Analysis plot**, and the primary image
-viewer. Save from the top header to write JSON and CSV files next to the source image. See
+viewer. Save from the load/save controls to write JSON and CSV files next to the source image. See
 [Saved file formats](../saved-files.md) for output file details.
 
 ## Saved files

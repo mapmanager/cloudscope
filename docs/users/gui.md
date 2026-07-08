@@ -9,7 +9,7 @@ select ROIs, run analysis, and review or export results. The desktop app and bro
 the same interface.
 
 CloudScope uses **image pyramids** for fast visualization at the zoom level on screen, while
-analysis uses full-resolution source data. Image pixels and analysis tables
+analysis uses full-resolution source data. Image pixels and analysis
 **load lazily** when you select a file or analysis, and can be unloaded from the file-list
 context menu. Together, this lets you browse folders with many hundreds of files without loading
 everything into memory at once.
@@ -30,7 +30,7 @@ everything into memory at once.
 
 The fastest way to explore CloudScope is to load example data from the
 [`cloudscope-data`](https://github.com/mapmanager/cloudscope-data){target="_blank" rel="noopener"}
-repository. Open the **history menu** (:material-menu:{ .middle }) in the top header and choose:
+repository. Open the **history menu** (:material-menu:{ .middle }) in the load/save controls and choose:
 
 | Menu item | Sample content |
 |---|---|
@@ -167,7 +167,7 @@ Right-click the file list tree to open the context menu:
 
 - **Reveal In Finder** — open the selected file's folder in the system file manager (the menu
   label follows macOS wording in the app today).
-- **Unload Data** — free lazy-loaded image pixels and analysis tables for the selected file
+- **Unload Data** — free lazy-loaded image pixels and analysis for the selected file
   while keeping the file entry in the list.
 - **Expand All** / **Collapse All** — expand or collapse all tree nodes.
 - **Copy Table Data** — copy the visible tree rows to the clipboard.

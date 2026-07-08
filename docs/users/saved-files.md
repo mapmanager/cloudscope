@@ -62,7 +62,7 @@ CSV files are suitable for export to spreadsheets or downstream Python analysis.
 
 ## Save actions in the GUI
 
-From the top header:
+From the load/save controls:
 
 - **Save Selected** — saves the currently selected file when it has unsaved changes (metadata,
   ROIs, contrast, or analysis edits). Disabled when nothing is selected or the selection has no

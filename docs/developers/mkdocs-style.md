@@ -175,7 +175,7 @@ save results. They may not write Python.
 | Do | Don't |
 |---|---|
 | Name GUI controls exactly as shown (**Peak Detect**, **Load CSV**, **Pool Plots**) | Paste Python APIs, module paths, or `acqstore` package names |
-| Link to [Using the GUI](../users/gui.md) sections when referring to a control area (for example [top header](../users/gui.md#top-header-and-loadsave-controls)) | Repeat “uses the same backend” on every page |
+| Link to [Using the GUI](../users/gui.md) sections when referring to a control area (for example the [load/save controls](../users/gui.md#top-header-and-loadsave-controls)) | Repeat “uses the same backend” on every page |
 | Call the sum-intensity workflow **peak detection** in prose (the left-toolbar label) | Dive into axis remapping, loader internals, or runtime extension sets |
 | Explain *what to click* and *what you get* | Document implementation details better suited to Data Scientist or Developer pages |
 
@@ -212,6 +212,11 @@ user-facing pages when documenting features that also appear in the GUI.
   detail: [Supported file formats](../users/supported-file-formats.md).
 - **Internal links:** prefer relative links to other doc pages; use section anchors
   (`gui.md#top-header-and-loadsave-controls`) when pointing at a specific GUI region.
+- **Load/save vs top header:** when referring to loading or saving (Load File/Folder,
+  **Load CSV**, the **history menu**, **Save Selected** / **Save All**), call it the
+  **load/save controls**. Reserve **top header** for describing the header region itself
+  (on `gui.md`) or for the **Pool Plots** button, which lives in the header but is not a
+  load/save control.
 - **Avoid repetition:** if the home page or End User index already states a fact, later pages
   should link rather than restate it.
 - **Naming:** End User docs → **peak detection**; Data Scientist / API → **sum intensity

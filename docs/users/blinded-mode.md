@@ -46,7 +46,7 @@ enforce access control.
    [randomized file subset notebook](../notebooks/generating-randomized-file-for-analysis.ipynb)
    to draw a randomized, per-condition subset from a large folder and write it to
    a manifest CSV.
-2. **Load the subset.** In CloudScope, use **Load CSV** from the [top header history menu](gui.md#top-header-and-loadsave-controls) to
+2. **Load the subset.** In CloudScope, use **Load CSV** from the **history menu** in the [load/save controls](gui.md#top-header-and-loadsave-controls) to
    open the sampled manifest.
 3. **Blind the analyst.** Turn on blinded mode in the Config panel before
    scoring or running analyses.

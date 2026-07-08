@@ -27,20 +27,7 @@ checksum files, and matching source code are archived so you can return to the s
 
 ## Supported file formats
 
-CloudScope supports these **commercial microscopy formats**:
-
-| Format | Notes |
-|---|---|
-| `.oir` | Olympus / Evident |
-| `.czi` | Zeiss |
-| `.nd2` | Nikon |
-
-and these **open image formats**:
-
-| Format | Notes |
-|---|---|
-| `.tif` | TIFF image files |
-| `.ome.zarr` | OME-Zarr datasets |
+CloudScope supports commercial microscopy formats — Olympus / Evident `.oir`, Zeiss `.czi`, and Nikon `.nd2` — and open image formats — TIFF `.tif` and OME-Zarr `.ome.zarr`.
 
 See [Supported file formats](supported-file-formats.md) for format-specific notes.
 
@@ -48,7 +35,7 @@ Support for commercial microscopy formats builds on the Python imaging ecosystem
 
 ## Sample data
 
-CloudScope integrates with the [cloudscope-data Repository](https://github.com/mapmanager/cloudscope-data){target="_blank" rel="noopener"}. From the [top header history menu](gui.md#top-header-and-loadsave-controls) (:material-menu:{ .middle }), choose:
+CloudScope integrates with the [cloudscope-data Repository](https://github.com/mapmanager/cloudscope-data){target="_blank" rel="noopener"}. From the **history menu** (:material-menu:{ .middle }) in the [load/save controls](gui.md#top-header-and-loadsave-controls), choose:
 
 - **Load Velocity Sample Data** — OIR kymograph data for velocity analysis
 - **Load Diameter Sample Data** — TIFF kymograph data for diameter analysis

@@ -17,7 +17,7 @@ format-specific metadata, and related loader output). You cannot edit those valu
 **Editable calibration fields** are limited to Y/X **physical unit** size and **physical unit
 labels**. Use these when a file lacks embedded scaling — for example a plain **`.tif`** with no
 physical units — so analyses and plots can still report measurements in real units. After editing,
-click **Apply** on the header card, then **Save Selected** or **Save All** in the top header.
+click **Apply** on the header card, then **Save Selected** or **Save All** in the load/save controls.
 
 Physical units affect ROI measurements, plot axis scaling, and analysis outputs that report
 values in real units. They do not change the underlying pixel data.
@@ -29,7 +29,7 @@ values in real units. They do not change the underlying pixel data.
 3. Review read-only header fields.
 4. If needed, adjust **physical unit** and **label** fields for the Y and X axes.
 5. Click **Apply** on the header card when you changed calibration fields.
-6. Save from the top header when the file shows unsaved changes.
+6. Save from the load/save controls when the file shows unsaved changes.
 
 ## Field reference
 

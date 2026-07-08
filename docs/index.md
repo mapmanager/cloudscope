@@ -17,7 +17,7 @@ It provides desktop and browser interfaces for working with acquisition-backed i
 
 For folder-level comparison of analysis results across many files, CloudScope provides **pool plots** — interactive velocity and peak summaries that update as you load data and run analyses. See the [Pool plots](users/pool-plots.md) guide.
 
-New to the interface? Start with [Using the GUI](users/gui.md) — load sample data from the [top header](users/gui.md#top-header-and-loadsave-controls), select files and ROIs, and run analyses from the left toolbar.
+New to the interface? Start with [Using the GUI](users/gui.md) — load sample data from the [load/save controls](users/gui.md#top-header-and-loadsave-controls), select files and ROIs, and run analyses from the left toolbar.
 
 <div class="cs-clear"></div>
 
