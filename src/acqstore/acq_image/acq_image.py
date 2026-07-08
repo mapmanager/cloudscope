@@ -324,7 +324,6 @@ class AcqImage:
             'accepted': bool(self._accept),
             'rois': self._rois.to_list(),
             'experiment_metadata': self._experimental_metadata.to_dict(),
-            # Saved for forward compatibility; not hydrated in phase 1 load path.
             'image_header_metadata': self._image_header_metadata.get_values(),
 
             'analysis': self._acq_analysis_set.serialize_json_analysis(),
@@ -374,7 +373,7 @@ class AcqImage:
         self._accept = bool(payload['accepted'])
         self._rois.from_list(rois_obj)
         self._experimental_metadata = ExperimentMetadata.from_dict(exp_obj)
-        # Phase 1 behavior: do not hydrate image header metadata from JSON.
+        self._apply_image_header_metadata_from_sidecar(payload['image_header_metadata'])
 
         analysis_obj = payload['analysis']
         if not isinstance(analysis_obj, list):
@@ -959,6 +958,28 @@ class AcqImage:
         height = int(sizes.get('Y', 1))
         num_slices = int(sizes.get('Z', 1))
         return ImageBounds(width=width, height=height, num_slices=num_slices)
+
+    def _apply_image_header_metadata_from_sidecar(self, raw: object) -> None:
+        """Hydrate editable image-header calibration from sidecar JSON.
+
+        Structural header fields (shape, dims, dtype, etc.) always come from the
+        file loader. Only schema-editable calibration keys are applied. Invalid
+        calibration values are skipped with a warning so the rest of the sidecar
+        still loads.
+
+        Args:
+            raw: ``image_header_metadata`` value from the sidecar payload.
+        """
+        if not isinstance(raw, dict):
+            raise ValueError("Sidecar field 'image_header_metadata' must be an object")
+        try:
+            self._image_header_metadata.apply_sidecar_calibration(raw)
+        except ValueError as exc:
+            logger.warning(
+                'Skipping image_header_metadata calibration for %s: %s',
+                self.path,
+                exc,
+            )
 
     def _apply_image_header(self, header: ImageHeader) -> None:
         """Apply updated header to backing loader."""

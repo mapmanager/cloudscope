@@ -42,6 +42,7 @@ from cloudscope.views.splitter_handle import add_splitter_handle
 from cloudscope.views.splitter_manager import HOME_SPLITTER_PRESETS, SplitterId, SplitterManager
 
 from cloudscope.utils.logging import get_logger
+from cloudscope.utils.utils import set_native_main_window_title
 
 logger = get_logger(__name__)
 
@@ -165,6 +166,7 @@ class HomePage:
 
         self._install_shutdown_handlers()
         self._register_native_geometry_handlers()
+        set_native_main_window_title(self.app_config.get_last_path())
 
         view_manager = ViewManager()
         splitter_manager = SplitterManager(self.app_config)

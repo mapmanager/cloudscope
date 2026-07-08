@@ -184,6 +184,40 @@ def test_image_header_metadata_get_values_and_patch_updates_yx() -> None:
     assert seen[-1].physical_units_labels[1] == 'px'
 
 
+def test_image_header_metadata_sidecar_patch_filters_editable_keys_only() -> None:
+    raw = {
+        'shape': '(999, 999)',
+        'physical_unit_x': 0.02,
+        'physical_label_y': 'seconds',
+        'unknown': 'ignored',
+    }
+    patch = ImageHeaderMetadata.editable_patch_from_sidecar(raw)
+    assert patch == {'physical_unit_x': 0.02, 'physical_label_y': 'seconds'}
+
+
+def test_image_header_metadata_apply_sidecar_calibration_updates_without_dirty() -> None:
+    header = ImageHeader(
+        path='/tmp/a.oir',
+        shape=(10, 20),
+        dims=('Y', 'X'),
+        sizes={'Y': 10, 'X': 20},
+        dtype=np.dtype('uint16'),
+        num_channels=1,
+        num_scenes=1,
+        physical_units=(1.0, 1.0),
+        physical_units_labels=('Pixels', 'Pixels'),
+    )
+    seen: list[ImageHeader] = []
+    section = ImageHeaderMetadata(header, apply_header=lambda h: seen.append(h))
+    section.apply_sidecar_calibration({'physical_unit_x': 0.02, 'physical_label_y': 'seconds'})
+    values = section.get_values()
+    assert values['physical_unit_x'] == 0.02
+    assert values['physical_label_y'] == 'seconds'
+    assert section.is_dirty() is False
+    assert seen[-1].physical_units[1] == 0.02
+    assert seen[-1].physical_units_labels[0] == 'seconds'
+
+
 def test_image_header_metadata_schema_hides_num_scenes_in_ui() -> None:
     """``num_scenes`` is stored on the header but not shown in schema-driven forms."""
     fields_by_name = {field.name: field for field in IMAGE_HEADER_METADATA_SCHEMA.fields}

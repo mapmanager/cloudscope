@@ -18,6 +18,7 @@ from acqstore.acq_image.acq_image_list import (
 )
 
 from cloudscope.app_config import AppConfig, normalize_stored_path
+from cloudscope.utils.utils import set_native_main_window_title
 from cloudscope.controllers.home_page_controller import HomePageController
 from cloudscope.event_bus import EventBus
 from cloudscope.events.analysis import (
@@ -565,6 +566,7 @@ class LoadSaveController:
             else:
                 self.app_config.push_recent_file(path)
         self.app_config.set_last_path(path)
+        set_native_main_window_title(path)
         self.app_config.save()
         self._publish_recent_paths()
 

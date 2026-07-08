@@ -28,6 +28,7 @@ def test_supported_import_extensions_are_loader_backed() -> None:
     assert get_supported_import_extensions() == (
         'cs.ome.zarr',
         'czi',
+        'nd2',
         'oir',
         'ome.zarr',
         'tif',

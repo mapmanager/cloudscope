@@ -69,7 +69,34 @@ def test_load_round_trip_restores_rois_and_experiment_metadata(tmp_path: Path) -
     assert exp.genotype == 'wt'
 
 
-def test_load_ignores_image_header_values_in_json_phase1(tmp_path: Path) -> None:
+def test_load_round_trip_restores_image_header_calibration(tmp_path: Path) -> None:
+    path = tmp_path / 'sample.tif'
+    _write_tif(path)
+
+    source = AcqImage(str(path))
+    source.apply_metadata_patch(
+        'acq_image_header',
+        {
+            'physical_unit_x': 0.02,
+            'physical_unit_y': 0.001,
+            'physical_label_x': 'um',
+            'physical_label_y': 'seconds',
+        },
+    )
+    source.save()
+
+    loaded = AcqImage(str(path))
+    header = loaded.get_metadata_section('acq_image_header').get_values()
+    assert header['physical_unit_x'] == 0.02
+    assert header['physical_unit_y'] == 0.001
+    assert header['physical_label_x'] == 'um'
+    assert header['physical_label_y'] == 'seconds'
+    assert loaded.images.header.physical_units[loaded.images.header.dims.index('X')] == 0.02
+    assert loaded.images.header.physical_units[loaded.images.header.dims.index('Y')] == 0.001
+    assert loaded.is_dirty is False
+
+
+def test_load_applies_partial_image_header_calibration_patch(tmp_path: Path) -> None:
     path = tmp_path / 'sample.tif'
     _write_tif(path)
     acq = AcqImage(str(path))
@@ -77,14 +104,68 @@ def test_load_ignores_image_header_values_in_json_phase1(tmp_path: Path) -> None
 
     sidecar = Path(acq.get_sidecar_json_path())
     payload = json.loads(sidecar.read_text(encoding='utf-8'))
-    payload['image_header_metadata']['physical_unit_x'] = 999.0
-    payload['image_header_metadata']['physical_unit_y'] = 777.0
+    payload['image_header_metadata'] = {'physical_unit_x': 0.05}
     sidecar.write_text(json.dumps(payload), encoding='utf-8')
 
     loaded = AcqImage(str(path))
     header = loaded.get_metadata_section('acq_image_header').get_values()
-    assert header['physical_unit_x'] != 999.0
-    assert header['physical_unit_y'] != 777.0
+    assert header['physical_unit_x'] == 0.05
+    assert header['physical_unit_y'] == 1.0
+    assert header['physical_label_x'] == 'Pixels'
+    assert header['physical_label_y'] == 'Pixels'
+
+
+def test_load_ignores_non_editable_image_header_sidecar_keys(tmp_path: Path) -> None:
+    path = tmp_path / 'sample.tif'
+    _write_tif(path)
+    acq = AcqImage(str(path))
+    acq.save()
+
+    sidecar = Path(acq.get_sidecar_json_path())
+    payload = json.loads(sidecar.read_text(encoding='utf-8'))
+    payload['image_header_metadata']['shape'] = '(999, 999)'
+    payload['image_header_metadata']['num_channels'] = 99
+    payload['image_header_metadata']['physical_unit_x'] = 0.02
+    sidecar.write_text(json.dumps(payload), encoding='utf-8')
+
+    loaded = AcqImage(str(path))
+    header = loaded.get_metadata_section('acq_image_header').get_values()
+    assert header['shape'] == str(loaded.images.header.shape)
+    assert header['shape'] != '(999, 999)'
+    assert header['num_channels'] == int(loaded.images.header.num_channels)
+    assert header['num_channels'] != 99
+    assert header['physical_unit_x'] == 0.02
+
+
+def test_load_tolerates_invalid_image_header_calibration(tmp_path: Path, caplog) -> None:
+    path = tmp_path / 'sample.tif'
+    _write_tif(path)
+    sidecar_path = Path(str(path.resolve()) + '.json')
+    sidecar_path.write_text(
+        json.dumps(
+            {
+                'version': 2,
+                'accepted': True,
+                'rois': [],
+                'experiment_metadata': {'species': 'mouse'},
+                'image_header_metadata': {
+                    'physical_unit_x': -1.0,
+                    'physical_unit_y': 0.001,
+                },
+                'analysis': [],
+            }
+        ),
+        encoding='utf-8',
+    )
+
+    with caplog.at_level('WARNING'):
+        loaded = AcqImage(str(path))
+
+    header = loaded.get_metadata_section('acq_image_header').get_values()
+    assert header['physical_unit_x'] == 1.0
+    assert header['physical_unit_y'] == 1.0
+    assert loaded.get_metadata_section('experiment_metadata').species == 'mouse'
+    assert any('Skipping image_header_metadata calibration' in r.message for r in caplog.records)
 
 
 def test_malformed_or_invalid_sidecar_is_ignored(tmp_path: Path) -> None:
