@@ -7,6 +7,7 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
+import pandas as pd
 
 from acqstore.acq_trace.epoch_data import EpochTable
 
@@ -73,3 +74,43 @@ class SweepData:
             Length of the time/value arrays.
         """
         return int(len(self.time_sec))
+
+    def as_dataframe(self) -> pd.DataFrame:
+        """Return this sweep as a per-sample trace table.
+
+        Returns:
+            DataFrame with ``time_sec``, ``value``, ``command``, and ``epoch``
+            columns. ``command`` contains NaN values when no command waveform is
+            available.
+        """
+        command: npt.NDArray[np.floating[Any]]
+        if self.command_values is None:
+            command = np.full(self.num_samples, np.nan, dtype=float)
+        else:
+            command = self.command_values
+        return pd.DataFrame(
+            {
+                'time_sec': self.time_sec,
+                'value': self.values,
+                'command': command,
+                'epoch': self.epoch_index_values,
+            }
+        )
+
+    def get_epoch_table(self, *, samples_per_second: float) -> pd.DataFrame:
+        """Return this sweep's epoch intervals as a DataFrame.
+
+        Args:
+            samples_per_second: Sampling rate in Hz.
+
+        Returns:
+            DataFrame with one row per epoch interval.
+
+        Raises:
+            ValueError: If ``samples_per_second`` is not positive.
+        """
+        return self.epoch_table.to_dataframe(
+            samples_per_second=samples_per_second,
+            channel_index=self.channel_index,
+            sweep_index=self.sweep_index,
+        )

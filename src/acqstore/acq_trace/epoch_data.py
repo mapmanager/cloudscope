@@ -7,6 +7,7 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
+import pandas as pd
 
 
 @dataclass(frozen=True)
@@ -48,6 +49,14 @@ class EpochInterval:
                 f'got start={self.start_sample} end={self.end_sample}'
             )
 
+    def duration_samples(self) -> int:
+        """Return the interval duration in samples.
+
+        Returns:
+            Number of samples covered by the interval.
+        """
+        return self.end_sample - self.start_sample
+
     def to_dict(self) -> dict[str, Any]:
         """Return a plain dictionary representation.
 
@@ -58,6 +67,49 @@ class EpochInterval:
             'epoch_index': self.epoch_index,
             'start_sample': self.start_sample,
             'end_sample': self.end_sample,
+            'duration_samples': self.duration_samples(),
+            'level': self.level,
+            'epoch_type': self.epoch_type,
+            'digital_states': list(self.digital_states),
+        }
+
+    def to_row(
+        self,
+        *,
+        samples_per_second: float,
+        channel_index: int,
+        sweep_index: int,
+    ) -> dict[str, object]:
+        """Return one DataFrame row for this interval.
+
+        Args:
+            samples_per_second: Sampling rate in Hz.
+            channel_index: Zero-based channel index for this epoch row.
+            sweep_index: Zero-based sweep index for this epoch row.
+
+        Returns:
+            Dictionary containing sample and second-based interval fields.
+
+        Raises:
+            ValueError: If ``samples_per_second`` is not positive.
+        """
+        if samples_per_second <= 0:
+            raise ValueError(
+                'samples_per_second must be > 0, '
+                f'got {samples_per_second}'
+            )
+        start_sec = self.start_sample / samples_per_second
+        end_sec = self.end_sample / samples_per_second
+        return {
+            'channel_index': int(channel_index),
+            'sweep_index': int(sweep_index),
+            'epoch_index': self.epoch_index,
+            'start_sample': self.start_sample,
+            'end_sample': self.end_sample,
+            'duration_samples': self.duration_samples(),
+            'start_sec': start_sec,
+            'end_sec': end_sec,
+            'duration_sec': end_sec - start_sec,
             'level': self.level,
             'epoch_type': self.epoch_type,
             'digital_states': list(self.digital_states),
@@ -116,3 +168,49 @@ class EpochTable:
             List of JSON-friendly interval dictionaries.
         """
         return [interval.to_dict() for interval in self.intervals]
+
+    def to_dataframe(
+        self,
+        *,
+        samples_per_second: float,
+        channel_index: int,
+        sweep_index: int,
+    ) -> pd.DataFrame:
+        """Return this epoch table as a pandas DataFrame.
+
+        Args:
+            samples_per_second: Sampling rate in Hz.
+            channel_index: Zero-based channel index for all rows.
+            sweep_index: Zero-based sweep index for all rows.
+
+        Returns:
+            DataFrame with one row per epoch interval.
+
+        Raises:
+            ValueError: If ``samples_per_second`` is not positive.
+        """
+        rows = [
+            interval.to_row(
+                samples_per_second=samples_per_second,
+                channel_index=channel_index,
+                sweep_index=sweep_index,
+            )
+            for interval in self.intervals
+        ]
+        return pd.DataFrame(
+            rows,
+            columns=[
+                'channel_index',
+                'sweep_index',
+                'epoch_index',
+                'start_sample',
+                'end_sample',
+                'duration_samples',
+                'start_sec',
+                'end_sec',
+                'duration_sec',
+                'level',
+                'epoch_type',
+                'digital_states',
+            ],
+        )
