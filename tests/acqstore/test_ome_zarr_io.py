@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 zarr = pytest.importorskip("zarr")
+bioio_ome_zarr = pytest.importorskip("bioio_ome_zarr")
 
 from acqstore.acq_image.acq_pixels import AcqPixels
 from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader
@@ -48,7 +49,7 @@ def test_build_ome_ngff_metadata_includes_axis_units() -> None:
     """OME-NGFF metadata should preserve spatial axis units from the header."""
     meta = build_ome_ngff_metadata(_pixels(Path("sample.cs.ome.zarr")))
 
-    assert meta["version"] == "0.4"
+    assert meta["version"] == "0.5"
     assert [axis["name"] for axis in meta["axes"]] == ["z", "y", "x"]
     assert meta["axes"][1]["unit"] == "micrometer"
 

@@ -21,6 +21,8 @@ from acqstore.utils.logging import get_logger
 from .acq_pixels import AcqPixels
 from .file_loaders.base_file_loader import BaseFileLoader, ImageHeader
 from .ome_zarr_io import read_json_file, write_json_file
+from .tiff_export import save_pixels_as_tif
+from .zarr_store_utils import is_s3_path, is_zip_store_path, join_store_path, path_exists, zip_directory_store
 from .metadata import ExperimentMetadata, ImageHeaderMetadata
 from .roi import ImageBounds, LineROI, RectROI, RoiSet
 from .file_loaders.file_loader_factory import create_file_loader
@@ -199,7 +201,10 @@ class AcqImage:
         Raises:
             ValueError: If the file extension is not a supported acquisition format.
         """
-        self.path = str(Path(path).resolve())
+        if is_s3_path(path):
+            self.path = str(path).rstrip('/')
+        else:
+            self.path = str(Path(path).expanduser().resolve(strict=False))
 
         self._accept = True
 
@@ -220,7 +225,7 @@ class AcqImage:
         self._image_contrasts: dict[int, ImageContrast] = {}
         self._image_contrast_dirty = False
 
-        if self.path.lower().endswith('.cs.ome.zarr'):
+        if self.path.lower().endswith(('.cs.ome.zarr', '.cs.ome.zarr.zip')):
             self.load_native_zarr_sidecar_json()
         else:
             self.load_sidecar_json()
@@ -269,7 +274,13 @@ class AcqImage:
         # set dirty flags to false
         self._mark_clean_after_save()
 
-    def save_native_zarr(self, path: str | Path, *, overwrite: bool = False) -> None:
+    def save_native_zarr(
+        self,
+        path: str | Path,
+        *,
+        overwrite: bool = False,
+        zarr_format: int = 3,
+    ) -> None:
         """Persist this acquisition as one acqstore-native OME-Zarr store.
 
         The image portion is written as an OME-NGFF/OME-Zarr-compatible group.
@@ -278,23 +289,114 @@ class AcqImage:
         Existing :meth:`save` sidecar behavior is intentionally unchanged.
 
         Args:
-            path: Destination store path, typically ending in ``.cs.ome.zarr``.
-            overwrite: Whether to replace an existing destination store.
+            path: Destination store path, typically ending in ``.cs.ome.zarr``
+                or ``.cs.ome.zarr.zip``. Local paths and ``s3://`` stores are
+                supported by the OME-Zarr writer backend.
+            overwrite: Whether to replace an existing local destination store.
+            zarr_format: Target Zarr format. ``3`` writes NGFF 0.5; ``2``
+                writes NGFF 0.4.
+
+        Returns:
+            None.
         """
-        dest = Path(path)
-        self._pixels.to_ome_zarr(dest, overwrite=overwrite)
-        write_json_file(dest / 'acqstore' / 'acq_image.json', self._build_sidecar_payload())
-        self._acq_analysis_set.save_results_tables_to_directory(dest / 'acqstore' / 'analysis')
+        dest = str(path).rstrip('/')
+        if is_zip_store_path(dest):
+            if is_s3_path(dest):
+                raise ValueError('ZIP-backed native Zarr writes are only supported for local paths')
+            import tempfile
+
+            with tempfile.TemporaryDirectory(prefix='acqstore_native_zarr_') as tmpdir:
+                tmp_store = Path(tmpdir) / Path(dest[:-4]).name
+                self._save_native_zarr_directory(tmp_store, overwrite=True, zarr_format=zarr_format)
+                zip_directory_store(tmp_store, dest, overwrite=overwrite)
+            self._mark_clean_after_save()
+            return
+
+        self._save_native_zarr_directory(dest, overwrite=overwrite, zarr_format=zarr_format)
+        self._mark_clean_after_save()
+
+    def _save_native_zarr_directory(
+        self,
+        path: str | Path,
+        *,
+        overwrite: bool,
+        zarr_format: int,
+    ) -> None:
+        """Write one native directory-style OME-Zarr store.
+
+        Args:
+            path: Local directory or ``s3://`` store destination.
+            overwrite: Whether to replace an existing local destination.
+            zarr_format: Target Zarr format, ``3`` or ``2``.
+
+        Returns:
+            None.
+        """
+        self.pixels.to_ome_zarr(path, overwrite=overwrite, zarr_format=zarr_format)
+        write_json_file(join_store_path(path, 'acqstore', 'acq_image.json'), self._build_sidecar_payload())
+        self._acq_analysis_set.save_results_tables_to_directory(join_store_path(path, 'acqstore', 'analysis'))
         write_json_file(
-            dest / 'acqstore' / 'manifest.json',
+            join_store_path(path, 'acqstore', 'manifest.json'),
             {
                 'format': 'acqstore-native-ome-zarr',
                 'version': 1,
                 'image_group': '.',
                 'sidecar': 'acqstore/acq_image.json',
+                'zarr_format': int(zarr_format),
             },
         )
-        self._mark_clean_after_save()
+
+    def save_as_ome_zarr(
+        self,
+        path: str | Path,
+        *,
+        overwrite: bool = False,
+        zarr_format: int = 3,
+    ) -> None:
+        """Export this acquisition as pure OME-Zarr without acqstore sidecars.
+
+        Args:
+            path: Destination ``.ome.zarr`` or ``.ome.zarr.zip`` path. Local
+                paths and ``s3://`` stores are supported by the writer backend.
+            overwrite: Whether to replace an existing local destination store.
+            zarr_format: Target Zarr format. ``3`` writes NGFF 0.5; ``2``
+                writes NGFF 0.4.
+
+        Returns:
+            None.
+        """
+        self.pixels.to_ome_zarr(
+            path,
+            overwrite=overwrite,
+            zarr_format=zarr_format,
+            include_acqstore_pixels=False,
+        )
+
+    def save_as_tif(
+        self,
+        path: str | Path,
+        *,
+        imagej_metadata: bool = True,
+        overwrite: bool = False,
+    ) -> None:
+        """Export this acquisition's full pixel array to a TIFF file.
+
+        Args:
+            path: Explicit TIFF destination filename. No automatic filename is
+                generated.
+            imagej_metadata: When true, ask tifffile to include ImageJ/Fiji
+                metadata for physical scale/time fields when available.
+            overwrite: Whether to replace an existing TIFF file.
+
+        Returns:
+            None.
+        """
+        save_pixels_as_tif(
+            self.pixels,
+            path,
+            imagej_metadata=imagej_metadata,
+            overwrite=overwrite,
+        )
 
     def _mark_clean_after_save(self) -> None:
         """Clear dirty flags after a successful save."""
@@ -474,8 +576,8 @@ class AcqImage:
 
     def load_native_zarr_sidecar_json(self) -> None:
         """Load embedded acqstore state from a native ``.cs.ome.zarr`` store."""
-        sidecar_path = Path(self.path) / 'acqstore' / 'acq_image.json'
-        if not sidecar_path.is_file():
+        sidecar_path = join_store_path(self.path, 'acqstore', 'acq_image.json')
+        if not path_exists(sidecar_path):
             return
         try:
             self._load_sidecar_payload(read_json_file(sidecar_path), source=str(sidecar_path))
@@ -580,9 +682,9 @@ class AcqImage:
 
     def load_analysis_csv(self) -> None:
         """Load all analysis CSV result tables for analyses known from JSON."""
-        if self.path.lower().endswith('.cs.ome.zarr'):
+        if self.path.lower().endswith(('.cs.ome.zarr', '.cs.ome.zarr.zip')):
             self._acq_analysis_set.load_results_tables_from_directory(
-                Path(self.path) / 'acqstore' / 'analysis'
+                join_store_path(self.path, 'acqstore', 'analysis')
             )
         else:
             self._acq_analysis_set.load_all_results_dfs_from_csv(self.path)

@@ -192,11 +192,37 @@ class AcqPixels:
         i_x = dims.index("X")
         return (float(self.header.physical_units[i_y]), float(self.header.physical_units[i_x]))
 
-    def to_ome_zarr(self, path: str | Path, *, overwrite: bool = False) -> None:
-        """Write this acquisition as a single-image OME-Zarr-compatible store."""
+    def to_ome_zarr(
+        self,
+        path: str | Path,
+        *,
+        overwrite: bool = False,
+        zarr_format: int = 3,
+        include_acqstore_pixels: bool = True,
+    ) -> None:
+        """Write this acquisition as a single-image OME-Zarr-compatible store.
+
+        Args:
+            path: Destination OME-Zarr store path. Local directories, local ZIP
+                stores, and ``s3://`` stores are supported by the writer backend.
+            overwrite: Whether to replace an existing local destination.
+            zarr_format: Target Zarr format. ``3`` writes NGFF 0.5; ``2``
+                writes NGFF 0.4.
+            include_acqstore_pixels: When true, embed a lightweight acqstore
+                header snapshot for round-tripping.
+
+        Returns:
+            None.
+        """
         from .ome_zarr_io import write_acq_pixels_ome_zarr
 
-        write_acq_pixels_ome_zarr(self, path, overwrite=overwrite)
+        write_acq_pixels_ome_zarr(
+            self,
+            path,
+            overwrite=overwrite,
+            zarr_format=zarr_format,
+            include_acqstore_pixels=include_acqstore_pixels,
+        )
 
     @classmethod
     def from_ome_zarr(cls, path: str | Path, *, lazy: bool = True) -> "AcqPixels":

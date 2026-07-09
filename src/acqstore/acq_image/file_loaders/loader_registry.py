@@ -20,6 +20,8 @@ _FILE_LOADER_FACTORIES: dict[str, FileLoaderFactory] = {
     'nd2': Nd2FileLoader,
     'ome.zarr': OmeZarrFileLoader,
     'cs.ome.zarr': OmeZarrFileLoader,
+    'ome.zarr.zip': OmeZarrFileLoader,
+    'cs.ome.zarr.zip': OmeZarrFileLoader,
 }
 
 

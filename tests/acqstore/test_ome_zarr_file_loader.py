@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 zarr = pytest.importorskip("zarr")
+bioio_ome_zarr = pytest.importorskip("bioio_ome_zarr")
 
 from acqstore.acq_image.acq_image import AcqImage
 from acqstore.acq_image.acq_pixels import AcqPixels
