@@ -20,9 +20,16 @@ from acqstore.schema import ACQ_FILE_LIST_SCHEMA, SchemaDefinition, validate_val
 from acqstore.utils.logging import get_logger
 from .acq_pixels import AcqPixels
 from .file_loaders.base_file_loader import BaseFileLoader, ImageHeader
-from .ome_zarr_io import read_json_file, write_json_file
 from .tiff_export import save_pixels_as_tif
-from .zarr_store_utils import is_s3_path, is_zip_store_path, join_store_path, path_exists, zip_directory_store
+from .zarr_store_utils import (
+    is_s3_path,
+    is_zip_store_path,
+    join_store_path,
+    path_exists,
+    read_json_file,
+    write_json_file,
+    zip_directory_store,
+)
 from .metadata import ExperimentMetadata, ImageHeaderMetadata
 from .roi import ImageBounds, LineROI, RectROI, RoiSet
 from .file_loaders.file_loader_factory import create_file_loader
@@ -575,14 +582,15 @@ class AcqImage:
             logger.warning('Failed to load sidecar JSON for %s: %s', self.path, exc)
 
     def load_native_zarr_sidecar_json(self) -> None:
-        """Load embedded acqstore state from a native ``.cs.ome.zarr`` store."""
+        """Load embedded acqstore state from a native ``.cs.ome.zarr`` store.
+
+        Native acqstore stores are written by this package, so malformed or
+        missing embedded sidecar state is a format bug and must fail fast.
+        """
         sidecar_path = join_store_path(self.path, 'acqstore', 'acq_image.json')
         if not path_exists(sidecar_path):
-            return
-        try:
-            self._load_sidecar_payload(read_json_file(sidecar_path), source=str(sidecar_path))
-        except Exception as exc:  # pragma: no cover - defensive native-load path
-            logger.warning('Failed to load native Zarr sidecar for %s: %s', self.path, exc)
+            raise FileNotFoundError(f'Native Zarr sidecar is missing: {sidecar_path}')
+        self._load_sidecar_payload(read_json_file(sidecar_path), source=str(sidecar_path))
 
     def _load_sidecar_payload(self, raw: object, *, source: str) -> None:
         """Validate and apply one sidecar payload from an external or embedded source."""

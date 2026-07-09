@@ -44,10 +44,10 @@ dependencies = [
     "tabulate>=0.10.0",
     "pyabf>=2.3.8",
     # add for zarr
-    "zarr>=3.2.1",
+    "zarr>=3.2.1", # working on bioio-ome-zarr >=3.5.1
     "s3fs>=2026.6.0",
-    "bioio-ome-zarr>=3.5.1",
     "bioio>=3.4.0",
+    "bioio-ome-zarr>=3.5.1",
 ]
 
 [build-system]
