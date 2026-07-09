@@ -43,8 +43,8 @@ dependencies = [
     "pyperclipimg>=0.2.0", # to copy plotly plot
     "tabulate>=0.10.0",
     "pyabf>=2.3.8",
-    # add for zarr
-    "zarr>=3.2.1", # working on bioio-ome-zarr >=3.5.1
+    # added for zarr
+    "zarr>=3.2.1",
     "s3fs>=2026.6.0",
     "bioio>=3.4.0",
     "bioio-ome-zarr>=3.5.1",

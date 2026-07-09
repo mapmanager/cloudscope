@@ -9,7 +9,7 @@ AWS-specific read/write behavior belongs in `src/acqstore/`.
 From the repository root:
 
 ```bash
-uv add bioio bioio-ome-zarr s3fs boto3
+uv add bioio bioio-ome-zarr s3fs
 ```
 
 `bioio-ome-zarr` provides the OME-Zarr writer used by acqstore. `s3fs` provides
