@@ -1,4 +1,4 @@
-"""Exercise the AcqTrace ABF API and plot all sweeps with Plotly.
+"""Exercise the AcqTrace ABF API, peak detection, and Plotly plotting.
 
 Edit the hard-coded ``path`` value below, then run from the repository root:
 
@@ -11,10 +11,12 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from acqstore.acq_trace.acq_trace import AcqTrace
+from acqstore.acq_trace.analysis.trace_peak_detection import run_trace_peak_detection
+from acqstore.acq_trace.analysis.trace_peak_params import TracePeakDetectionParams
 
 
 def main() -> None:
-    """Load one ABF file, print an overview, and plot every sweep.
+    """Load one ABF file, print an overview, analyze peaks, and plot sweeps.
 
     Returns:
         None.
@@ -32,6 +34,24 @@ def main() -> None:
     print()
     print('epoch table head:')
     print(trace.get_epoch_table(channel_index=channel_index).head())
+
+    params = TracePeakDetectionParams(
+        polarity='positive',
+        prominence=None,
+        min_distance_sec=None,
+    )
+    peak_result = run_trace_peak_detection(
+        trace,
+        channel_index=channel_index,
+        sweep_index=None,
+        params=params,
+    )
+    print()
+    print('peak detection summary:')
+    print(peak_result.summary_dict())
+    print()
+    print('peak table head:')
+    print(peak_result.peak_table.head())
 
     header = trace.trace_header
     num_sweeps = header.num_sweeps
@@ -53,6 +73,9 @@ def main() -> None:
             channel_index=channel_index,
             sweep_index=sweep_index,
         )
+        sweep_peaks = peak_result.peak_table.loc[
+            peak_result.peak_table['sweep_index'] == sweep_index
+        ]
 
         fig.add_trace(
             go.Scatter(
@@ -60,6 +83,16 @@ def main() -> None:
                 y=sweep_table['value'],
                 mode='lines',
                 name=f'sweep {sweep_index}',
+            ),
+            row=1,
+            col=1,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=sweep_peaks['peak_time_sec'],
+                y=sweep_peaks['peak_value'],
+                mode='markers',
+                name=f'peaks {sweep_index}',
             ),
             row=1,
             col=1,

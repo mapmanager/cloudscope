@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
@@ -15,6 +15,10 @@ from acqstore.acq_trace.sweep_data import SweepData
 from acqstore.acq_trace.trace_header import TraceHeader
 from acqstore.acq_types import AcqModality
 from acqstore.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from acqstore.acq_trace.analysis.trace_peak_params import TracePeakDetectionParams
+    from acqstore.acq_trace.analysis.trace_peak_result import TracePeakDetectionResult
 
 logger = get_logger(__name__)
 
@@ -226,6 +230,41 @@ class AcqTrace:
         if not frames:
             return pd.DataFrame()
         return pd.concat(frames, ignore_index=True)
+
+
+    def run_peak_detection(
+        self,
+        *,
+        channel_index: int,
+        sweep_index: int | None = None,
+        params: TracePeakDetectionParams | None = None,
+    ) -> TracePeakDetectionResult:
+        """Run peak detection on one channel of this trace acquisition.
+
+        Args:
+            channel_index: Zero-based input channel index.
+            sweep_index: Optional zero-based sweep index. When None, all sweeps
+                for ``channel_index`` are analyzed.
+            params: Optional trace peak-detection parameters. Defaults to
+                positive peak detection with no height, prominence, or distance
+                filter.
+
+        Returns:
+            Trace peak-detection result with per-sample and per-peak tables.
+
+        Raises:
+            ValueError: If indices or detection parameters are invalid.
+        """
+        from acqstore.acq_trace.analysis.trace_peak_detection import (
+            run_trace_peak_detection,
+        )
+
+        return run_trace_peak_detection(
+            self,
+            channel_index=channel_index,
+            sweep_index=sweep_index,
+            params=params,
+        )
 
     def info(self) -> str:
         """Return a human-readable trace file summary.
