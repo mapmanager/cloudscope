@@ -86,6 +86,7 @@ def _build_tifffile_metadata(
     frame_interval = _spacing_for_dim(pixels, 'T')
     if frame_interval is not None:
         metadata['finterval'] = frame_interval
+    
     return metadata
 
 
