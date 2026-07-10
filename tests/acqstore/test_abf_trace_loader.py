@@ -13,7 +13,13 @@ ABF_DATA_DIR = Path(__file__).parent / 'data' / 'abf'
 ABF_0016 = ABF_DATA_DIR / '2021_07_20_0016.abf'
 ABF_0008 = ABF_DATA_DIR / '2021_07_20_0008.abf'
 
+requires_abf = pytest.mark.skipif(
+    not ABF_0016.is_file(),
+    reason='ABF fixture missing (tests/acqstore/data/abf)',
+)
 
+
+@requires_abf
 def test_abf_trace_loader_reads_header_from_uploaded_file() -> None:
     """ABF loader should expose header metadata without caller sweep access."""
     loader = AbfTraceLoader(ABF_0016)
@@ -36,6 +42,7 @@ def test_abf_trace_loader_reads_header_from_uploaded_file() -> None:
     assert header.format_dims_display() == 'sweeps:17 channels:2 samples:1600'
 
 
+@requires_abf
 @pytest.mark.parametrize(
     ('filename', 'expected_sweeps'),
     [
@@ -57,6 +64,7 @@ def test_abf_trace_loader_reads_sweep_count_for_uploaded_examples(
     assert loader.header.samples_per_sweep == 1_600
 
 
+@requires_abf
 def test_abf_trace_loader_get_sweep_returns_recording_command_and_epochs() -> None:
     """ABF sweep access should return time, values, command, and epoch labels."""
     loader = AbfTraceLoader(ABF_0016)
@@ -85,6 +93,7 @@ def test_abf_trace_loader_get_sweep_returns_recording_command_and_epochs() -> No
     assert set(np.unique(sweep.epoch_index_values)) == {0, 1, 2, 3, 4}
 
 
+@requires_abf
 def test_abf_trace_loader_get_sweep_reads_second_channel_units() -> None:
     """ABF sweep access should respect the selected input channel."""
     loader = AbfTraceLoader(ABF_0016)
@@ -99,6 +108,7 @@ def test_abf_trace_loader_get_sweep_reads_second_channel_units() -> None:
     assert sweep.values.shape == (1_600,)
 
 
+@requires_abf
 @pytest.mark.parametrize(
     ('channel_index', 'sweep_index', 'match'),
     [
@@ -132,6 +142,7 @@ def test_abf_trace_loader_directory_path_raises_value_error(tmp_path: Path) -> N
         AbfTraceLoader(tmp_path)
 
 
+@requires_abf
 def test_abf_trace_loader_info_contains_useful_summary() -> None:
     """Info text should summarize the file for scripts and debugging."""
     loader = AbfTraceLoader(ABF_0008)

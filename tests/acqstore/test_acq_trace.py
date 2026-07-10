@@ -18,7 +18,13 @@ from acqstore.acq_types import AcqModality
 ABF_DATA_DIR = Path(__file__).parent / 'data' / 'abf'
 ABF_0016 = ABF_DATA_DIR / '2021_07_20_0016.abf'
 
+requires_abf = pytest.mark.skipif(
+    not ABF_0016.is_file(),
+    reason='ABF fixture missing (tests/acqstore/data/abf)',
+)
 
+
+@requires_abf
 def test_acq_trace_constructs_from_abf_and_exposes_header() -> None:
     """AcqTrace should expose basic trace identity and header metadata."""
     trace = AcqTrace(ABF_0016)
@@ -34,6 +40,7 @@ def test_acq_trace_constructs_from_abf_and_exposes_header() -> None:
     assert trace.trace_header.num_channels == 2
 
 
+@requires_abf
 def test_acq_trace_preserves_constructor_state() -> None:
     """AcqTrace should preserve accepted state and provided metadata object."""
     metadata = ExperimentMetadata(species='mouse', condition='test')
@@ -46,6 +53,7 @@ def test_acq_trace_preserves_constructor_state() -> None:
     assert trace.experiment_metadata.condition == 'test'
 
 
+@requires_abf
 def test_acq_trace_get_sweep_delegates_to_loader() -> None:
     """AcqTrace should return SweepData from the underlying ABF loader."""
     trace = AcqTrace(ABF_0016)
@@ -58,6 +66,7 @@ def test_acq_trace_get_sweep_delegates_to_loader() -> None:
     assert sweep.command_values is not None
 
 
+@requires_abf
 def test_acq_trace_iter_sweeps_returns_all_sweeps_for_channel() -> None:
     """AcqTrace should iterate over every sweep for a selected channel."""
     trace = AcqTrace(ABF_0016)
@@ -69,6 +78,7 @@ def test_acq_trace_iter_sweeps_returns_all_sweeps_for_channel() -> None:
     assert {sweep.channel_index for sweep in sweeps} == {0}
 
 
+@requires_abf
 def test_acq_trace_get_sweep_trace_table_returns_per_sample_dataframe() -> None:
     """AcqTrace should return one per-sample table for a selected sweep."""
     trace = AcqTrace(ABF_0016)
@@ -83,6 +93,7 @@ def test_acq_trace_get_sweep_trace_table_returns_per_sample_dataframe() -> None:
     assert pd.api.types.is_float_dtype(table['value'])
 
 
+@requires_abf
 def test_acq_trace_get_channel_trace_table_returns_wide_dataframe() -> None:
     """AcqTrace should return one wide table with all sweeps for a channel."""
     trace = AcqTrace(ABF_0016)
@@ -103,6 +114,7 @@ def test_acq_trace_get_channel_trace_table_returns_wide_dataframe() -> None:
     assert table.loc[1_525, 'sweep_16_epoch'] == 4
 
 
+@requires_abf
 def test_acq_trace_get_epoch_table_returns_all_sweeps() -> None:
     """AcqTrace should expose compact epoch interval rows for all sweeps."""
     trace = AcqTrace(ABF_0016)
@@ -120,6 +132,7 @@ def test_acq_trace_get_epoch_table_returns_all_sweeps() -> None:
     assert table.loc[0, 'duration_sec'] == 0.0025
 
 
+@requires_abf
 def test_acq_trace_get_epoch_table_returns_one_sweep() -> None:
     """AcqTrace should expose compact epoch rows for one selected sweep."""
     trace = AcqTrace(ABF_0016)
@@ -131,6 +144,7 @@ def test_acq_trace_get_epoch_table_returns_one_sweep() -> None:
     assert table['epoch_index'].tolist() == [0, 1, 2, 3, 4]
 
 
+@requires_abf
 def test_acq_trace_to_summary_dict_returns_structured_summary() -> None:
     """AcqTrace should return a summary dictionary for callers."""
     trace = AcqTrace(ABF_0016)
@@ -144,6 +158,7 @@ def test_acq_trace_to_summary_dict_returns_structured_summary() -> None:
     assert summary['trace_header']['num_sweeps'] == 17
 
 
+@requires_abf
 def test_acq_trace_info_returns_loader_summary() -> None:
     """AcqTrace info should provide a script-friendly file overview."""
     trace = AcqTrace(ABF_0016)
@@ -165,6 +180,7 @@ def test_acq_trace_rejects_unsupported_extension(tmp_path: Path) -> None:
         AcqTrace(text_path)
 
 
+@requires_abf
 def test_acq_trace_sidecar_round_trips_metadata_and_acceptance(tmp_path: Path) -> None:
     """AcqTrace should save and reload trace-specific sidecar JSON."""
     abf_path = tmp_path / ABF_0016.name
@@ -181,6 +197,7 @@ def test_acq_trace_sidecar_round_trips_metadata_and_acceptance(tmp_path: Path) -
     assert reloaded.is_dirty is False
 
 
+@requires_abf
 def test_acq_trace_sidecar_json_contains_trace_fields_only(tmp_path: Path) -> None:
     """AcqTrace sidecar JSON should not persist image-only fields."""
     abf_path = tmp_path / ABF_0016.name
@@ -201,6 +218,7 @@ def test_acq_trace_sidecar_json_contains_trace_fields_only(tmp_path: Path) -> No
     assert 'analysis' not in payload
 
 
+@requires_abf
 def test_acq_trace_ignores_invalid_sidecar_with_warning(tmp_path: Path) -> None:
     """AcqTrace should ignore invalid sidecar payloads during construction."""
     abf_path = tmp_path / ABF_0016.name
@@ -213,6 +231,7 @@ def test_acq_trace_ignores_invalid_sidecar_with_warning(tmp_path: Path) -> None:
     assert trace.experiment_metadata.species == ''
 
 
+@requires_abf
 def test_acq_trace_load_lazy_data_and_unload_lazy_data_are_noops() -> None:
     """AcqTrace lazy lifecycle placeholders should be callable."""
     trace = AcqTrace(ABF_0016)

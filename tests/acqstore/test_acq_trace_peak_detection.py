@@ -16,6 +16,11 @@ from acqstore.common_analysis.peak_detection_core import PeakDetectionCoreParams
 ABF_DATA_DIR = Path(__file__).parent / 'data' / 'abf'
 ABF_0016 = ABF_DATA_DIR / '2021_07_20_0016.abf'
 
+requires_abf = pytest.mark.skipif(
+    not ABF_0016.is_file(),
+    reason='ABF fixture missing (tests/acqstore/data/abf)',
+)
+
 
 def test_detect_peaks_1d_finds_positive_peaks() -> None:
     """Shared peak core should find positive peaks in a synthetic trace."""
@@ -83,6 +88,7 @@ def test_trace_peak_params_convert_to_core_params() -> None:
     assert core_params.min_distance_sec == 0.01
 
 
+@requires_abf
 def test_run_trace_peak_detection_analyzes_one_sweep() -> None:
     """Trace peak detection should analyze one selected ABF sweep."""
     trace = AcqTrace(ABF_0016)
@@ -106,6 +112,7 @@ def test_run_trace_peak_detection_analyzes_one_sweep() -> None:
     assert 'global_peak_id' in result.peak_table.columns
 
 
+@requires_abf
 def test_run_trace_peak_detection_analyzes_all_sweeps_by_default() -> None:
     """Trace peak detection should analyze all sweeps when sweep_index is None."""
     trace = AcqTrace(ABF_0016)
@@ -129,6 +136,7 @@ def test_run_trace_peak_detection_analyzes_all_sweeps_by_default() -> None:
         assert result.peak_table['global_peak_id'].tolist() == list(range(1, len(result.peak_table) + 1))
 
 
+@requires_abf
 def test_acq_trace_run_peak_detection_method_matches_function() -> None:
     """AcqTrace convenience method should delegate to trace peak detection."""
     trace = AcqTrace(ABF_0016)
