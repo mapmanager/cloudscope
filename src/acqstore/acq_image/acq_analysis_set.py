@@ -380,6 +380,9 @@ class AcqAnalysisSet:
             TypeError: If ``analysis`` is neither a string nor a ``BaseAnalysis``
                 subclass.
             KeyError: If no analysis exists for the resolved identity.
+
+        See Also:
+            :meth:`find_analysis` for nullable lookup.
         """
         key = AnalysisKey(
             analysis_name=self._resolve_analysis_name(analysis),
@@ -387,6 +390,41 @@ class AcqAnalysisSet:
             roi_id=roi_id,
         )
         return self.get_required(key)
+
+    def find_analysis(
+        self,
+        analysis: str | type[BaseAnalysis],
+        *,
+        channel: int,
+        roi_id: int,
+    ) -> BaseAnalysis | None:
+        """Return a matching analysis, or None when absent.
+
+        Scripting convenience over :meth:`get` that builds the
+        :class:`AnalysisKey` for you. Use :meth:`get_analysis` when absence
+        should raise :class:`KeyError`.
+
+        Args:
+            analysis: Registered analysis type name, or an analysis class whose
+                ``analysis_name`` is registered (for example
+                ``RadonVelocityAnalysis``).
+            channel: Channel index.
+            roi_id: ROI identifier.
+
+        Returns:
+            The matching analysis instance, or None if no analysis exists for
+            the resolved identity.
+
+        Raises:
+            TypeError: If ``analysis`` is neither a string nor a ``BaseAnalysis``
+                subclass.
+        """
+        key = AnalysisKey(
+            analysis_name=self._resolve_analysis_name(analysis),
+            channel=channel,
+            roi_id=roi_id,
+        )
+        return self.get(key)
 
     def remove(self, key: AnalysisKey) -> bool:
         """Remove one analysis by key.
