@@ -3,29 +3,52 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from .loading import load_sidecars
-from .models import AnalysisSelection, DiameterFilterParams, Dff0DiameterDataset
+from .models import (
+    AnalysisSelection,
+    DiameterFilterParams,
+    Dff0DiameterDataset,
+    ReporterEvent,
+    TriggeredEvent,
+    TriggeredEventParams,
+)
+from .preprocessing import filter_signal
+from .triggered_events import analyze_triggered_events, events_to_dataframe
+
+
+class MissingCrossAnalysisInputError(ValueError):
+    """Raised when one selected AcqImage analysis input is unavailable."""
 
 
 class Dff0DiameterAnalysis:
-    """Analyze paired reporter and diameter sidecar outputs.
+    """Analyze paired reporter and diameter results for one channel and ROI."""
 
-    This first implementation establishes strict selection, loading,
-    alignment, local diameter filtering, and reporter-event access. Triggered
-    diameter response measurements are intentionally deferred until the traces
-    and preprocessing can be inspected interactively.
-    """
-
-    def __init__(self, dataset: Dff0DiameterDataset) -> None:
-        """Initialize from a validated dataset.
-
-        Args:
-            dataset: Validated paired dataset.
-        """
+    def __init__(
+        self,
+        dataset: Dff0DiameterDataset,
+        *,
+        triggered_event_params: TriggeredEventParams | None = None,
+    ) -> None:
+        """Initialize from a validated paired dataset."""
         self._dataset = dataset
+        self._triggered_event_params = triggered_event_params or TriggeredEventParams()
+        self._diameter_filtered = filter_signal(
+            dataset.diameter["diameter_um_raw"].to_numpy(dtype=float),
+            self._triggered_event_params,
+        )
+        self._triggered_events = tuple(
+            analyze_triggered_events(
+                time=dataset.diameter["time_s"].to_numpy(dtype=float),
+                signal=dataset.diameter["diameter_um_raw"].to_numpy(dtype=float),
+                seed_indices=[event.onset_index for event in dataset.events],
+                params=self._triggered_event_params,
+            )
+        )
 
     @classmethod
     def from_sidecars(
@@ -36,48 +59,120 @@ class Dff0DiameterAnalysis:
         analysis_json: str | Path,
         channel: int,
         roi_id: int,
-        diameter_filter_method: str = "median",
-        diameter_filter_kernel_points: int = 3,
+        triggered_event_params: TriggeredEventParams | None = None,
     ) -> "Dff0DiameterAnalysis":
-        """Create an analysis from the three per-file sidecars.
-
-        No raw-data path or pooled peak CSV is required.
-
-        Args:
-            diameter_csv: Per-file diameter CSV.
-            reporter_csv: Per-file sum-intensity CSV.
-            analysis_json: Per-file structured analysis JSON.
-            channel: Channel to select from all inputs.
-            roi_id: ROI to select from all inputs.
-            diameter_filter_method: Local raw-diameter filter method.
-            diameter_filter_kernel_points: Odd filter width in points.
-
-        Returns:
-            Loaded analysis instance.
-        """
+        """Create an analysis from three colocated per-file sidecars."""
         dataset = load_sidecars(
             diameter_csv=diameter_csv,
             reporter_csv=reporter_csv,
             analysis_json=analysis_json,
             selection=AnalysisSelection(channel=channel, roi_id=roi_id),
-            diameter_filter=DiameterFilterParams(
-                method=diameter_filter_method,
-                kernel_points=diameter_filter_kernel_points,
-            ),
+            diameter_filter=DiameterFilterParams(method="none", kernel_points=1),
         )
-        return cls(dataset)
+        return cls(dataset, triggered_event_params=triggered_event_params)
+
+    @classmethod
+    def from_acq_image(
+        cls,
+        *,
+        acq_image: Any,
+        channel: int,
+        roi_id: int,
+        triggered_event_params: TriggeredEventParams | None = None,
+    ) -> "Dff0DiameterAnalysis":
+        """Create an analysis from public AcqImage analysis APIs.
+
+        Args:
+            acq_image: Loaded ``AcqImage`` whose analysis tables are available.
+            channel: Selected zero-based channel.
+            roi_id: Selected ROI identifier.
+            triggered_event_params: Optional generic event parameters.
+
+        Raises:
+            MissingCrossAnalysisInputError: If diameter or sum-intensity input
+                is missing or has no loaded result table.
+        """
+        try:
+            sum_analysis = acq_image.analysis_set.get_analysis(
+                "sum_intensity", channel=channel, roi_id=roi_id
+            )
+            diameter_analysis = acq_image.analysis_set.get_analysis(
+                "diameter", channel=channel, roi_id=roi_id
+            )
+        except KeyError as exc:
+            raise MissingCrossAnalysisInputError(
+                f"Both sum_intensity and diameter analyses are required for "
+                f"channel={channel}, roi_id={roi_id}"
+            ) from exc
+
+        reporter = sum_analysis.result.table.copy()
+        diameter = diameter_analysis.result.table.copy()
+        if reporter.empty or diameter.empty:
+            raise MissingCrossAnalysisInputError("Required analysis result table is empty")
+
+        reporter = _select_table_rows(reporter, channel=channel, roi_id=roi_id)
+        diameter = _select_table_rows(diameter, channel=channel, roi_id=roi_id)
+        reporter = _normalize_reporter_table(reporter)
+        diameter = _normalize_diameter_table(diameter)
+        seconds_per_point = _validate_in_memory_alignment(reporter, diameter)
+
+        upstream_events = tuple(sum_analysis.get_peak_events())
+        events = tuple(
+            ReporterEvent(
+                peak_id=int(event.peak_id),
+                onset_index=int(event.onset_index),
+                onset_time_sec=float(event.onset_time_sec),
+                onset_value=float(event.onset_value),
+                peak_index=int(event.peak_index),
+                peak_time_sec=float(event.peak_time_sec),
+                peak_value=float(event.peak_value),
+                peak_amplitude=float(event.peak_amplitude),
+                status=str(event.status),
+                raw_event=event.to_json_dict(),
+            )
+            for event in upstream_events
+        )
+        source_path = Path(str(acq_image.path))
+        dataset = Dff0DiameterDataset(
+            source_name=source_path.name,
+            selection=AnalysisSelection(channel=channel, roi_id=roi_id),
+            seconds_per_point=seconds_per_point,
+            reporter=reporter,
+            diameter=diameter,
+            events=events,
+            analysis_json={},
+            diameter_csv_path=Path(),
+            reporter_csv_path=Path(),
+            analysis_json_path=Path(),
+        )
+        return cls(dataset, triggered_event_params=triggered_event_params)
 
     @property
     def dataset(self) -> Dff0DiameterDataset:
-        """Return the validated dataset."""
+        """Return the validated source dataset."""
         return self._dataset
 
-    def get_alignment_summary(self) -> dict[str, object]:
-        """Return a compact diagnostic summary.
+    @property
+    def triggered_event_params(self) -> TriggeredEventParams:
+        """Return immutable triggered-event parameters."""
+        return self._triggered_event_params
 
-        Returns:
-            Dictionary suitable for logging, display, or tests.
-        """
+    @property
+    def triggered_events(self) -> tuple[TriggeredEvent, ...]:
+        """Return one measured diameter event per reporter seed."""
+        return self._triggered_events
+
+    @property
+    def diameter_filtered(self) -> np.ndarray:
+        """Return a copy of locally filtered diameter values."""
+        return self._diameter_filtered.copy()
+
+    def triggered_events_dataframe(self) -> pd.DataFrame:
+        """Return one flat row per generic triggered event."""
+        return events_to_dataframe(self._triggered_events)
+
+    def get_alignment_summary(self) -> dict[str, object]:
+        """Return compact source and alignment diagnostics."""
         reporter = self._dataset.reporter
         diameter = self._dataset.diameter
         return {
@@ -90,31 +185,61 @@ class Dff0DiameterAnalysis:
             "num_reporter_events": len(self._dataset.events),
             "num_missing_reporter": int(reporter["df_f_signal"].isna().sum()),
             "num_missing_diameter_raw": int(diameter["diameter_um_raw"].isna().sum()),
-            "num_missing_diameter_filtered": int(
-                diameter["diameter_um_analysis"].isna().sum()
-            ),
         }
 
     def get_reporter_events_dataframe(self) -> pd.DataFrame:
-        """Return one flat row per selected reporter event.
-
-        Returns:
-            DataFrame containing stable event identity and core onset/peak
-            measurements from the JSON sidecar.
-        """
+        """Return one flat row per selected upstream reporter event."""
         return pd.DataFrame(
-            [
-                {
-                    "peak_id": event.peak_id,
-                    "status": event.status,
-                    "onset_index": event.onset_index,
-                    "onset_time_sec": event.onset_time_sec,
-                    "onset_value": event.onset_value,
-                    "peak_index": event.peak_index,
-                    "peak_time_sec": event.peak_time_sec,
-                    "peak_value": event.peak_value,
-                    "peak_amplitude": event.peak_amplitude,
-                }
-                for event in self._dataset.events
-            ]
+            [{
+                "peak_id": event.peak_id,
+                "status": event.status,
+                "onset_index": event.onset_index,
+                "onset_time_sec": event.onset_time_sec,
+                "onset_value": event.onset_value,
+                "peak_index": event.peak_index,
+                "peak_time_sec": event.peak_time_sec,
+                "peak_value": event.peak_value,
+                "peak_amplitude": event.peak_amplitude,
+            } for event in self._dataset.events]
         )
+
+
+def _select_table_rows(table: pd.DataFrame, *, channel: int, roi_id: int) -> pd.DataFrame:
+    if {"channel", "roi_id"}.issubset(table.columns):
+        table = table.loc[(table["channel"] == channel) & (table["roi_id"] == roi_id)].copy()
+    if table.empty:
+        raise MissingCrossAnalysisInputError("No table rows match selected channel and ROI")
+    return table.reset_index(drop=True)
+
+
+def _normalize_reporter_table(table: pd.DataFrame) -> pd.DataFrame:
+    required = {"time_index", "time_sec", "df_f_signal"}
+    missing = sorted(required.difference(table.columns))
+    if missing:
+        raise MissingCrossAnalysisInputError(f"Sum-intensity table missing columns: {missing}")
+    return table.sort_values("time_index").reset_index(drop=True)
+
+
+def _normalize_diameter_table(table: pd.DataFrame) -> pd.DataFrame:
+    required = {"center_row", "time_s", "diameter_um"}
+    missing = sorted(required.difference(table.columns))
+    if missing:
+        raise MissingCrossAnalysisInputError(f"Diameter table missing columns: {missing}")
+    result = table.sort_values("center_row").reset_index(drop=True)
+    result["diameter_um_raw"] = pd.to_numeric(result["diameter_um"], errors="coerce")
+    return result
+
+
+def _validate_in_memory_alignment(reporter: pd.DataFrame, diameter: pd.DataFrame) -> float:
+    if len(reporter) != len(diameter):
+        raise MissingCrossAnalysisInputError("Reporter and diameter sample counts differ")
+    if not np.array_equal(
+        reporter["time_index"].to_numpy(dtype=int),
+        diameter["center_row"].to_numpy(dtype=int),
+    ):
+        raise MissingCrossAnalysisInputError("Reporter and diameter sample indices differ")
+    reporter_time = reporter["time_sec"].to_numpy(dtype=float)
+    diameter_time = diameter["time_s"].to_numpy(dtype=float)
+    if not np.allclose(reporter_time, diameter_time, rtol=0.0, atol=1e-9):
+        raise MissingCrossAnalysisInputError("Reporter and diameter time coordinates differ")
+    return float(np.median(np.diff(reporter_time)))

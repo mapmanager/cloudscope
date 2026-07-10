@@ -1,9 +1,4 @@
-"""Minimal NiceGUI explorer for the paired sidecar analysis.
-
-Run from the CloudScope repository root with::
-
-    uv run python -m acqstore.common_analysis.dff0_diameter_analysis.app.main
-"""
+"""Standalone NiceGUI app for interactive triggered-event exploration."""
 
 from __future__ import annotations
 
@@ -11,74 +6,130 @@ from pathlib import Path
 
 from nicegui import ui
 
-from ..analysis import Dff0DiameterAnalysis
-from ..plotting import make_overview_figure
+# from ..analysis import Dff0DiameterAnalysis
+# from ..models import EventDirection, SignalFilterMethod, TriggeredEventParams
+# from ..plotting import build_event_figure, build_metric_vs_time_figure, build_overview_figure
 
-
-_SAMPLE_DIR = Path(
-    "/Users/cudmore/Library/Application Support/cloudscope/sample-data/"
-    "diameter-sample-data-v1/diameter-sample-data/Control/"
-    "220110n_0005.tif.frames"
+from acqstore.common_analysis.dff0_diameter_analysis.analysis import (
+    Dff0DiameterAnalysis,
 )
-_DIAMETER_CSV = _SAMPLE_DIR / "220110n_0005.tif.diameter.csv"
-_REPORTER_CSV = _SAMPLE_DIR / "220110n_0005.tif.sum_intensity.csv"
-_ANALYSIS_JSON = _SAMPLE_DIR / "220110n_0005.tif.json"
+from acqstore.common_analysis.dff0_diameter_analysis.models import (
+    EventDirection,
+    SignalFilterMethod,
+    TriggeredEventParams,
+)
+from acqstore.common_analysis.dff0_diameter_analysis.plotting import (
+    build_event_figure,
+    build_metric_vs_time_figure,
+    build_overview_figure,
+)
 
 
-@ui.page("/")
-def index() -> None:
-    """Build the standalone exploratory page."""
-    ui.label("ΔF/F₀–Diameter Analysis Explorer").classes("text-h5")
+DEFAULT_BASE_DIR = Path(
+    "/Users/cudmore/Library/Application Support/cloudscope/sample-data/"
+    "diameter-sample-data-v1/diameter-sample-data/Control"
+)
+DEFAULT_FILE_NAME = "220110n_0005.tif"
 
-    with ui.row().classes("items-end"):
-        channel = ui.number("Channel", value=0, min=0, step=1)
-        roi_id = ui.number("ROI", value=1, min=0, step=1)
-        filter_method = ui.select(
-            ["none", "median"], value="median", label="Diameter filter"
-        )
-        kernel_points = ui.number(
-            "Kernel points", value=3, min=1, step=2
-        )
-        x_start = ui.number("X start (s)", value=0.0, min=0.0, step=0.1)
-        x_stop = ui.number("X stop (s)", value=11.0, min=0.0, step=0.1)
-        show_raw = ui.checkbox("Show raw diameter", value=True)
 
-    status = ui.label()
-    plot_container = ui.column().classes("w-full")
+class AppState:
+    """Mutable app state kept separate from scientific analysis models."""
 
-    def replot() -> None:
-        """Reload sidecars and replace the complete Plotly figure."""
-        try:
-            analysis = Dff0DiameterAnalysis.from_sidecars(
-                diameter_csv=_DIAMETER_CSV,
-                reporter_csv=_REPORTER_CSV,
-                analysis_json=_ANALYSIS_JSON,
-                channel=int(channel.value or 0),
-                roi_id=int(roi_id.value or 0),
-                diameter_filter_method=str(filter_method.value),
-                diameter_filter_kernel_points=int(kernel_points.value or 1),
+    def __init__(self) -> None:
+        self.analysis: Dff0DiameterAnalysis | None = None
+        self.plot_container = None
+
+
+state = AppState()
+
+
+def _sidecar_paths(base_dir: Path, file_name: str) -> tuple[Path, Path, Path]:
+    frames_dir = base_dir / f"{file_name}.frames"
+    return (
+        frames_dir / f"{file_name}.diameter.csv",
+        frames_dir / f"{file_name}.sum_intensity.csv",
+        frames_dir / f"{file_name}.json",
+    )
+
+
+def _replot() -> None:
+    """Rebuild the analysis and all Plotly figures from current controls."""
+    assert state.plot_container is not None
+    diameter_csv, reporter_csv, analysis_json = _sidecar_paths(
+        Path(base_dir_input.value), str(file_name_input.value)
+    )
+    params = TriggeredEventParams(
+        direction=EventDirection(direction_select.value),
+        pre_points=int(pre_points_input.value),
+        post_points=int(post_points_input.value),
+        post_search_window_points=int(post_search_points_input.value),
+        baseline_start_offset_points=int(baseline_start_input.value),
+        baseline_stop_offset_points=int(baseline_stop_input.value),
+        filter_method=SignalFilterMethod(filter_select.value),
+        median_kernel_points=int(median_kernel_input.value),
+        savgol_window_points=int(savgol_window_input.value),
+        savgol_polyorder=int(savgol_order_input.value),
+        recovery_fraction=float(recovery_fraction_input.value),
+    )
+    state.analysis = Dff0DiameterAnalysis.from_sidecars(
+        diameter_csv=diameter_csv,
+        reporter_csv=reporter_csv,
+        analysis_json=analysis_json,
+        channel=int(channel_input.value),
+        roi_id=int(roi_input.value),
+        triggered_event_params=params,
+    )
+    max_event = max(0, len(state.analysis.triggered_events) - 1)
+    event_index_input.set_value(min(int(event_index_input.value), max_event))
+
+    state.plot_container.clear()
+    with state.plot_container:
+        ui.label(str(state.analysis.get_alignment_summary()))
+        ui.plotly(build_overview_figure(state.analysis)).classes("w-full")
+        ui.plotly(
+            build_event_figure(state.analysis, int(event_index_input.value))
+        ).classes("w-full")
+        ui.plotly(
+            build_metric_vs_time_figure(
+                state.analysis, str(metric_select.value)
             )
-            figure = make_overview_figure(
-                analysis.dataset,
-                x_start_sec=float(x_start.value) if x_start.value is not None else None,
-                x_stop_sec=float(x_stop.value) if x_stop.value is not None else None,
-                show_raw_diameter=bool(show_raw.value),
-            )
-            plot_container.clear()
-            with plot_container:
-                ui.plotly(figure).classes("w-full")
-            summary = analysis.get_alignment_summary()
-            status.set_text(
-                f"Loaded {summary['num_points']} points, "
-                f"{summary['num_reporter_events']} reporter events, "
-                f"dt={summary['seconds_per_point']:.7f} s"
-            )
-        except Exception as error:  # exploratory app: surface complete error text
-            status.set_text(f"Error: {error}")
-
-    ui.button("Replot", on_click=replot)
-    replot()
+        ).classes("w-full")
 
 
-if __name__ in {"__main__", "__mp_main__"}:
-    ui.run(title="ΔF/F₀–Diameter Analysis")
+ui.label("DFF0 / Diameter Triggered Event Analysis").classes("text-h5")
+with ui.column().classes("w-full gap-2"):
+    base_dir_input = ui.input("Base data folder", value=str(DEFAULT_BASE_DIR)).classes("w-full")
+    file_name_input = ui.input("Raw file name", value=DEFAULT_FILE_NAME)
+    with ui.row():
+        channel_input = ui.number("Channel", value=0, min=0, precision=0)
+        roi_input = ui.number("ROI", value=1, min=0, precision=0)
+        event_index_input = ui.number("Event index", value=0, min=0, precision=0)
+    with ui.row():
+        direction_select = ui.select([item.value for item in EventDirection], value=EventDirection.NEGATIVE.value, label="Direction")
+        filter_select = ui.select([item.value for item in SignalFilterMethod], value=SignalFilterMethod.MEDIAN.value, label="Filter")
+        median_kernel_input = ui.number("Median kernel points", value=3, min=1, precision=0)
+        savgol_window_input = ui.number("Sav-Gol window points", value=11, min=3, precision=0)
+        savgol_order_input = ui.number("Sav-Gol order", value=3, min=0, precision=0)
+    with ui.row():
+        pre_points_input = ui.number("Pre points", value=50, min=0, precision=0)
+        post_points_input = ui.number("Post points", value=500, min=1, precision=0)
+        post_search_points_input = ui.number("Extremum search points", value=250, min=1, precision=0)
+        baseline_start_input = ui.number("Baseline start offset", value=-50, precision=0)
+        baseline_stop_input = ui.number("Baseline stop offset", value=0, precision=0)
+        recovery_fraction_input = ui.number("Recovery fraction", value=0.9, min=0.01, max=1.0, step=0.05)
+    metric_select = ui.select(
+        [
+            "baseline_value",
+            "baseline_slope_per_sec",
+            "amplitude",
+            "time_to_extremum_from_seed_sec",
+            "extremum_to_recovery_sec",
+            "baseline_adjusted_auc_seed_to_stop",
+        ],
+        value="time_to_extremum_from_seed_sec",
+        label="Metric versus recording time",
+    )
+    ui.button("Replot", on_click=_replot)
+    state.plot_container = ui.column().classes("w-full")
+
+ui.run()

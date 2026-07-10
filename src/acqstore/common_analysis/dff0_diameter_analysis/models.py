@@ -1,22 +1,41 @@
-"""Data models for paired reporter and diameter analysis."""
+"""Schema-backed models for ΔF/F0 and diameter cross-analysis."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 import pandas as pd
 
 
+class EventDirection(StrEnum):
+    """Expected direction of the analyzed response signal."""
+
+    POSITIVE = "positive"
+    NEGATIVE = "negative"
+
+
+class SignalFilterMethod(StrEnum):
+    """Supported preprocessing filters for triggered-event analysis."""
+
+    NONE = "none"
+    MEDIAN = "median"
+    SAVGOL = "savgol"
+
+
+class TriggeredEventStatus(StrEnum):
+    """Overall measurement status for one seeded event."""
+
+    OK = "ok"
+    PARTIAL = "partial"
+    FAILED = "failed"
+
+
 @dataclass(frozen=True, slots=True)
 class AnalysisSelection:
-    """Identify one channel and ROI within per-file analysis sidecars.
-
-    Args:
-        channel: Zero-based channel index.
-        roi_id: ROI identifier used by the source analyses.
-    """
+    """Identify one channel and ROI within analysis outputs."""
 
     channel: int
     roi_id: int
@@ -24,47 +43,53 @@ class AnalysisSelection:
 
 @dataclass(frozen=True, slots=True)
 class DiameterFilterParams:
-    """Parameters for filtering the raw diameter trace.
-
-    Args:
-        method: Filtering method. Supported values are ``"none"`` and
-            ``"median"``.
-        kernel_points: Odd median-filter window length in samples.
-    """
+    """Legacy local diameter filter parameters used by the sidecar loader."""
 
     method: str = "median"
     kernel_points: int = 3
 
-    def validate(self) -> None:
-        """Validate filter parameters.
 
-        Raises:
-            ValueError: If the method or kernel size is invalid.
-        """
-        if self.method not in {"none", "median"}:
-            raise ValueError(f"Unsupported diameter filter method: {self.method!r}")
-        if self.kernel_points < 1:
-            raise ValueError("kernel_points must be at least 1")
-        if self.method == "median" and self.kernel_points % 2 == 0:
-            raise ValueError("Median filter kernel_points must be odd")
+@dataclass(frozen=True, slots=True)
+class TriggeredEventParams:
+    """Parameters for measuring one signal event per supplied seed index.
+
+    All internal window parameters are expressed in sample points. The
+    ``post_search_window_points`` limits the extremum search independently of
+    the longer post-event window used to measure recovery and area. The next
+    seed and end of signal always remain hard boundaries.
+    """
+
+    direction: EventDirection = EventDirection.NEGATIVE
+    pre_points: int = 50
+    post_points: int = 500
+    post_search_window_points: int = 250
+    baseline_start_offset_points: int = -50
+    baseline_stop_offset_points: int = 0
+    filter_method: SignalFilterMethod = SignalFilterMethod.MEDIAN
+    median_kernel_points: int = 3
+    savgol_window_points: int = 11
+    savgol_polyorder: int = 3
+    recovery_fraction: float = 0.9
+
+    def to_dict(self) -> dict[str, object]:
+        """Serialize parameters to JSON-compatible values."""
+        data = asdict(self)
+        data["direction"] = self.direction.value
+        data["filter_method"] = self.filter_method.value
+        return data
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, object]) -> "TriggeredEventParams":
+        """Create parameters from serialized values."""
+        values = dict(data)
+        values["direction"] = EventDirection(str(values["direction"]))
+        values["filter_method"] = SignalFilterMethod(str(values["filter_method"]))
+        return cls(**values)  # type: ignore[arg-type]
 
 
 @dataclass(frozen=True, slots=True)
 class ReporterEvent:
-    """One reporter event loaded from the per-file JSON sidecar.
-
-    Args:
-        peak_id: Event identifier assigned by upstream peak analysis.
-        onset_index: Integer sample index of the detected onset.
-        onset_time_sec: Onset time in seconds.
-        onset_value: Reporter value at onset.
-        peak_index: Integer sample index of the event peak.
-        peak_time_sec: Peak time in seconds.
-        peak_value: Reporter value at the peak.
-        peak_amplitude: Upstream event amplitude measurement.
-        status: Upstream event status.
-        raw_event: Original structured event mapping for later feature access.
-    """
+    """Upstream reporter event used as a seed for cross-analysis."""
 
     peak_id: int
     onset_index: int
@@ -78,22 +103,65 @@ class ReporterEvent:
     raw_event: dict[str, Any]
 
 
+@dataclass(frozen=True, slots=True)
+class TriggeredEvent:
+    """Measurements for one event anchored to a supplied seed index."""
+
+    schema_version: int
+    seed_id: int
+    seed_index: int
+    seed_time_sec: float
+    window_start_index: int
+    window_stop_index: int
+    next_seed_index: int | None
+    truncated_by_next_seed: bool
+    truncated_by_signal_end: bool
+    status: TriggeredEventStatus
+    warnings: tuple[str, ...]
+    baseline_start_index: int | None
+    baseline_stop_index: int | None
+    baseline_value: float | None
+    baseline_std: float | None
+    baseline_slope_per_sec: float | None
+    pre_seed_value: float | None
+    pre_seed_change: float | None
+    extremum_index: int | None
+    extremum_time_sec: float | None
+    extremum_value: float | None
+    time_to_extremum_from_seed_points: int | None
+    time_to_extremum_from_seed_sec: float | None
+    signed_amplitude: float | None
+    amplitude: float | None
+    fractional_amplitude: float | None
+    percent_amplitude: float | None
+    average_seed_to_extremum_slope_per_sec: float | None
+    maximum_oriented_slope_per_sec: float | None
+    recovery_detected: bool
+    recovery_index: int | None
+    recovery_time_sec: float | None
+    extremum_to_recovery_sec: float | None
+    seed_to_recovery_sec: float | None
+    baseline_adjusted_auc_seed_to_stop: float | None
+
+    def to_dict(self) -> dict[str, object]:
+        """Serialize this event to a JSON-compatible dictionary."""
+        data = asdict(self)
+        data["status"] = self.status.value
+        data["warnings"] = list(self.warnings)
+        return data
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, object]) -> "TriggeredEvent":
+        """Deserialize one event from :meth:`to_dict` output."""
+        values = dict(data)
+        values["status"] = TriggeredEventStatus(str(values["status"]))
+        values["warnings"] = tuple(str(item) for item in values.get("warnings", ()))
+        return cls(**values)  # type: ignore[arg-type]
+
+
 @dataclass(slots=True)
 class Dff0DiameterDataset:
-    """Validated data for one file, channel, and ROI.
-
-    Args:
-        source_name: Filename stem inferred from sidecar names or JSON metadata.
-        selection: Selected channel and ROI.
-        seconds_per_point: Sampling period in seconds.
-        reporter: Selected sum-intensity trace table.
-        diameter: Selected diameter trace table with locally filtered columns.
-        events: Reporter events loaded from the JSON sidecar.
-        analysis_json: Complete JSON document.
-        diameter_csv_path: Source diameter CSV path.
-        reporter_csv_path: Source sum-intensity CSV path.
-        analysis_json_path: Source analysis JSON path.
-    """
+    """Validated data for one file, channel, and ROI."""
 
     source_name: str
     selection: AnalysisSelection
