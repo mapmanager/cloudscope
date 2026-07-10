@@ -214,7 +214,7 @@ class AcqPixels:
         Returns:
             None.
         """
-        from .ome_zarr_io import write_acq_pixels_ome_zarr
+        from .io.ome_zarr import write_acq_pixels_ome_zarr
 
         write_acq_pixels_ome_zarr(
             self,
@@ -227,7 +227,7 @@ class AcqPixels:
     @classmethod
     def from_ome_zarr(cls, path: str | Path, *, lazy: bool = True) -> "AcqPixels":
         """Load pixels and metadata from one OME-Zarr-compatible image store."""
-        from .ome_zarr_io import read_acq_pixels_ome_zarr
+        from .io.ome_zarr import read_acq_pixels_ome_zarr
 
         return read_acq_pixels_ome_zarr(path, lazy=lazy)
 

@@ -9,7 +9,7 @@ import pytest
 import tifffile
 
 from acqstore.acq_image.acq_image import AcqImage
-from acqstore.acq_image.tiff_export import save_pixels_as_tif
+from acqstore.acq_image.io.tiff import save_pixels_as_tif
 from acqstore.acq_image.acq_pixels import AcqPixels
 from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader
 

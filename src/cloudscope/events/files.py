@@ -58,6 +58,21 @@ class SaveAllIntent(IntentEvent):
 
 
 @dataclass(frozen=True)
+class SaveAsTifIntent(IntentEvent):
+    """Request to export one acquisition file as TIFF (Save As).
+
+    Native desktop mode prompts for a local destination path. Web/server mode
+    writes a temporary TIFF and triggers a browser download so the client can
+    choose where to save locally. This does not write into the server data tree.
+
+    Attributes:
+        file_id: Stable acquisition file identifier to export.
+    """
+
+    file_id: str
+
+
+@dataclass(frozen=True)
 class UnloadImageDataIntent(IntentEvent):
     """Request lazy unload of one acquisition file's loaded data.
 

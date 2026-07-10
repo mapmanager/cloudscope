@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from acqstore.acq_image.acq_pixels import AcqPixels
-from acqstore.acq_image.ome_zarr_io import (
+from acqstore.acq_image.io.ome_zarr import (
     _dataset_path_from_attrs,
     read_acq_pixels_ome_zarr,
     write_acq_pixels_ome_zarr,

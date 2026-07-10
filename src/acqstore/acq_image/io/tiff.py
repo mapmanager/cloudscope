@@ -8,7 +8,7 @@ from typing import Any
 
 import numpy as np
 
-from .acq_pixels import AcqPixels
+from acqstore.acq_image.acq_pixels import AcqPixels
 
 
 @dataclass(frozen=True, slots=True)

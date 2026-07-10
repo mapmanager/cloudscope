@@ -16,18 +16,25 @@ from cloudscope.events.files import (
     RecentPathsChanged,
     RemoveRecentPathIntent,
     SaveAllIntent,
+    SaveAsTifIntent,
     SaveSelectedIntent,
 )
 from cloudscope.events.status import AppStatusChanged
-from cloudscope.controllers.load_save_controller import LoadSaveController
+from cloudscope.controllers.load_save_controller import (
+    LoadSaveController,
+    suggested_tif_filename,
+)
 from cloudscope.app_config import AppConfig, normalize_stored_path
 
 
 class _FakeFile:
     def __init__(self, file_id: str, *, dirty: bool = False) -> None:
         self.file_id = file_id
+        self.path = file_id
+        self.name = Path(file_id).name
         self._dirty = dirty
         self.saved = 0
+        self.save_as_tif_calls: list[tuple[object, bool]] = []
 
     @property
     def is_dirty(self) -> bool:
@@ -36,6 +43,12 @@ class _FakeFile:
     def save(self) -> None:
         self.saved += 1
         self._dirty = False
+
+    def save_as_tif(self, path, *, imagej_metadata: bool = True, overwrite: bool = False) -> None:
+        dest = Path(path)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b'tiff-bytes')
+        self.save_as_tif_calls.append((dest, overwrite))
 
     def get_default_channel(self) -> int | None:
         return 0
@@ -804,3 +817,152 @@ def test_load_sample_data_intent_ensures_sample_then_loads_folder(tmp_path, monk
     assert captured['load_path'] == str(sample_folder)
     assert captured['kind'].value == 'folder'
     assert cfg.get_recent_folders()[-1] == str(sample_folder)
+
+
+def test_suggested_tif_filename_uses_source_stem() -> None:
+    """Save As Tif filenames should keep the source stem and use .tif."""
+    assert suggested_tif_filename('/data/sample.oir') == 'sample.tif'
+    assert suggested_tif_filename('/data/sample.tif') == 'sample.tif'
+    assert suggested_tif_filename('') == 'export.tif'
+
+
+def test_save_as_tif_warns_when_file_missing(tmp_path, monkeypatch) -> None:
+    """SaveAsTifIntent should warn when the file_id is not in the loaded list."""
+    monkeypatch.setattr(
+        'cloudscope.controllers.load_save_controller._is_native_desktop_mode',
+        lambda: False,
+    )
+    bus = EventBus()
+    cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
+    home = HomePageController(event_bus=bus)
+    controller = LoadSaveController(event_bus=bus, home_controller=home, app_config=cfg)
+    controller.bind()
+    home.state.acq_image_list = _FakeList([_FakeFile('/tmp/a.tif')])
+
+    statuses: list[AppStatusChanged] = []
+    bus.subscribe(AppStatusChanged, statuses.append)
+    bus.publish(SaveAsTifIntent(file_id='/tmp/missing.tif'))
+
+    assert statuses[-1].message == 'Selected file no longer exists'
+
+
+def test_save_as_tif_browser_download_exports_and_downloads(tmp_path, monkeypatch) -> None:
+    """Web mode should export via run.io_bound and trigger ui.download."""
+    monkeypatch.setattr(
+        'cloudscope.controllers.load_save_controller._is_native_desktop_mode',
+        lambda: False,
+    )
+    downloads: list[tuple[object, str]] = []
+    monkeypatch.setattr(
+        'cloudscope.controllers.load_save_controller.ui.download',
+        lambda src, filename=None, media_type='': downloads.append((src, filename or '')),
+    )
+
+    async def _immediate_io_bound(callback, *args, **kwargs):
+        return callback(*args, **kwargs)
+
+    monkeypatch.setattr(
+        'cloudscope.controllers.load_save_controller.run.io_bound',
+        _immediate_io_bound,
+    )
+
+    bus = EventBus()
+    cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
+    home = HomePageController(event_bus=bus)
+    controller = LoadSaveController(event_bus=bus, home_controller=home, app_config=cfg)
+    controller.bind()
+    fake = _FakeFile(str(tmp_path / 'sample.oir'))
+    home.state.acq_image_list = _FakeList([fake])
+
+    statuses: list[AppStatusChanged] = []
+    bus.subscribe(AppStatusChanged, statuses.append)
+    bus.publish(SaveAsTifIntent(file_id=fake.file_id))
+
+    assert len(fake.save_as_tif_calls) == 1
+    dest, overwrite = fake.save_as_tif_calls[0]
+    assert overwrite is True
+    assert Path(dest).name == 'sample.tif'
+    assert Path(dest).is_file()
+    assert downloads == [(dest, 'sample.tif')]
+    assert [s.message for s in statuses] == [
+        'Saving tif: sample.tif...',
+        'Tif saved: sample.tif',
+    ]
+
+
+def test_save_as_tif_native_writes_chosen_path(tmp_path, monkeypatch) -> None:
+    """Native mode should use the save dialog path and run.io_bound export."""
+    monkeypatch.setattr(
+        'cloudscope.controllers.load_save_controller._is_native_desktop_mode',
+        lambda: True,
+    )
+    chosen = tmp_path / 'chosen_export.tif'
+
+    async def _fake_prompt(initial, *, suggested_filename='kym_event_db.csv', file_extension='.csv'):
+        assert suggested_filename == 'sample.tif'
+        assert file_extension == '.tif'
+        return str(chosen)
+
+    async def _immediate_io_bound(callback, *args, **kwargs):
+        return callback(*args, **kwargs)
+
+    monkeypatch.setattr(
+        'cloudscope.controllers.load_save_controller._prompt_for_save_path',
+        _fake_prompt,
+    )
+    monkeypatch.setattr(
+        'cloudscope.controllers.load_save_controller.run.io_bound',
+        _immediate_io_bound,
+    )
+
+    bus = EventBus()
+    cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
+    home = HomePageController(event_bus=bus)
+    controller = LoadSaveController(event_bus=bus, home_controller=home, app_config=cfg)
+    controller.bind()
+    fake = _FakeFile(str(tmp_path / 'sample.oir'))
+    home.state.acq_image_list = _FakeList([fake])
+
+    statuses: list[AppStatusChanged] = []
+    bus.subscribe(AppStatusChanged, statuses.append)
+    bus.publish(SaveAsTifIntent(file_id=fake.file_id))
+
+    assert len(fake.save_as_tif_calls) == 1
+    dest, overwrite = fake.save_as_tif_calls[0]
+    assert Path(dest) == chosen
+    assert overwrite is True
+    assert [s.message for s in statuses] == [
+        f'Saving tif: {chosen.name}...',
+        f'Tif saved: {chosen.name}',
+    ]
+
+
+def test_save_as_tif_native_cancel_emits_info(tmp_path, monkeypatch) -> None:
+    """Native Save As Tif cancel should emit an info status and not export."""
+    monkeypatch.setattr(
+        'cloudscope.controllers.load_save_controller._is_native_desktop_mode',
+        lambda: True,
+    )
+
+    async def _fake_prompt(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(
+        'cloudscope.controllers.load_save_controller._prompt_for_save_path',
+        _fake_prompt,
+    )
+
+    bus = EventBus()
+    cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
+    home = HomePageController(event_bus=bus)
+    controller = LoadSaveController(event_bus=bus, home_controller=home, app_config=cfg)
+    controller.bind()
+    fake = _FakeFile(str(tmp_path / 'sample.oir'))
+    home.state.acq_image_list = _FakeList([fake])
+
+    statuses: list[AppStatusChanged] = []
+    bus.subscribe(AppStatusChanged, statuses.append)
+    bus.publish(SaveAsTifIntent(file_id=fake.file_id))
+
+    assert fake.save_as_tif_calls == []
+    assert statuses[-1].message == 'Save As Tif cancelled'

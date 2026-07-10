@@ -16,9 +16,9 @@ from typing import Any
 
 import numpy as np
 
-from .acq_pixels import AcqPixels
-from .file_loaders.base_file_loader import ImageHeader
-from .zarr_store_utils import (
+from acqstore.acq_image.acq_pixels import AcqPixels
+from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader
+from acqstore.acq_image.io.store_utils import (
     ensure_store_absent,
     is_s3_path,
     is_zip_store_path,

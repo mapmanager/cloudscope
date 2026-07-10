@@ -554,3 +554,53 @@ def test_left_panel_file_list_view_uses_toolbar_view_id() -> None:
 
     view = LeftPanelFileListView(event_bus=EventBus())
     assert view.view_id is ViewId.LEFT_TOOLBAR_FILE_LIST
+
+
+def test_save_as_tif_publishes_intent_for_selected_file(monkeypatch: Any) -> None:
+    """Save As Tif... should publish SaveAsTifIntent for the selected file row."""
+    from cloudscope.events.files import SaveAsTifIntent
+    from cloudscope.views import file_list_tree_view as tree_view_mod
+
+    published: list[object] = []
+
+    class _Bus:
+        def publish(self, event: object) -> None:
+            published.append(event)
+
+    class _Tree:
+        def get_selected_rows(self) -> list[dict[str, Any]]:
+            return [_file_row('/tmp/a.tif')]
+
+    view = object.__new__(tree_view_mod.AcqImageListTreeView)
+    view.event_bus = _Bus()
+    view._tree = _Tree()
+
+    view._save_selected_file_as_tif()
+
+    assert len(published) == 1
+    assert isinstance(published[0], SaveAsTifIntent)
+    assert published[0].file_id == '/tmp/a.tif'
+
+
+def test_save_as_tif_no_selection_notifies(monkeypatch: Any) -> None:
+    """Save As Tif... should warn when no tree row is selected."""
+    from cloudscope.views import file_list_tree_view as tree_view_mod
+
+    notified: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        tree_view_mod.ui,
+        'notify',
+        lambda message, type='info': notified.append((message, type)),
+    )
+
+    class _Tree:
+        def get_selected_rows(self) -> list[dict[str, Any]]:
+            return []
+
+    view = object.__new__(tree_view_mod.AcqImageListTreeView)
+    view.event_bus = EventBus()
+    view._tree = _Tree()
+
+    view._save_selected_file_as_tif()
+
+    assert notified == [('No file selected', 'warning')]

@@ -20,8 +20,8 @@ from acqstore.schema import ACQ_FILE_LIST_SCHEMA, SchemaDefinition, validate_val
 from acqstore.utils.logging import get_logger
 from .acq_pixels import AcqPixels
 from .file_loaders.base_file_loader import BaseFileLoader, ImageHeader
-from .tiff_export import save_pixels_as_tif
-from .zarr_store_utils import (
+from .io.tiff import save_pixels_as_tif
+from .io.store_utils import (
     is_s3_path,
     is_zip_store_path,
     join_store_path,

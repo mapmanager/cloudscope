@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from acqstore.acq_image.acq_pixels import AcqPixels
-from acqstore.acq_image.ome_zarr_io import read_acq_pixels_ome_zarr, write_acq_pixels_ome_zarr
+from acqstore.acq_image.io.ome_zarr import read_acq_pixels_ome_zarr, write_acq_pixels_ome_zarr
 
 
 def test_native_cs_ome_zarr_header_round_trips_strictly(

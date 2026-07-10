@@ -35,7 +35,12 @@ from cloudscope.event_bus import EventBus
 from cloudscope.events.app_config import BlindedAnalysisModeChanged
 from cloudscope.events.acq_image_events import AcqImageEventsChanged
 from cloudscope.events.analysis import AnalysisCompleted
-from cloudscope.events.files import FileListChanged, ImageDataUnloaded, UnloadImageDataIntent
+from cloudscope.events.files import (
+    FileListChanged,
+    ImageDataUnloaded,
+    SaveAsTifIntent,
+    UnloadImageDataIntent,
+)
 from cloudscope.events.metadata import MetadataChanged
 from cloudscope.events.roi import RoiChanged
 from cloudscope.events.selection import SelectFileIntent
@@ -212,8 +217,27 @@ class AcqImageListTreeView(BaseView):
             None.
         """
         ui.menu_item("Reveal In Finder", on_click=self._reveal_selected_file_in_finder)
+        ui.menu_item("Save As Tif...", on_click=self._save_selected_file_as_tif)
         ui.menu_item("Unload Data", on_click=self._unload_selected_file_data)
 
+    def _save_selected_file_as_tif(self) -> None:
+        """Publish a Save As Tif intent for the selected file or analysis row.
+
+        Returns:
+            None.
+        """
+        if self._tree is None:
+            logger.warning("Save As Tif requested before file tree was built")
+            return
+        selected_rows = self._tree.get_selected_rows()
+        if not selected_rows:
+            ui.notify("No file selected", type="warning")
+            return
+        file_id = self._resolve_file_id_from_row(selected_rows[0])
+        if not isinstance(file_id, str) or not file_id:
+            ui.notify("Selected row has no file path", type="warning")
+            return
+        self.event_bus.publish(SaveAsTifIntent(file_id=file_id))
 
     def _unload_selected_file_data(self) -> None:
         """Publish an unload intent for the selected file or analysis row.

@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import asyncio
+import tempfile
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
+from nicegui import app, run, ui
+
 from acqstore.sample_data import ensure_sample
+from acqstore.acq_image.acq_image import AcqImage
 from acqstore.acq_image.acq_image_list import (
     AcqImageList,
     LoadCancelled,
@@ -35,25 +41,71 @@ from cloudscope.events.files import (
     RecentPathsChanged,
     RemoveRecentPathIntent,
     SaveAllIntent,
+    SaveAsTifIntent,
     SaveSelectedIntent,
 )
 from cloudscope.events.status import AppStatusChanged, StatusLevel, StatusSource
 from cloudscope.task_runner import TaskCancelled, TaskContext, TaskRunner
 from cloudscope.user_context import UserContext
 from cloudscope.utils.logging import get_logger
+from cloudscope._py_web_view import _prompt_for_save_path
 
 logger = get_logger(__name__)
 
 
-def _file_display_name(acq_file: object) -> str:
-    """Return a short display name for status messages."""
-    name = getattr(acq_file, 'name', None)
-    if isinstance(name, str) and name:
+def _schedule_coro(coro: Coroutine[Any, Any, None]) -> None:
+    """Run ``coro`` on the running loop, or ``asyncio.run`` when no loop exists.
+
+    Args:
+        coro: Coroutine to schedule.
+
+    Returns:
+        None.
+    """
+    try:
+        asyncio.get_running_loop().create_task(coro)
+    except RuntimeError:
+        asyncio.run(coro)
+
+
+def _is_native_desktop_mode() -> bool:
+    """Return whether pywebview native save dialogs are available.
+
+    Returns:
+        True when NiceGUI native ``main_window`` is present.
+    """
+    native = getattr(app, 'native', None)
+    return getattr(native, 'main_window', None) is not None
+
+
+def suggested_tif_filename(source_path: str | Path) -> str:
+    """Return a ``.tif`` download/save filename derived from ``source_path``.
+
+    Args:
+        source_path: Acquisition source path or file id.
+
+    Returns:
+        Filename ending in ``.tif`` using the source stem.
+    """
+    stem = Path(source_path).stem
+    if not stem:
+        stem = 'export'
+    return f'{stem}.tif'
+
+
+def _file_display_name(acq_file: AcqImage) -> str:
+    """Return a short display name for status messages.
+
+    Args:
+        acq_file: Acquisition file resolved from the loaded list.
+
+    Returns:
+        Basename suitable for footer/status text.
+    """
+    name = acq_file.name
+    if name:
         return name
-    file_id = getattr(acq_file, 'file_id', None)
-    if file_id is not None:
-        return Path(str(file_id)).name
-    return 'selected file'
+    return Path(acq_file.file_id).name
 
 
 def _load_complete_message(result: LoadResult) -> str:
@@ -169,6 +221,7 @@ class LoadSaveController:
         self.event_bus.subscribe(RemoveRecentPathIntent, self._on_remove_recent_path)
         self.event_bus.subscribe(SaveSelectedIntent, self._on_save_selected)
         self.event_bus.subscribe(SaveAllIntent, self._on_save_all)
+        self.event_bus.subscribe(SaveAsTifIntent, self._on_save_as_tif)
         self.event_bus.subscribe(ClearRecentPathsIntent, self._on_clear_recent_paths)
         self.event_bus.subscribe(CancelTaskIntent, self._on_cancel_task)
 
@@ -281,6 +334,167 @@ class LoadSaveController:
             )
         except RuntimeError as exc:
             self._publish_status(level=StatusLevel.WARNING, source=StatusSource.SAVE, message=str(exc))
+
+    def _on_save_as_tif(self, event: SaveAsTifIntent) -> None:
+        """Export one acquisition as TIFF via native save dialog or browser download.
+
+        Native desktop mode prompts for a local destination path. Web/server mode
+        writes a temporary TIFF and triggers ``ui.download`` so the browser client
+        chooses a local save location. This path never writes into the server
+        ``data/`` tree as the export destination.
+
+        Save As Tif does not use ``TaskRunner`` / the modal progress dialog. The
+        TIFF write runs under ``run.io_bound`` so the UI loop stays responsive;
+        footer status reports ``Saving tif...`` then ``Tif saved``.
+
+        Args:
+            event: Save-as-TIFF intent with the target ``file_id``.
+
+        Returns:
+            None.
+        """
+        acq_list = self.home_controller.state.acq_image_list
+        if acq_list is None:
+            self._publish_status(
+                level=StatusLevel.WARNING,
+                source=StatusSource.SAVE,
+                message='No files loaded',
+            )
+            return
+        acq_file = acq_list.get_file_by_id(event.file_id)
+        if acq_file is None:
+            self._publish_status(
+                level=StatusLevel.WARNING,
+                source=StatusSource.SAVE,
+                message='Selected file no longer exists',
+            )
+            return
+
+        client = getattr(getattr(ui, 'context', None), 'client', None)
+        if _is_native_desktop_mode():
+            _schedule_coro(self._save_as_tif_native(acq_file))
+            return
+        _schedule_coro(self._save_as_tif_browser_download(acq_file, client=client))
+
+    async def _save_as_tif_native(self, acq_file: AcqImage) -> None:
+        """Prompt for a local TIFF path and export via ``run.io_bound``.
+
+        Args:
+            acq_file: Acquisition to export.
+
+        Returns:
+            None.
+        """
+        source_path = acq_file.path
+        suggested = suggested_tif_filename(source_path)
+        initial = Path(source_path).expanduser().resolve(strict=False).parent
+        if not initial.is_dir():
+            initial = Path.cwd()
+        selected = await _prompt_for_save_path(
+            initial,
+            suggested_filename=suggested,
+            file_extension='.tif',
+        )
+        if selected is None:
+            self._publish_status(
+                level=StatusLevel.INFO,
+                source=StatusSource.SAVE,
+                message='Save As Tif cancelled',
+            )
+            return
+        dest = Path(selected)
+        if dest.suffix.lower() not in {'.tif', '.tiff'}:
+            dest = dest.with_suffix('.tif')
+        await self._export_tif_io_bound(acq_file, dest)
+
+    async def _save_as_tif_browser_download(
+        self,
+        acq_file: AcqImage,
+        *,
+        client: Any | None,
+    ) -> None:
+        """Export TIFF to a temp file and trigger a browser download.
+
+        Args:
+            acq_file: Acquisition to export.
+            client: NiceGUI client captured on the menu-click path for
+                ``ui.download`` after ``run.io_bound``.
+
+        Returns:
+            None.
+        """
+        filename = suggested_tif_filename(acq_file.path)
+        tmp_dir = Path(tempfile.mkdtemp(prefix='cloudscope_save_as_tif_'))
+        dest = tmp_dir / filename
+        ok = await self._export_tif_io_bound(acq_file, dest, publish_done=False)
+        if not ok:
+            return
+
+        def _trigger_download() -> None:
+            ui.download(dest, filename=filename)
+
+        try:
+            if client is not None:
+                client.safe_invoke(_trigger_download)
+            else:
+                _trigger_download()
+        except Exception as exc:
+            logger.exception('Save As Tif browser download failed')
+            self._publish_status(
+                level=StatusLevel.ERROR,
+                source=StatusSource.SAVE,
+                message=f'Save As Tif download failed: {exc}',
+            )
+            return
+        self._publish_status(
+            level=StatusLevel.INFO,
+            source=StatusSource.SAVE,
+            message=f'Tif saved: {filename}',
+        )
+
+    async def _export_tif_io_bound(
+        self,
+        acq_file: AcqImage,
+        dest: Path,
+        *,
+        publish_done: bool = True,
+    ) -> bool:
+        """Write TIFF off the UI thread and publish footer status stages.
+
+        Args:
+            acq_file: Acquisition to export.
+            dest: Destination TIFF path.
+            publish_done: When true, publish ``Tif saved: <filename>`` after a
+                successful write. When false, leave the done status to the caller
+                (e.g. after browser download starts).
+
+        Returns:
+            True when the export succeeded.
+        """
+        display_name = _file_display_name(acq_file)
+        tif_name = dest.name
+        self._publish_status(
+            level=StatusLevel.INFO,
+            source=StatusSource.SAVE,
+            message=f'Saving tif: {tif_name}...',
+        )
+        try:
+            await run.io_bound(acq_file.save_as_tif, dest, overwrite=True)
+        except Exception as exc:
+            logger.exception('Save As Tif failed for %s', display_name)
+            self._publish_status(
+                level=StatusLevel.ERROR,
+                source=StatusSource.SAVE,
+                message=f'Save As Tif failed for {display_name}: {exc}',
+            )
+            return False
+        if publish_done:
+            self._publish_status(
+                level=StatusLevel.INFO,
+                source=StatusSource.SAVE,
+                message=f'Tif saved: {tif_name}',
+            )
+        return True
 
     def _on_save_all(self, _event: SaveAllIntent) -> None:
         """Start save-all task when possible.
@@ -395,11 +609,11 @@ class LoadSaveController:
         except LoadCancelled as exc:
             raise TaskCancelled(str(exc)) from exc
 
-    def _save_selected_worker(self, acq_file: object, context: TaskContext | _ImmediateTaskContext) -> None:
+    def _save_selected_worker(self, acq_file: AcqImage, context: TaskContext | _ImmediateTaskContext) -> None:
         """Save one file in a worker context.
 
         Args:
-            acq_file: Acquisition file object exposing ``save`` and ``file_id``.
+            acq_file: Acquisition file to save.
             context: Task context for progress and cancellation.
 
         Returns:
@@ -409,7 +623,7 @@ class LoadSaveController:
             TaskCancelled: If cancellation is requested before saving.
         """
         context.raise_if_cancelled()
-        file_id = str(getattr(acq_file, 'file_id', 'selected file'))
+        file_id = acq_file.file_id
         context.report_progress(0.0, f'Saving {file_id}')
         acq_file.save()
         context.report_progress(1.0, f'Saved {file_id}')

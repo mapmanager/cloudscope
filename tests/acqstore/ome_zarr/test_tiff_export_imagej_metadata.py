@@ -9,7 +9,7 @@ import numpy as np
 import tifffile
 
 from acqstore.acq_image.acq_pixels import AcqPixels
-from acqstore.acq_image.tiff_export import save_pixels_as_tif
+from acqstore.acq_image.io.tiff import save_pixels_as_tif
 
 
 def _imagej_metadata(path: Path) -> dict[str, object]:
