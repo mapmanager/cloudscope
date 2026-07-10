@@ -74,5 +74,5 @@ uv run pytest tests/cloudscope/test_load_save_controller.py -q -k 'save_as_tif o
 - Web download uses a temporary server-side file only as a staging buffer for `ui.download`; cleanup of that temp directory is left to OS temp cleanup (NiceGUI `single_use` static file). Manual webserver verification of download + footer stages is still recommended.
 - Save As OME-Zarr / CS OME-Zarr menu items remain out of scope.
 - Native overwrite uses `overwrite=True` after the user explicitly chose a save path in the OS dialog.
-- Separate next ticket: Save Selected button stays disabled after Experimental Metadata edits.
+- Separate next ticket: Save Selected button stays disabled after Experimental Metadata edits — addressed in `010_save_selected_dirty_refresh_report.md`.
 - Separate UX bug: right-click on unloaded tree row before single-click lazy load.
