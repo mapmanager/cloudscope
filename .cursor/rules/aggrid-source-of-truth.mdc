@@ -10,6 +10,32 @@ Past agent edits to AG Grid behavior have repeatedly been wrong or invented.
 Do **not** implement or modify AG Grid / `ui.aggrid` behavior from memory or by
 guessing API names, option keys, event names, or call conventions.
 
+## YOU SUCK AT AGGRID EDITS — YOU ALWAYS CLAIM "FIXED" AND 9/10 TIMES IT IS NOT FIXED
+
+Track record on this repo: for AG Grid / tree-widget selection, scroll, and
+refresh bugs, the agent has repeatedly declared a fix "done" or "grounded" and
+it did **not** work when the user ran the real app. Examples that failed:
+tree initial-selection, scroll-into-view (multiple attempts), and the
+nested-row selection "flashing" on user click (multiple attempts).
+
+Because of this, the following is MANDATORY:
+
+- **Do not claim anything is fixed** for AG Grid behavior unless you have
+  reproduced the bug AND verified the fix live in the browser with a loaded
+  dataset (see below). "Unit tests pass" is NOT a fix and must never be
+  presented as one.
+- **Web mode (`CLOUDSCOPE_NATIVE=0`) disables file loading**, so you often
+  cannot reproduce data-dependent selection/scroll bugs there. If you cannot
+  load real data, you cannot verify — say so plainly and do NOT ship a
+  speculative change or claim success.
+- When you cannot verify, **stop and hand back to the user** with: what you
+  changed, why you think it might help, and an explicit statement that it is
+  UNVERIFIED. Prefer making no change over an unverified "fix".
+- Assume your mental model of AG Grid selection/transaction/repaint timing is
+  WRONG until proven otherwise by live CDP inspection of `node.data`,
+  `api.getSelectedNodes()`, and the actual DOM `.ag-cell` state across the full
+  event round-trip.
+
 ## In scope
 
 - `ui.aggrid` option dicts (e.g. `rowSelection`, `groupDisplayType`,
