@@ -2,134 +2,188 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
+from typing import Any
 
 from nicegui import ui
 
-# from ..analysis import Dff0DiameterAnalysis
-# from ..models import EventDirection, SignalFilterMethod, TriggeredEventParams
-# from ..plotting import build_event_figure, build_metric_vs_time_figure, build_overview_figure
-
+from acqstore.acq_image.acq_image_list import AcqImageList
 from acqstore.common_analysis.dff0_diameter_analysis.analysis import (
     Dff0DiameterAnalysis,
 )
-from acqstore.common_analysis.dff0_diameter_analysis.models import (
-    EventDirection,
-    SignalFilterMethod,
-    TriggeredEventParams,
+from acqstore.common_analysis.dff0_diameter_analysis.app.analysis_hits import (
+    find_analysis_hits,
 )
-from acqstore.common_analysis.dff0_diameter_analysis.plotting import (
-    build_event_figure,
-    build_metric_vs_time_figure,
-    build_overview_figure,
+from acqstore.common_analysis.dff0_diameter_analysis.app.app_state import AppState
+from acqstore.common_analysis.dff0_diameter_analysis.app.left_control_panel import (
+    LeftControlPanel,
+)
+from acqstore.common_analysis.dff0_diameter_analysis.app.plot_panel import PlotPanel
+
+
+# SOURCE_PATH = Path(
+#     "/Users/cudmore/Library/Application Support/cloudscope/sample-data/"
+#     "diameter-sample-data-v1/diameter-sample-data"
+# )
+
+SOURCE_PATH = Path(
+    "/Users/cudmore/Sites/cloudscope-data/data-samples/diameter-sample-data"
 )
 
-
-DEFAULT_BASE_DIR = Path(
-    "/Users/cudmore/Library/Application Support/cloudscope/sample-data/"
-    "diameter-sample-data-v1/diameter-sample-data/Control"
-)
-DEFAULT_FILE_NAME = "220110n_0005.tif"
+NATIVE = False
+NATIVE_WINDOW_SIZE = (1000, 800)
 
 
-class AppState:
-    """Mutable app state kept separate from scientific analysis models."""
+@dataclass(slots=True)
+class PageContext:
+    """Bind page state to reusable controls and plots for callbacks.
 
-    def __init__(self) -> None:
-        self.analysis: Dff0DiameterAnalysis | None = None
-        self.plot_container = None
+    Args:
+        state: Mutable analysis state for one page instance.
+    """
+
+    state: AppState
+    controls: LeftControlPanel | None = None
+    plots: PlotPanel | None = None
 
 
-state = AppState()
+def handle_hit_row_clicked(event: Any, *, context: PageContext) -> None:
+    """Update app state and controls after an AG Grid row click.
+
+    Args:
+        event: NiceGUI event containing the selected row's ``data`` mapping.
+        context: Page-local state and component references.
+    """
+    if context.controls is None:
+        return
+
+    row_data = event.args.get("data") if isinstance(event.args, dict) else None
+    if not isinstance(row_data, dict):
+        ui.notify("The selected grid row did not contain row data.", type="warning")
+        return
+
+    hit_id = row_data.get("hit_id")
+    if not isinstance(hit_id, str):
+        ui.notify("The selected grid row did not contain a hit identifier.", type="warning")
+        return
+
+    try:
+        hit = context.state.select_hit(hit_id)
+    except KeyError:
+        ui.notify("The selected analysis hit is no longer available.", type="negative")
+        return
+
+    context.controls.set_selected_hit(hit)
 
 
-def _sidecar_paths(base_dir: Path, file_name: str) -> tuple[Path, Path, Path]:
-    frames_dir = base_dir / f"{file_name}.frames"
-    return (
-        frames_dir / f"{file_name}.diameter.csv",
-        frames_dir / f"{file_name}.sum_intensity.csv",
-        frames_dir / f"{file_name}.json",
+def handle_plot_requested(*, context: PageContext) -> None:
+    """Run and plot the currently selected AcqImage analysis hit.
+
+    Args:
+        context: Page-local state and component references.
+    """
+    controls = context.controls
+    plots = context.plots
+    if controls is None or plots is None:
+        return
+
+    hit = context.state.selected_hit
+    if hit is None:
+        ui.notify("Select an analysis row before plotting.", type="warning")
+        return
+
+    try:
+        analysis = Dff0DiameterAnalysis.from_acq_image(
+            acq_image=hit.acq_image,
+            channel=hit.channel,
+            roi_id=hit.roi_id,
+            triggered_event_params=controls.get_triggered_event_params(),
+        )
+        if not analysis.triggered_events:
+            raise ValueError("The selected analysis contains no reporter seed events.")
+
+        max_event_index = len(analysis.triggered_events) - 1
+        event_index = min(max(controls.get_event_index(), 0), max_event_index)
+        controls.set_event_index(event_index)
+
+        context.state.analysis = analysis
+        plots.show_analysis(
+            analysis,
+            event_index=event_index,
+            metric_name=controls.get_metric_name(),
+        )
+    except (TypeError, ValueError, KeyError) as exc:
+        context.state.analysis = None
+        plots.show_error(str(exc))
+        ui.notify(str(exc), type="negative")
+
+
+def load_app_state(source_path: Path) -> AppState:
+    """Load acquisitions and discover all paired analysis hits.
+
+    Args:
+        source_path: Folder containing acquisition files and analysis sidecars.
+
+    Returns:
+        Initialized page state.
+    """
+    acq_image_list = AcqImageList(
+        str(source_path),
+        load_images=False,
+        load_analysis_csv=True,
+    )
+    return AppState(
+        acq_image_list=acq_image_list,
+        analysis_hits=find_analysis_hits(acq_image_list),
     )
 
 
-def _replot() -> None:
-    """Rebuild the analysis and all Plotly figures from current controls."""
-    assert state.plot_container is not None
-    diameter_csv, reporter_csv, analysis_json = _sidecar_paths(
-        Path(base_dir_input.value), str(file_name_input.value)
-    )
-    params = TriggeredEventParams(
-        direction=EventDirection(direction_select.value),
-        pre_points=int(pre_points_input.value),
-        post_points=int(post_points_input.value),
-        post_search_window_points=int(post_search_points_input.value),
-        baseline_start_offset_points=int(baseline_start_input.value),
-        baseline_stop_offset_points=int(baseline_stop_input.value),
-        filter_method=SignalFilterMethod(filter_select.value),
-        median_kernel_points=int(median_kernel_input.value),
-        savgol_window_points=int(savgol_window_input.value),
-        savgol_polyorder=int(savgol_order_input.value),
-        recovery_fraction=float(recovery_fraction_input.value),
-    )
-    state.analysis = Dff0DiameterAnalysis.from_sidecars(
-        diameter_csv=diameter_csv,
-        reporter_csv=reporter_csv,
-        analysis_json=analysis_json,
-        channel=int(channel_input.value),
-        roi_id=int(roi_input.value),
-        triggered_event_params=params,
-    )
-    max_event = max(0, len(state.analysis.triggered_events) - 1)
-    event_index_input.set_value(min(int(event_index_input.value), max_event))
+@ui.page("/")
+def home_page() -> None:
+    """Build the standalone two-pane analysis page."""
+    
+    from nicewidgets.gui_defaults import setUpGuiDefaults
+    setUpGuiDefaults(text_size='text-xs')
 
-    state.plot_container.clear()
-    with state.plot_container:
-        ui.label(str(state.analysis.get_alignment_summary()))
-        ui.plotly(build_overview_figure(state.analysis)).classes("w-full")
-        ui.plotly(
-            build_event_figure(state.analysis, int(event_index_input.value))
-        ).classes("w-full")
-        ui.plotly(
-            build_metric_vs_time_figure(
-                state.analysis, str(metric_select.value)
+    try:
+        state = load_app_state(SOURCE_PATH)
+    except (OSError, RuntimeError, ValueError) as exc:
+        ui.label("Unable to load acquisition folder").classes("text-h5 text-negative")
+        ui.label(str(exc))
+        ui.label(str(SOURCE_PATH)).classes("text-caption")
+        return
+
+    context = PageContext(state=state)
+
+    ui.label("DFF0 / Diameter Triggered Event Analysis").classes("text-h5 px-3 pt-3")
+    ui.label(f"Source: {SOURCE_PATH}").classes("text-caption px-3")
+    ui.label(f"Paired analysis hits: {len(state.analysis_hits)}").classes("text-caption px-3")
+
+    with ui.splitter(value=32).classes("w-full h-[calc(100vh-90px)]") as splitter:
+        with splitter.before:
+            context.controls = LeftControlPanel(
+                hits=state.analysis_hits,
+                on_row_clicked=partial(handle_hit_row_clicked, context=context),
+                on_plot_requested=partial(handle_plot_requested, context=context),
             )
-        ).classes("w-full")
+
+        with splitter.after:
+            context.plots = PlotPanel()
 
 
-ui.label("DFF0 / Diameter Triggered Event Analysis").classes("text-h5")
-with ui.column().classes("w-full gap-2"):
-    base_dir_input = ui.input("Base data folder", value=str(DEFAULT_BASE_DIR)).classes("w-full")
-    file_name_input = ui.input("Raw file name", value=DEFAULT_FILE_NAME)
-    with ui.row():
-        channel_input = ui.number("Channel", value=0, min=0, precision=0)
-        roi_input = ui.number("ROI", value=1, min=0, precision=0)
-        event_index_input = ui.number("Event index", value=0, min=0, precision=0)
-    with ui.row():
-        direction_select = ui.select([item.value for item in EventDirection], value=EventDirection.NEGATIVE.value, label="Direction")
-        filter_select = ui.select([item.value for item in SignalFilterMethod], value=SignalFilterMethod.MEDIAN.value, label="Filter")
-        median_kernel_input = ui.number("Median kernel points", value=3, min=1, precision=0)
-        savgol_window_input = ui.number("Sav-Gol window points", value=11, min=3, precision=0)
-        savgol_order_input = ui.number("Sav-Gol order", value=3, min=0, precision=0)
-    with ui.row():
-        pre_points_input = ui.number("Pre points", value=50, min=0, precision=0)
-        post_points_input = ui.number("Post points", value=500, min=1, precision=0)
-        post_search_points_input = ui.number("Extremum search points", value=250, min=1, precision=0)
-        baseline_start_input = ui.number("Baseline start offset", value=-50, precision=0)
-        baseline_stop_input = ui.number("Baseline stop offset", value=0, precision=0)
-        recovery_fraction_input = ui.number("Recovery fraction", value=0.9, min=0.01, max=1.0, step=0.05)
-    metric_select = ui.select(
-        [
-            "baseline_value",
-            "baseline_slope_per_sec",
-            "amplitude",
-            "time_to_extremum_from_seed_sec",
-            "extremum_to_recovery_sec",
-            "baseline_adjusted_auc_seed_to_stop",
-        ],
-        value="time_to_extremum_from_seed_sec",
-        label="Metric versus recording time",
-    )
-    ui.button("Replot", on_click=_replot)
-    state.plot_container = ui.column().classes("w-full")
+def run_app(*, native: bool = NATIVE) -> None:
+    """Run the NiceGUI app in browser or native desktop mode.
 
-ui.run()
+    Args:
+        native: When true, launch a native window with the configured size.
+    """
+    run_kwargs: dict[str, object] = {}
+    if native:
+        run_kwargs.update(native=True, window_size=NATIVE_WINDOW_SIZE)
+    ui.run(**run_kwargs)
+
+
+if __name__ in {"__main__", "__mp_main__"}:
+    run_app()

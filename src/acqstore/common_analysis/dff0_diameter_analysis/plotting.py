@@ -10,6 +10,8 @@ from .analysis import Dff0DiameterAnalysis
 
 def build_overview_figure(analysis: Dff0DiameterAnalysis) -> go.Figure:
     """Build linked reporter and diameter traces with event markers."""
+    _layout_height = 400  # 700
+
     dataset = analysis.dataset
     reporter_time = dataset.reporter["time_sec"]
     diameter_time = dataset.diameter["time_s"]
@@ -26,7 +28,14 @@ def build_overview_figure(analysis: Dff0DiameterAnalysis) -> go.Figure:
     figure.update_yaxes(title_text="df/f0", row=1, col=1)
     figure.update_yaxes(title_text="diameter (um)", row=2, col=1)
     figure.update_xaxes(title_text="seconds", row=2, col=1)
-    figure.update_layout(height=700, title=dataset.source_name, hovermode="x unified")
+    
+    _title = '' # title=dataset.source_name
+    figure.update_layout(
+        height=_layout_height,
+        title=_title,
+        hovermode="x unified",
+        margin=dict(l=45, r=20, t=30, b=45),
+    )
     return figure
 
 

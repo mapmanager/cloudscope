@@ -1,1 +1,1 @@
-"""Standalone exploratory app for ΔF/F0 and diameter cross-analysis."""
+"""Standalone NiceGUI application for DFF0/diameter analysis development."""
