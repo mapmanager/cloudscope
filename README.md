@@ -90,4 +90,3 @@ uv run pytest
 ```
 
 See the [developer documentation](https://mapmanager.github.io/cloudscope/developers/) for Docker, environment variables, testing with coverage, and release builds.
-
