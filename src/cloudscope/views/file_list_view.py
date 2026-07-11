@@ -15,7 +15,10 @@ from cloudscope.events.analysis import AnalysisCompleted
 from cloudscope.events.files import FileListChanged, ImageDataUnloaded
 from cloudscope.events.metadata import MetadataChanged
 from cloudscope.events.roi import RoiChanged
-from cloudscope.events.selection import SelectFileIntent
+from cloudscope.events.selection import (
+    SELECTION_SOURCE_FILE_LIST_TABLE,
+    SelectFileIntent,
+)
 from cloudscope.schema_adapters import schema_to_column_defs
 from cloudscope.utils.file_manager import reveal_in_file_manager
 from cloudscope.utils.logging import get_logger
@@ -211,7 +214,12 @@ class AcqImageListTableView(BaseView):
                 f"Expected file_id at {self._row_id_field!r} to be str, "
                 f"got {type(file_id).__name__}"
             )
-        self.event_bus.publish(SelectFileIntent(file_id=file_id))
+        self.event_bus.publish(
+            SelectFileIntent(
+                file_id=file_id,
+                source=SELECTION_SOURCE_FILE_LIST_TABLE,
+            )
+        )
 
     def on_primary_selection_changed(self) -> None:
         """Reflect cached primary selection in the table selection.

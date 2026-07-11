@@ -12,6 +12,10 @@ from cloudscope.event_bus import EventBus, EventSubscription
 from cloudscope.events.app_config import BlindedAnalysisModeChanged
 from cloudscope.events.analysis import AppBusyChanged
 from cloudscope.events.selection import (
+    SELECTION_SOURCE_CHANNEL,
+    SELECTION_SOURCE_EXTERNAL,
+    SELECTION_SOURCE_REFRESH,
+    SELECTION_SOURCE_ROI,
     ChannelSelectionChanged,
     FileSelectionChanged,
     RoiSelectionChanged,
@@ -60,6 +64,7 @@ class BaseView:
         self._subscriptions: list[EventSubscription] = []
         self.current_selection = PrimarySelection()
         self.current_acq_image: Any | None = None
+        self.current_selection_source: str = SELECTION_SOURCE_EXTERNAL
 
     @property
     def is_visible(self) -> bool:
@@ -466,6 +471,7 @@ class BaseView:
             analysis_name=event.analysis_name,
         )
         self.current_acq_image = event.acq_image
+        self.current_selection_source = event.source
         self.on_primary_selection_changed()
 
     def _on_channel_selection_changed(self, event: ChannelSelectionChanged) -> None:
@@ -479,6 +485,7 @@ class BaseView:
         """
         self.current_selection.channel = event.channel
         self.current_selection.analysis_name = None
+        self.current_selection_source = SELECTION_SOURCE_CHANNEL
         self.on_primary_selection_changed()
 
     def _on_roi_selection_changed(self, event: RoiSelectionChanged) -> None:
@@ -492,6 +499,7 @@ class BaseView:
         """
         self.current_selection.roi_id = event.roi_id
         self.current_selection.analysis_name = None
+        self.current_selection_source = SELECTION_SOURCE_ROI
         self.on_primary_selection_changed()
 
     def _refresh_primary_selection_from_state(self) -> None:
@@ -510,6 +518,7 @@ class BaseView:
             analysis_name=selection.analysis_name,
         )
         self.current_acq_image = self.get_acq_image_by_file_id(self.current_selection.file_id)
+        self.current_selection_source = SELECTION_SOURCE_REFRESH
         self.on_primary_selection_changed()
 
     def _apply_visible(self, visible: bool) -> None:

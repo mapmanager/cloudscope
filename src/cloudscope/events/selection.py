@@ -11,6 +11,37 @@ if TYPE_CHECKING:
     from acqstore.acq_image.acq_image import AcqImage
 
 
+# Selection source markers. These identify where a file-selection intent or
+# state change originated so views can react differently to their own user
+# input versus selection driven from elsewhere. In particular, the file-list
+# tree view scrolls a programmatically selected row into view only when the
+# selection came from another surface (e.g. a pool plot), never as an echo of
+# a click on the tree itself.
+SELECTION_SOURCE_EXTERNAL = "external"
+"""Default source: selection origin is unspecified/generic external."""
+
+SELECTION_SOURCE_FILE_LIST_TREE = "file_list_tree"
+"""Selection originated from a user click in the file-list tree view."""
+
+SELECTION_SOURCE_FILE_LIST_TABLE = "file_list_table"
+"""Selection originated from a user click in the legacy flat file-list table."""
+
+SELECTION_SOURCE_VELOCITY_POOL = "velocity_pool"
+"""Selection originated from a user click in a pool plot / pool table."""
+
+SELECTION_SOURCE_LOAD = "load"
+"""Selection originated from loading a file list (initial/default selection)."""
+
+SELECTION_SOURCE_CHANNEL = "channel"
+"""Selection source sentinel for a channel-only change (not a file pick)."""
+
+SELECTION_SOURCE_ROI = "roi"
+"""Selection source sentinel for an ROI-only change (not a file pick)."""
+
+SELECTION_SOURCE_REFRESH = "refresh"
+"""Selection source sentinel for a view refreshing from cached app state."""
+
+
 @dataclass(frozen=True)
 class SelectFileIntent(IntentEvent):
     """Request to select a file (and optionally a specific analysis row).
@@ -28,12 +59,18 @@ class SelectFileIntent(IntentEvent):
             file selection). See
             :class:`cloudscope.state.PrimarySelection.analysis_name` for
             the full contract.
+        source: Selection origin marker (one of the ``SELECTION_SOURCE_*``
+            constants). Threaded through to :class:`FileSelectionChanged` so
+            consuming views can distinguish their own user input from
+            selection driven elsewhere. Defaults to
+            :data:`SELECTION_SOURCE_EXTERNAL`.
     """
 
     file_id: str | None
     channel: int | None = None
     roi_id: int | None = None
     analysis_name: str | None = None
+    source: str = SELECTION_SOURCE_EXTERNAL
 
 
 @dataclass(frozen=True)
@@ -67,6 +104,11 @@ class FileSelectionChanged(StateEvent):
             :class:`AcqImageListTreeView`. ``None`` for all other paths.
             See :class:`cloudscope.state.PrimarySelection.analysis_name`
             for the full contract.
+        source: Selection origin marker (one of the ``SELECTION_SOURCE_*``
+            constants) carried from the originating :class:`SelectFileIntent`
+            or load path. Views use it to decide whether a selection change is
+            their own user input or came from elsewhere. Defaults to
+            :data:`SELECTION_SOURCE_EXTERNAL`.
     """
 
     file_id: str | None
@@ -74,6 +116,7 @@ class FileSelectionChanged(StateEvent):
     channel: int | None
     roi_id: int | None
     analysis_name: str | None = None
+    source: str = SELECTION_SOURCE_EXTERNAL
 
 
 @dataclass(frozen=True)

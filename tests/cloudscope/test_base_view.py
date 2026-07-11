@@ -110,6 +110,45 @@ def test_base_view_tracks_primary_selection_for_all_views() -> None:
     assert view.current_acq_image == "image"
 
 
+def test_base_view_tracks_file_selection_source() -> None:
+    """BaseView should store the source carried on FileSelectionChanged."""
+    from cloudscope.events.selection import SELECTION_SOURCE_VELOCITY_POOL
+
+    bus = EventBus()
+    view = FakeView(bus)
+    view.build()
+
+    bus.publish(
+        FileSelectionChanged(
+            file_id="/tmp/a.oir",
+            acq_image=None,
+            channel=0,
+            roi_id=1,
+            source=SELECTION_SOURCE_VELOCITY_POOL,
+        )
+    )
+
+    assert view.current_selection_source == SELECTION_SOURCE_VELOCITY_POOL
+
+
+def test_base_view_channel_and_roi_changes_use_non_file_source() -> None:
+    """Channel/ROI-only changes must not report a file-selection source."""
+    from cloudscope.events.selection import (
+        SELECTION_SOURCE_CHANNEL,
+        SELECTION_SOURCE_ROI,
+    )
+
+    bus = EventBus()
+    view = FakeView(bus)
+    view.build()
+
+    bus.publish(ChannelSelectionChanged(channel=2))
+    assert view.current_selection_source == SELECTION_SOURCE_CHANNEL
+
+    bus.publish(RoiSelectionChanged(roi_id=3))
+    assert view.current_selection_source == SELECTION_SOURCE_ROI
+
+
 class FakeAcqImage:
     """Fake acquisition image."""
 

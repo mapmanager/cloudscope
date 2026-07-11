@@ -293,11 +293,22 @@ class TreeWidget:
 
         row_by_id = {str(row[self._row_id_field]): dict(row) for row in self._rows}
         keep = [rid for rid in normalized if rid in row_by_id]
+
+        # Idempotent guard: when the requested selection already matches the
+        # tracked selection, the grid already reflects it (from a native click
+        # or a prior programmatic selection, both of which survive id-keyed
+        # ``applyTransaction`` updates). Re-issuing ``deselectAll`` +
+        # ``setSelected`` in that case is pure churn and produces a visible
+        # deselect/reselect flash when repeated selection syncs fire per click.
+        already_selected = keep == self._selected_row_ids
+
         self._selected_row_ids = keep
         self._selected_rows = [row_by_id[rid] for rid in keep]
         self._last_selected_row_id = keep[0] if keep else None
 
         if self._grid is None:
+            return
+        if already_selected:
             return
 
         self._selection_origin = origin
@@ -314,6 +325,42 @@ class TreeWidget:
         self._last_selected_row_id = None
         if self._grid is not None:
             self._grid.run_grid_method('deselectAll')
+
+    def scroll_row_id_into_view(self, row_id: str) -> None:
+        """Scroll the tree so the row with ``row_id`` is visible.
+
+        This is intended for programmatic selection driven from outside the
+        tree (for example a pool-plot click). It is intentionally NOT called
+        by :meth:`set_selected_row_ids`, so a user clicking a row in the tree
+        never triggers an automatic scroll.
+
+        The grid scrolls to the row's top-level ancestor (its file group row),
+        which is always present in the displayed rows even when the group is
+        collapsed, using AG Grid's ``ensureNodeVisible`` API positioned at
+        ``'middle'``. When the requested row id is unknown or the grid has not
+        been built yet, this is a no-op.
+
+        Args:
+            row_id: Stable row id to reveal.
+        """
+        if self._grid is None:
+            return
+        rid = str(row_id)
+        if not rid:
+            return
+        grid_id = int(self._grid.id)
+        rid_literal = json.dumps(rid)
+        script = f"""
+            (() => {{
+                const grid = getElement({grid_id});
+                if (!grid || !grid.api) return;
+                let node = grid.api.getRowNode({rid_literal});
+                if (!node) return;
+                while (node.parent && node.level > 0) node = node.parent;
+                grid.api.ensureNodeVisible(node, 'middle');
+            }})()
+        """
+        ui.run_javascript(script)
 
     def set_data(self, rows: Sequence[Mapping[str, Any]]) -> None:
         """Replace all rows and refresh the tree.

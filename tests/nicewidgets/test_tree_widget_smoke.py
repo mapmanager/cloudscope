@@ -463,6 +463,93 @@ def test_replace_group_rows_preserves_top_level_order() -> None:
     assert [r['row_id'] for r in top_level] == ['/a', '/b']
 
 
+def test_scroll_row_id_into_view_no_op_without_grid() -> None:
+    """Scroll must be a safe no-op before the grid element is built."""
+    tw = TreeWidget(columns=_sample_columns(), row_id_field='row_id', rows=_sample_rows())
+    tw.scroll_row_id_into_view('/a')  # grid is None; must not raise
+
+
+def test_scroll_row_id_into_view_runs_ensure_node_visible(monkeypatch: Any) -> None:
+    """Scroll must climb to the top-level node and call ensureNodeVisible."""
+    scripts: list[str] = []
+
+    def _fake_run_javascript(script: str) -> None:
+        scripts.append(script)
+
+    monkeypatch.setattr(tree_widget.ui, 'run_javascript', _fake_run_javascript)
+    tw = TreeWidget(columns=_sample_columns(), row_id_field='row_id', rows=_sample_rows())
+    tw._grid = SimpleNamespace(id=55)  # type: ignore[assignment]
+
+    tw.scroll_row_id_into_view('/a::1')
+
+    assert len(scripts) == 1
+    assert 'getElement(55)' in scripts[0]
+    assert 'getRowNode("/a::1")' in scripts[0]
+    assert 'node.level > 0' in scripts[0]
+    assert "ensureNodeVisible(node, 'middle')" in scripts[0]
+
+
+def test_scroll_row_id_into_view_ignores_empty_id(monkeypatch: Any) -> None:
+    """An empty row id must not trigger any client JS."""
+    scripts: list[str] = []
+    monkeypatch.setattr(tree_widget.ui, 'run_javascript', lambda s: scripts.append(s))
+    tw = TreeWidget(columns=_sample_columns(), row_id_field='row_id', rows=_sample_rows())
+    tw._grid = SimpleNamespace(id=55)  # type: ignore[assignment]
+
+    tw.scroll_row_id_into_view('')
+
+    assert scripts == []
+
+
+def test_set_selected_row_ids_idempotent_skips_repeated_grid_churn() -> None:
+    """Re-selecting the already-selected row must not re-issue grid commands.
+
+    Repeated selection syncs of the same row (which happen per user click as
+    lazy-load refreshes fire) previously produced a visible deselect/reselect
+    flash. The idempotent guard makes the second identical sync a no-op.
+    """
+    tw = TreeWidget(columns=_sample_columns(), row_id_field='row_id', rows=_sample_rows())
+    calls: list[tuple[str, tuple[Any, ...]]] = []
+    tw._grid = SimpleNamespace(  # type: ignore[assignment]
+        id=1,
+        run_grid_method=lambda m, *a: calls.append(('grid', (m, *a))),
+        run_row_method=lambda rid, m, *a: calls.append(('row', (rid, m, *a))),
+    )
+
+    tw.set_selected_row_ids(['/a'], origin='state')
+    first = len(calls)
+    tw.set_selected_row_ids(['/a'], origin='state')
+    second = len(calls)
+
+    assert first > 0  # first selection issues deselectAll + setSelected
+    assert second == first  # identical re-selection issues nothing
+    # A genuinely different selection still issues commands.
+    tw.set_selected_row_ids(['/b'], origin='state')
+    assert len(calls) > second
+
+
+def test_set_selected_row_ids_does_not_scroll(monkeypatch: Any) -> None:
+    """Programmatic selection must NOT auto-scroll; scroll is a separate call.
+
+    This guards the user-click path: a user clicking a tree row round-trips
+    through ``set_selected_row_ids`` and must never trigger a scroll.
+    """
+    scripts: list[str] = []
+    monkeypatch.setattr(tree_widget.ui, 'run_javascript', lambda s: scripts.append(s))
+    tw = TreeWidget(columns=_sample_columns(), row_id_field='row_id', rows=_sample_rows())
+    calls: list[str] = []
+    monkeypatch.setattr(tw, 'scroll_row_id_into_view', lambda rid: calls.append(rid))
+    tw._grid = SimpleNamespace(
+        id=55,
+        run_grid_method=lambda *a, **k: None,
+        run_row_method=lambda *a, **k: None,
+    )  # type: ignore[assignment]
+
+    tw.set_selected_row_ids(['/a'], origin='state')
+
+    assert calls == []
+
+
 def test_show_index_column_false_omits_synthetic_column() -> None:
     tw = TreeWidget(
         columns=_sample_columns(),

@@ -13,6 +13,8 @@ from cloudscope.event_bus import EventBus
 from cloudscope.events.files import FileListChanged, ImageDataUnloaded, UnloadImageDataIntent
 from cloudscope.events.metadata import ApplyMetadataIntent, MetadataChanged
 from cloudscope.events.selection import (
+    SELECTION_SOURCE_EXTERNAL,
+    SELECTION_SOURCE_LOAD,
     ChannelSelectionChanged,
     FileSelectionChanged,
     RoiSelectionChanged,
@@ -86,6 +88,7 @@ class HomePageController:
             selection=PrimarySelection(),
             acq_image_list=None,
         )
+        self._selection_source = SELECTION_SOURCE_EXTERNAL
 
     @property
     def state(self) -> HomePageState:
@@ -118,6 +121,7 @@ class HomePageController:
         Returns:
             None.
         """
+        self._selection_source = SELECTION_SOURCE_LOAD
         self._state.acq_image_list = acq_image_list
         self._state.file_ids = [acq_file.file_id for acq_file in acq_image_list.get_files()]
         self._event_bus.publish(
@@ -144,6 +148,7 @@ class HomePageController:
         Returns:
             None.
         """
+        self._selection_source = SELECTION_SOURCE_LOAD
         self._state.acq_image_list = None
         self._state.file_ids = list(file_ids)
         self._event_bus.publish(FileListChanged(file_ids=list(self._state.file_ids), rows=[]))
@@ -168,6 +173,7 @@ class HomePageController:
         Raises:
             ValueError: If the requested file identifier is unknown.
         """
+        self._selection_source = event.source
         if event.file_id is None:
             self._state.selection = PrimarySelection()
             self._publish_file_selection_changed()
@@ -349,5 +355,6 @@ class HomePageController:
                 channel=self._state.selection.channel,
                 roi_id=self._state.selection.roi_id,
                 analysis_name=self._state.selection.analysis_name,
+                source=self._selection_source,
             )
         )

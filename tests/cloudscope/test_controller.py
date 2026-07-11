@@ -4,6 +4,8 @@ from cloudscope.controllers.home_page_controller import HomePageController
 from cloudscope.event_bus import EventBus
 from cloudscope.events.files import FileListChanged
 from cloudscope.events.selection import (
+    SELECTION_SOURCE_LOAD,
+    SELECTION_SOURCE_VELOCITY_POOL,
     ChannelSelectionChanged,
     FileSelectionChanged,
     RoiSelectionChanged,
@@ -32,6 +34,33 @@ def test_load_demo_files_publishes_file_list_and_file_selection_only() -> None:
     assert published[1].channel == 0
     assert published[1].roi_id is None
     assert published[1].acq_image is None
+
+
+def test_load_demo_files_marks_file_selection_source_as_load() -> None:
+    event_bus = EventBus()
+    controller = HomePageController(event_bus=event_bus)
+    published: list[FileSelectionChanged] = []
+    event_bus.subscribe(FileSelectionChanged, published.append)
+
+    controller.load_demo_files(['file-a'])
+
+    assert published[-1].source == SELECTION_SOURCE_LOAD
+
+
+def test_select_file_intent_source_propagates_to_state_event() -> None:
+    event_bus = EventBus()
+    controller = HomePageController(event_bus=event_bus)
+    controller.bind()
+    controller.load_demo_files(['file-a', 'file-b'])
+
+    published: list[FileSelectionChanged] = []
+    event_bus.subscribe(FileSelectionChanged, published.append)
+    event_bus.publish(
+        SelectFileIntent(file_id='file-b', source=SELECTION_SOURCE_VELOCITY_POOL)
+    )
+
+    assert published[-1].file_id == 'file-b'
+    assert published[-1].source == SELECTION_SOURCE_VELOCITY_POOL
 
 
 def test_select_file_resets_channel_and_roi() -> None:

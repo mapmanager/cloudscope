@@ -24,7 +24,12 @@ from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind
 from cloudscope.events.files import FileListChanged
 from cloudscope.events.metadata import MetadataChanged
 from cloudscope.events.roi import RoiChanged, RoiChangeKind
-from cloudscope.events.selection import SelectFileIntent
+from cloudscope.events.selection import (
+    SELECTION_SOURCE_CHANNEL,
+    SELECTION_SOURCE_FILE_LIST_TREE,
+    SELECTION_SOURCE_VELOCITY_POOL,
+    SelectFileIntent,
+)
 from cloudscope.state import PrimarySelection
 from cloudscope.views.file_list_tree_view import AcqImageListTreeView
 
@@ -40,6 +45,7 @@ class FakeTree:
         self.clear_count = 0
         self.enabled: bool | None = None
         self.displayed_rows: list[dict[str, Any]] = []
+        self.scroll_calls: list[str] = []
 
     def set_data(self, rows: list[dict[str, Any]]) -> None:
         self.rows = [dict(r) for r in rows]
@@ -56,6 +62,9 @@ class FakeTree:
 
     def set_selected_row_ids(self, row_ids: list[str], *, origin: str) -> None:
         self.selected = list(row_ids)
+
+    def scroll_row_id_into_view(self, row_id: str) -> None:
+        self.scroll_calls.append(row_id)
 
     def set_enabled(self, enabled: bool) -> None:
         self.enabled = bool(enabled)
@@ -278,10 +287,14 @@ def test_analysis_completed_refreshes_even_when_success_is_false() -> None:
     assert [r[0] for r in view._tree.group_replacements] == ["/tmp/a.oir"]
 
 
-def test_replace_group_rows_re_syncs_selection_for_same_file() -> None:
-    """After replacing a file's subtree, the tree's selection must be
-    re-applied because AG Grid transactions drop selection on replaced
-    rows."""
+def test_replace_group_rows_refreshes_data_without_touching_selection() -> None:
+    """Refreshing a file's subtree must NOT re-apply selection.
+
+    AG Grid's id-keyed ``applyTransaction`` preserves selection for surviving
+    rows (verified in-browser), so re-selecting here is unnecessary and caused
+    a visible deselect/reselect flash on user clicks. The refresh replaces the
+    group's row data and leaves selection to the selection path.
+    """
     image = FakeAcqImage(
         "/tmp/a.oir",
         analyses=[_analysis_row("/tmp/a.oir", "radon_velocity", 2, 7)],
@@ -297,14 +310,14 @@ def test_replace_group_rows_re_syncs_selection_for_same_file() -> None:
 
     view._replace_group_rows_from_acq_image("/tmp/a.oir")
 
-    expected = build_analysis_tree_row_id("/tmp/a.oir", "radon_velocity", 2, 7)
     assert view._tree is not None
-    assert view._tree.selected == [expected]
+    assert [r[0] for r in view._tree.group_replacements] == ["/tmp/a.oir"]
+    # Selection is not churned by a data refresh.
+    assert view._tree.selected == []
 
 
-def test_replace_group_rows_does_not_re_sync_for_different_file() -> None:
-    """Refreshing one file's subtree must not touch the tree selection
-    when the current selection points at a different file."""
+def test_replace_group_rows_does_not_touch_selection_for_different_file() -> None:
+    """Refreshing one file's subtree must not touch the tree selection."""
     image_a = FakeAcqImage("/tmp/a.oir")
     image_b = FakeAcqImage("/tmp/b.oir", dirty=True)
     state = FakeState(acq_image_list=FakeAcqImageList([image_a, image_b]))
@@ -363,6 +376,7 @@ def test_on_row_selected_publishes_simple_intent_for_file_row() -> None:
     assert published[0].channel is None
     assert published[0].roi_id is None
     assert published[0].analysis_name is None
+    assert published[0].source == SELECTION_SOURCE_FILE_LIST_TREE
 
 
 def test_on_row_selected_publishes_full_intent_for_analysis_row() -> None:
@@ -378,6 +392,7 @@ def test_on_row_selected_publishes_full_intent_for_analysis_row() -> None:
     assert published[0].channel == 2
     assert published[0].roi_id == 7
     assert published[0].analysis_name == "radon_velocity"
+    assert published[0].source == SELECTION_SOURCE_FILE_LIST_TREE
 
 
 def test_sync_table_selection_selects_file_row_when_no_analysis_name() -> None:
@@ -452,6 +467,88 @@ def test_on_primary_selection_changed_syncs_only_when_images_not_loaded() -> Non
     assert view._tree is not None
     assert view._tree.group_replacements == []
     assert view._tree.selected == ['/tmp/a.oir']
+
+
+def test_scroll_into_view_on_external_source_selects_file_row() -> None:
+    """A programmatic selection from an external source (e.g. pool plot)
+    scrolls the selected file row into view."""
+    image = FakeAcqImage('/tmp/a.oir', fully_loaded=False)
+    state = FakeState(acq_image_list=FakeAcqImageList([image]))
+    view = _make_view(state)
+    view.current_selection = PrimarySelection(file_id='/tmp/a.oir', channel=0, roi_id=1)
+    view.current_selection_source = SELECTION_SOURCE_VELOCITY_POOL
+
+    view.on_primary_selection_changed()
+
+    assert view._tree is not None
+    assert view._tree.scroll_calls == ['/tmp/a.oir']
+
+
+def test_scroll_into_view_on_external_source_targets_analysis_row() -> None:
+    """External selection of an analysis scrolls that analysis child row."""
+    image = FakeAcqImage(
+        '/tmp/a.oir',
+        fully_loaded=False,
+        analyses=[_analysis_row('/tmp/a.oir', 'radon_velocity', 2, 7)],
+    )
+    state = FakeState(acq_image_list=FakeAcqImageList([image]))
+    view = _make_view(state)
+    view.current_selection = PrimarySelection(
+        file_id='/tmp/a.oir',
+        channel=2,
+        roi_id=7,
+        analysis_name='radon_velocity',
+    )
+    view.current_selection_source = SELECTION_SOURCE_VELOCITY_POOL
+
+    view.on_primary_selection_changed()
+
+    expected = build_analysis_tree_row_id('/tmp/a.oir', 'radon_velocity', 2, 7)
+    assert view._tree is not None
+    assert view._tree.scroll_calls == [expected]
+
+
+def test_no_scroll_on_tree_click_source() -> None:
+    """A selection echoed from a user's own tree click must NOT scroll."""
+    image = FakeAcqImage('/tmp/a.oir', fully_loaded=False)
+    state = FakeState(acq_image_list=FakeAcqImageList([image]))
+    view = _make_view(state)
+    view.current_selection = PrimarySelection(file_id='/tmp/a.oir', channel=0, roi_id=1)
+    view.current_selection_source = SELECTION_SOURCE_FILE_LIST_TREE
+
+    view.on_primary_selection_changed()
+
+    assert view._tree is not None
+    assert view._tree.scroll_calls == []
+
+
+def test_no_scroll_on_channel_source() -> None:
+    """A channel-only change must NOT scroll the tree."""
+    image = FakeAcqImage('/tmp/a.oir', fully_loaded=False)
+    state = FakeState(acq_image_list=FakeAcqImageList([image]))
+    view = _make_view(state)
+    view.current_selection = PrimarySelection(file_id='/tmp/a.oir', channel=0, roi_id=1)
+    view.current_selection_source = SELECTION_SOURCE_CHANNEL
+
+    view.on_primary_selection_changed()
+
+    assert view._tree is not None
+    assert view._tree.scroll_calls == []
+
+
+def test_scroll_into_view_when_images_loaded_external_source() -> None:
+    """The scroll fires in the images-loaded branch too (external source)."""
+    image = FakeAcqImage('/tmp/a.oir', fully_loaded=True, loaded_marker='✅')
+    state = FakeState(acq_image_list=FakeAcqImageList([image]))
+    view = _make_view(state)
+    view.current_selection = PrimarySelection(file_id='/tmp/a.oir', channel=0, roi_id=1)
+    view.current_selection_source = SELECTION_SOURCE_VELOCITY_POOL
+
+    view.on_primary_selection_changed()
+
+    assert view._tree is not None
+    assert view._tree.group_replacements  # subtree refreshed
+    assert view._tree.scroll_calls == ['/tmp/a.oir']
 
 
 def test_get_displayed_file_ids_filters_to_file_rows_only() -> None:
