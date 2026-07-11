@@ -238,11 +238,12 @@ class TreeWidget:
                 with self._context_menu:
                     self._build_context_menu_content()
                 self._root.on('contextmenu', self._on_context_menu_event)
-                self._grid = ui.aggrid(
-                    self._build_aggrid_options(),
-                    auto_size_columns=self._config.auto_size_columns,
-                    modules='enterprise',
-                ).classes('w-full h-full min-w-0 min-h-0').style('height: 100%;')
+                # The AG Grid element is created lazily, only once rows exist.
+                # A grid created with empty ``rowData`` and later filled accepts
+                # programmatic ``setSelected`` state but never repaints the
+                # selected row (verified in-browser). Creating it born with rows
+                # avoids that broken state entirely.
+                self._ensure_grid_built()
         return self._root
 
     def set_enabled(self, enabled: bool) -> None:
@@ -326,7 +327,10 @@ class TreeWidget:
         self._known_ids_by_group.clear()
         for row in self._rows:
             self._track_added(row)
-        self._push_row_data_to_grid()
+        if self._grid is None:
+            self._ensure_grid_built()
+        else:
+            self._push_row_data_to_grid()
         if self._config.clear_selection_on_set_data:
             self.clear_selection()
 
@@ -357,6 +361,7 @@ class TreeWidget:
         self._track_added(replacement)
 
         if self._grid is None:
+            self._ensure_grid_built()
             return
         try:
             self._grid.run_row_method(rid, 'setData', dict(self._rows[idx]))
@@ -406,6 +411,10 @@ class TreeWidget:
         self._known_ids_by_group[group_id] = new_ids
 
         if self._grid is None:
+            # First rows for a lazily-created grid: build it born with the
+            # current rows instead of applying a transaction to a grid that
+            # does not exist yet.
+            self._ensure_grid_built()
             return
 
         rows_by_id = {str(r[self._row_id_field]): r for r in self._rows}
@@ -505,6 +514,7 @@ class TreeWidget:
             # block the browser's native menu over the grid surface.
             'suppressContextMenu': True,
             'preventDefaultOnContextMenu': True,
+            'suppressRowHoverHighlight': True,
         }
         if self._auto_group_column_def is not None:
             base['autoGroupColumnDef'] = dict(self._auto_group_column_def)
@@ -561,6 +571,27 @@ class TreeWidget:
         opts['rowData'] = [dict(r) for r in self._rows]
         self._grid.options = opts
         self._grid.update()
+
+    def _ensure_grid_built(self) -> None:
+        """Create the AG Grid element born with current rows, if needed.
+
+        No-op when the root container does not exist yet, when the grid is
+        already built, or when there are no rows to show. Creating the grid only
+        once rows exist guarantees it is never born with empty ``rowData`` (a
+        state in which programmatic selection updates AG Grid selection state but
+        never repaints the selected row). The context menu and row-select event
+        wiring are unaffected: the menu lives on ``self._root`` and selection
+        events are delivered via the module-level ``ui.on`` handler, not the
+        grid element instance.
+        """
+        if self._root is None or self._grid is not None or not self._rows:
+            return
+        with self._root:
+            self._grid = ui.aggrid(
+                self._build_aggrid_options(),
+                auto_size_columns=self._config.auto_size_columns,
+                modules='enterprise',
+            ).classes('w-full h-full min-w-0 min-h-0').style('height: 100%;')
 
     def _find_column_def(self, field: str) -> dict[str, Any]:
         for c in self._column_defs:

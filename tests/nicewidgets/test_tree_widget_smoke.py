@@ -388,6 +388,68 @@ def test_set_data_updates_grid_row_data_only(monkeypatch) -> None:
     assert tw._grid.options['rowData'] == [{'row_id': '/z', 'hierarchy_path': ['/z'], 'name': 'Z'}]
 
 
+def test_set_data_builds_lazy_grid_when_first_rows_arrive(monkeypatch: Any) -> None:
+    """First non-empty data must build the grid (born with rows), not update it.
+
+    A grid created with empty ``rowData`` and later filled accepts programmatic
+    ``setSelected`` state but never repaints the selected row. Building the grid
+    only once rows exist guarantees it is born with rows and paints correctly.
+    """
+    tw = TreeWidget(
+        columns=_sample_columns(),
+        row_id_field='row_id',
+        rows=[],
+        config=TreeWidgetConfig(clear_selection_on_set_data=False),
+    )
+    calls: list[str] = []
+    monkeypatch.setattr(tw, '_ensure_grid_built', lambda: calls.append('build'))
+    monkeypatch.setattr(tw, '_push_row_data_to_grid', lambda: calls.append('push'))
+
+    tw.set_data(_sample_rows())
+
+    assert calls == ['build']
+
+
+def test_set_data_uses_update_when_grid_already_exists(monkeypatch: Any) -> None:
+    """Subsequent data replacements keep using ``grid.update()`` (preserves state)."""
+    tw = TreeWidget(
+        columns=_sample_columns(),
+        row_id_field='row_id',
+        rows=_sample_rows(),
+        config=TreeWidgetConfig(clear_selection_on_set_data=False),
+    )
+    calls: list[str] = []
+    monkeypatch.setattr(tw, '_ensure_grid_built', lambda: calls.append('build'))
+    monkeypatch.setattr(tw, '_push_row_data_to_grid', lambda: calls.append('push'))
+    tw._grid = SimpleNamespace(id=42)  # type: ignore[assignment]
+
+    tw.set_data([{'row_id': '/z', 'hierarchy_path': ['/z'], 'name': 'Z'}])
+
+    assert calls == ['push']
+
+
+def test_ensure_grid_built_no_op_without_root_or_rows() -> None:
+    """The grid is created only once a root exists and rows are present."""
+    tw = TreeWidget(columns=_sample_columns(), row_id_field='row_id', rows=[])
+    tw._ensure_grid_built()
+    assert tw._grid is None
+    tw._root = SimpleNamespace()  # type: ignore[assignment]
+    tw._ensure_grid_built()
+    assert tw._grid is None  # rows still empty
+
+
+def test_replace_group_rows_builds_lazy_grid_when_absent(monkeypatch: Any) -> None:
+    """First subtree of rows into a not-yet-built grid should build it lazily."""
+    tw = TreeWidget(columns=_sample_columns(), row_id_field='row_id', rows=[])
+    calls: list[str] = []
+    monkeypatch.setattr(tw, '_ensure_grid_built', lambda: calls.append('build'))
+
+    tw.replace_group_rows('/a', [{'row_id': '/a', 'hierarchy_path': ['/a'], 'name': 'A'}])
+
+    assert calls == ['build']
+    assert [r['row_id'] for r in tw._rows] == ['/a']
+
+
 def test_replace_group_rows_preserves_top_level_order() -> None:
     """Subtree replace keeps the group at its original rowData position."""
     tw = TreeWidget(

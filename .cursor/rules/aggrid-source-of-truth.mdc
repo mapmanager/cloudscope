@@ -1,0 +1,53 @@
+---
+description: Require an authoritative source of truth and browser verification before changing any AG Grid / NiceGUI aggrid behavior
+globs: src/nicewidgets/tree_widget/**/*.py,src/nicewidgets/table_widget/**/*.py,src/cloudscope/views/**/*.py
+alwaysApply: true
+---
+
+# AG Grid / NiceGUI aggrid edits (STRICT)
+
+Past agent edits to AG Grid behavior have repeatedly been wrong or invented.
+Do **not** implement or modify AG Grid / `ui.aggrid` behavior from memory or by
+guessing API names, option keys, event names, or call conventions.
+
+## In scope
+
+- `ui.aggrid` option dicts (e.g. `rowSelection`, `groupDisplayType`,
+  `suppress*`, `getRowId`, `getDataPath`, `treeData`, column defs)
+- Client interaction calls: `run_grid_method`, `run_row_method`, and any
+  `ui.run_javascript` that touches `getElement(<id>).api.*`
+- AG Grid events wired via `grid.on(...)` or JS hooks
+  (`onRowClicked`, `onCellKeyDown`, `gridReady`, `rowDataUpdated`, etc.)
+- Selection, scrolling (`ensureIndexVisible` / `ensureNodeVisible`),
+  expand/collapse, and row/tree rendering behavior
+
+## Required before editing (do not skip)
+
+1. **Cite a source of truth.** Confirm the exact API/option against an
+   authoritative reference and name it in chat:
+   - NiceGUI aggrid docs: <https://nicegui.io/documentation/aggrid>
+   - AG Grid docs for the version in use
+   - Existing verified usage already in this repo
+   Do NOT invent option keys, method names, argument order, or return shapes.
+2. **Verify in the browser.** Per `.cursor/rules/verify-gui-in-browser.mdc`,
+   run the app and confirm the real behavior with the browser MCP + CDP. Unit
+   tests alone are insufficient for AG Grid rendering/selection/scroll behavior.
+3. **Respect separate code paths.** User-initiated actions (mouse click,
+   keyboard) and programmatic/state-driven updates are distinct paths. A change
+   intended for one path MUST NOT alter the other. In CloudScope specifically, a
+   user row click round-trips through
+   `SelectFileIntent → FileSelectionChanged → BaseView.on_primary_selection_changed
+   → _sync_table_selection → TreeWidget.set_selected_row_ids`, so behavior added
+   to `set_selected_row_ids` (e.g. scrolling) also fires on user clicks. Trace
+   the full round-trip before assuming a method is "programmatic only".
+
+## When unsure
+
+Stop and ask. State which API/option you are unsure about, cite the reference
+you checked, and propose the specific change for confirmation before
+implementing. Do not guess.
+
+## Relationship to AGENTS.md
+
+Reinforces `AGENTS.md` "Ask, do not guess" and the GUI verification rule. When
+they conflict, `AGENTS.md` wins.
