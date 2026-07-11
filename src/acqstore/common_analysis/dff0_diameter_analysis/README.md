@@ -23,3 +23,23 @@ uv run python -m acqstore.common_analysis.dff0_diameter_analysis.app.main
 ```
 
 See `docs/current-state.md` and `docs/decisions.md` for the durable project handoff.
+
+## Continuous coupling
+
+The package also provides an independent continuous lagged-correlation branch:
+
+```python
+from acqstore.common_analysis.dff0_diameter_analysis.continuous_analysis import (
+    Dff0DiameterContinuousAnalysis,
+)
+
+analysis = Dff0DiameterContinuousAnalysis.from_acq_image(
+    acq_image=acq_image,
+    channel=0,
+    roi_id=1,
+)
+```
+
+Positive lag means the reporter leads and diameter follows. See
+`docs/continuous-coupling.md` for definitions and limitations. The standalone
+app exposes this analysis at `/continuous`.

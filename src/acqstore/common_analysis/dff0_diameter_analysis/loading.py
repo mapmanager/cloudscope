@@ -256,3 +256,112 @@ def _load_reporter_events(
 def _infer_source_name(json_path: Path) -> str:
     suffix = ".json"
     return json_path.name[: -len(suffix)] if json_path.name.endswith(suffix) else json_path.name
+
+
+def load_dataset_from_acq_image(
+    *,
+    acq_image: Any,
+    channel: int,
+    roi_id: int,
+) -> Dff0DiameterDataset:
+    """Load one paired dataset through public ``AcqImage`` analysis APIs.
+
+    Args:
+        acq_image: Loaded acquisition with analysis tables available.
+        channel: Selected zero-based channel.
+        roi_id: Selected ROI identifier.
+
+    Returns:
+        Validated paired reporter/diameter dataset.
+
+    Raises:
+        ValueError: If either required analysis or aligned table is unavailable.
+    """
+    try:
+        sum_analysis = acq_image.analysis_set.get_analysis(
+            "sum_intensity", channel=channel, roi_id=roi_id
+        )
+        diameter_analysis = acq_image.analysis_set.get_analysis(
+            "diameter", channel=channel, roi_id=roi_id
+        )
+    except KeyError as exc:
+        raise ValueError(
+            "Both sum_intensity and diameter analyses are required for "
+            f"channel={channel}, roi_id={roi_id}"
+        ) from exc
+
+    reporter = sum_analysis.result.table.copy()
+    diameter = diameter_analysis.result.table.copy()
+    if reporter.empty or diameter.empty:
+        raise ValueError("Required analysis result table is empty")
+
+    selection = AnalysisSelection(channel=channel, roi_id=roi_id)
+    reporter = _select_in_memory_rows(reporter, selection, "sum-intensity table")
+    diameter = _select_in_memory_rows(diameter, selection, "diameter table")
+    reporter = _normalize_in_memory_reporter_table(reporter)
+    diameter = _normalize_in_memory_diameter_table(diameter)
+    seconds_per_point = _validate_trace_alignment(diameter, reporter)
+
+    events = tuple(
+        ReporterEvent(
+            peak_id=int(event.peak_id),
+            onset_index=int(event.onset_index),
+            onset_time_sec=float(event.onset_time_sec),
+            onset_value=float(event.onset_value),
+            peak_index=int(event.peak_index),
+            peak_time_sec=float(event.peak_time_sec),
+            peak_value=float(event.peak_value),
+            peak_amplitude=float(event.peak_amplitude),
+            status=str(event.status),
+            raw_event=event.to_json_dict(),
+        )
+        for event in sum_analysis.get_peak_events()
+    )
+    source_path = Path(str(acq_image.path))
+    return Dff0DiameterDataset(
+        source_name=source_path.name,
+        selection=selection,
+        seconds_per_point=seconds_per_point,
+        reporter=reporter,
+        diameter=diameter,
+        events=events,
+        analysis_json={},
+        diameter_csv_path=Path(),
+        reporter_csv_path=Path(),
+        analysis_json_path=Path(),
+    )
+
+
+def _select_in_memory_rows(
+    table: pd.DataFrame,
+    selection: AnalysisSelection,
+    table_name: str,
+) -> pd.DataFrame:
+    """Select one channel/ROI when those identity columns are present."""
+    if {"channel", "roi_id"}.issubset(table.columns):
+        table = table.loc[
+            (table["channel"] == selection.channel)
+            & (table["roi_id"] == selection.roi_id)
+        ].copy()
+    if table.empty:
+        raise ValueError(
+            f"{table_name} has no rows for channel={selection.channel}, "
+            f"roi_id={selection.roi_id}"
+        )
+    return table.reset_index(drop=True)
+
+
+def _normalize_in_memory_reporter_table(table: pd.DataFrame) -> pd.DataFrame:
+    """Validate and order one in-memory sum-intensity trace table."""
+    required = {"time_index", "time_sec", "df_f_signal"}
+    _require_columns(table, required, "sum-intensity table")
+    return table.sort_values("time_index").reset_index(drop=True)
+
+
+def _normalize_in_memory_diameter_table(table: pd.DataFrame) -> pd.DataFrame:
+    """Validate and order one in-memory diameter trace table."""
+    required = {"center_row", "time_s", "diameter_um"}
+    _require_columns(table, required, "diameter table")
+    result = table.sort_values("center_row").reset_index(drop=True)
+    result["diameter_um_raw"] = pd.to_numeric(result["diameter_um"], errors="coerce")
+    return result

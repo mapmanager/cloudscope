@@ -8,12 +8,11 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .loading import load_sidecars
+from .loading import load_dataset_from_acq_image, load_sidecars
 from .models import (
     AnalysisSelection,
     DiameterFilterParams,
     Dff0DiameterDataset,
-    ReporterEvent,
     TriggeredEvent,
     TriggeredEventParams,
 )
@@ -93,58 +92,13 @@ class Dff0DiameterAnalysis:
                 is missing or has no loaded result table.
         """
         try:
-            sum_analysis = acq_image.analysis_set.get_analysis(
-                "sum_intensity", channel=channel, roi_id=roi_id
+            dataset = load_dataset_from_acq_image(
+                acq_image=acq_image,
+                channel=channel,
+                roi_id=roi_id,
             )
-            diameter_analysis = acq_image.analysis_set.get_analysis(
-                "diameter", channel=channel, roi_id=roi_id
-            )
-        except KeyError as exc:
-            raise MissingCrossAnalysisInputError(
-                f"Both sum_intensity and diameter analyses are required for "
-                f"channel={channel}, roi_id={roi_id}"
-            ) from exc
-
-        reporter = sum_analysis.result.table.copy()
-        diameter = diameter_analysis.result.table.copy()
-        if reporter.empty or diameter.empty:
-            raise MissingCrossAnalysisInputError("Required analysis result table is empty")
-
-        reporter = _select_table_rows(reporter, channel=channel, roi_id=roi_id)
-        diameter = _select_table_rows(diameter, channel=channel, roi_id=roi_id)
-        reporter = _normalize_reporter_table(reporter)
-        diameter = _normalize_diameter_table(diameter)
-        seconds_per_point = _validate_in_memory_alignment(reporter, diameter)
-
-        upstream_events = tuple(sum_analysis.get_peak_events())
-        events = tuple(
-            ReporterEvent(
-                peak_id=int(event.peak_id),
-                onset_index=int(event.onset_index),
-                onset_time_sec=float(event.onset_time_sec),
-                onset_value=float(event.onset_value),
-                peak_index=int(event.peak_index),
-                peak_time_sec=float(event.peak_time_sec),
-                peak_value=float(event.peak_value),
-                peak_amplitude=float(event.peak_amplitude),
-                status=str(event.status),
-                raw_event=event.to_json_dict(),
-            )
-            for event in upstream_events
-        )
-        source_path = Path(str(acq_image.path))
-        dataset = Dff0DiameterDataset(
-            source_name=source_path.name,
-            selection=AnalysisSelection(channel=channel, roi_id=roi_id),
-            seconds_per_point=seconds_per_point,
-            reporter=reporter,
-            diameter=diameter,
-            events=events,
-            analysis_json={},
-            diameter_csv_path=Path(),
-            reporter_csv_path=Path(),
-            analysis_json_path=Path(),
-        )
+        except ValueError as exc:
+            raise MissingCrossAnalysisInputError(str(exc)) from exc
         return cls(dataset, triggered_event_params=triggered_event_params)
 
     @property
@@ -202,44 +156,3 @@ class Dff0DiameterAnalysis:
                 "peak_amplitude": event.peak_amplitude,
             } for event in self._dataset.events]
         )
-
-
-def _select_table_rows(table: pd.DataFrame, *, channel: int, roi_id: int) -> pd.DataFrame:
-    if {"channel", "roi_id"}.issubset(table.columns):
-        table = table.loc[(table["channel"] == channel) & (table["roi_id"] == roi_id)].copy()
-    if table.empty:
-        raise MissingCrossAnalysisInputError("No table rows match selected channel and ROI")
-    return table.reset_index(drop=True)
-
-
-def _normalize_reporter_table(table: pd.DataFrame) -> pd.DataFrame:
-    required = {"time_index", "time_sec", "df_f_signal"}
-    missing = sorted(required.difference(table.columns))
-    if missing:
-        raise MissingCrossAnalysisInputError(f"Sum-intensity table missing columns: {missing}")
-    return table.sort_values("time_index").reset_index(drop=True)
-
-
-def _normalize_diameter_table(table: pd.DataFrame) -> pd.DataFrame:
-    required = {"center_row", "time_s", "diameter_um"}
-    missing = sorted(required.difference(table.columns))
-    if missing:
-        raise MissingCrossAnalysisInputError(f"Diameter table missing columns: {missing}")
-    result = table.sort_values("center_row").reset_index(drop=True)
-    result["diameter_um_raw"] = pd.to_numeric(result["diameter_um"], errors="coerce")
-    return result
-
-
-def _validate_in_memory_alignment(reporter: pd.DataFrame, diameter: pd.DataFrame) -> float:
-    if len(reporter) != len(diameter):
-        raise MissingCrossAnalysisInputError("Reporter and diameter sample counts differ")
-    if not np.array_equal(
-        reporter["time_index"].to_numpy(dtype=int),
-        diameter["center_row"].to_numpy(dtype=int),
-    ):
-        raise MissingCrossAnalysisInputError("Reporter and diameter sample indices differ")
-    reporter_time = reporter["time_sec"].to_numpy(dtype=float)
-    diameter_time = diameter["time_s"].to_numpy(dtype=float)
-    if not np.allclose(reporter_time, diameter_time, rtol=0.0, atol=1e-9):
-        raise MissingCrossAnalysisInputError("Reporter and diameter time coordinates differ")
-    return float(np.median(np.diff(reporter_time)))

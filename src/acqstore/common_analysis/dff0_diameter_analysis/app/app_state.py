@@ -10,6 +10,9 @@ if TYPE_CHECKING:
     from acqstore.common_analysis.dff0_diameter_analysis.analysis import (
         Dff0DiameterAnalysis,
     )
+    from acqstore.common_analysis.dff0_diameter_analysis.continuous_analysis import (
+        Dff0DiameterContinuousAnalysis,
+    )
 
     from .analysis_hits import AnalysisHit
 
@@ -27,6 +30,7 @@ class AppState:
     analysis_hits: list[AnalysisHit]
     selected_hit: AnalysisHit | None = None
     analysis: Dff0DiameterAnalysis | None = None
+    continuous_analysis: Dff0DiameterContinuousAnalysis | None = None
     _hits_by_id: dict[str, AnalysisHit] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -48,4 +52,5 @@ class AppState:
         hit = self._hits_by_id[hit_id]
         self.selected_hit = hit
         self.analysis = None
+        self.continuous_analysis = None
         return hit

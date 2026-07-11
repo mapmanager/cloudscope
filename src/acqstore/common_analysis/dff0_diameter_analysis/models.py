@@ -173,3 +173,104 @@ class Dff0DiameterDataset:
     diameter_csv_path: Path
     reporter_csv_path: Path
     analysis_json_path: Path
+
+
+@dataclass(frozen=True, slots=True)
+class LaggedCorrelationParams:
+    """Parameters for continuous lagged-correlation analysis.
+
+    Positive lag means the reporter signal leads and the diameter signal follows.
+    Filter parameters are intentionally explicit so runtime exploration can
+    adjust smoothing without changing upstream analyses.
+    """
+
+    max_lag_points: int = 250
+    minimum_overlap_points: int = 100
+    reporter_filter_method: SignalFilterMethod = SignalFilterMethod.MEDIAN
+    reporter_median_kernel_points: int = 3
+    reporter_savgol_window_points: int = 15
+    reporter_savgol_polyorder: int = 4
+    diameter_filter_method: SignalFilterMethod = SignalFilterMethod.SAVGOL
+    diameter_median_kernel_points: int = 3
+    diameter_savgol_window_points: int = 15
+    diameter_savgol_polyorder: int = 4
+    remove_linear_trend: bool = False
+
+    def to_dict(self) -> dict[str, object]:
+        """Serialize parameters to JSON-compatible values."""
+        data = asdict(self)
+        data["reporter_filter_method"] = self.reporter_filter_method.value
+        data["diameter_filter_method"] = self.diameter_filter_method.value
+        return data
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, object]) -> "LaggedCorrelationParams":
+        """Create parameters from serialized values."""
+        values = dict(data)
+        values["reporter_filter_method"] = SignalFilterMethod(
+            str(values["reporter_filter_method"])
+        )
+        values["diameter_filter_method"] = SignalFilterMethod(
+            str(values["diameter_filter_method"])
+        )
+        return cls(**values)  # type: ignore[arg-type]
+
+
+@dataclass(frozen=True, slots=True)
+class LaggedCorrelationResult:
+    """Normalized Pearson correlation measured over integer signal lags."""
+
+    schema_version: int
+    seconds_per_point: float
+    lag_points: tuple[int, ...]
+    lag_seconds: tuple[float, ...]
+    correlation: tuple[float | None, ...]
+    overlap_points: tuple[int, ...]
+    zero_lag_correlation: float | None
+    strongest_positive_correlation: float | None
+    strongest_positive_lag_points: int | None
+    strongest_positive_lag_sec: float | None
+    strongest_negative_correlation: float | None
+    strongest_negative_lag_points: int | None
+    strongest_negative_lag_sec: float | None
+    strongest_absolute_correlation: float | None
+    strongest_absolute_lag_points: int | None
+    strongest_absolute_lag_sec: float | None
+    warnings: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        """Serialize this result to a JSON-compatible dictionary."""
+        data = asdict(self)
+        data["lag_points"] = list(self.lag_points)
+        data["lag_seconds"] = list(self.lag_seconds)
+        data["correlation"] = list(self.correlation)
+        data["overlap_points"] = list(self.overlap_points)
+        data["warnings"] = list(self.warnings)
+        return data
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, object]) -> "LaggedCorrelationResult":
+        """Deserialize one result from :meth:`to_dict` output."""
+        values = dict(data)
+        values["lag_points"] = tuple(int(value) for value in values["lag_points"])  # type: ignore[index]
+        values["lag_seconds"] = tuple(float(value) for value in values["lag_seconds"])  # type: ignore[index]
+        values["correlation"] = tuple(
+            None if value is None else float(value)
+            for value in values["correlation"]  # type: ignore[index]
+        )
+        values["overlap_points"] = tuple(
+            int(value) for value in values["overlap_points"]  # type: ignore[index]
+        )
+        values["warnings"] = tuple(str(value) for value in values.get("warnings", ()))
+        return cls(**values)  # type: ignore[arg-type]
+
+    def to_dataframe(self) -> pd.DataFrame:
+        """Return one row per evaluated lag."""
+        return pd.DataFrame(
+            {
+                "lag_points": self.lag_points,
+                "lag_sec": self.lag_seconds,
+                "correlation": self.correlation,
+                "overlap_points": self.overlap_points,
+            }
+        )
