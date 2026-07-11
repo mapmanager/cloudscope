@@ -21,7 +21,7 @@ from acqstore.acq_image.tree_rows import (
 from cloudscope.event_bus import EventBus
 from cloudscope.events.acq_image_events import AcqImageEventsChanged
 from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind
-from cloudscope.events.files import FileListChanged
+from cloudscope.events.files import FileListChanged, ImageDataLoaded
 from cloudscope.events.metadata import MetadataChanged
 from cloudscope.events.roi import RoiChanged, RoiChangeKind
 from cloudscope.events.selection import (
@@ -435,13 +435,9 @@ def test_sync_table_selection_clears_when_no_file_id() -> None:
     assert view._tree.selected == []
 
 
-def test_on_primary_selection_changed_refreshes_when_images_loaded() -> None:
-    """After lazy load, rebuild the file subtree so the loaded column refreshes."""
-    image = FakeAcqImage(
-        '/tmp/a.oir',
-        fully_loaded=True,
-        loaded_marker='✅',
-    )
+def test_on_primary_selection_changed_does_not_refresh_loaded_rows() -> None:
+    """Selection changes update selection only, even when data are loaded."""
+    image = FakeAcqImage('/tmp/a.oir', fully_loaded=True, loaded_marker='✅')
     state = FakeState(acq_image_list=FakeAcqImageList([image]))
     view = _make_view(state)
     view.current_selection = PrimarySelection(file_id='/tmp/a.oir', channel=0, roi_id=1)
@@ -449,14 +445,30 @@ def test_on_primary_selection_changed_refreshes_when_images_loaded() -> None:
     view.on_primary_selection_changed()
 
     assert view._tree is not None
+    assert view._tree.group_replacements == []
+    assert view._tree.selected == ['/tmp/a.oir']
+
+
+def test_image_data_loaded_refreshes_file_subtree() -> None:
+    """ImageDataLoaded refreshes row data without changing selection."""
+    image = FakeAcqImage('/tmp/a.oir', fully_loaded=True, loaded_marker='✅')
+    state = FakeState(acq_image_list=FakeAcqImageList([image]))
+    view = _make_view(state)
+    view.current_selection = PrimarySelection(file_id='/tmp/a.oir', channel=0, roi_id=1)
+
+    view._on_image_data_loaded(
+        ImageDataLoaded(file_id='/tmp/a.oir', file_list_row={'path': '/tmp/a.oir'})
+    )
+
+    assert view._tree is not None
     assert len(view._tree.group_replacements) == 1
     group_id, rows = view._tree.group_replacements[0]
     assert group_id == '/tmp/a.oir'
     assert rows[0]['loaded'] == '✅'
-    assert view._tree.selected == ['/tmp/a.oir']
+    assert view._tree.selected == []
 
 
-def test_on_primary_selection_changed_syncs_only_when_images_not_loaded() -> None:
+def test_on_primary_selection_changed_syncs_when_images_not_loaded() -> None:
     image = FakeAcqImage('/tmp/a.oir', fully_loaded=False)
     state = FakeState(acq_image_list=FakeAcqImageList([image]))
     view = _make_view(state)
@@ -547,7 +559,7 @@ def test_scroll_into_view_when_images_loaded_external_source() -> None:
     view.on_primary_selection_changed()
 
     assert view._tree is not None
-    assert view._tree.group_replacements  # subtree refreshed
+    assert view._tree.group_replacements == []
     assert view._tree.scroll_calls == ['/tmp/a.oir']
 
 

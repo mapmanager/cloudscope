@@ -84,6 +84,19 @@ class UnloadImageDataIntent(IntentEvent):
 
 
 @dataclass(frozen=True)
+class ImageDataLoaded(StateEvent):
+    """Emitted after one acquisition file's lazy data was loaded.
+
+    Attributes:
+        file_id: Stable acquisition file identifier that was loaded.
+        file_list_row: Updated display row for table/tree refresh.
+    """
+
+    file_id: str
+    file_list_row: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class ImageDataUnloaded(StateEvent):
     """Emitted after one acquisition file's lazy data was unloaded.
 

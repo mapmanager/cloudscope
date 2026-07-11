@@ -17,7 +17,7 @@ from nicegui import run
 from acqstore.acq_image.acq_image import AcqImage
 
 from cloudscope.event_bus import EventBus
-from cloudscope.events.files import ImageDataUnloaded
+from cloudscope.events.files import ImageDataLoaded, ImageDataUnloaded
 from cloudscope.events.status import AppStatusChanged, StatusLevel, StatusSource
 from cloudscope.raster_display_cache import RasterDisplayCache
 from cloudscope.utils.logging import get_logger
@@ -141,6 +141,13 @@ class AcqImageDataController:
         if generation != self._load_generation or self._active_file_id != file_id:
             return
 
+        if self._event_bus is not None:
+            self._event_bus.publish(
+                ImageDataLoaded(
+                    file_id=file_id,
+                    file_list_row=dict(acq_image.get_schema_row()),
+                )
+            )
         on_complete()
 
 

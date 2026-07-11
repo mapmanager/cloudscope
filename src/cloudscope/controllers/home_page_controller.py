@@ -88,7 +88,6 @@ class HomePageController:
             selection=PrimarySelection(),
             acq_image_list=None,
         )
-        self._selection_source = SELECTION_SOURCE_EXTERNAL
 
     @property
     def state(self) -> HomePageState:
@@ -121,7 +120,6 @@ class HomePageController:
         Returns:
             None.
         """
-        self._selection_source = SELECTION_SOURCE_LOAD
         self._state.acq_image_list = acq_image_list
         self._state.file_ids = [acq_file.file_id for acq_file in acq_image_list.get_files()]
         self._event_bus.publish(
@@ -137,7 +135,7 @@ class HomePageController:
             channel=channel,
             roi_id=roi_id,
         )
-        self._publish_file_selection_after_lazy_data_loaded()
+        self._publish_file_selection_after_lazy_data_loaded(SELECTION_SOURCE_LOAD)
 
     def load_demo_files(self, file_ids: list[str]) -> None:
         """Replace the current file list with demo data.
@@ -148,7 +146,6 @@ class HomePageController:
         Returns:
             None.
         """
-        self._selection_source = SELECTION_SOURCE_LOAD
         self._state.acq_image_list = None
         self._state.file_ids = list(file_ids)
         self._event_bus.publish(FileListChanged(file_ids=list(self._state.file_ids), rows=[]))
@@ -159,7 +156,7 @@ class HomePageController:
             channel=0 if default_file_id is not None else None,
             roi_id=None,
         )
-        self._publish_file_selection_after_lazy_data_loaded()
+        self._publish_file_selection_after_lazy_data_loaded(SELECTION_SOURCE_LOAD)
 
     def _on_select_file(self, event: SelectFileIntent) -> None:
         """Handle file selection changes.
@@ -173,10 +170,9 @@ class HomePageController:
         Raises:
             ValueError: If the requested file identifier is unknown.
         """
-        self._selection_source = event.source
         if event.file_id is None:
             self._state.selection = PrimarySelection()
-            self._publish_file_selection_changed()
+            self._publish_file_selection_changed(event.source)
             return
 
         if self._state.acq_image_list is not None:
@@ -192,7 +188,7 @@ class HomePageController:
                 roi_id=roi_id,
                 analysis_name=event.analysis_name,
             )
-            self._publish_file_selection_after_lazy_data_loaded()
+            self._publish_file_selection_after_lazy_data_loaded(event.source)
             return
 
         if event.file_id not in self._state.file_ids:
@@ -202,7 +198,7 @@ class HomePageController:
         self._state.selection.channel = event.channel if event.channel is not None else 0
         self._state.selection.roi_id = event.roi_id
         self._state.selection.analysis_name = event.analysis_name
-        self._publish_file_selection_after_lazy_data_loaded()
+        self._publish_file_selection_after_lazy_data_loaded(event.source)
 
     def _on_select_channel(self, event: SelectChannelIntent) -> None:
         """Handle channel selection changes.
@@ -299,7 +295,7 @@ class HomePageController:
 
         if self._state.selection.file_id == event.file_id:
             self._state.selection = PrimarySelection()
-            self._publish_file_selection_changed()
+            self._publish_file_selection_changed(SELECTION_SOURCE_EXTERNAL)
 
         if self._acq_image_data_controller is None:
             acq_image.unload_lazy_data()
@@ -324,24 +320,30 @@ class HomePageController:
             return self._state.acq_image_list.get_file_by_id(fid)
         return None
 
-    def _publish_file_selection_after_lazy_data_loaded(self) -> None:
+    def _publish_file_selection_after_lazy_data_loaded(self, source: str) -> None:
         """Ensure lazy data is loaded, then publish file selection state once.
+
+        Args:
+            source: Selection origin captured for this specific request.
 
         Returns:
             None.
         """
         if self._acq_image_data_controller is None:
-            self._publish_file_selection_changed()
+            self._publish_file_selection_changed(source)
             return
 
         self._acq_image_data_controller.ensure_loaded_for_selection(
             self._state.selection.file_id,
             self._resolved_acq_image_for_selection(),
-            on_complete=self._publish_file_selection_changed,
+            on_complete=lambda: self._publish_file_selection_changed(source),
         )
 
-    def _publish_file_selection_changed(self) -> None:
-        """Publish file selection (includes default channel and ROI for that file).
+    def _publish_file_selection_changed(self, source: str) -> None:
+        """Publish file selection including its explicit origin.
+
+        Args:
+            source: Selection origin captured for the published state.
 
         Returns:
             None.
@@ -355,6 +357,6 @@ class HomePageController:
                 channel=self._state.selection.channel,
                 roi_id=self._state.selection.roi_id,
                 analysis_name=self._state.selection.analysis_name,
-                source=self._selection_source,
+                source=source,
             )
         )

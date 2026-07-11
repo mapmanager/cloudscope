@@ -521,7 +521,8 @@ def test_set_selected_row_ids_idempotent_skips_repeated_grid_churn() -> None:
     tw.set_selected_row_ids(['/a'], origin='state')
     second = len(calls)
 
-    assert first > 0  # first selection issues deselectAll + setSelected
+    assert calls == [('row', ('/a', 'setSelected', True, True))]
+    assert first == 1
     assert second == first  # identical re-selection issues nothing
     # A genuinely different selection still issues commands.
     tw.set_selected_row_ids(['/b'], origin='state')
@@ -570,3 +571,105 @@ def test_show_index_column_rejects_conflicting_field() -> None:
             rows=_sample_rows(),
             config=TreeWidgetConfig(show_index_column=True),
         )
+
+
+def _recording_grid() -> tuple[SimpleNamespace, list[tuple[str, tuple[Any, ...]]]]:
+    calls: list[tuple[str, tuple[Any, ...]]] = []
+    grid = SimpleNamespace(
+        id=1,
+        run_grid_method=lambda method, *args: calls.append(('grid', (method, *args))),
+        run_row_method=lambda row_id, method, *args: calls.append(
+            ('row', (row_id, method, *args))
+        ),
+    )
+    return grid, calls
+
+
+def test_single_row_selection_uses_one_atomic_grid_command() -> None:
+    tw = TreeWidget(columns=_sample_columns(), row_id_field='row_id', rows=_sample_rows())
+    grid, calls = _recording_grid()
+    tw._grid = grid  # type: ignore[assignment]
+
+    tw.set_selected_row_ids(['/a'], origin='state')
+
+    assert calls == [('row', ('/a', 'setSelected', True, True))]
+
+
+def test_empty_selection_uses_deselect_all() -> None:
+    tw = TreeWidget(columns=_sample_columns(), row_id_field='row_id', rows=_sample_rows())
+    grid, calls = _recording_grid()
+    tw._grid = grid  # type: ignore[assignment]
+    tw.set_selected_row_ids(['/a'])
+    calls.clear()
+
+    tw.set_selected_row_ids([])
+
+    assert calls == [('grid', ('deselectAll',))]
+
+
+def test_replace_group_rows_identical_data_sends_no_grid_commands() -> None:
+    tw = TreeWidget(columns=_sample_columns(), row_id_field='row_id', rows=_sample_rows())
+    grid, calls = _recording_grid()
+    tw._grid = grid  # type: ignore[assignment]
+
+    tw.replace_group_rows('/a', _sample_rows()[:2])
+
+    assert calls == []
+
+
+def test_replace_group_rows_updates_only_changed_row() -> None:
+    tw = TreeWidget(columns=_sample_columns(), row_id_field='row_id', rows=_sample_rows())
+    grid, calls = _recording_grid()
+    tw._grid = grid  # type: ignore[assignment]
+    replacement = [dict(row) for row in _sample_rows()[:2]]
+    replacement[1]['name'] = 'A1-updated'
+
+    tw.replace_group_rows('/a', replacement)
+
+    assert calls == [
+        (
+            'grid',
+            (
+                'applyTransaction',
+                {'update': [replacement[1]]},
+            ),
+        )
+    ]
+
+
+def test_replace_group_rows_adds_and_removes_only_changed_structure() -> None:
+    tw = TreeWidget(columns=_sample_columns(), row_id_field='row_id', rows=_sample_rows())
+    grid, calls = _recording_grid()
+    tw._grid = grid  # type: ignore[assignment]
+    replacement = [
+        {'row_id': '/a', 'hierarchy_path': ['/a'], 'name': 'A'},
+        {'row_id': '/a::2', 'hierarchy_path': ['/a', '/a::2'], 'name': 'A2'},
+    ]
+
+    tw.replace_group_rows('/a', replacement)
+
+    assert calls[0] == (
+        'grid',
+        (
+            'applyTransaction',
+            {
+                'add': [replacement[1]],
+                'remove': [{'row_id': '/a::1'}],
+            },
+        ),
+    )
+    assert calls[1] == ('row', ('/a', 'setExpanded', True))
+
+
+def test_replace_group_rows_removing_selected_row_clears_tracking() -> None:
+    tw = TreeWidget(columns=_sample_columns(), row_id_field='row_id', rows=_sample_rows())
+    tw.set_selected_row_ids(['/a::1'])
+
+    tw.replace_group_rows(
+        '/a',
+        [{'row_id': '/a', 'hierarchy_path': ['/a'], 'name': 'A'}],
+    )
+
+    assert tw.get_selected_rows() == []
+    assert tw._selected_row_ids == []
+    assert tw._last_selected_row_id is None

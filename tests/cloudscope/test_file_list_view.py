@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from cloudscope.event_bus import EventBus
 from cloudscope.events.acq_image_events import AcqImageEventsChanged
 from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind
-from cloudscope.events.files import FileListChanged
+from cloudscope.events.files import FileListChanged, ImageDataLoaded
 from cloudscope.events.roi import RoiChanged, RoiChangeKind
 from cloudscope.state import PrimarySelection
 from cloudscope.views.file_list_view import AcqImageListTableView
@@ -205,3 +205,19 @@ def test_get_displayed_file_ids_uses_visible_filtered_sorted_rows() -> None:
     file_ids = asyncio.run(view.get_displayed_file_ids())
 
     assert file_ids == ["/tmp/b.oir", "/tmp/a.oir"]
+
+def test_image_data_loaded_updates_one_table_row() -> None:
+    state = FakeState()
+    view = _make_view(state)
+
+    view._on_image_data_loaded(
+        ImageDataLoaded(
+            file_id='/tmp/a.oir',
+            file_list_row={'path': '/tmp/a.oir', 'dirty': False},
+        )
+    )
+
+    assert view._table is not None
+    assert view._table.updated_rows == [
+        ('/tmp/a.oir', {'path': '/tmp/a.oir', 'dirty': False})
+    ]

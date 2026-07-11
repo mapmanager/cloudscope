@@ -312,10 +312,14 @@ class TreeWidget:
             return
 
         self._selection_origin = origin
-        self._grid.run_grid_method('deselectAll')
-        for i, rid in enumerate(keep):
-            clear = bool(i == 0 and self._config.selection_mode == 'single')
-            self._grid.run_row_method(rid, 'setSelected', True, clear)
+        if not keep:
+            self._grid.run_grid_method('deselectAll')
+        elif self._config.selection_mode == 'single':
+            self._grid.run_row_method(keep[0], 'setSelected', True, True)
+        else:
+            self._grid.run_grid_method('deselectAll')
+            for rid in keep:
+                self._grid.run_row_method(rid, 'setSelected', True, False)
         self._selection_origin = 'internal'
 
     def clear_selection(self) -> None:
@@ -418,6 +422,10 @@ class TreeWidget:
     def replace_group_rows(self, group_id: str, rows: Sequence[Mapping[str, Any]]) -> None:
         """Replace every row in one top-level group via AG Grid transaction.
 
+        Only rows whose data changed are included in the update transaction.
+        Identical replacement data updates Python-side ordering without sending
+        browser grid commands.
+
         Args:
             group_id: Top-level group id (value of ``path_field[0]``).
             rows: Complete replacement row set for that group.
@@ -425,21 +433,27 @@ class TreeWidget:
         rows_list = [dict(r) for r in rows]
         validate_rows_for_row_id_field(rows_list, self._row_id_field)
 
-        new_ids = {str(r[self._row_id_field]) for r in rows_list}
-        old_ids = set(self._known_ids_by_group.get(group_id, set()))
+        old_group_rows = [
+            dict(row)
+            for row in self._rows
+            if str(row.get(self._row_id_field))
+            in self._known_ids_by_group.get(group_id, set())
+        ]
+        old_rows_by_id = {
+            str(row[self._row_id_field]): row for row in old_group_rows
+        }
+        new_rows_by_id = {
+            str(row[self._row_id_field]): row for row in rows_list
+        }
+        old_ids = set(old_rows_by_id)
+        new_ids = set(new_rows_by_id)
 
-        rows_to_add: list[dict[str, Any]] = []
-        rows_to_update: list[dict[str, Any]] = []
-        add_ids: list[str] = []
-        update_ids: list[str] = []
-        for row in rows_list:
-            rid = str(row[self._row_id_field])
-            if rid in old_ids:
-                rows_to_update.append(row)
-                update_ids.append(rid)
-            else:
-                rows_to_add.append(row)
-                add_ids.append(rid)
+        rows_to_add = [new_rows_by_id[rid] for rid in new_ids - old_ids]
+        rows_to_update = [
+            new_rows_by_id[rid]
+            for rid in new_ids & old_ids
+            if old_rows_by_id[rid] != new_rows_by_id[rid]
+        ]
         ids_to_remove = old_ids - new_ids
 
         new_all_rows: list[dict[str, Any]] = []
@@ -455,28 +469,44 @@ class TreeWidget:
         if not replaced:
             new_all_rows.extend(rows_list)
         self._rows = new_all_rows
-        self._known_ids_by_group[group_id] = new_ids
+        if new_ids:
+            self._known_ids_by_group[group_id] = new_ids
+        else:
+            self._known_ids_by_group.pop(group_id, None)
+
+        if ids_to_remove:
+            self._selected_row_ids = [
+                rid for rid in self._selected_row_ids if rid not in ids_to_remove
+            ]
+            row_by_id = {str(row[self._row_id_field]): row for row in self._rows}
+            self._selected_rows = [
+                dict(row_by_id[rid])
+                for rid in self._selected_row_ids
+                if rid in row_by_id
+            ]
+            self._last_selected_row_id = (
+                self._selected_row_ids[0] if self._selected_row_ids else None
+            )
 
         if self._grid is None:
-            # First rows for a lazily-created grid: build it born with the
-            # current rows instead of applying a transaction to a grid that
-            # does not exist yet.
             self._ensure_grid_built()
             return
 
-        rows_by_id = {str(r[self._row_id_field]): r for r in self._rows}
         transaction: dict[str, Any] = {}
-        if add_ids:
-            transaction['add'] = [rows_by_id[rid] for rid in add_ids]
-        if update_ids:
-            transaction['update'] = [rows_by_id[rid] for rid in update_ids]
+        if rows_to_add:
+            transaction['add'] = rows_to_add
+        if rows_to_update:
+            transaction['update'] = rows_to_update
         if ids_to_remove:
-            transaction['remove'] = [{self._row_id_field: rid} for rid in ids_to_remove]
+            transaction['remove'] = [
+                {self._row_id_field: rid} for rid in ids_to_remove
+            ]
         if not transaction:
             return
 
         self._grid.run_grid_method('applyTransaction', transaction)
-        self.expand_group(group_id)
+        if rows_to_add:
+            self.expand_group(group_id)
 
     def expand_all_nodes(self) -> None:
         """Expand every tree group on the client."""

@@ -37,6 +37,7 @@ from cloudscope.events.acq_image_events import AcqImageEventsChanged
 from cloudscope.events.analysis import AnalysisCompleted
 from cloudscope.events.files import (
     FileListChanged,
+    ImageDataLoaded,
     ImageDataUnloaded,
     SaveAsTifIntent,
     UnloadImageDataIntent,
@@ -377,6 +378,7 @@ class AcqImageListTreeView(BaseView):
         self.add_subscription(self.event_bus.subscribe(AnalysisCompleted, self._on_analysis_completed))
         self.add_subscription(self.event_bus.subscribe(AcqImageEventsChanged, self._on_acq_image_events_changed))
         self.add_subscription(self.event_bus.subscribe(RoiChanged, self._on_roi_changed))
+        self.add_subscription(self.event_bus.subscribe(ImageDataLoaded, self._on_image_data_loaded))
         self.add_subscription(self.event_bus.subscribe(ImageDataUnloaded, self._on_image_data_unloaded))
 
     def refresh_from_state(self) -> None:
@@ -456,21 +458,18 @@ class AcqImageListTreeView(BaseView):
     def on_primary_selection_changed(self) -> None:
         """Reflect cached primary selection in the tree selection.
 
-        When image pixels are loaded, refresh that file's subtree so schema
-        columns such as ``loaded`` match backend state.
+        Selection changes update selection only. Tree row data is refreshed by
+        concrete data-change events such as :class:`ImageDataLoaded`, metadata,
+        ROI, analysis, and unload events.
 
         Returns:
             None.
         """
         if self._tree is None:
             return
-        file_id = self.current_selection.file_id
-        if file_id is None:
+        if self.current_selection.file_id is None:
             self._tree.clear_selection()
             return
-        acq_image = self.get_acq_image_by_file_id(file_id)
-        if acq_image is not None and acq_image.images_loaded:
-            self._replace_group_rows_from_acq_image(file_id)
         self._sync_table_selection()
         self._maybe_scroll_selection_into_view()
 
@@ -536,6 +535,17 @@ class AcqImageListTreeView(BaseView):
             return
         self._tree.scroll_row_id_into_view(row_id)
 
+
+    def _on_image_data_loaded(self, event: ImageDataLoaded) -> None:
+        """Refresh one file subtree after lazy image/analysis data load.
+
+        Args:
+            event: Load state event.
+
+        Returns:
+            None.
+        """
+        self._replace_group_rows_from_acq_image(event.file_id)
 
     def _on_image_data_unloaded(self, event: ImageDataUnloaded) -> None:
         """Refresh one file subtree after lazy image/analysis data unload.
