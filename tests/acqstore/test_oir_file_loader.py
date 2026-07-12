@@ -210,7 +210,7 @@ def test_oir_kymograph_fixture_labels_y_seconds_x_um() -> None:
     header = OirFileLoader(str(_KYMOGRAPH)).header
 
     assert header.dims == ("Y", "X")
-    assert header.physical_units_labels == ("seconds", "µm")
+    assert header.physical_units_labels == ("seconds", "micrometer")
     assert header.physical_units[0] == pytest.approx(0.0005350211513449023)
     assert header.physical_units[1] == pytest.approx(0.011413784562024583)
 
@@ -221,7 +221,7 @@ def test_oir_zstack_fixture_keeps_spatial_um_labels() -> None:
     header = OirFileLoader(str(_ZSTACK)).header
 
     assert header.dims == ("Z", "Y", "X")
-    assert header.physical_units_labels == ("µm", "µm", "µm")
+    assert header.physical_units_labels == ("micrometer", "micrometer", "micrometer")
 
 
 @pytest.mark.skipif(not _KYMOGRAPH.is_file(), reason="kymograph OIR fixture missing")
@@ -234,4 +234,4 @@ def test_image_header_from_oir_scene_aligns_labels_with_dims() -> None:
 
     assert len(header.physical_units_labels) == len(header.dims)
     assert header._physical_label_for_dim("Y") == "seconds"
-    assert header._physical_label_for_dim("X") == "µm"
+    assert header._physical_label_for_dim("X") == "micrometer"

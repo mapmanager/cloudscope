@@ -388,6 +388,68 @@ def test_set_data_updates_grid_row_data_only(monkeypatch) -> None:
     assert tw._grid.options['rowData'] == [{'row_id': '/z', 'hierarchy_path': ['/z'], 'name': 'Z'}]
 
 
+def test_set_data_builds_lazy_grid_when_first_rows_arrive(monkeypatch: Any) -> None:
+    """First non-empty data must build the grid (born with rows), not update it.
+
+    A grid created with empty ``rowData`` and later filled accepts programmatic
+    ``setSelected`` state but never repaints the selected row. Building the grid
+    only once rows exist guarantees it is born with rows and paints correctly.
+    """
+    tw = TreeWidget(
+        columns=_sample_columns(),
+        row_id_field='row_id',
+        rows=[],
+        config=TreeWidgetConfig(clear_selection_on_set_data=False),
+    )
+    calls: list[str] = []
+    monkeypatch.setattr(tw, '_ensure_grid_built', lambda: calls.append('build'))
+    monkeypatch.setattr(tw, '_push_row_data_to_grid', lambda: calls.append('push'))
+
+    tw.set_data(_sample_rows())
+
+    assert calls == ['build']
+
+
+def test_set_data_uses_update_when_grid_already_exists(monkeypatch: Any) -> None:
+    """Subsequent data replacements keep using ``grid.update()`` (preserves state)."""
+    tw = TreeWidget(
+        columns=_sample_columns(),
+        row_id_field='row_id',
+        rows=_sample_rows(),
+        config=TreeWidgetConfig(clear_selection_on_set_data=False),
+    )
+    calls: list[str] = []
+    monkeypatch.setattr(tw, '_ensure_grid_built', lambda: calls.append('build'))
+    monkeypatch.setattr(tw, '_push_row_data_to_grid', lambda: calls.append('push'))
+    tw._grid = SimpleNamespace(id=42)  # type: ignore[assignment]
+
+    tw.set_data([{'row_id': '/z', 'hierarchy_path': ['/z'], 'name': 'Z'}])
+
+    assert calls == ['push']
+
+
+def test_ensure_grid_built_no_op_without_root_or_rows() -> None:
+    """The grid is created only once a root exists and rows are present."""
+    tw = TreeWidget(columns=_sample_columns(), row_id_field='row_id', rows=[])
+    tw._ensure_grid_built()
+    assert tw._grid is None
+    tw._root = SimpleNamespace()  # type: ignore[assignment]
+    tw._ensure_grid_built()
+    assert tw._grid is None  # rows still empty
+
+
+def test_replace_group_rows_builds_lazy_grid_when_absent(monkeypatch: Any) -> None:
+    """First subtree of rows into a not-yet-built grid should build it lazily."""
+    tw = TreeWidget(columns=_sample_columns(), row_id_field='row_id', rows=[])
+    calls: list[str] = []
+    monkeypatch.setattr(tw, '_ensure_grid_built', lambda: calls.append('build'))
+
+    tw.replace_group_rows('/a', [{'row_id': '/a', 'hierarchy_path': ['/a'], 'name': 'A'}])
+
+    assert calls == ['build']
+    assert [r['row_id'] for r in tw._rows] == ['/a']
+
+
 def test_replace_group_rows_preserves_top_level_order() -> None:
     """Subtree replace keeps the group at its original rowData position."""
     tw = TreeWidget(
@@ -399,6 +461,97 @@ def test_replace_group_rows_preserves_top_level_order() -> None:
     tw.replace_group_rows('/a', [{'row_id': '/a', 'hierarchy_path': ['/a'], 'name': 'A-updated'}])
     top_level = [r for r in tw._rows if len(r['hierarchy_path']) == 1]
     assert [r['row_id'] for r in top_level] == ['/a', '/b']
+
+
+def test_scroll_row_id_into_view_no_op_without_grid() -> None:
+    """Scroll must be a safe no-op before the grid element is built."""
+    tw = TreeWidget(columns=_sample_columns(), row_id_field='row_id', rows=_sample_rows())
+    tw.scroll_row_id_into_view('/a')  # grid is None; must not raise
+
+
+def test_scroll_row_id_into_view_expands_ancestors_and_scrolls_target() -> None:
+    """Scroll must use documented AG Grid APIs on the grid's owning client."""
+    scripts: list[str] = []
+    client = SimpleNamespace(run_javascript=lambda script: scripts.append(script))
+    tw = TreeWidget(columns=_sample_columns(), row_id_field='row_id', rows=_sample_rows())
+    tw._grid = SimpleNamespace(id=55, client=client)  # type: ignore[assignment]
+
+    tw.scroll_row_id_into_view('/a::1')
+
+    assert len(scripts) == 1
+    script = scripts[0]
+    assert 'getElement(55)' in script
+    assert 'getRowNode("/a::1")' in script
+    assert 'const target =' in script
+    assert 'setRowNodeExpanded' in script
+    assert 'target,' in script
+    assert '{forceSync: true}' in script
+    assert "ensureNodeVisible(target, 'middle')" in script
+    assert 'target.parent' not in script
+    assert 'ancestor.setExpanded(true)' not in script
+    assert 'requestAnimationFrame' not in script
+
+
+def test_scroll_row_id_into_view_ignores_empty_id() -> None:
+    """An empty row id must not trigger any client JavaScript."""
+    scripts: list[str] = []
+    client = SimpleNamespace(run_javascript=lambda script: scripts.append(script))
+    tw = TreeWidget(columns=_sample_columns(), row_id_field='row_id', rows=_sample_rows())
+    tw._grid = SimpleNamespace(id=55, client=client)  # type: ignore[assignment]
+
+    tw.scroll_row_id_into_view('')
+
+    assert scripts == []
+
+
+def test_set_selected_row_ids_idempotent_skips_repeated_grid_churn() -> None:
+    """Re-selecting the already-selected row must not re-issue grid commands.
+
+    Repeated selection syncs of the same row (which happen per user click as
+    lazy-load refreshes fire) previously produced a visible deselect/reselect
+    flash. The idempotent guard makes the second identical sync a no-op.
+    """
+    tw = TreeWidget(columns=_sample_columns(), row_id_field='row_id', rows=_sample_rows())
+    calls: list[tuple[str, tuple[Any, ...]]] = []
+    tw._grid = SimpleNamespace(  # type: ignore[assignment]
+        id=1,
+        run_grid_method=lambda m, *a: calls.append(('grid', (m, *a))),
+        run_row_method=lambda rid, m, *a: calls.append(('row', (rid, m, *a))),
+    )
+
+    tw.set_selected_row_ids(['/a'], origin='state')
+    first = len(calls)
+    tw.set_selected_row_ids(['/a'], origin='state')
+    second = len(calls)
+
+    assert calls == [('row', ('/a', 'setSelected', True, True))]
+    assert first == 1
+    assert second == first  # identical re-selection issues nothing
+    # A genuinely different selection still issues commands.
+    tw.set_selected_row_ids(['/b'], origin='state')
+    assert len(calls) > second
+
+
+def test_set_selected_row_ids_does_not_scroll(monkeypatch: Any) -> None:
+    """Programmatic selection must NOT auto-scroll; scroll is a separate call.
+
+    This guards the user-click path: a user clicking a tree row round-trips
+    through ``set_selected_row_ids`` and must never trigger a scroll.
+    """
+    scripts: list[str] = []
+    monkeypatch.setattr(tree_widget.ui, 'run_javascript', lambda s: scripts.append(s))
+    tw = TreeWidget(columns=_sample_columns(), row_id_field='row_id', rows=_sample_rows())
+    calls: list[str] = []
+    monkeypatch.setattr(tw, 'scroll_row_id_into_view', lambda rid: calls.append(rid))
+    tw._grid = SimpleNamespace(
+        id=55,
+        run_grid_method=lambda *a, **k: None,
+        run_row_method=lambda *a, **k: None,
+    )  # type: ignore[assignment]
+
+    tw.set_selected_row_ids(['/a'], origin='state')
+
+    assert calls == []
 
 
 def test_show_index_column_false_omits_synthetic_column() -> None:
@@ -421,3 +574,105 @@ def test_show_index_column_rejects_conflicting_field() -> None:
             rows=_sample_rows(),
             config=TreeWidgetConfig(show_index_column=True),
         )
+
+
+def _recording_grid() -> tuple[SimpleNamespace, list[tuple[str, tuple[Any, ...]]]]:
+    calls: list[tuple[str, tuple[Any, ...]]] = []
+    grid = SimpleNamespace(
+        id=1,
+        run_grid_method=lambda method, *args: calls.append(('grid', (method, *args))),
+        run_row_method=lambda row_id, method, *args: calls.append(
+            ('row', (row_id, method, *args))
+        ),
+    )
+    return grid, calls
+
+
+def test_single_row_selection_uses_one_atomic_grid_command() -> None:
+    tw = TreeWidget(columns=_sample_columns(), row_id_field='row_id', rows=_sample_rows())
+    grid, calls = _recording_grid()
+    tw._grid = grid  # type: ignore[assignment]
+
+    tw.set_selected_row_ids(['/a'], origin='state')
+
+    assert calls == [('row', ('/a', 'setSelected', True, True))]
+
+
+def test_empty_selection_uses_deselect_all() -> None:
+    tw = TreeWidget(columns=_sample_columns(), row_id_field='row_id', rows=_sample_rows())
+    grid, calls = _recording_grid()
+    tw._grid = grid  # type: ignore[assignment]
+    tw.set_selected_row_ids(['/a'])
+    calls.clear()
+
+    tw.set_selected_row_ids([])
+
+    assert calls == [('grid', ('deselectAll',))]
+
+
+def test_replace_group_rows_identical_data_sends_no_grid_commands() -> None:
+    tw = TreeWidget(columns=_sample_columns(), row_id_field='row_id', rows=_sample_rows())
+    grid, calls = _recording_grid()
+    tw._grid = grid  # type: ignore[assignment]
+
+    tw.replace_group_rows('/a', _sample_rows()[:2])
+
+    assert calls == []
+
+
+def test_replace_group_rows_updates_only_changed_row() -> None:
+    tw = TreeWidget(columns=_sample_columns(), row_id_field='row_id', rows=_sample_rows())
+    grid, calls = _recording_grid()
+    tw._grid = grid  # type: ignore[assignment]
+    replacement = [dict(row) for row in _sample_rows()[:2]]
+    replacement[1]['name'] = 'A1-updated'
+
+    tw.replace_group_rows('/a', replacement)
+
+    assert calls == [
+        (
+            'grid',
+            (
+                'applyTransaction',
+                {'update': [replacement[1]]},
+            ),
+        )
+    ]
+
+
+def test_replace_group_rows_adds_and_removes_only_changed_structure() -> None:
+    tw = TreeWidget(columns=_sample_columns(), row_id_field='row_id', rows=_sample_rows())
+    grid, calls = _recording_grid()
+    tw._grid = grid  # type: ignore[assignment]
+    replacement = [
+        {'row_id': '/a', 'hierarchy_path': ['/a'], 'name': 'A'},
+        {'row_id': '/a::2', 'hierarchy_path': ['/a', '/a::2'], 'name': 'A2'},
+    ]
+
+    tw.replace_group_rows('/a', replacement)
+
+    assert calls[0] == (
+        'grid',
+        (
+            'applyTransaction',
+            {
+                'add': [replacement[1]],
+                'remove': [{'row_id': '/a::1'}],
+            },
+        ),
+    )
+    assert calls[1] == ('row', ('/a', 'setExpanded', True))
+
+
+def test_replace_group_rows_removing_selected_row_clears_tracking() -> None:
+    tw = TreeWidget(columns=_sample_columns(), row_id_field='row_id', rows=_sample_rows())
+    tw.set_selected_row_ids(['/a::1'])
+
+    tw.replace_group_rows(
+        '/a',
+        [{'row_id': '/a', 'hierarchy_path': ['/a'], 'name': 'A'}],
+    )
+
+    assert tw.get_selected_rows() == []
+    assert tw._selected_row_ids == []
+    assert tw._last_selected_row_id is None

@@ -5,7 +5,7 @@
 
 CloudScope is a desktop and browser application for viewing, annotating, and analyzing acquisition-backed microscopy files. It is designed for scientific image-analysis workflows where the same data and analysis code should be available from the GUI, from scripts, and from reproducible examples.
 
-The desktop app, browser app, and Python scripting workflows all use the same `acqstore` scientific backend. This is central to CloudScope's reproducibility model: GUI workflows and scripted workflows should execute the same backend analysis code rather than separate reimplementations.
+The desktop app, browser app, and Python scripting workflows all use the same Python powered scientific backend. This is central to CloudScope's reproducibility model: GUI workflows and scripted workflows should execute the same backend analysis code rather than separate reimplementations.
 
 ## Try CloudScope
 
@@ -16,18 +16,30 @@ The web app is the fastest way to try CloudScope before installing a desktop bui
 
 ## Supported file formats
 
-CloudScope provides native support for commercial microscopy formats and open scientific image formats, including:
+CloudScope supports proprietary and commercial microscopy file formats, including Olympus/Evident (oir), Zeiss (czi), and Nikon (nd2). Open scientific image standards including tif, OME-Zarr, and NGFF are also supported.
 
-- Olympus / Evident `.oir`
-- Zeiss `.czi`
-- TIFF `.tif`
-- OME-Zarr `.ome.zarr`
+See [Supported file formats](https://mapmanager.github.io/cloudscope/users/supported-file-formats/) for the full list and format-specific notes.
 
 ## Scientific workflows
 
-CloudScope supports ROI-based image analysis workflows including velocity analysis and diameter analysis. The GUI is optimized for interactive use with linked panels and widgets, while the backend analysis engine remains scriptable through Python.
+CloudScope supports ROI-based image analysis workflows including:
 
-Visualization and analysis are optimized separately. CloudScope can use image pyramids to display only the resolution required for the current view while preserving full-resolution image data for backend `acqstore` analysis. Intensive analysis paths can use multiprocessing or multithreading where available, and the same acceleration paths are available from the GUI and scripts.
+- [Velocity analysis](https://mapmanager.github.io/cloudscope/users/recipes/velocity-analysis/)
+- [Diameter analysis](https://mapmanager.github.io/cloudscope/users/recipes/diameter-analysis/)
+- [Peak detection](https://mapmanager.github.io/cloudscope/users/recipes/sum-intensity-analysis/)
+- Velocity-derived
+    - [Heart-rate analysis](https://mapmanager.github.io/cloudscope/users/recipes/analyses-from-velocity/heart-rate-analysis/)
+    - [Event analyses](https://mapmanager.github.io/cloudscope/users/recipes/analyses-from-velocity/velocity-event-analysis/)
+
+Batch analysis runs across entire folders of raw image files.
+
+For unbiased review, CloudScope supports a [blinded analysis mode](https://mapmanager.github.io/cloudscope/users/blinded-mode/) that hides file and condition identity in the GUI, and can be combined with a [randomized file subset](https://mapmanager.github.io/cloudscope/notebooks/generating-randomized-file-for-analysis/) drawn from a large dataset.
+
+[Pool plots](https://mapmanager.github.io/cloudscope/users/pool-plots/) aggregate analysis results across all files in a loaded folder, so you can filter, group, and plot structured datasets using a range of plot types such as swarm, violin, histogram, and more. Pool plots update in real time as files, analyses, ROIs, and metadata change. CloudScope provides pool plots for [velocity analysis](https://mapmanager.github.io/cloudscope/users/recipes/velocity-analysis/) and [peak detection](https://mapmanager.github.io/cloudscope/users/recipes/sum-intensity-analysis/).
+
+## GUI Optimized Workflows
+
+The GUI is optimized for interactive use with linked panels and widgets, while the backend analysis engine remains scriptable through Python. Visualization and analysis are optimized separately. CloudScope uses image pyramids to display only the resolution required for the current view while preserving full-resolution image data for backend analysis, enabling real-time visualization of large raw image datasets. When working on large datasets, CloudScope supports lazy loading of raw data and analysis results. Analysis uses multiprocessing or multithreading where available, and the same acceleration paths are available from the GUI and scripts.
 
 ## Sample data
 
@@ -35,23 +47,25 @@ Example datasets are maintained in the companion repository:
 
 <https://github.com/mapmanager/cloudscope-data>
 
-The CloudScope GUI includes a menu item to load sample data. The same data can also be fetched from Python scripts and notebooks through `acqstore.sample_data`.
+The CloudScope GUI includes menu items to load the `velocity-sample-data` and `diameter-sample-data` datasets. The same datasets can also be fetched from Python scripts and notebooks through `acqstore.sample_data.ensure_sample()`.
 
 ## Documentation
 
-Full documentation is built with MkDocs and organized by user type:
+Full documentation is organized by user type:
 
-- End users: installing, launching, opening data, running analysis, and using the GUI.
-- Scientific users and data scientists: algorithms, parameters, results, notebooks, and scripting with `acqstore`.
-- Developers: architecture, local development, testing, desktop builds, deployment, and contributing.
+- [End users](https://mapmanager.github.io/cloudscope/users/): installing, launching, opening data, running analysis, using the GUI, blinded analysis mode, and supported file formats.
+- [Scientific users](https://mapmanager.github.io/cloudscope/scientists/) and data scientists: algorithms, parameters, results, runnable notebooks (load and plot, velocity, diameter, peak detection, heart rate, and randomized analysis generation), and Python scripting.
+- [Developers](https://mapmanager.github.io/cloudscope/developers/): architecture, local development, testing, desktop builds, deployment, and contributing.
 
-Documentation site: <https://mapmanager.github.io/cloudscope/>
+See the [CloudScope documentation](https://mapmanager.github.io/cloudscope/) to get started.
 
-## Minimal developer workflow
+## Developer Install
 
-Clone the repository, install dependencies with `uv`, and run the app locally:
+This workflow requires [uv](https://docs.astral.sh/uv/). Clone the repository, install dependencies, and run the app locally:
 
 ```bash
+git clone git@github.com:mapmanager/cloudscope.git
+cd cloudscope
 uv sync
 ./scripts/run app
 ```
@@ -75,12 +89,4 @@ Run tests:
 uv run pytest
 ```
 
-Build and serve docs locally:
-
-```bash
-uv sync --group docs
-uv run mkdocs serve
-```
-
-See the developer documentation for Docker, environment variables, testing with coverage, and release builds.
-
+See the [developer documentation](https://mapmanager.github.io/cloudscope/developers/) for Docker, environment variables, testing with coverage, and release builds.

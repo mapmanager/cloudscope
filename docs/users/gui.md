@@ -5,11 +5,11 @@ data, selecting ROIs, and running supported analysis workflows. Current quantita
 workflows are designed for line scan kymographs.
 
 CloudScope is designed around a simple workflow: load data, visualize what you need, define or
-select ROIs, run analysis, and review or export results. The desktop app and browser app use
-the same interface and the same `acqstore` backend.
+select ROIs, run analysis, and review or export results. The desktop app and browser app share
+the same interface.
 
 CloudScope uses **image pyramids** for fast visualization at the zoom level on screen, while
-backend analysis uses full-resolution data from `acqstore`. Image pixels and analysis tables
+analysis uses full-resolution source data. Image pixels and analysis
 **load lazily** when you select a file or analysis, and can be unloaded from the file-list
 context menu. Together, this lets you browse folders with many hundreds of files without loading
 everything into memory at once.
@@ -23,14 +23,14 @@ everything into memory at once.
 - **File list** — collapsible acquisition tree at the top of the main workspace (full column set). The left-toolbar **File List** panel shows the same loaded data in a compact layout.
 - **Primary image viewer** — kymograph display with ROI overlays; **image toolbar** sits above it.
 - **Analysis plot** — velocity or diameter trace for the current selection.
-- **Sum intensity plot** — df/f0, derivative, and peak markers when sum-intensity analysis applies.
+- **Peak detection plot** — df/f0, derivative, and peak markers when peak detection applies.
 - **Pool plots** — optional right-side panel ([Pool plots](pool-plots.md)) for folder-wide velocity and peak comparisons; open with **Pool Plots** in the top header.
 
 ## Getting started with sample data
 
 The fastest way to explore CloudScope is to load example data from the
 [`cloudscope-data`](https://github.com/mapmanager/cloudscope-data){target="_blank" rel="noopener"}
-repository. Open the **history menu** (:material-menu:{ .middle }) in the top header and choose:
+repository. Open the **history menu** (:material-menu:{ .middle }) in the load/save controls and choose:
 
 | Menu item | Sample content |
 |---|---|
@@ -80,7 +80,10 @@ Menu contents appear in this order:
 2. **Recent files** — one entry per recently opened file (including CSV paths opened as files).
    A check mark marks the current last-loaded file when applicable.
 3. **Load CSV** — open a CSV file from disk (desktop) or from upload context (web). Used when
-   working with tabular outputs outside the normal image load flow.
+   working with tabular outputs outside the normal image load flow, and to load a **randomized
+   file manifest** that samples a subset of a large dataset. See
+   [Generating a randomized file subset](../notebooks/generating-randomized-file-for-analysis.ipynb)
+   and [Blinded analysis mode](blinded-mode.md).
 4. **Load Diameter Sample Data** — download and open the diameter-analysis sample dataset from
    [`cloudscope-data`](https://github.com/mapmanager/cloudscope-data){target="_blank" rel="noopener"}.
 5. **Load Velocity Sample Data** — download and open the velocity-analysis sample dataset from
@@ -118,9 +121,9 @@ icon again to close the panel and return to the icon-only toolbar.
 | **Image Header** | View header fields from the file format and set physical units and axis labels. See [GUI: Image header](gui-image-header.md). |
 | **Velocity** | Configure and run *in vivo* blood-flow velocity analysis. See [Analysis panels](#analysis-panels). |
 | **Diameter** | Configure and run vessel diameter analysis. See [Analysis panels](#analysis-panels). |
-| **Peak Detect** | Configure and run sum-intensity peak detection (for example GCaMP reporter fluorescence). See [Analysis panels](#analysis-panels). |
+| **Peak Detect** | Configure and run peak detection (for example GCaMP reporter fluorescence). See [Analysis panels](#analysis-panels). |
 | **Reference Image** | View the reference or overview image when the file format provides one (for example Olympus `.oir` or Zeiss `.czi` line scan kymographs). When available, this panel can also show the **scan path** for the line scan. |
-| **Config** | Application settings (text size, folder load depth, table font, auto-contrast percentiles). See [GUI: App config](gui-app-config.md). |
+| **Config** | Application settings (text size, folder load depth, table font, auto-contrast percentiles, and **blinded analysis mode**). See [GUI: App config](gui-app-config.md) and [Blinded analysis mode](blinded-mode.md). |
 | **App info** | Build and version information, log preview, and **Open Logs** for troubleshooting. |
 
 <div class="cs-clear"></div>
@@ -128,7 +131,7 @@ icon again to close the panel and return to the icon-only toolbar.
 ## Pool plots
 
 Click **Pool Plots** in the top header to open the right-side **pool plots** panel. Pool plots
-aggregate *in vivo* velocity and sum-intensity peak results across the **entire loaded folder**
+aggregate *in vivo* velocity and peak-detection results across the **entire loaded folder**
 and refresh automatically when you load files, run analyses, or edit metadata or ROIs.
 
 See [Pool plots](pool-plots.md) for an overview, export actions, and example plots. Detailed
@@ -164,7 +167,7 @@ Right-click the file list tree to open the context menu:
 
 - **Reveal In Finder** — open the selected file's folder in the system file manager (the menu
   label follows macOS wording in the app today).
-- **Unload Data** — free lazy-loaded image pixels and analysis tables for the selected file
+- **Unload Data** — free lazy-loaded image pixels and analysis for the selected file
   while keeping the file entry in the list.
 - **Expand All** / **Collapse All** — expand or collapse all tree nodes.
 - **Copy Table Data** — copy the visible tree rows to the clipboard.
@@ -177,8 +180,7 @@ Right-click the file list tree to open the context menu:
 
 The primary image viewer displays the selected acquisition image, channel, and ROI overlays.
 CloudScope uses image pyramids for fast visualization so the GUI can show only the resolution
-needed for the current zoom level. Backend analysis still uses full-resolution data from
-`acqstore`.
+needed for the current zoom level. Analysis still uses full-resolution source data.
 
 ## Image toolbar
 
@@ -235,7 +237,7 @@ saved-file details live on the dedicated recipe pages:
 |---|---|
 | **Velocity** | [*In vivo* velocity analysis](recipes/velocity-analysis.md) — Radon-transform blood-flow velocity; velocity event analysis is in the same panel |
 | **Diameter** | [Diameter analysis](recipes/diameter-analysis.md) — vessel diameter from line scan kymographs |
-| **Peak Detect** | [Sum intensity analysis](recipes/sum-intensity-analysis.md) — peak detection on functional fluorescence reporters (like GCaMP) |
+| **Peak Detect** | [Peak detection](recipes/sum-intensity-analysis.md) — functional fluorescence reporters (like GCaMP) |
 
 Derived analyses that require velocity results first:
 

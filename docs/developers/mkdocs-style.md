@@ -17,6 +17,7 @@ Site config: `mkdocs.yml`. Source pages: `docs/`.
 | **Warning block** | Required step; skipping it causes failure or bad UX | `!!! warning "Title"` |
 | **Platform tabs** | Same topic, different steps per OS (Windows / macOS) | `=== "Windows"` / `=== "macOS"` |
 | **Recipe hub** | Index page linking to focused workflow pages | `docs/users/recipes/index.md` |
+| **Audience scope** | End User vs Data Scientist vs Developer tone and detail | [Audience and scope](#audience-and-scope) |
 | **Nested recipe nav** | Group dependent analyses under a nav section | `Analyses from velocity` in `mkdocs.yml` |
 | **Home cards** | Landing-page navigation tiles | `<div class="grid cards" markdown>` |
 
@@ -158,6 +159,68 @@ Strict build (CI-equivalent):
 ```bash
 uv run mkdocs build --strict
 ```
+
+---
+
+## Audience and scope
+
+CloudScope documentation is organized into three audiences. Match the **scope and tone**
+of the section you are editing.
+
+### End User (`docs/users/`)
+
+**Reader:** someone using the desktop or browser GUI to load data, run analyses, and
+save results. They may not write Python.
+
+| Do | Don't |
+|---|---|
+| Name GUI controls exactly as shown (**Peak Detect**, **Load CSV**, **Pool Plots**) | Paste Python APIs, module paths, or `acqstore` package names |
+| Link to [Using the GUI](../users/gui.md) sections when referring to a control area (for example the [load/save controls](../users/gui.md#top-header-and-loadsave-controls)) | Repeat “uses the same backend” on every page |
+| Call the sum-intensity workflow **peak detection** in prose (the left-toolbar label) | Dive into axis remapping, loader internals, or runtime extension sets |
+| Explain *what to click* and *what you get* | Document implementation details better suited to Data Scientist or Developer pages |
+
+Explain the **shared backend** at most once per page, and only when it helps the reader
+understand reproducibility (for example saved files reload consistently). Prefer linking to
+[Reproducibility](../scientists/reproducibility.md) over naming `acqstore` repeatedly.
+
+### Data Scientist (`docs/scientists/`, `docs/notebooks/`)
+
+**Reader:** someone scripting with `AcqImage` / `AcqImageList`, tuning detection
+parameters, or running notebooks.
+
+| Do | Don't |
+|---|---|
+| Document parameters, saved-file layout, and notebook workflows | Duplicate full GUI click-path recipes (link to End User recipes instead) |
+| Use module names (`SumIntensityAnalysis`, `ensure_sample`) where they are the API | Assume the reader only wants GUI steps |
+| Note when a workflow has **no GUI panel yet** (for example heart rate) | |
+
+The GUI label **Peak Detect** maps to the `SumIntensityAnalysis` backend module — mention
+both when the distinction matters.
+
+### Developer (`docs/developers/`, `docs/api/`)
+
+**Reader:** contributor or integrator working in `src/`, CI, packaging, or generated API
+reference.
+
+Package names (`acqstore`, `nicewidgets`, `cloudscope`) belong here. Cross-link upward to
+user-facing pages when documenting features that also appear in the GUI.
+
+### Site-wide consistency
+
+- **Supported formats:** whenever you list formats, include **Nikon `.nd2`** and split
+  **commercial** vs **open** formats when the list is more than a casual mention. Canonical
+  detail: [Supported file formats](../users/supported-file-formats.md).
+- **Internal links:** prefer relative links to other doc pages; use section anchors
+  (`gui.md#top-header-and-loadsave-controls`) when pointing at a specific GUI region.
+- **Load/save vs top header:** when referring to loading or saving (Load File/Folder,
+  **Load CSV**, the **history menu**, **Save Selected** / **Save All**), call it the
+  **load/save controls**. Reserve **top header** for describing the header region itself
+  (on `gui.md`) or for the **Pool Plots** button, which lives in the header but is not a
+  load/save control.
+- **Avoid repetition:** if the home page or End User index already states a fact, later pages
+  should link rather than restate it.
+- **Naming:** End User docs → **peak detection**; Data Scientist / API → **sum intensity
+  analysis** (module name) with a note that the GUI says Peak Detect.
 
 ---
 

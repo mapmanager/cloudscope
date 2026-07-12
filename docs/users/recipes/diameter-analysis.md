@@ -16,17 +16,14 @@ See [Using the GUI](../gui.md) for loading files and ROIs.
 3. Review **Detection parameters** in the Diameter panel.
 4. Run the analysis.
 5. Review the summary, quality-control values, and tabular output.
-6. Use **Save Selected** or **Save All** in the top header to persist results.
+6. Use **Save Selected** or **Save All** in the load/save controls to persist results.
 
 ![CloudScope diameter analysis panel](../../assets/gui/diameter-analysis-view.png){ .cs-screenshot .cs-screenshot-center width="640" loading=lazy }
 
 ## Results and reproducibility
 
-Review diameter results in the Diameter panel and the **Analysis plot**. Save from the top
-header to write JSON and CSV files next to the source image.
-
-The GUI and scripting workflows share the same `acqstore` backend, so results from the interface
-should match equivalent Python scripts using the same data, ROIs, and parameters. See
+Review diameter results in the Diameter panel and the **Analysis plot**. Save from the
+load/save controls to write JSON and CSV files next to the source image. See
 [Saved file formats](../saved-files.md) for output file details.
 
 ## Saved files

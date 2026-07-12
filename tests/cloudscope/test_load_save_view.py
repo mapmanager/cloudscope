@@ -290,6 +290,52 @@ def test_update_button_states_enables_save_selected_when_dirty(tmp_path) -> None
     assert view._save_selected_button.enabled is True
 
 
+def test_metadata_changed_refreshes_save_selected_without_selection_change(tmp_path) -> None:
+    """MetadataChanged should re-evaluate Save Selected when dirty flips."""
+    from cloudscope.events.metadata import MetadataChanged
+
+    view = _new_view(tmp_path)
+    view._save_selected_button = _FakeButton()
+    view._save_all_button = _FakeButton()
+    view.get_selected_acq_image = lambda: _fake_acq_image(is_dirty=True)  # type: ignore[method-assign]
+    view.selected_acq_image_is_dirty = lambda: True  # type: ignore[method-assign]
+    view._save_selected_button.disable()
+
+    view._on_metadata_changed(
+        MetadataChanged(
+            file_id='/tmp/a.tif',
+            metadata_section_id='experiment_metadata',
+            file_list_row={},
+        )
+    )
+
+    assert view._save_selected_button.enabled is True
+
+
+def test_roi_changed_refreshes_save_selected_without_selection_change(tmp_path) -> None:
+    """RoiChanged should re-evaluate Save Selected when dirty flips."""
+    from cloudscope.events.roi import RoiChangeKind, RoiChanged
+    from cloudscope.state import PrimarySelection
+
+    view = _new_view(tmp_path)
+    view._save_selected_button = _FakeButton()
+    view._save_all_button = _FakeButton()
+    view.get_selected_acq_image = lambda: _fake_acq_image(is_dirty=True)  # type: ignore[method-assign]
+    view.selected_acq_image_is_dirty = lambda: True  # type: ignore[method-assign]
+    view._save_selected_button.disable()
+
+    view._on_roi_changed(
+        RoiChanged(
+            operation=RoiChangeKind.EDIT,
+            selection=PrimarySelection(file_id='/tmp/a.tif', channel=0, roi_id=1),
+            removed_analysis_count=0,
+            affected_roi_id=1,
+        )
+    )
+
+    assert view._save_selected_button.enabled is True
+
+
 def test_update_button_states_tolerates_missing_buttons(tmp_path) -> None:
     """Missing button references should not raise."""
     view = _new_view(tmp_path)

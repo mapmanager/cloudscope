@@ -27,10 +27,12 @@ def test_defaults_exposed_in_sorted_runtime_snapshot() -> None:
 def test_supported_import_extensions_are_loader_backed() -> None:
     assert get_supported_import_extensions() == (
         'cs.ome.zarr',
+        'cs.ome.zarr.zip',
         'czi',
         'nd2',
         'oir',
         'ome.zarr',
+        'ome.zarr.zip',
         'tif',
     )
 

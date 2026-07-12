@@ -16,7 +16,7 @@ DEFAULT_IMPORT_EXTENSIONS: tuple[str, ...] = get_registered_import_extensions()
 _runtime_import_extensions: set[str] = set(DEFAULT_IMPORT_EXTENSIONS)
 _COMPOUND_ZARR_EXTENSIONS = tuple(
     sorted(
-        (extension for extension in DEFAULT_IMPORT_EXTENSIONS if extension.endswith('.zarr')),
+        (extension for extension in DEFAULT_IMPORT_EXTENSIONS if extension.endswith('.zarr') or extension.endswith('.zarr.zip')),
         key=len,
         reverse=True,
     )

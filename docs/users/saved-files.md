@@ -29,7 +29,7 @@ The JSON file stores CloudScope state for one acquisition file. It includes:
 | Experimental metadata | User-editable experiment fields (species, condition, notes, and related fields) |
 | Image header metadata | Header fields read from the file, including physical unit and axis label calibration |
 | ROIs | Line and rectangular regions of interest |
-| Analysis records | One entry per analysis (velocity, diameter, sum intensity, velocity events, and others) with detection parameters and summary values |
+| Analysis records | One entry per analysis (velocity, diameter, peak detection, velocity events, and others) with detection parameters and summary values |
 | Image contrast | Per-channel display contrast settings (when present) |
 
 Analyses that produce large tabular output store **summaries and parameters** in the JSON file.
@@ -62,7 +62,7 @@ CSV files are suitable for export to spreadsheets or downstream Python analysis.
 
 ## Save actions in the GUI
 
-From the top header:
+From the load/save controls:
 
 - **Save Selected** — saves the currently selected file when it has unsaved changes (metadata,
   ROIs, contrast, or analysis edits). Disabled when nothing is selected or the selection has no

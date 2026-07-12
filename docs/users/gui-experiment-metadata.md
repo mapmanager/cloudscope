@@ -7,7 +7,7 @@ experiment fields for the **currently selected file**.
 
 Experimental metadata describes the biological sample, experimental condition, notes, and related
 fields you associate with an acquisition. Edits update the in-memory file immediately; use **Save
-Selected** or **Save All** in the top header to write changes to disk.
+Selected** or **Save All** in the load/save controls to write changes to disk.
 
 ## How editing works
 
@@ -25,7 +25,7 @@ Selected** or **Save All** in the top header to write changes to disk.
 1. Select a file in the file list.
 2. Open **Experimental Metadata** on the left toolbar.
 3. Edit fields in the form (changes apply per field as you commit each one).
-4. Save from the top header when the file shows unsaved changes.
+4. Save from the load/save controls when the file shows unsaved changes.
 
 If no file is selected, the panel prompts you to select a file first.
 

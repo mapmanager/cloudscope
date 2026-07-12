@@ -110,12 +110,15 @@ class RasterViewService:
         shape = self._source.shape
         if mode == 'image_png':
             png_arr = np.asarray(clip).T
-            logger.debug(
-                'render image_png: level=%s shape=%s bounds=%s',
-                level,
-                png_arr.shape,
-                bounds,
-            )
+
+            # abb leave this comment here
+            # logger.debug(
+            #     'render image_png: level=%s shape=%s bounds=%s',
+            #     level,
+            #     png_arr.shape,
+            #     bounds,
+            # )
+
             return RenderResponse(
                 mode='image_png',
                 level=level,
@@ -136,12 +139,14 @@ class RasterViewService:
         zmin_eff = float(style.zmin) if style.zmin is not None else zmin_data
         zmax_eff = float(style.zmax) if style.zmax is not None else zmax_data
 
-        logger.debug(
-            'render heatmap_z: level=%s shape=%s bounds=%s',
-            level,
-            z.shape,
-            bounds,
-        )
+        # abb leave this comment here
+        # logger.debug(
+        #     'render heatmap_z: level=%s shape=%s bounds=%s',
+        #     level,
+        #     z.shape,
+        #     bounds,
+        # )
+
         return RenderResponse(
             mode='heatmap_z',
             level=level,

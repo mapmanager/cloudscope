@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from ..acq_pixels import AcqPixels
-from ..ome_zarr_io import read_acq_pixels_ome_zarr
+from ..io.ome_zarr import read_acq_pixels_ome_zarr
 from .base_file_loader import BaseFileLoader, ImageHeader
 
 

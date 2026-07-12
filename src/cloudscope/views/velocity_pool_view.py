@@ -17,7 +17,10 @@ from cloudscope.blinded_display import (
 )
 from cloudscope.event_bus import EventBus
 from cloudscope.events.app_config import BlindedAnalysisModeChanged
-from cloudscope.events.selection import SelectFileIntent
+from cloudscope.events.selection import (
+    SELECTION_SOURCE_VELOCITY_POOL,
+    SelectFileIntent,
+)
 from cloudscope.events.sum_intensity_pool import SumIntensityPoolChanged
 from cloudscope.events.theme import ThemeChanged
 from cloudscope.events.velocity_pool import VelocityPoolChanged
@@ -414,6 +417,7 @@ class VelocityPoolView(BaseView):
                 file_id=str(file_id),
                 channel=None if channel is None else int(channel),
                 roi_id=None if roi_id is None else int(roi_id),
+                source=SELECTION_SOURCE_VELOCITY_POOL,
             )
         )
 

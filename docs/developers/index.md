@@ -138,7 +138,7 @@ Repository files:
 
 The Docker Compose deployment is used to run CloudScope on an Oracle Cloud server. The public browser version is available at [cloudscope.mapmanager.net](https://cloudscope.mapmanager.net){target="_blank" rel="noopener"}.
 
-The public deployment allows users to load sample data from the [cloudscope-data Repository](https://github.com/mapmanager/cloudscope-data){target="_blank" rel="noopener"} and upload supported image files such as `.oir`, `.czi`, and `.tif`.
+The public deployment allows users to load sample data from the [cloudscope-data Repository](https://github.com/mapmanager/cloudscope-data){target="_blank" rel="noopener"} and upload supported image files such as `.oir`, `.czi`, `.nd2`, and `.tif`.
 
 ## cloudscope-data
 

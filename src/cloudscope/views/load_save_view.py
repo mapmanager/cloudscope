@@ -29,6 +29,8 @@ from cloudscope.events.files import (
     SaveAllIntent,
     SaveSelectedIntent,
 )
+from cloudscope.events.metadata import MetadataChanged
+from cloudscope.events.roi import RoiChanged
 from cloudscope.events.status import AppStatusChanged
 from cloudscope._py_web_view import _prompt_for_path
 from cloudscope.app_config import AppConfig, normalize_stored_path
@@ -143,6 +145,8 @@ class LoadSaveView(BaseView):
         self.add_subscription(self.event_bus.subscribe(AppStatusChanged, self._on_status_changed))
         self.add_subscription(self.event_bus.subscribe(AnalysisCompleted, self._on_analysis_completed))
         self.add_subscription(self.event_bus.subscribe(AcqImageEventsChanged, self._on_acq_image_events_changed))
+        self.add_subscription(self.event_bus.subscribe(MetadataChanged, self._on_metadata_changed))
+        self.add_subscription(self.event_bus.subscribe(RoiChanged, self._on_roi_changed))
 
     def _on_acq_image_events_changed(self, event: AcqImageEventsChanged) -> None:
         """Refresh save buttons when event analysis changes dirty state.
@@ -165,7 +169,34 @@ class LoadSaveView(BaseView):
             None.
         """
         self._update_button_states()
-        
+
+    def _on_metadata_changed(self, event: MetadataChanged) -> None:
+        """Refresh save buttons after metadata edits change dirty state.
+
+        Metadata apply does not change primary selection, so Save Selected would
+        stay stale without this subscription.
+
+        Args:
+            event: Metadata changed state event.
+
+        Returns:
+            None.
+        """
+        _ = event
+        self._update_button_states()
+
+    def _on_roi_changed(self, event: RoiChanged) -> None:
+        """Refresh save buttons after ROI mutations change dirty state.
+
+        Args:
+            event: ROI changed state event.
+
+        Returns:
+            None.
+        """
+        _ = event
+        self._update_button_states()
+
     def _button_props(self, *, flat: bool = False) -> str:
         """Return Quasar props for toolbar buttons.
 

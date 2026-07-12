@@ -243,11 +243,12 @@ class TreeWidget:
                 with self._context_menu:
                     self._build_context_menu_content()
                 self._root.on('contextmenu', self._on_context_menu_event)
-                self._grid = ui.aggrid(
-                    self._build_aggrid_options(),
-                    auto_size_columns=self._config.auto_size_columns,
-                    modules='enterprise',
-                ).classes('w-full h-full min-w-0 min-h-0').style('height: 100%;')
+                # The AG Grid element is created lazily, only once rows exist.
+                # A grid created with empty ``rowData`` and later filled accepts
+                # programmatic ``setSelected`` state but never repaints the
+                # selected row (verified in-browser). Creating it born with rows
+                # avoids that broken state entirely.
+                self._ensure_grid_built()
         return self._root
 
     def set_enabled(self, enabled: bool) -> None:
@@ -297,18 +298,33 @@ class TreeWidget:
 
         row_by_id = {str(row[self._row_id_field]): dict(row) for row in self._rows}
         keep = [rid for rid in normalized if rid in row_by_id]
+
+        # Idempotent guard: when the requested selection already matches the
+        # tracked selection, the grid already reflects it (from a native click
+        # or a prior programmatic selection, both of which survive id-keyed
+        # ``applyTransaction`` updates). Re-issuing ``deselectAll`` +
+        # ``setSelected`` in that case is pure churn and produces a visible
+        # deselect/reselect flash when repeated selection syncs fire per click.
+        already_selected = keep == self._selected_row_ids
+
         self._selected_row_ids = keep
         self._selected_rows = [row_by_id[rid] for rid in keep]
         self._last_selected_row_id = keep[0] if keep else None
 
         if self._grid is None:
             return
+        if already_selected:
+            return
 
         self._selection_origin = origin
-        self._grid.run_grid_method('deselectAll')
-        for i, rid in enumerate(keep):
-            clear = bool(i == 0 and self._config.selection_mode == 'single')
-            self._grid.run_row_method(rid, 'setSelected', True, clear)
+        if not keep:
+            self._grid.run_grid_method('deselectAll')
+        elif self._config.selection_mode == 'single':
+            self._grid.run_row_method(keep[0], 'setSelected', True, True)
+        else:
+            self._grid.run_grid_method('deselectAll')
+            for rid in keep:
+                self._grid.run_row_method(rid, 'setSelected', True, False)
         self._selection_origin = 'internal'
 
     def clear_selection(self) -> None:
@@ -318,6 +334,50 @@ class TreeWidget:
         self._last_selected_row_id = None
         if self._grid is not None:
             self._grid.run_grid_method('deselectAll')
+
+    def scroll_row_id_into_view(self, row_id: str) -> None:
+        """Expand and scroll the tree so the requested row is visible.
+
+        This is intended for programmatic selection driven from outside the
+        tree (for example a pool-plot click). It is intentionally NOT called
+        by :meth:`set_selected_row_ids`, so a user clicking a row in the tree
+        never triggers an automatic scroll.
+
+        The method resolves the row by its stable AG Grid row id, uses AG Grid's
+        public ``setRowNodeExpanded`` API to expand the row and all ancestors
+        synchronously, and then scrolls the actual target row to the middle of
+        the viewport. JavaScript is sent through the grid element's owning
+        client so the method is safe when invoked from an async background-task
+        completion without an active NiceGUI slot context. Unknown row ids and
+        unbuilt grids are no-ops.
+
+        Args:
+            row_id: Stable row id to reveal.
+        """
+        if self._grid is None:
+            return
+        rid = str(row_id)
+        if not rid:
+            return
+        grid_id = int(self._grid.id)
+        rid_literal = json.dumps(rid)
+        script = f"""
+            (() => {{
+                const grid = getElement({grid_id});
+                if (!grid || !grid.api) return;
+                const target = grid.api.getRowNode({rid_literal});
+                if (!target) return;
+
+                grid.api.setRowNodeExpanded(
+                    target,
+                    true,
+                    true,
+                    {{forceSync: true}},
+                );
+                grid.api.ensureNodeVisible(target, 'middle');
+            }})()
+        """
+        self._grid.client.run_javascript(script)
 
     def set_data(self, rows: Sequence[Mapping[str, Any]]) -> None:
         """Replace all rows and refresh the tree.
@@ -331,7 +391,10 @@ class TreeWidget:
         self._known_ids_by_group.clear()
         for row in self._rows:
             self._track_added(row)
-        self._push_row_data_to_grid()
+        if self._grid is None:
+            self._ensure_grid_built()
+        else:
+            self._push_row_data_to_grid()
         if self._config.clear_selection_on_set_data:
             self.clear_selection()
 
@@ -362,6 +425,7 @@ class TreeWidget:
         self._track_added(replacement)
 
         if self._grid is None:
+            self._ensure_grid_built()
             return
         try:
             self._grid.run_row_method(rid, 'setData', dict(self._rows[idx]))
@@ -371,6 +435,10 @@ class TreeWidget:
     def replace_group_rows(self, group_id: str, rows: Sequence[Mapping[str, Any]]) -> None:
         """Replace every row in one top-level group via AG Grid transaction.
 
+        Only rows whose data changed are included in the update transaction.
+        Identical replacement data updates Python-side ordering without sending
+        browser grid commands.
+
         Args:
             group_id: Top-level group id (value of ``path_field[0]``).
             rows: Complete replacement row set for that group.
@@ -378,21 +446,27 @@ class TreeWidget:
         rows_list = [dict(r) for r in rows]
         validate_rows_for_row_id_field(rows_list, self._row_id_field)
 
-        new_ids = {str(r[self._row_id_field]) for r in rows_list}
-        old_ids = set(self._known_ids_by_group.get(group_id, set()))
+        old_group_rows = [
+            dict(row)
+            for row in self._rows
+            if str(row.get(self._row_id_field))
+            in self._known_ids_by_group.get(group_id, set())
+        ]
+        old_rows_by_id = {
+            str(row[self._row_id_field]): row for row in old_group_rows
+        }
+        new_rows_by_id = {
+            str(row[self._row_id_field]): row for row in rows_list
+        }
+        old_ids = set(old_rows_by_id)
+        new_ids = set(new_rows_by_id)
 
-        rows_to_add: list[dict[str, Any]] = []
-        rows_to_update: list[dict[str, Any]] = []
-        add_ids: list[str] = []
-        update_ids: list[str] = []
-        for row in rows_list:
-            rid = str(row[self._row_id_field])
-            if rid in old_ids:
-                rows_to_update.append(row)
-                update_ids.append(rid)
-            else:
-                rows_to_add.append(row)
-                add_ids.append(rid)
+        rows_to_add = [new_rows_by_id[rid] for rid in new_ids - old_ids]
+        rows_to_update = [
+            new_rows_by_id[rid]
+            for rid in new_ids & old_ids
+            if old_rows_by_id[rid] != new_rows_by_id[rid]
+        ]
         ids_to_remove = old_ids - new_ids
 
         new_all_rows: list[dict[str, Any]] = []
@@ -408,24 +482,44 @@ class TreeWidget:
         if not replaced:
             new_all_rows.extend(rows_list)
         self._rows = new_all_rows
-        self._known_ids_by_group[group_id] = new_ids
+        if new_ids:
+            self._known_ids_by_group[group_id] = new_ids
+        else:
+            self._known_ids_by_group.pop(group_id, None)
+
+        if ids_to_remove:
+            self._selected_row_ids = [
+                rid for rid in self._selected_row_ids if rid not in ids_to_remove
+            ]
+            row_by_id = {str(row[self._row_id_field]): row for row in self._rows}
+            self._selected_rows = [
+                dict(row_by_id[rid])
+                for rid in self._selected_row_ids
+                if rid in row_by_id
+            ]
+            self._last_selected_row_id = (
+                self._selected_row_ids[0] if self._selected_row_ids else None
+            )
 
         if self._grid is None:
+            self._ensure_grid_built()
             return
 
-        rows_by_id = {str(r[self._row_id_field]): r for r in self._rows}
         transaction: dict[str, Any] = {}
-        if add_ids:
-            transaction['add'] = [rows_by_id[rid] for rid in add_ids]
-        if update_ids:
-            transaction['update'] = [rows_by_id[rid] for rid in update_ids]
+        if rows_to_add:
+            transaction['add'] = rows_to_add
+        if rows_to_update:
+            transaction['update'] = rows_to_update
         if ids_to_remove:
-            transaction['remove'] = [{self._row_id_field: rid} for rid in ids_to_remove]
+            transaction['remove'] = [
+                {self._row_id_field: rid} for rid in ids_to_remove
+            ]
         if not transaction:
             return
 
         self._grid.run_grid_method('applyTransaction', transaction)
-        self.expand_group(group_id)
+        if rows_to_add:
+            self.expand_group(group_id)
 
     def expand_all_nodes(self) -> None:
         """Expand every tree group on the client."""
@@ -524,6 +618,7 @@ class TreeWidget:
             # block the browser's native menu over the grid surface.
             'suppressContextMenu': True,
             'preventDefaultOnContextMenu': True,
+            'suppressRowHoverHighlight': True,
         }
         if self._auto_group_column_def is not None:
             base['autoGroupColumnDef'] = dict(self._auto_group_column_def)
@@ -588,6 +683,27 @@ class TreeWidget:
         opts['rowData'] = [dict(r) for r in self._rows]
         self._grid.options = opts
         self._grid.update()
+
+    def _ensure_grid_built(self) -> None:
+        """Create the AG Grid element born with current rows, if needed.
+
+        No-op when the root container does not exist yet, when the grid is
+        already built, or when there are no rows to show. Creating the grid only
+        once rows exist guarantees it is never born with empty ``rowData`` (a
+        state in which programmatic selection updates AG Grid selection state but
+        never repaints the selected row). The context menu and row-select event
+        wiring are unaffected: the menu lives on ``self._root`` and selection
+        events are delivered via the module-level ``ui.on`` handler, not the
+        grid element instance.
+        """
+        if self._root is None or self._grid is not None or not self._rows:
+            return
+        with self._root:
+            self._grid = ui.aggrid(
+                self._build_aggrid_options(),
+                auto_size_columns=self._config.auto_size_columns,
+                modules='enterprise',
+            ).classes('w-full h-full min-w-0 min-h-0').style('height: 100%;')
 
     def _find_column_def(self, field: str) -> dict[str, Any]:
         for c in self._column_defs:

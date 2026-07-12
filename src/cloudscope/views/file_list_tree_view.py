@@ -35,10 +35,23 @@ from cloudscope.event_bus import EventBus
 from cloudscope.events.app_config import BlindedAnalysisModeChanged
 from cloudscope.events.acq_image_events import AcqImageEventsChanged
 from cloudscope.events.analysis import AnalysisCompleted
-from cloudscope.events.files import FileListChanged, ImageDataUnloaded, UnloadImageDataIntent
+from cloudscope.events.files import (
+    FileListChanged,
+    ImageDataLoaded,
+    ImageDataUnloaded,
+    SaveAsTifIntent,
+    UnloadImageDataIntent,
+)
 from cloudscope.events.metadata import MetadataChanged
 from cloudscope.events.roi import RoiChanged
-from cloudscope.events.selection import SelectFileIntent
+from cloudscope.events.selection import (
+    SELECTION_SOURCE_EXTERNAL,
+    SELECTION_SOURCE_FILE_LIST_TABLE,
+    SELECTION_SOURCE_FILE_LIST_TREE,
+    SELECTION_SOURCE_LOAD,
+    SELECTION_SOURCE_VELOCITY_POOL,
+    SelectFileIntent,
+)
 from cloudscope.schema_adapters import schema_to_column_defs
 from cloudscope.session_state import (
     VIEW_SESSION_SCHEMA_VERSION,
@@ -59,6 +72,23 @@ logger = get_logger(__name__)
 _FILE_TREE_ROOT_CLASSES = (
     'w-full flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col'
 )
+
+
+_SCROLL_INTO_VIEW_SOURCES = frozenset(
+    {
+        SELECTION_SOURCE_EXTERNAL,
+        SELECTION_SOURCE_FILE_LIST_TABLE,
+        SELECTION_SOURCE_VELOCITY_POOL,
+        SELECTION_SOURCE_LOAD,
+    }
+)
+"""Selection sources for which a programmatic selection scrolls the row into view.
+
+A selection driven from the tree's own click
+(:data:`cloudscope.events.selection.SELECTION_SOURCE_FILE_LIST_TREE`) and the
+channel/ROI/refresh sentinels are deliberately excluded, so user clicks in the
+tree never trigger an automatic scroll.
+"""
 
 
 _TREE_CHEVRON_COLUMN_FIELD = "name"
@@ -290,8 +320,27 @@ class AcqImageListTreeView(BaseView):
             None.
         """
         ui.menu_item("Reveal In Finder", on_click=self._reveal_selected_file_in_finder)
+        ui.menu_item("Save As Tif...", on_click=self._save_selected_file_as_tif)
         ui.menu_item("Unload Data", on_click=self._unload_selected_file_data)
 
+    def _save_selected_file_as_tif(self) -> None:
+        """Publish a Save As Tif intent for the selected file or analysis row.
+
+        Returns:
+            None.
+        """
+        if self._tree is None:
+            logger.warning("Save As Tif requested before file tree was built")
+            return
+        selected_rows = self._tree.get_selected_rows()
+        if not selected_rows:
+            ui.notify("No file selected", type="warning")
+            return
+        file_id = self._resolve_file_id_from_row(selected_rows[0])
+        if not isinstance(file_id, str) or not file_id:
+            ui.notify("Selected row has no file path", type="warning")
+            return
+        self.event_bus.publish(SaveAsTifIntent(file_id=file_id))
 
     def _unload_selected_file_data(self) -> None:
         """Publish an unload intent for the selected file or analysis row.
@@ -407,6 +456,7 @@ class AcqImageListTreeView(BaseView):
         self.add_subscription(self.event_bus.subscribe(AnalysisCompleted, self._on_analysis_completed))
         self.add_subscription(self.event_bus.subscribe(AcqImageEventsChanged, self._on_acq_image_events_changed))
         self.add_subscription(self.event_bus.subscribe(RoiChanged, self._on_roi_changed))
+        self.add_subscription(self.event_bus.subscribe(ImageDataLoaded, self._on_image_data_loaded))
         self.add_subscription(self.event_bus.subscribe(ImageDataUnloaded, self._on_image_data_unloaded))
 
     def refresh_from_state(self) -> None:
@@ -449,7 +499,12 @@ class AcqImageListTreeView(BaseView):
             )
 
         if row_type == ACQ_TREE_ROW_TYPE_FILE:
-            self.event_bus.publish(SelectFileIntent(file_id=file_id))
+            self.event_bus.publish(
+                SelectFileIntent(
+                    file_id=file_id,
+                    source=SELECTION_SOURCE_FILE_LIST_TREE,
+                )
+            )
             return
 
         if row_type == ACQ_TREE_ROW_TYPE_ANALYSIS:
@@ -471,6 +526,7 @@ class AcqImageListTreeView(BaseView):
                     channel=channel,
                     roi_id=roi_id,
                     analysis_name=analysis_name,
+                    source=SELECTION_SOURCE_FILE_LIST_TREE,
                 )
             )
             return
@@ -480,23 +536,44 @@ class AcqImageListTreeView(BaseView):
     def on_primary_selection_changed(self) -> None:
         """Reflect cached primary selection in the tree selection.
 
-        When image pixels are loaded, refresh that file's subtree so schema
-        columns such as ``loaded`` match backend state.
+        Selection changes update selection only. Tree row data is refreshed by
+        concrete data-change events such as :class:`ImageDataLoaded`, metadata,
+        ROI, analysis, and unload events.
 
         Returns:
             None.
         """
         if self._tree is None:
             return
-        file_id = self.current_selection.file_id
-        if file_id is None:
+        if self.current_selection.file_id is None:
             self._tree.clear_selection()
             return
-        acq_image = self.get_acq_image_by_file_id(file_id)
-        if acq_image is not None and acq_image.images_loaded:
-            self._replace_group_rows_from_acq_image(file_id)
-            return
         self._sync_table_selection()
+        self._maybe_scroll_selection_into_view()
+
+    def _current_selection_row_id(self) -> str | None:
+        """Return the tree row id for the cached primary selection.
+
+        Returns the analysis child-row id when
+        ``current_selection.analysis_name`` and channel/ROI ints are set,
+        otherwise the file row id. Returns ``None`` when no file is selected.
+
+        Returns:
+            Stable tree row id, or ``None`` when nothing is selected.
+        """
+        file_id = self.current_selection.file_id
+        if file_id is None:
+            return None
+        analysis_name = self.current_selection.analysis_name
+        channel = self.current_selection.channel
+        roi_id = self.current_selection.roi_id
+        if (
+            analysis_name is not None
+            and isinstance(channel, int)
+            and isinstance(roi_id, int)
+        ):
+            return build_analysis_tree_row_id(file_id, analysis_name, channel, roi_id)
+        return file_id
 
     def _sync_table_selection(self) -> None:
         """Apply cached primary selection to the tree widget.
@@ -510,30 +587,43 @@ class AcqImageListTreeView(BaseView):
         """
         if self._tree is None:
             return
-        file_id = self.current_selection.file_id
-        if file_id is None:
+        row_id = self._current_selection_row_id()
+        if row_id is None:
             self._tree.clear_selection()
             return
+        self._tree.set_selected_row_ids([row_id], origin="state")
 
-        analysis_name = self.current_selection.analysis_name
-        channel = self.current_selection.channel
-        roi_id = self.current_selection.roi_id
-        if (
-            analysis_name is not None
-            and isinstance(channel, int)
-            and isinstance(roi_id, int)
-        ):
-            row_id = build_analysis_tree_row_id(
-                file_id,
-                analysis_name,
-                channel,
-                roi_id,
-            )
-            self._tree.set_selected_row_ids([row_id], origin="state")
+    def _maybe_scroll_selection_into_view(self) -> None:
+        """Scroll the selected row into view for external programmatic selection.
+
+        Scrolls only when the current selection originated outside the tree
+        (see :data:`_SCROLL_INTO_VIEW_SOURCES`). A selection driven by a user
+        clicking a row in this tree, or by channel/ROI/refresh changes, never
+        scrolls, preserving native click behavior.
+
+        Returns:
+            None.
+        """
+        if self._tree is None:
             return
+        if self.current_selection_source not in _SCROLL_INTO_VIEW_SOURCES:
+            return
+        row_id = self._current_selection_row_id()
+        if row_id is None:
+            return
+        self._tree.scroll_row_id_into_view(row_id)
 
-        self._tree.set_selected_row_ids([file_id], origin="state")
 
+    def _on_image_data_loaded(self, event: ImageDataLoaded) -> None:
+        """Refresh one file subtree after lazy image/analysis data load.
+
+        Args:
+            event: Load state event.
+
+        Returns:
+            None.
+        """
+        self._replace_group_rows_from_acq_image(event.file_id)
 
     def _on_image_data_unloaded(self, event: ImageDataUnloaded) -> None:
         """Refresh one file subtree after lazy image/analysis data unload.
@@ -638,12 +728,19 @@ class AcqImageListTreeView(BaseView):
     def _replace_group_rows_from_acq_image(self, file_id: str) -> None:
         """Replace one file's full subtree from the current ``AcqImage``.
 
-        Replacing the subtree via AG Grid ``applyTransaction`` drops
-        client-side selection state for rows in the affected group, even
-        when their stable row id is unchanged. To keep analysis-row
-        selection visually persistent across analysis runs, this method
-        re-applies :meth:`_sync_table_selection` after the replace when
-        the cached selection points at the same file.
+        This refreshes row DATA only and does NOT touch selection. AG Grid's
+        id-keyed ``applyTransaction`` (``getRowId`` is the stable tree row id)
+        preserves the client-side selection of surviving rows across
+        ``update``/``add``/``remove``, verified in-browser: selecting a row and
+        applying an ``update`` transaction for it leaves it selected.
+
+        Re-applying selection here previously caused a visible flash: a
+        lazy-load side-effect refresh re-selected the *stale* cached selection
+        (fighting the row the user just clicked), and a second refresh from
+        ``FileSelectionChanged`` re-selected again. Selection is now owned by
+        the selection path (:meth:`on_primary_selection_changed` /
+        :meth:`_sync_table_selection`, which is idempotent), not by subtree
+        data refreshes.
 
         Args:
             file_id: Stable acquisition file identifier.
@@ -659,8 +756,6 @@ class AcqImageListTreeView(BaseView):
             logger.error("acq_image not found: %s", file_id)
             return
         self._tree.replace_group_rows(file_id, self._display_tree_rows(acq_image.get_tree_rows()))
-        if self.current_selection.file_id == file_id:
-            self._sync_table_selection()
 
     def _read_tree_rows_from_state(self) -> list[dict[str, Any]]:
         """Read tree rows for the entire current file list.

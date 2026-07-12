@@ -12,7 +12,10 @@ import pytest
 from acqstore.analysis_pool.sum_intensity_analysis_pool import SumIntensityAnalysisPool
 from acqstore.analysis_pool.velocity_analysis_pool import VelocityAnalysisPool
 from cloudscope.event_bus import EventBus
-from cloudscope.events.selection import SelectFileIntent
+from cloudscope.events.selection import (
+    SELECTION_SOURCE_VELOCITY_POOL,
+    SelectFileIntent,
+)
 from cloudscope.events.sum_intensity_pool import (
     SumIntensityPoolChanged,
     SumIntensityPoolChangeKind,
@@ -122,7 +125,14 @@ def test_velocity_pool_view_row_selection_publishes_select_file_intent() -> None
         {"path": "file-a", "channel": 2, "roi_id": 5},
     )
 
-    assert intents == [SelectFileIntent(file_id="file-a", channel=2, roi_id=5)]
+    assert intents == [
+        SelectFileIntent(
+            file_id="file-a",
+            channel=2,
+            roi_id=5,
+            source=SELECTION_SOURCE_VELOCITY_POOL,
+        )
+    ]
 
 
 def test_velocity_pool_view_masks_pool_dataframe_and_maps_selection() -> None:
@@ -161,7 +171,14 @@ def test_velocity_pool_view_masks_pool_dataframe_and_maps_selection() -> None:
 
     view._on_row_selected(display_row_id, row)  # noqa: SLF001
 
-    assert intents == [SelectFileIntent(file_id="/data/a.oir", channel=2, roi_id=5)]
+    assert intents == [
+        SelectFileIntent(
+            file_id="/data/a.oir",
+            channel=2,
+            roi_id=5,
+            source=SELECTION_SOURCE_VELOCITY_POOL,
+        )
+    ]
 
 
 def test_empty_velocity_pool_dataframe_uses_full_backend_schema() -> None:

@@ -12,10 +12,13 @@ from cloudscope.event_bus import EventBus
 from cloudscope.events.app_config import BlindedAnalysisModeChanged
 from cloudscope.events.acq_image_events import AcqImageEventsChanged
 from cloudscope.events.analysis import AnalysisCompleted
-from cloudscope.events.files import FileListChanged, ImageDataUnloaded
+from cloudscope.events.files import FileListChanged, ImageDataLoaded, ImageDataUnloaded
 from cloudscope.events.metadata import MetadataChanged
 from cloudscope.events.roi import RoiChanged
-from cloudscope.events.selection import SelectFileIntent
+from cloudscope.events.selection import (
+    SELECTION_SOURCE_FILE_LIST_TABLE,
+    SelectFileIntent,
+)
 from cloudscope.schema_adapters import schema_to_column_defs
 from cloudscope.utils.file_manager import reveal_in_file_manager
 from cloudscope.utils.logging import get_logger
@@ -177,6 +180,7 @@ class AcqImageListTableView(BaseView):
         self.add_subscription(self.event_bus.subscribe(AnalysisCompleted, self._on_analysis_completed))
         self.add_subscription(self.event_bus.subscribe(AcqImageEventsChanged, self._on_acq_image_events_changed))
         self.add_subscription(self.event_bus.subscribe(RoiChanged, self._on_roi_changed))
+        self.add_subscription(self.event_bus.subscribe(ImageDataLoaded, self._on_image_data_loaded))
         self.add_subscription(self.event_bus.subscribe(ImageDataUnloaded, self._on_image_data_unloaded))
 
     def refresh_from_state(self) -> None:
@@ -211,7 +215,12 @@ class AcqImageListTableView(BaseView):
                 f"Expected file_id at {self._row_id_field!r} to be str, "
                 f"got {type(file_id).__name__}"
             )
-        self.event_bus.publish(SelectFileIntent(file_id=file_id))
+        self.event_bus.publish(
+            SelectFileIntent(
+                file_id=file_id,
+                source=SELECTION_SOURCE_FILE_LIST_TABLE,
+            )
+        )
 
     def on_primary_selection_changed(self) -> None:
         """Reflect cached primary selection in the table selection.
@@ -235,6 +244,19 @@ class AcqImageListTableView(BaseView):
             return
         self._table.set_selected_row_ids([file_id], origin="state")
 
+
+    def _on_image_data_loaded(self, event: ImageDataLoaded) -> None:
+        """Refresh one table row after lazy image/analysis data load.
+
+        Args:
+            event: Load state event carrying an updated file-list row.
+
+        Returns:
+            None.
+        """
+        if self._table is None:
+            return
+        self._table.update_row(event.file_id, self._display_row(dict(event.file_list_row)))
 
     def _on_image_data_unloaded(self, event: ImageDataUnloaded) -> None:
         """Refresh one table row after lazy image/analysis data unload.

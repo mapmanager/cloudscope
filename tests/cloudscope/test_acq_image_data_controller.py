@@ -8,6 +8,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from cloudscope.controllers.acq_image_data_controller import AcqImageDataController
+from cloudscope.event_bus import EventBus
+from cloudscope.events.files import ImageDataLoaded
 
 
 class _FakeAcqImage:
@@ -24,6 +26,9 @@ class _FakeAcqImage:
     def load_lazy_data(self) -> None:
         self.load_calls += 1
         self._loaded = True
+
+    def get_schema_row(self) -> dict[str, object]:
+        return {'path': 'a.oir', 'loaded': self._loaded}
 
 
 def test_clear_selection_invokes_callback_synchronously() -> None:
@@ -168,3 +173,60 @@ def test_load_failure_does_not_invoke_callback(monkeypatch: pytest.MonkeyPatch) 
         assert seen == []
 
     asyncio.run(_run())
+
+
+def test_cold_file_publishes_image_data_loaded_before_completion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bus = EventBus()
+    ctrl = AcqImageDataController(event_bus=bus)
+    acq = _FakeAcqImage(loaded=False)
+    pending_tasks: list[asyncio.Task[None]] = []
+    order: list[str] = []
+    events: list[ImageDataLoaded] = []
+    bus.subscribe(ImageDataLoaded, lambda event: (events.append(event), order.append('loaded')))
+
+    async def _fake_io_bound(fn, *args, **kwargs):
+        fn(*args, **kwargs)
+
+    def _capture_schedule(coro):
+        pending_tasks.append(asyncio.create_task(coro))
+
+    monkeypatch.setattr(
+        'cloudscope.controllers.acq_image_data_controller.run.io_bound',
+        _fake_io_bound,
+    )
+    monkeypatch.setattr(
+        'cloudscope.controllers.acq_image_data_controller._schedule_coro',
+        _capture_schedule,
+    )
+
+    async def _run() -> None:
+        ctrl.ensure_loaded_for_selection(
+            'a.oir',
+            acq,
+            on_complete=lambda: order.append('complete'),
+        )
+        await asyncio.gather(*pending_tasks)
+
+    asyncio.run(_run())
+
+    assert order == ['loaded', 'complete']
+    assert events == [
+        ImageDataLoaded(
+            file_id='a.oir',
+            file_list_row={'path': 'a.oir', 'loaded': True},
+        )
+    ]
+
+
+def test_already_loaded_file_does_not_publish_image_data_loaded() -> None:
+    bus = EventBus()
+    ctrl = AcqImageDataController(event_bus=bus)
+    acq = _FakeAcqImage(loaded=True)
+    events: list[ImageDataLoaded] = []
+    bus.subscribe(ImageDataLoaded, events.append)
+
+    ctrl.ensure_loaded_for_selection('a.oir', acq, on_complete=lambda: None)
+
+    assert events == []

@@ -58,6 +58,21 @@ class SaveAllIntent(IntentEvent):
 
 
 @dataclass(frozen=True)
+class SaveAsTifIntent(IntentEvent):
+    """Request to export one acquisition file as TIFF (Save As).
+
+    Native desktop mode prompts for a local destination path. Web/server mode
+    writes a temporary TIFF and triggers a browser download so the client can
+    choose where to save locally. This does not write into the server data tree.
+
+    Attributes:
+        file_id: Stable acquisition file identifier to export.
+    """
+
+    file_id: str
+
+
+@dataclass(frozen=True)
 class UnloadImageDataIntent(IntentEvent):
     """Request lazy unload of one acquisition file's loaded data.
 
@@ -66,6 +81,19 @@ class UnloadImageDataIntent(IntentEvent):
     """
 
     file_id: str
+
+
+@dataclass(frozen=True)
+class ImageDataLoaded(StateEvent):
+    """Emitted after one acquisition file's lazy data was loaded.
+
+    Attributes:
+        file_id: Stable acquisition file identifier that was loaded.
+        file_list_row: Updated display row for table/tree refresh.
+    """
+
+    file_id: str
+    file_list_row: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
