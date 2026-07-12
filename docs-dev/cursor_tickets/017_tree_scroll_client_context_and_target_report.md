@@ -16,10 +16,12 @@
   NiceGUI slot stack.
 - The method now retains the actual requested AG Grid row node instead of
   replacing it with the top-level file ancestor.
-- Any collapsed ancestors of the requested row are expanded from root to leaf.
-- Scrolling is deferred with `requestAnimationFrame()` so AG Grid can update its
-  displayed row model after expansion before `ensureNodeVisible()` targets the
-  selected child row.
+- The implementation uses AG Grid's documented
+  `setRowNodeExpanded(target, true, true, {forceSync: true})` API to expand the
+  requested row and all parent nodes synchronously.
+- The synchronous expansion contract allows `ensureNodeVisible()` to target the
+  requested child immediately, without manual parent traversal or an animation-
+  frame timing assumption.
 - Existing selection-source gating remains unchanged: direct user clicks in the
   file-list tree do not trigger automatic scrolling, while supported external
   selection sources such as pool plots still do.
@@ -29,10 +31,11 @@
 - Replaced the old ancestor-scroll assertion with coverage that verifies:
   - JavaScript is sent through the grid element's explicit client;
   - the actual requested row id is resolved;
-  - collapsed ancestors are expanded;
-  - scrolling is deferred with `requestAnimationFrame()`;
+  - AG Grid's public `setRowNodeExpanded()` API expands all ancestors;
+  - synchronous expansion is requested with `{forceSync: true}`;
   - `ensureNodeVisible()` targets the selected row rather than its root file
-    ancestor.
+    ancestor;
+  - manual parent traversal and `requestAnimationFrame()` are not used.
 - Updated the empty-row-id test to use the explicit fake grid client and verify
   no JavaScript is sent.
 - Retained the existing no-grid no-op test and CloudScope source-gating tests.
@@ -49,13 +52,13 @@ uv run pytest -q
 Focused tests:
 
 ```text
-78 passed in 5.83s
+78 passed in 5.63s
 ```
 
 Full suite:
 
 ```text
-1868 passed, 16 skipped, 15 warnings in 29.21s
+1868 passed, 16 skipped, 15 warnings in 33.13s
 ```
 
 The 16 skips are existing missing uploaded/sample fixture skips. The warnings
@@ -66,8 +69,6 @@ are existing collection, SciPy deprecation, and all-NaN raster warnings.
 - Native-app visual verification was not available in this container. The
   changed JavaScript flow is covered structurally by unit tests, and the full
   automated suite passes.
-- The implementation uses one `requestAnimationFrame()` after ancestor
-  expansion. This is the smallest browser-side delay needed to allow AG Grid to
-  refresh displayed rows before scrolling. If a packaged-client-specific AG
-  Grid timing issue is observed later, verify live before adding retries or
-  timers.
+- The implementation now relies on AG Grid's documented synchronous expansion
+  option rather than a browser-frame delay. If packaged-client behavior differs,
+  verify it live before adding retries or timers.

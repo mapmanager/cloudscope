@@ -338,12 +338,13 @@ class TreeWidget:
         by :meth:`set_selected_row_ids`, so a user clicking a row in the tree
         never triggers an automatic scroll.
 
-        The method resolves the row by its stable AG Grid row id, expands any
-        collapsed ancestors, and then scrolls the actual target row to the
-        middle of the viewport on the next animation frame. JavaScript is sent
-        through the grid element's owning client so the method is safe when
-        invoked from an async background-task completion without an active
-        NiceGUI slot context. Unknown row ids and unbuilt grids are no-ops.
+        The method resolves the row by its stable AG Grid row id, uses AG Grid's
+        public ``setRowNodeExpanded`` API to expand the row and all ancestors
+        synchronously, and then scrolls the actual target row to the middle of
+        the viewport. JavaScript is sent through the grid element's owning
+        client so the method is safe when invoked from an async background-task
+        completion without an active NiceGUI slot context. Unknown row ids and
+        unbuilt grids are no-ops.
 
         Args:
             row_id: Stable row id to reveal.
@@ -362,19 +363,13 @@ class TreeWidget:
                 const target = grid.api.getRowNode({rid_literal});
                 if (!target) return;
 
-                const ancestors = [];
-                let parent = target.parent;
-                while (parent && parent.level >= 0) {{
-                    ancestors.push(parent);
-                    parent = parent.parent;
-                }}
-                for (const ancestor of ancestors.reverse()) {{
-                    if (!ancestor.expanded) ancestor.setExpanded(true);
-                }}
-
-                requestAnimationFrame(() => {{
-                    grid.api.ensureNodeVisible(target, 'middle');
-                }});
+                grid.api.setRowNodeExpanded(
+                    target,
+                    true,
+                    true,
+                    {{forceSync: true}},
+                );
+                grid.api.ensureNodeVisible(target, 'middle');
             }})()
         """
         self._grid.client.run_javascript(script)

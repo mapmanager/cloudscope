@@ -470,7 +470,7 @@ def test_scroll_row_id_into_view_no_op_without_grid() -> None:
 
 
 def test_scroll_row_id_into_view_expands_ancestors_and_scrolls_target() -> None:
-    """Scroll must use the grid client and reveal the actual requested row."""
+    """Scroll must use documented AG Grid APIs on the grid's owning client."""
     scripts: list[str] = []
     client = SimpleNamespace(run_javascript=lambda script: scripts.append(script))
     tw = TreeWidget(columns=_sample_columns(), row_id_field='row_id', rows=_sample_rows())
@@ -483,11 +483,13 @@ def test_scroll_row_id_into_view_expands_ancestors_and_scrolls_target() -> None:
     assert 'getElement(55)' in script
     assert 'getRowNode("/a::1")' in script
     assert 'const target =' in script
-    assert 'target.parent' in script
-    assert 'ancestor.setExpanded(true)' in script
-    assert 'requestAnimationFrame' in script
+    assert 'setRowNodeExpanded' in script
+    assert 'target,' in script
+    assert '{forceSync: true}' in script
     assert "ensureNodeVisible(target, 'middle')" in script
-    assert 'ensureNodeVisible(node' not in script
+    assert 'target.parent' not in script
+    assert 'ancestor.setExpanded(true)' not in script
+    assert 'requestAnimationFrame' not in script
 
 
 def test_scroll_row_id_into_view_ignores_empty_id() -> None:
