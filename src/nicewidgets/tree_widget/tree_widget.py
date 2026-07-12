@@ -331,18 +331,19 @@ class TreeWidget:
             self._grid.run_grid_method('deselectAll')
 
     def scroll_row_id_into_view(self, row_id: str) -> None:
-        """Scroll the tree so the row with ``row_id`` is visible.
+        """Expand and scroll the tree so the requested row is visible.
 
         This is intended for programmatic selection driven from outside the
         tree (for example a pool-plot click). It is intentionally NOT called
         by :meth:`set_selected_row_ids`, so a user clicking a row in the tree
         never triggers an automatic scroll.
 
-        The grid scrolls to the row's top-level ancestor (its file group row),
-        which is always present in the displayed rows even when the group is
-        collapsed, using AG Grid's ``ensureNodeVisible`` API positioned at
-        ``'middle'``. When the requested row id is unknown or the grid has not
-        been built yet, this is a no-op.
+        The method resolves the row by its stable AG Grid row id, expands any
+        collapsed ancestors, and then scrolls the actual target row to the
+        middle of the viewport on the next animation frame. JavaScript is sent
+        through the grid element's owning client so the method is safe when
+        invoked from an async background-task completion without an active
+        NiceGUI slot context. Unknown row ids and unbuilt grids are no-ops.
 
         Args:
             row_id: Stable row id to reveal.
@@ -358,13 +359,25 @@ class TreeWidget:
             (() => {{
                 const grid = getElement({grid_id});
                 if (!grid || !grid.api) return;
-                let node = grid.api.getRowNode({rid_literal});
-                if (!node) return;
-                while (node.parent && node.level > 0) node = node.parent;
-                grid.api.ensureNodeVisible(node, 'middle');
+                const target = grid.api.getRowNode({rid_literal});
+                if (!target) return;
+
+                const ancestors = [];
+                let parent = target.parent;
+                while (parent && parent.level >= 0) {{
+                    ancestors.push(parent);
+                    parent = parent.parent;
+                }}
+                for (const ancestor of ancestors.reverse()) {{
+                    if (!ancestor.expanded) ancestor.setExpanded(true);
+                }}
+
+                requestAnimationFrame(() => {{
+                    grid.api.ensureNodeVisible(target, 'middle');
+                }});
             }})()
         """
-        ui.run_javascript(script)
+        self._grid.client.run_javascript(script)
 
     def set_data(self, rows: Sequence[Mapping[str, Any]]) -> None:
         """Replace all rows and refresh the tree.

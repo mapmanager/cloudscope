@@ -469,32 +469,33 @@ def test_scroll_row_id_into_view_no_op_without_grid() -> None:
     tw.scroll_row_id_into_view('/a')  # grid is None; must not raise
 
 
-def test_scroll_row_id_into_view_runs_ensure_node_visible(monkeypatch: Any) -> None:
-    """Scroll must climb to the top-level node and call ensureNodeVisible."""
+def test_scroll_row_id_into_view_expands_ancestors_and_scrolls_target() -> None:
+    """Scroll must use the grid client and reveal the actual requested row."""
     scripts: list[str] = []
-
-    def _fake_run_javascript(script: str) -> None:
-        scripts.append(script)
-
-    monkeypatch.setattr(tree_widget.ui, 'run_javascript', _fake_run_javascript)
+    client = SimpleNamespace(run_javascript=lambda script: scripts.append(script))
     tw = TreeWidget(columns=_sample_columns(), row_id_field='row_id', rows=_sample_rows())
-    tw._grid = SimpleNamespace(id=55)  # type: ignore[assignment]
+    tw._grid = SimpleNamespace(id=55, client=client)  # type: ignore[assignment]
 
     tw.scroll_row_id_into_view('/a::1')
 
     assert len(scripts) == 1
-    assert 'getElement(55)' in scripts[0]
-    assert 'getRowNode("/a::1")' in scripts[0]
-    assert 'node.level > 0' in scripts[0]
-    assert "ensureNodeVisible(node, 'middle')" in scripts[0]
+    script = scripts[0]
+    assert 'getElement(55)' in script
+    assert 'getRowNode("/a::1")' in script
+    assert 'const target =' in script
+    assert 'target.parent' in script
+    assert 'ancestor.setExpanded(true)' in script
+    assert 'requestAnimationFrame' in script
+    assert "ensureNodeVisible(target, 'middle')" in script
+    assert 'ensureNodeVisible(node' not in script
 
 
-def test_scroll_row_id_into_view_ignores_empty_id(monkeypatch: Any) -> None:
-    """An empty row id must not trigger any client JS."""
+def test_scroll_row_id_into_view_ignores_empty_id() -> None:
+    """An empty row id must not trigger any client JavaScript."""
     scripts: list[str] = []
-    monkeypatch.setattr(tree_widget.ui, 'run_javascript', lambda s: scripts.append(s))
+    client = SimpleNamespace(run_javascript=lambda script: scripts.append(script))
     tw = TreeWidget(columns=_sample_columns(), row_id_field='row_id', rows=_sample_rows())
-    tw._grid = SimpleNamespace(id=55)  # type: ignore[assignment]
+    tw._grid = SimpleNamespace(id=55, client=client)  # type: ignore[assignment]
 
     tw.scroll_row_id_into_view('')
 
