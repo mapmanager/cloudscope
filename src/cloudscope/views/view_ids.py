@@ -18,6 +18,7 @@ class ViewId(StrEnum):
     SUM_INTENSITY_ANALYSIS = "sum_intensity_analysis"
     LEFT_TOOLBAR_REFERENCE_IMAGE = "left_toolbar_reference_image"
     LEFT_TOOLBAR_FILE_LIST = "left_toolbar_file_list"
+    DEBUG = "debug"
     SUM_INTENSITY_PLOT = "sum_intensity_plot"
     EVENT_ANALYSIS = "event_analysis"
     ACQ_ANALYSIS_PLOT = "acq_analysis_plot"

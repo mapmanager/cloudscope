@@ -15,6 +15,7 @@ from cloudscope.raster_display_cache import RasterDisplayCache
 from cloudscope.views.app_config_view import AppConfigView
 from cloudscope.views.app_info_view import AppInfoView
 from cloudscope.views.base_view import BaseView
+from cloudscope.views.debug_view import DebugView
 from cloudscope.views.metadata_widget.experiment_metadata_view import ExperimentMetadataView
 from cloudscope.views.metadata_widget.image_header_metadata_view import ImageHeaderMetadataView
 from cloudscope.views.diameter_analysis_view import DiameterAnalysisView
@@ -57,6 +58,7 @@ _LEFT_TOOLBAR_TABS: tuple[LeftToolbarTab, ...] = (
     LeftToolbarTab(ViewId.LEFT_TOOLBAR_REFERENCE_IMAGE, "Reference Image", "image"),
     LeftToolbarTab(ViewId.APP_CONFIG, "Config", "settings"),
     LeftToolbarTab(ViewId.APP_INFO, "App info", "info"),
+    LeftToolbarTab(ViewId.DEBUG, "Debug", "bug_report"),
 )
 
 
@@ -159,6 +161,10 @@ class LeftToolbarView(BaseView):
             event_bus=event_bus,
             initially_visible=False,
         )
+        self.debug_view = DebugView(
+            event_bus=event_bus,
+            initially_visible=False,
+        )
         for child in (
             self.file_list_view,
             self.experiment_metadata_view,
@@ -170,6 +176,7 @@ class LeftToolbarView(BaseView):
             self.reference_image_view,
             self.app_config_view,
             self.app_info_view,
+            self.debug_view,
         ):
             child.set_blinded_provider(app_config.get_blinded)
 
@@ -215,6 +222,7 @@ class LeftToolbarView(BaseView):
                     self.reference_image_view.build()
                     self.app_config_view.build()
                     self.app_info_view.build()
+                    self.debug_view.build()
 
         if parent is None:
             _build()
@@ -252,6 +260,7 @@ class LeftToolbarView(BaseView):
             self.reference_image_view,
             self.app_config_view,
             self.app_info_view,
+            self.debug_view,
         ):
             if view.view_id not in self._view_manager.view_ids():
                 self._view_manager.register(view)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING
 
 from acqstore.acq_image.acq_image import AcqImage
@@ -54,6 +54,25 @@ class HomePageState:
     acq_image_list: AcqImageList | None = None
     visible_file_ids_provider: Callable[[], Awaitable[list[str]]] | None = field(default=None)
     primary_x_range: tuple[float | None, float | None] = (None, None)
+
+    def to_debug_dict(self) -> dict[str, object]:
+        """Return a JSON-friendly diagnostic summary of home-page state.
+
+        This is a read-only diagnostic view of the serializable state, not a
+        round-trippable contract. Non-serializable runtime fields
+        (``acq_image_list``, ``visible_file_ids_provider``) are summarized
+        rather than emitted.
+
+        Returns:
+            Mapping with the current ``selection``, ``primary_x_range``, the
+            number of files, and whether a backend file list is loaded.
+        """
+        return {
+            'selection': asdict(self.selection),
+            'primary_x_range': list(self.primary_x_range),
+            'file_count': len(self.file_ids),
+            'acq_image_list_loaded': self.acq_image_list is not None,
+        }
 
 
 class HomePageController:

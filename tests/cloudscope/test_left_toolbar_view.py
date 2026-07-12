@@ -6,6 +6,7 @@ from cloudscope.app_config import AppConfig
 from cloudscope.event_bus import EventBus
 from cloudscope.events.app_config import BlindedAnalysisModeChanged
 from cloudscope.views.app_config_view import AppConfigView
+from cloudscope.views.debug_view import DebugView
 from cloudscope.views.left_panel_file_list_view import LeftPanelFileListView
 from cloudscope.views.left_toolbar_view import LeftPanelReferenceImageView, LeftToolbarView
 from cloudscope.views.metadata_widget.experiment_metadata_view import ExperimentMetadataView
@@ -54,6 +55,7 @@ def test_left_toolbar_constructs_panel_views(tmp_path) -> None:
     assert isinstance(view.sum_intensity_analysis_view, SumIntensityAnalysisView)
     assert isinstance(view.app_config_view, AppConfigView)
     assert isinstance(view.reference_image_view, LeftPanelReferenceImageView)
+    assert isinstance(view.debug_view, DebugView)
     assert view.panel_view_ids == (
         ViewId.LEFT_TOOLBAR_FILE_LIST,
         ViewId.EXPERIMENT_METADATA,
@@ -64,6 +66,7 @@ def test_left_toolbar_constructs_panel_views(tmp_path) -> None:
         ViewId.LEFT_TOOLBAR_REFERENCE_IMAGE,
         ViewId.APP_CONFIG,
         ViewId.APP_INFO,
+        ViewId.DEBUG,
     )
     assert view.active_view_id is None
 
