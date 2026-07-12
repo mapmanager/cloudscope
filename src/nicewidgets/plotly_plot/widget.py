@@ -6,7 +6,7 @@ import json
 import math
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Literal
 
 from nicegui import core, ui
@@ -319,10 +319,7 @@ class PlotlyPlotWidget:
         x_label: str = "x",
         y_label: str = "y",
         y2_label: str = "",
-        theme: PlotlyThemeName = "light",
-        show_legend: bool = True,
-        show_x_axis_labels: bool = False,
-        show_y_axis_labels: bool = False,
+        display_options: PlotlyPlotDisplayOptions | None = None,
         on_x_range_changed: OnPlotlyXRangeChanged | None = None,
         on_x_range_selected: OnPlotlyXRangeSelected | None = None,
         on_measurement_changed: OnMeasurementChanged | None = None,
@@ -336,11 +333,10 @@ class PlotlyPlotWidget:
             y_label: Primary left y-axis label.
             y2_label: Secondary right y-axis label used when a visible right-axis
                 trace or scatter is present.
-            theme: Initial Plotly light/dark layout theme.
-            show_legend: Whether the bottom horizontal legend starts visible.
-            show_x_axis_labels: Whether x-axis decorations start visible.
-            show_y_axis_labels: Whether primary left and secondary right y-axis
-                decorations start visible.
+            display_options: Initial display options (theme, legend, axis-label,
+                toolbar, and hover visibility). Defaults to
+                :class:`PlotlyPlotDisplayOptions` defaults. The widget owns a
+                private copy; later context-menu toggles mutate the copy.
             on_x_range_changed: Optional callback invoked after the user changes
                 the x-axis range by zooming, panning, or autoranging. ``(None,
                 None)`` means Plotly returned to autorange.
@@ -357,13 +353,9 @@ class PlotlyPlotWidget:
         self._y_label = str(y_label)
         self._y2_label = str(y2_label)
         self._layout_margins_profile = layout_margins_profile
-        self._theme = normalize_plotly_theme(theme)
-        self._display_options = PlotlyPlotDisplayOptions(
-            theme=self._theme,
-            show_legend=bool(show_legend),
-            show_x_axis_labels=bool(show_x_axis_labels),
-            show_y_axis_labels=bool(show_y_axis_labels),
-        )
+        self._display_options = replace(display_options or PlotlyPlotDisplayOptions())
+        self._theme = normalize_plotly_theme(self._display_options.theme)
+        self._display_options.theme = self._theme
         self._placeholder_text: str | None = None
         self._on_x_range_changed = on_x_range_changed
         self._on_x_range_selected = on_x_range_selected
@@ -526,6 +518,28 @@ class PlotlyPlotWidget:
             self._pin_x_axis_after_series_update()
             return
         raise KeyError(f"series {clean!r} does not exist")
+
+    def set_series_visible_state(self, series_name: str, visible: bool) -> None:
+        """Set desired visibility for a series that may not be loaded yet.
+
+        Unlike :meth:`set_series_visible`, this never raises for an unknown
+        series. When the series is already loaded it restyles immediately;
+        otherwise the visibility is stored and applied the next time the series
+        is added. This supports restoring visibility before plot data exists
+        (for example on reconnect hydrate).
+
+        Args:
+            series_name: Trace or scatter overlay name.
+            visible: Whether the series should be visible.
+
+        Returns:
+            None.
+        """
+        clean = str(series_name).strip()
+        if clean in self._traces or clean in self._scatters:
+            self.set_series_visible(clean, visible)
+            return
+        self._series_visibility[clean] = bool(visible)
 
     def set_y2_label(self, label: str) -> None:
         """Set the secondary right y-axis title text.

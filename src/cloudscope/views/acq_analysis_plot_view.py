@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Coroutine
-from dataclasses import asdict
+from dataclasses import dataclass, field
 from typing import Any
 
 from nicegui import run, ui
@@ -43,6 +43,66 @@ from cloudscope.utils.logging import get_logger
 logger = get_logger(__name__)
 
 PRIMARY_KYMOGRAPH_GROUP = "primary_kymograph"
+
+
+@dataclass(slots=True)
+class AcqAnalysisPlotViewState:
+    """Serializable reconnect session state for :class:`AcqAnalysisPlotView`.
+
+    Owning the blob shape here keeps the view thin: the view builds this object
+    from live widget/view state on disconnect and applies it on reconnect,
+    while ``to_dict``/``from_dict`` handle schema versioning, key validation,
+    and nested display-option serialization.
+
+    Args:
+        selection_guard: Selection identity captured at export time and used by
+            :class:`BaseView` to skip stale reconnect blobs.
+        display_options: Child Plotly widget display options.
+        events_visible: Whether event overlays are visible.
+        schema_version: Session blob schema version.
+    """
+
+    selection_guard: dict[str, Any]
+    display_options: PlotlyPlotDisplayOptions = field(default_factory=PlotlyPlotDisplayOptions)
+    events_visible: bool = True
+    schema_version: int = VIEW_SESSION_SCHEMA_VERSION
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable session blob.
+
+        Returns:
+            Mapping with schema version, selection guard, event visibility, and
+            nested display options.
+        """
+        return {
+            'schema_version': self.schema_version,
+            'selection_guard': dict(self.selection_guard),
+            'events_visible': bool(self.events_visible),
+            'display_options': self.display_options.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> AcqAnalysisPlotViewState:
+        """Build state from a blob produced by :meth:`to_dict`.
+
+        Args:
+            data: Session blob from :meth:`export_session_state`.
+
+        Returns:
+            Reconstructed :class:`AcqAnalysisPlotViewState`.
+
+        Raises:
+            KeyError: If required keys (including ``schema_version``) are absent.
+            ValueError: If ``schema_version`` is unsupported.
+        """
+        require_schema_version(data)
+        require_keys(data, 'selection_guard', 'events_visible', 'display_options')
+        return cls(
+            selection_guard=dict(data['selection_guard']),
+            display_options=PlotlyPlotDisplayOptions.from_dict(data['display_options']),
+            events_visible=bool(data['events_visible']),
+            schema_version=int(data.get('schema_version', VIEW_SESSION_SCHEMA_VERSION)),
+        )
 
 
 def _schedule_coro(coro: Coroutine[Any, Any, None]) -> None:
@@ -132,16 +192,14 @@ class AcqAnalysisPlotView(BaseView):
         """
         chart = self._chart
         display_options = (
-            asdict(chart.display_options)
-            if chart is not None
-            else asdict(PlotlyPlotDisplayOptions())
+            chart.display_options if chart is not None else PlotlyPlotDisplayOptions()
         )
-        return {
-            'schema_version': VIEW_SESSION_SCHEMA_VERSION,
-            'selection_guard': selection_guard_from_selection(self.current_selection),
-            'events_visible': self._events_visible,
-            'display_options': display_options,
-        }
+        state = AcqAnalysisPlotViewState(
+            selection_guard=selection_guard_from_selection(self.current_selection),
+            display_options=display_options,
+            events_visible=self._events_visible,
+        )
+        return state.to_dict()
 
     def apply_session_state(self, data: dict[str, Any]) -> None:
         """Apply reconnect session chrome to the analysis plot widget.
@@ -152,10 +210,9 @@ class AcqAnalysisPlotView(BaseView):
         Returns:
             None.
         """
-        require_schema_version(data)
-        require_keys(data, 'selection_guard', 'events_visible', 'display_options')
-        self._events_visible = data['events_visible']
-        self._apply_plot_display_options(PlotlyPlotDisplayOptions(**data['display_options']))
+        state = AcqAnalysisPlotViewState.from_dict(data)
+        self._events_visible = state.events_visible
+        self._apply_plot_display_options(state.display_options)
 
     def _cache_reconnect_primary_x_range(
         self,
@@ -254,10 +311,12 @@ class AcqAnalysisPlotView(BaseView):
         # ui.label(self.title).classes("text-lg font-semibold shrink-0")
         
         self._chart = PlotlyPlotWidget(
-            theme="dark" if self._initial_dark_mode else "light",
-            show_legend=False,
-            show_x_axis_labels=True,
-            show_y_axis_labels=False,
+            display_options=PlotlyPlotDisplayOptions(
+                theme="dark" if self._initial_dark_mode else "light",
+                show_legend=False,
+                show_x_axis_labels=True,
+                show_y_axis_labels=False,
+            ),
             on_x_range_selected=self._on_x_range_selected,
             on_x_range_changed=self._on_chart_x_range_changed,
             layout_margins_profile=home_stack_layout_margins_profile(),

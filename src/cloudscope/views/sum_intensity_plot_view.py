@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Coroutine
-from dataclasses import asdict
+from dataclasses import dataclass, field
 from typing import Any
 
 from nicegui import run, ui
@@ -49,6 +49,69 @@ from nicewidgets.plotly_plot.widget import PlotlyPlotWidget
 _DIAMETER_TRACE_NAME = "Diameter"
 _DERIVATIVE_TRACE_NAME = "Derivative of df/f0"
 _DERIVATIVE_Y2_LABEL = "d(df/f0)/dt (1/s)"
+
+
+@dataclass(slots=True)
+class SumIntensityPlotViewState:
+    """Serializable reconnect session state for :class:`SumIntensityPlotView`.
+
+    Owning the blob shape here keeps the view thin. In addition to the child
+    Plotly widget display options, this view has per-series overlay visibility
+    (derivative, peak-width traces, onsets, peaks, diameter) driven by
+    context-menu toggles, so ``series_visibility`` is captured and restored.
+
+    Args:
+        selection_guard: Selection identity captured at export time and used by
+            :class:`BaseView` to skip stale reconnect blobs.
+        display_options: Child Plotly widget display options.
+        series_visibility: Visibility per context-menu series name.
+        schema_version: Session blob schema version.
+    """
+
+    selection_guard: dict[str, Any]
+    display_options: PlotlyPlotDisplayOptions = field(default_factory=PlotlyPlotDisplayOptions)
+    series_visibility: dict[str, bool] = field(default_factory=dict)
+    schema_version: int = VIEW_SESSION_SCHEMA_VERSION
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable session blob.
+
+        Returns:
+            Mapping with schema version, selection guard, nested display
+            options, and per-series visibility.
+        """
+        return {
+            'schema_version': self.schema_version,
+            'selection_guard': dict(self.selection_guard),
+            'display_options': self.display_options.to_dict(),
+            'series_visibility': dict(self.series_visibility),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> SumIntensityPlotViewState:
+        """Build state from a blob produced by :meth:`to_dict`.
+
+        Args:
+            data: Session blob from :meth:`export_session_state`.
+
+        Returns:
+            Reconstructed :class:`SumIntensityPlotViewState`.
+
+        Raises:
+            KeyError: If required keys (including ``schema_version``) are absent.
+            ValueError: If ``schema_version`` is unsupported.
+        """
+        require_schema_version(data)
+        require_keys(data, 'selection_guard', 'display_options', 'series_visibility')
+        return cls(
+            selection_guard=dict(data['selection_guard']),
+            display_options=PlotlyPlotDisplayOptions.from_dict(data['display_options']),
+            series_visibility={
+                str(name): bool(visible)
+                for name, visible in dict(data['series_visibility']).items()
+            },
+            schema_version=int(data.get('schema_version', VIEW_SESSION_SCHEMA_VERSION)),
+        )
 
 
 def _schedule_coro(coro: Coroutine[Any, Any, None]) -> None:
@@ -140,15 +203,14 @@ class SumIntensityPlotView(BaseView):
         """
         plot = self._plot
         display_options = (
-            asdict(plot.display_options)
-            if plot is not None
-            else asdict(PlotlyPlotDisplayOptions())
+            plot.display_options if plot is not None else PlotlyPlotDisplayOptions()
         )
-        return {
-            'schema_version': VIEW_SESSION_SCHEMA_VERSION,
-            'selection_guard': selection_guard_from_selection(self.current_selection),
-            'display_options': display_options,
-        }
+        state = SumIntensityPlotViewState(
+            selection_guard=selection_guard_from_selection(self.current_selection),
+            display_options=display_options,
+            series_visibility=self._current_series_visibility(),
+        )
+        return state.to_dict()
 
     def apply_session_state(self, data: dict[str, Any]) -> None:
         """Apply reconnect session chrome to the sum-intensity plot widget.
@@ -159,9 +221,9 @@ class SumIntensityPlotView(BaseView):
         Returns:
             None.
         """
-        require_schema_version(data)
-        require_keys(data, 'selection_guard', 'display_options')
-        self._apply_plot_display_options(PlotlyPlotDisplayOptions(**data['display_options']))
+        state = SumIntensityPlotViewState.from_dict(data)
+        self._apply_plot_display_options(state.display_options)
+        self._apply_series_visibility(state.series_visibility)
 
     def _cache_reconnect_primary_x_range(
         self,
@@ -193,6 +255,38 @@ class SumIntensityPlotView(BaseView):
         self._plot.set_plotly_toolbar_visible(options.show_plotly_toolbar)
         self._plot.set_hover_info_visible(options.show_hover_info)
         self._plot.set_legend_visible(options.show_legend)
+
+    def _current_series_visibility(self) -> dict[str, bool]:
+        """Return visibility per context-menu series from the child widget.
+
+        Returns:
+            Mapping of series name to visibility for each registered menu item,
+            or an empty mapping when the plot is not built.
+        """
+        if self._plot is None:
+            return {}
+        return {
+            item.series_name: self._plot.is_series_visible(item.series_name)
+            for item in self._sum_intensity_series_menu_items()
+        }
+
+    def _apply_series_visibility(self, series_visibility: dict[str, bool]) -> None:
+        """Restore per-series overlay visibility into the child widget.
+
+        Uses :meth:`PlotlyPlotWidget.set_series_visible_state` so visibility is
+        applied even before plot data is loaded; the next refresh honors it.
+
+        Args:
+            series_visibility: Mapping of series name to visibility.
+
+        Returns:
+            None.
+        """
+        if self._plot is None:
+            return
+        for name, visible in series_visibility.items():
+            self._plot.set_series_visible_state(name, visible)
+        self._apply_y2_label()
 
     def subscribe_events(self) -> None:
         """Subscribe to events that can change displayed sum-intensity results.
@@ -250,10 +344,12 @@ class SumIntensityPlotView(BaseView):
             None.
         """
         self._plot = PlotlyPlotWidget(
-            theme="dark" if self._initial_dark_mode else "light",
-            show_legend=False,
-            show_x_axis_labels=True,
-            show_y_axis_labels=False,
+            display_options=PlotlyPlotDisplayOptions(
+                theme="dark" if self._initial_dark_mode else "light",
+                show_legend=False,
+                show_x_axis_labels=True,
+                show_y_axis_labels=False,
+            ),
             on_x_range_changed=self._on_plot_x_range_changed,
             on_measurement_changed=self._on_measurement_changed,
             on_series_visibility_changed=self._on_series_visibility_changed,

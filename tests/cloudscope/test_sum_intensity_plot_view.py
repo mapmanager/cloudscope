@@ -29,8 +29,9 @@ from cloudscope.events.x_range import PrimaryXRangeChanged, SetPrimaryXRangeInte
 from cloudscope.state import PrimarySelection
 import cloudscope.views.sum_intensity_plot_view as sum_intensity_plot_view_module
 from cloudscope.views.base_view import BaseView
-from cloudscope.views.sum_intensity_plot_view import SumIntensityPlotView
+from cloudscope.views.sum_intensity_plot_view import SumIntensityPlotView, SumIntensityPlotViewState
 from cloudscope.views.view_ids import ViewId
+from nicewidgets.plotly_plot.display_options import PlotlyPlotDisplayOptions
 from nicewidgets.plotly_plot.models import MeasurementChangeEvent, PlotlyScatterData, PlotlySeriesMenuItem, PlotlyTraceData
 
 
@@ -50,6 +51,12 @@ class _FakePlot:
         self.y2_label: str | None = None
         self.x_label: str | None = None
         self.y_label: str | None = None
+        self.display_options = PlotlyPlotDisplayOptions()
+        self.show_x_axis_labels: bool | None = None
+        self.show_y_axis_labels: bool | None = None
+        self.show_plotly_toolbar: bool | None = None
+        self.show_hover_info: bool | None = None
+        self.show_legend: bool | None = None
 
     def register_series_menu_items(self, items: list[PlotlySeriesMenuItem]) -> None:
         """Record menu defaults while preserving existing visibility choices."""
@@ -62,6 +69,30 @@ class _FakePlot:
         if series_name in self._series_visibility:
             return self._series_visibility[series_name]
         return True
+
+    def set_series_visible_state(self, series_name: str, visible: bool) -> None:
+        """Store desired visibility for a possibly unloaded series."""
+        self._series_visibility[str(series_name).strip()] = bool(visible)
+
+    def set_x_axis_labels_visible(self, visible: bool) -> None:
+        """Record x-axis label visibility."""
+        self.show_x_axis_labels = bool(visible)
+
+    def set_y_axis_labels_visible(self, visible: bool) -> None:
+        """Record y-axis label visibility."""
+        self.show_y_axis_labels = bool(visible)
+
+    def set_plotly_toolbar_visible(self, visible: bool) -> None:
+        """Record toolbar visibility."""
+        self.show_plotly_toolbar = bool(visible)
+
+    def set_hover_info_visible(self, visible: bool) -> None:
+        """Record hover-info visibility."""
+        self.show_hover_info = bool(visible)
+
+    def set_legend_visible(self, visible: bool) -> None:
+        """Record legend visibility."""
+        self.show_legend = bool(visible)
 
     def set_series(
         self,
@@ -259,6 +290,53 @@ def test_sum_intensity_plot_view_identity() -> None:
     assert isinstance(view, BaseView)
     assert view.view_id is ViewId.SUM_INTENSITY_PLOT
     assert view.disable_when_busy is False
+
+
+def test_sum_intensity_plot_view_state_round_trip() -> None:
+    """SumIntensityPlotViewState should survive a to_dict/from_dict round trip."""
+    state = SumIntensityPlotViewState(
+        selection_guard={
+            "file_id": "file",
+            "channel": 0,
+            "roi_id": 1,
+            "analysis_name": None,
+        },
+        display_options=PlotlyPlotDisplayOptions(show_x_axis_labels=True),
+        series_visibility={"Derivative of df/f0": True, "Onsets": False},
+    )
+
+    restored = SumIntensityPlotViewState.from_dict(state.to_dict())
+
+    assert restored == state
+
+
+def test_export_session_state_captures_series_visibility() -> None:
+    """export_session_state should snapshot current per-series visibility."""
+    view = _view_with_fake_plot()
+    view.current_selection = PrimarySelection(file_id="file", channel=0, roi_id=1)
+    view._plot._series_visibility["Onsets"] = False  # type: ignore[attr-defined]
+
+    blob = view.export_session_state()
+
+    assert blob["series_visibility"]["Onsets"] is False
+    assert blob["series_visibility"]["Peaks"] is True
+
+
+def test_apply_session_state_restores_series_visibility_and_display_options() -> None:
+    """apply_session_state should restore visibility and display options."""
+    view = _view_with_fake_plot()
+    view.current_selection = PrimarySelection(file_id="file", channel=0, roi_id=1)
+    blob = SumIntensityPlotViewState(
+        selection_guard=view.export_session_state()["selection_guard"],
+        display_options=PlotlyPlotDisplayOptions(show_legend=True),
+        series_visibility={"Onsets": False, "Derivative of df/f0": True},
+    ).to_dict()
+
+    view.apply_session_state(blob)
+
+    assert view._plot.is_series_visible("Onsets") is False  # type: ignore[attr-defined]
+    assert view._plot.is_series_visible("Derivative of df/f0") is True  # type: ignore[attr-defined]
+    assert view._plot.show_legend is True  # type: ignore[attr-defined]
 
 
 def test_get_selected_sum_intensity_analysis_returns_matching_analysis() -> None:

@@ -14,6 +14,7 @@ from nicewidgets.plotly_plot.models import (
     PlotlyTraceData,
 )
 from nicewidgets.plotly_layout_margins import PlotlyLayoutMarginsProfile
+from nicewidgets.plotly_plot.display_options import PlotlyPlotDisplayOptions
 from nicewidgets.plotly_plot.event_overlay import PlotlyEventOverlay
 from nicewidgets.plotly_plot.widget import (
     PlotlyPlotWidget,
@@ -574,7 +575,7 @@ def test_widget_set_series_preserves_measurement_shapes(fake_plotly: list[_FakeP
 
 def test_widget_set_dark_mode_updates_layout_and_relayouts(fake_plotly: list[_FakePlotlyElement]) -> None:
     """Dark-mode toggles should update layout colors and relayout once."""
-    widget = PlotlyPlotWidget(theme="light")
+    widget = PlotlyPlotWidget(display_options=PlotlyPlotDisplayOptions(theme="light"))
 
     widget.set_dark_mode(True)
 
@@ -814,8 +815,12 @@ def test_toggle_right_axis_visibility_updates_yaxis2_decorations(
 
 
 def test_init_axis_label_visibility_kwargs(fake_plotly: list[_FakePlotlyElement]) -> None:
-    """Constructor kwargs should set independent x/y axis label visibility."""
-    widget = PlotlyPlotWidget(show_x_axis_labels=True, show_y_axis_labels=False)
+    """Constructor display options should set independent x/y axis label visibility."""
+    widget = PlotlyPlotWidget(
+        display_options=PlotlyPlotDisplayOptions(
+            show_x_axis_labels=True, show_y_axis_labels=False
+        )
+    )
 
     assert widget.display_options.show_x_axis_labels is True
     assert widget.display_options.show_y_axis_labels is False
@@ -854,8 +859,8 @@ def test_axis_label_font_size_is_explicit(fake_plotly: list[_FakePlotlyElement])
 
 
 def test_init_show_legend_false_builds_without_legend(fake_plotly: list[_FakePlotlyElement]) -> None:
-    """Initial legend visibility should come from the constructor kwarg."""
-    widget = PlotlyPlotWidget(show_legend=False)
+    """Initial legend visibility should come from the constructor display options."""
+    widget = PlotlyPlotWidget(display_options=PlotlyPlotDisplayOptions(show_legend=False))
 
     assert widget.display_options.show_legend is False
     assert widget.figure["layout"]["showlegend"] is False
@@ -890,3 +895,57 @@ def test_set_series_with_data_clears_placeholder(
 
     assert widget.placeholder_text is None
     assert widget._placeholder_container.visible is False
+
+
+def test_display_options_to_dict_from_dict_round_trip() -> None:
+    """Display options should survive a to_dict/from_dict round trip."""
+    options = PlotlyPlotDisplayOptions(
+        show_x_axis_labels=True,
+        show_y_axis_labels=True,
+        show_plotly_toolbar=True,
+        show_hover_info=True,
+        show_legend=False,
+        theme="dark",
+    )
+
+    restored = PlotlyPlotDisplayOptions.from_dict(options.to_dict())
+
+    assert restored == options
+
+
+def test_display_options_from_dict_ignores_unknown_and_defaults_missing() -> None:
+    """from_dict should ignore unknown keys and default missing ones."""
+    restored = PlotlyPlotDisplayOptions.from_dict(
+        {"show_legend": False, "unexpected": 123}
+    )
+
+    assert restored.show_legend is False
+    assert restored.show_x_axis_labels is False
+    assert restored.theme == "light"
+
+
+def test_set_series_visible_state_stores_pending_for_unloaded_series(
+    fake_plotly: list[_FakePlotlyElement],
+) -> None:
+    """Setting state for an unloaded series should store visibility without raising."""
+    widget = PlotlyPlotWidget()
+
+    widget.set_series_visible_state("not-loaded", False)
+
+    assert widget.is_series_visible("not-loaded") is False
+
+
+def test_set_series_visible_state_restyles_loaded_series(
+    fake_plotly: list[_FakePlotlyElement],
+) -> None:
+    """Setting state for a loaded series should update its rendered visibility."""
+    widget = PlotlyPlotWidget()
+    widget.set_series(
+        traces=[PlotlyTraceData.from_sequences(name="trace", x=[0.0, 1.0], y=[1.0, 2.0])]
+    )
+
+    widget.set_series_visible_state("trace", False)
+
+    assert widget.is_series_visible("trace") is False
+    index = widget._series_index("trace", "trace")
+    assert widget.figure["data"][index]["visible"] is False

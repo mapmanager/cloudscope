@@ -15,9 +15,10 @@ from cloudscope.events.roi import RoiChanged, RoiChangeKind
 from cloudscope.events.selection import FileSelectionChanged
 from cloudscope.state import PrimarySelection
 import cloudscope.views.acq_analysis_plot_view as acq_analysis_plot_view_module
-from cloudscope.views.acq_analysis_plot_view import AcqAnalysisPlotView
+from cloudscope.views.acq_analysis_plot_view import AcqAnalysisPlotView, AcqAnalysisPlotViewState
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.view_ids import ViewId
+from nicewidgets.plotly_plot.display_options import PlotlyPlotDisplayOptions
 
 
 class FakeAnalysis:
@@ -103,6 +104,32 @@ def test_acq_analysis_plot_view_is_base_view() -> None:
     assert isinstance(view, BaseView)
     assert view.view_id is ViewId.ACQ_ANALYSIS_PLOT
     assert view.disable_when_busy is False
+
+
+def test_acq_analysis_plot_view_state_round_trip() -> None:
+    """AcqAnalysisPlotViewState should survive a to_dict/from_dict round trip."""
+    state = AcqAnalysisPlotViewState(
+        selection_guard={
+            "file_id": "file",
+            "channel": 0,
+            "roi_id": 2,
+            "analysis_name": None,
+        },
+        display_options=PlotlyPlotDisplayOptions(show_legend=True, theme="dark"),
+        events_visible=False,
+    )
+
+    restored = AcqAnalysisPlotViewState.from_dict(state.to_dict())
+
+    assert restored == state
+
+
+def test_acq_analysis_plot_view_state_from_dict_requires_keys() -> None:
+    """from_dict should reject a blob missing required keys."""
+    with pytest.raises(KeyError):
+        AcqAnalysisPlotViewState.from_dict(
+            {"schema_version": 1, "selection_guard": {}}
+        )
 
 
 def test_acq_analysis_plot_view_gets_primary_kymograph_plot_data() -> None:
