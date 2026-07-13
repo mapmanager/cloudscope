@@ -711,6 +711,62 @@ These may be comments only if renames are deferred.
 - Introduce `FileListTreeViewState`.
 - Post-build expanded-group restore.
 - Re-verify interaction with main's selection/scroll behavior (tickets 016/017).
+- Fix the tree reconnect UX bugs tracked in
+  [Known UX Bugs (post-merge cleanup)](#known-ux-bugs-post-merge-cleanup) —
+  scroll-restored-selection-into-view and spurious first-row expansion. These
+  are the concrete symptoms motivating this phase.
+
+---
+
+## Known UX Bugs (post-merge cleanup)
+
+Small, non-blocking reconnect UX defects observed on the branch. They do **not**
+block merging the disconnect/reconnect work into main; they are the first
+follow-up items to address on main (most belong to
+[Phase 5: `FileListTreeView`](#phase-5-filelisttreeview)).
+
+### UX-1: File tree still uses an untyped blob **[PLANNED]**
+
+`FileListTreeView` is the last per-view state that exports an untyped dict blob
+(`expanded_group_ids` + `selection_guard`) instead of a typed dataclass. Convert
+it to `FileListTreeViewState` (Phase 5). This is the weakest area of reconnect
+restore and the root context for UX-2 and UX-3 below.
+
+### UX-2: Restored tree selection is not scrolled into view **[PLANNED]**
+
+Reproduction:
+
+1. Expand a tree row, select an analysis, then disconnect/reconnect.
+2. Expanded groups are restored. ✅
+3. The selection is restored correctly. ✅
+4. **Bug:** the restored selected row is correct but is **not scrolled into
+   view**, so the user must scroll to find it.
+
+Expected: after reconnect the restored selection should be brought into view
+(scroll-into-view), matching normal user-selection behavior.
+
+Note (per `.cursor/rules/aggrid-source-of-truth.mdc`): scroll-into-view on the
+AG Grid tree has repeatedly regressed. The reconnect restore path is
+programmatic, and `set_selected_row_ids` is shared with the user-click path, so
+any scroll-into-view fix must not reintroduce scroll/flash on ordinary user
+clicks. Verify live in the browser with real data; unit tests are insufficient.
+
+### UX-3: First tree row is always expanded on reconnect **[PLANNED]**
+
+Reproduction:
+
+1. Ensure the first tree row/group is **collapsed** at disconnect.
+2. Disconnect/reconnect.
+3. **Bug:** the file-list tree selection is restored, but the **first row is
+   always expanded** even though it was collapsed at disconnect.
+
+Expected: only the groups that were expanded at disconnect (captured in
+`expanded_group_ids`) should be expanded on reconnect; the first row should not
+be force-expanded. Investigate the post-build expansion logic in
+`FileListTreeView.on_session_reconnect_restore()` /
+`_restore_tree_ui_from_blob()` (it also expands the selected file's group) and
+the tree widget's initial-render expansion, so restored expansion matches the
+captured set exactly.
 
 ### Phase 6: Reduce blob/guard machinery **[PLANNED]**
 
@@ -858,7 +914,7 @@ After each phase, manual test (native or web with real data):
 
 | Done | Remaining |
 |------|-----------|
-| Controller selection + x-range on reconnect event | `FileListTreeView` loose blob → typed `FileListTreeViewState` (Phase 5) |
+| Controller selection + x-range on reconnect event | `FileListTreeView` loose blob → typed `FileListTreeViewState` + tree UX bugs (Phase 5 / [Known UX Bugs](#known-ux-bugs-post-merge-cleanup)) |
 | Page chrome (panels, left tab, right pool) restored at build time | Reduce `selection_guard` / `require_keys` machinery (Phase 6) |
 | Plotly ctor takes a single `PlotlyPlotDisplayOptions` (ticket 019) | Optional: constructor-time restore of per-view content |
 | Plot views typed: `AcqAnalysisPlotViewState`, `SumIntensityPlotViewState` (incl. series visibility) | Analysis views typed state (Phase 7): velocity/diameter/sum-intensity/event |
