@@ -1,3 +1,8 @@
+---
+search:
+  exclude: true
+---
+
 # Batch analysis
 
 ::: acqstore.acq_image.analysis.batch.acq_analysis_batch.AcqAnalysisBatch

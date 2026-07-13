@@ -1,3 +1,8 @@
+---
+search:
+  exclude: true
+---
+
 # API Reference
 
 The CloudScope API is organized around two primary concepts:

@@ -31,6 +31,11 @@ theme:
         icon: material/weather-sunny
         name: Switch to light mode
 
+extra:
+  analytics:
+    provider: google
+    property: G-8057JCR6M8
+    
 extra_css:
   - assets/stylesheets/extra.css
 

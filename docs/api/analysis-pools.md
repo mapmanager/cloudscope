@@ -1,3 +1,8 @@
+---
+search:
+  exclude: true
+---
+
 # Analysis pools
 
 Analysis pools are backend data-model objects that collect per-file analysis
