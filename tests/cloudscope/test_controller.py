@@ -1,6 +1,6 @@
 """Tests for the CloudScope home page controller."""
 
-from cloudscope.controllers.home_page_controller import HomePageController
+from cloudscope.controllers.home_page_controller import HomePageController, HomePageState
 from cloudscope.event_bus import EventBus
 from cloudscope.events.files import FileListChanged
 from cloudscope.events.selection import (
@@ -197,3 +197,19 @@ def test_publish_session_reconnect_restore_publishes_current_state() -> None:
     assert event.primary_x_range == (10.0, 20.0)
     assert event.view_session == {'primary_image': {'schema_version': 1}}
     assert event.acq_image is None
+
+
+def test_home_page_state_to_restorable_state_excludes_runtime_fields() -> None:
+    """Restorable state should carry only serializable app-level fields."""
+    state = HomePageState(
+        file_ids=['file-a', 'file-b'],
+        selection=PrimarySelection(file_id='file-b', channel=1, roi_id=2),
+        primary_x_range=(3.0, 8.0),
+    )
+
+    restorable = state.to_restorable_state()
+
+    assert restorable.selection == state.selection
+    assert restorable.selection is not state.selection
+    assert restorable.primary_x_range == (3.0, 8.0)
+    assert restorable.file_ids == ('file-a', 'file-b')

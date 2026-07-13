@@ -3,9 +3,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from nicewidgets.plotly_layout_margins import PlotlyLayoutMarginsProfile
-from nicewidgets.plotly_theme import PlotlyThemeName
+from nicewidgets.plotly_theme import PlotlyThemeName, normalize_plotly_theme
+
+# JSON-serializable scalar fields. ``layout_margins_profile`` is a fixed
+# construction-time layout concern, not user-mutable display state, so it is
+# intentionally excluded from serialization round trips.
+_SERIALIZABLE_FIELDS = (
+    'show_plotly_toolbar',
+    'show_rois',
+    'show_roi_labels',
+    'show_trace_overlays',
+    'show_x_axis_labels',
+    'show_y_axis_labels',
+    'show_hover_info',
+    'square_plot',
+    'theme',
+)
 
 
 @dataclass(slots=True)
@@ -40,3 +56,37 @@ class PlotlyRasterViewerDisplayOptions:
     square_plot: bool = False
     theme: PlotlyThemeName = 'light'
     layout_margins_profile: PlotlyLayoutMarginsProfile | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable representation of these options.
+
+        ``layout_margins_profile`` is excluded (see module note). ``theme`` is a
+        plain string.
+
+        Returns:
+            Mapping of serializable option names to values.
+        """
+        data = {name: getattr(self, name) for name in _SERIALIZABLE_FIELDS}
+        data['theme'] = normalize_plotly_theme(str(self.theme))
+        return data
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> PlotlyRasterViewerDisplayOptions:
+        """Build display options from a mapping produced by :meth:`to_dict`.
+
+        Unknown keys (including ``layout_margins_profile``) are ignored and
+        missing keys fall back to field defaults, so the viewer stays robust
+        across schema evolution.
+
+        Args:
+            data: Mapping of option names to values.
+
+        Returns:
+            New :class:`PlotlyRasterViewerDisplayOptions` instance.
+        """
+        kwargs: dict[str, Any] = {
+            name: data[name] for name in _SERIALIZABLE_FIELDS if name in data
+        }
+        if 'theme' in kwargs:
+            kwargs['theme'] = normalize_plotly_theme(str(kwargs['theme']))
+        return cls(**kwargs)

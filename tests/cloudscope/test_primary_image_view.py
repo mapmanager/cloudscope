@@ -11,6 +11,8 @@ from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader
 
 from cloudscope.views.primary_image_view import (
     PrimaryImageView,
+    PrimaryImageViewState,
+    RasterViewport,
     _configure_nicegui_slider_bounds,
     _load_plane_payload,
     _load_primary_display_payload,
@@ -19,7 +21,53 @@ from cloudscope.views.primary_image_view import (
     slice_slider_spec_for_header,
 )
 from cloudscope.event_bus import EventBus
+from cloudscope.session_state import (
+    VIEW_SESSION_SCHEMA_VERSION,
+    selection_guard_from_selection,
+)
 from cloudscope.state import PrimarySelection
+from nicewidgets.raster_viewer.frontend.plotly_display_options import (
+    PlotlyRasterViewerDisplayOptions,
+)
+
+
+def test_primary_image_view_state_round_trip() -> None:
+    """PrimaryImageViewState should survive a to_dict/from_dict round trip."""
+    state = PrimaryImageViewState(
+        selection_guard=selection_guard_from_selection(
+            PrimarySelection(file_id='file-a', channel=1, roi_id=2)
+        ),
+        z=3,
+        t=4,
+        contrast_auto_per_slice=False,
+        manual_contrast_lut='Green',
+        manual_contrast_range=(10.0, 200.0),
+        display_options=PlotlyRasterViewerDisplayOptions(show_plotly_toolbar=True, theme='dark'),
+        viewport=RasterViewport(x=(0.0, 12.0), y=(1.0, 9.0)),
+    )
+    restored = PrimaryImageViewState.from_dict(state.to_dict())
+    assert restored.z == 3
+    assert restored.t == 4
+    assert restored.contrast_auto_per_slice is False
+    assert restored.manual_contrast_lut == 'Green'
+    assert restored.manual_contrast_range == (10.0, 200.0)
+    assert restored.display_options.show_plotly_toolbar is True
+    assert restored.display_options.theme == 'dark'
+    assert restored.viewport == RasterViewport(x=(0.0, 12.0), y=(1.0, 9.0))
+    assert restored.schema_version == VIEW_SESSION_SCHEMA_VERSION
+
+
+def test_primary_image_view_state_handles_missing_viewport_and_contrast() -> None:
+    """Optional viewport and manual contrast range should round-trip as None."""
+    state = PrimaryImageViewState(
+        selection_guard=selection_guard_from_selection(PrimarySelection()),
+    )
+    blob = state.to_dict()
+    assert blob['viewport_xy'] is None
+    assert blob['manual_contrast_range'] is None
+    restored = PrimaryImageViewState.from_dict(blob)
+    assert restored.viewport is None
+    assert restored.manual_contrast_range is None
 
 
 def _minimal_header(

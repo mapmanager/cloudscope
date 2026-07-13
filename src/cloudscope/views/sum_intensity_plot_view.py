@@ -439,6 +439,11 @@ class SumIntensityPlotView(BaseView):
     def _on_series_visibility_changed(self, series_name: str, visible: bool) -> None:
         """Refresh the right y-axis label when derivative or diameter toggles.
 
+        The widget owns per-series visibility state; this view only reacts to
+        the y2-axis label because ``visible`` is re-read from the widget in
+        :meth:`_apply_y2_label`. The ``visible`` argument is part of the widget
+        callback contract and is intentionally not used directly here.
+
         Args:
             series_name: Context-menu series name.
             visible: Visibility after the toggle.
@@ -446,7 +451,6 @@ class SumIntensityPlotView(BaseView):
         Returns:
             None.
         """
-        del visible
         if series_name in {_DERIVATIVE_TRACE_NAME, _DIAMETER_TRACE_NAME}:
             self._apply_y2_label()
 

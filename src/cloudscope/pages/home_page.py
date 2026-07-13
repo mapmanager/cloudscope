@@ -37,6 +37,7 @@ from cloudscope.views.primary_image_view import PrimaryImageView
 from cloudscope.views.sum_intensity_plot_view import SumIntensityPlotView
 from cloudscope.views.task_progress_dialog_view import TaskProgressDialogView
 from cloudscope.views.velocity_pool_view import VelocityPoolView
+from cloudscope.views.view_ids import ViewId
 from cloudscope.views.view_manager import ViewManager
 from cloudscope.views.splitter_handle import add_splitter_handle
 from cloudscope.views.splitter_manager import HOME_SPLITTER_PRESETS, SplitterId, SplitterManager
@@ -286,6 +287,12 @@ class HomePage:
         }
         file_list_header_chevron_ref: dict[str, ui.icon | None] = {'value': None}
         chrome_defaults = HomePageChromeState.defaults()
+        initial_left_toolbar_tab: ViewId | None = None
+        if reconnect_chrome is not None and reconnect_chrome.left_toolbar_active_view_id:
+            try:
+                initial_left_toolbar_tab = ViewId(reconnect_chrome.left_toolbar_active_view_id)
+            except ValueError:
+                initial_left_toolbar_tab = None
         panel_open_state = {
             'file_list': (
                 reconnect_chrome.file_list_open
@@ -297,16 +304,10 @@ class HomePage:
                 if reconnect_chrome is not None
                 else chrome_defaults.analysis_plot_open
             ),
-            'reference_image': (
-                reconnect_chrome.reference_image_open
-                if reconnect_chrome is not None
-                else chrome_defaults.reference_image_open
-            ),
-            'velocity_pool': (
-                reconnect_chrome.velocity_pool_open
-                if reconnect_chrome is not None
-                else chrome_defaults.velocity_pool_open
-            ),
+            # Embedded velocity pool default. Only consumed when
+            # SHOW_EMBEDDED_VELOCITY_POOL is enabled; the shipped right-side pool
+            # open/closed state lives in HomePageChromeState.right_pool_open.
+            'velocity_pool': True,
         }
 
         def _pane_classes(extra: str = '') -> str:
@@ -430,19 +431,12 @@ class HomePage:
                 None.
             """
             analysis_open = panel_open_state['analysis_plot']
-            reference_open = panel_open_state['reference_image']
-            if analysis_open or reference_open:
-                splitter_manager.restore_open_value(SplitterId.PRIMARY_IMAGE)
-            else:
+            if not analysis_open:
                 splitter_manager.collapse_pane(SplitterId.PRIMARY_IMAGE, 'after')
                 return
 
-            if analysis_open and reference_open:
-                splitter_manager.restore_open_value(SplitterId.ANALYSIS_REFERENCE)
-            elif analysis_open:
-                splitter_manager.collapse_pane(SplitterId.ANALYSIS_REFERENCE, 'after')
-            else:
-                splitter_manager.collapse_pane(SplitterId.ANALYSIS_REFERENCE, 'before')
+            splitter_manager.restore_open_value(SplitterId.PRIMARY_IMAGE)
+            splitter_manager.collapse_pane(SplitterId.ANALYSIS_REFERENCE, 'after')
 
         def _sync_file_list_header() -> None:
             """Update the file-list header chevron to match panel open state.
@@ -836,6 +830,7 @@ class HomePage:
                     dark_mode=dark_mode,
                     dark_mode_provider=_dark_mode,
                     raster_display_cache=get_current_runtime().raster_display_cache,
+                    initial_active_view_id=initial_left_toolbar_tab,
                 )
                 left_toolbar.build()
                 left_toolbar_ref['value'] = left_toolbar
@@ -897,6 +892,8 @@ class HomePage:
                         limits=right_pool_preset.limits,
                     ).classes('w-full h-full min-h-0 overflow-hidden') as right_pool_splitter:
                         splitter_manager.register(SplitterId.RIGHT_POOL, right_pool_splitter)
+                        if reconnect_chrome is not None and reconnect_chrome.right_pool_open:
+                            splitter_manager.set_right_pool_open(True)
                         if not splitter_manager.is_right_pool_open():
                             splitter_manager.set_splitter_drag_enabled(SplitterId.RIGHT_POOL, False)
 
@@ -940,8 +937,18 @@ class HomePage:
 
         def _on_client_disconnect() -> None:
             runtime = get_current_runtime()
+            left_toolbar = left_toolbar_ref['value']
+            active_left_tab = left_toolbar.active_view_id if left_toolbar is not None else None
             runtime.session_snapshot = HomePageSessionSnapshot(
-                chrome=HomePageChromeState.from_panel_open(panel_open_state),
+                chrome=HomePageChromeState.capture(
+                    file_list_open=panel_open_state['file_list'],
+                    analysis_plot_open=panel_open_state['analysis_plot'],
+                    left_toolbar_active_view_id=(
+                        active_left_tab.value if active_left_tab is not None else None
+                    ),
+                    right_pool_open=splitter_manager.is_right_pool_open(),
+                ),
+                app_state=runtime.home_page_controller.state.to_restorable_state(),
                 views=view_manager.collect_session_state(),
             )
             _log_home_session_state(

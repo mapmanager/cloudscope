@@ -13,7 +13,11 @@ if 'nicegui' not in sys.modules:
     fake_nicegui.ui = types.SimpleNamespace()
     sys.modules['nicegui'] = fake_nicegui
 
+from nicewidgets.plotly_layout_margins import PlotlyLayoutMarginsProfile
 from nicewidgets.raster_viewer.backend.image_model import RasterGridSpec
+from nicewidgets.raster_viewer.frontend.plotly_display_options import (
+    PlotlyRasterViewerDisplayOptions,
+)
 from nicewidgets.raster_viewer.frontend.plotly_viewer import PlotlyRasterViewer
 from nicewidgets.raster_viewer.frontend.trace_overlay import PlotlyTraceOverlay
 
@@ -49,3 +53,42 @@ def test_set_data_from_pyramid_reuses_prebuilt_pyramid() -> None:
 
     assert viewer.has_data
     assert viewer.figure.get('data') is not None
+
+
+def test_raster_display_options_round_trip_excludes_layout_margins() -> None:
+    """Serialization should preserve scalar fields and drop layout margins."""
+    options = PlotlyRasterViewerDisplayOptions(
+        show_plotly_toolbar=True,
+        show_rois=False,
+        show_roi_labels=False,
+        show_x_axis_labels=True,
+        square_plot=True,
+        theme='dark',
+        layout_margins_profile=PlotlyLayoutMarginsProfile(
+            with_axis_labels={'l': 40, 'r': 10, 't': 10, 'b': 40},
+            compact={'l': 5, 'r': 5, 't': 5, 'b': 5},
+        ),
+    )
+
+    data = options.to_dict()
+    assert 'layout_margins_profile' not in data
+    assert data['theme'] == 'dark'
+
+    restored = PlotlyRasterViewerDisplayOptions.from_dict(data)
+    assert restored.show_plotly_toolbar is True
+    assert restored.show_rois is False
+    assert restored.show_roi_labels is False
+    assert restored.show_x_axis_labels is True
+    assert restored.square_plot is True
+    assert restored.theme == 'dark'
+    assert restored.layout_margins_profile is None
+
+
+def test_raster_display_options_from_dict_ignores_unknown_keys() -> None:
+    """Unknown/legacy keys must be ignored and missing keys use defaults."""
+    restored = PlotlyRasterViewerDisplayOptions.from_dict(
+        {'show_rois': False, 'layout_margins_profile': {'stale': True}}
+    )
+    assert restored.show_rois is False
+    assert restored.show_plotly_toolbar is False
+    assert restored.layout_margins_profile is None

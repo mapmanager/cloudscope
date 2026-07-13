@@ -71,6 +71,34 @@ def test_left_toolbar_constructs_panel_views(tmp_path) -> None:
     assert view.active_view_id is None
 
 
+def test_left_toolbar_resolves_valid_initial_active_tab(tmp_path) -> None:
+    """A valid initial tab id should be honored for build-time restore."""
+    config = AppConfig.load(config_path=tmp_path / "app_config.json")
+    view = LeftToolbarView(
+        event_bus=EventBus(),
+        app_state=None,
+        app_config=config,
+        view_manager=ViewManager(),
+        initial_active_view_id=ViewId.SUM_INTENSITY_ANALYSIS,
+    )
+
+    assert view._resolve_initial_active_view_id() is ViewId.SUM_INTENSITY_ANALYSIS  # noqa: SLF001
+
+
+def test_left_toolbar_ignores_unknown_initial_active_tab(tmp_path) -> None:
+    """An id this toolbar cannot display should collapse to no active tab."""
+    config = AppConfig.load(config_path=tmp_path / "app_config.json")
+    view = LeftToolbarView(
+        event_bus=EventBus(),
+        app_state=None,
+        app_config=config,
+        view_manager=ViewManager(),
+        initial_active_view_id=ViewId.PRIMARY_IMAGE,
+    )
+
+    assert view._resolve_initial_active_view_id() is None  # noqa: SLF001
+
+
 def test_left_toolbar_disables_metadata_button_when_blinded(tmp_path) -> None:
     config = AppConfig.load(config_path=tmp_path / "app_config.json")
     config.set_blinded(True)

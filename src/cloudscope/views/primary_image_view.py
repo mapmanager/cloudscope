@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Coroutine
-from dataclasses import asdict
+from dataclasses import dataclass, field
 from typing import Any
 
 from pathlib import Path
@@ -75,6 +75,143 @@ from nicewidgets.raster_viewer.frontend.trace_overlay import PlotlyTraceOverlay
 logger = get_logger(__name__)
 
 _IDLE_MESSAGE = 'No file selected'
+
+
+@dataclass(slots=True)
+class RasterViewport:
+    """Serializable 2D raster viewport in plot physical coordinates.
+
+    Args:
+        x: ``(x_lo, x_hi)`` display range on the x-axis.
+        y: ``(y_lo, y_hi)`` display range on the y-axis.
+    """
+
+    x: tuple[float, float]
+    y: tuple[float, float]
+
+    def to_dict(self) -> dict[str, list[float]]:
+        """Return a JSON-serializable ``{'x': [...], 'y': [...]}`` mapping.
+
+        Returns:
+            Mapping with two-element x and y range lists.
+        """
+        return {'x': [self.x[0], self.x[1]], 'y': [self.y[0], self.y[1]]}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, list[float]]) -> RasterViewport:
+        """Build a viewport from a mapping produced by :meth:`to_dict`.
+
+        Args:
+            data: Mapping with two-element ``x`` and ``y`` range lists.
+
+        Returns:
+            Reconstructed viewport.
+        """
+        x_range = data['x']
+        y_range = data['y']
+        return cls(
+            x=(float(x_range[0]), float(x_range[1])),
+            y=(float(y_range[0]), float(y_range[1])),
+        )
+
+
+@dataclass(slots=True)
+class PrimaryImageViewState:
+    """Serializable reconnect session state for :class:`PrimaryImageView`.
+
+    Owning the blob shape here keeps the view thin: the view builds this object
+    from live view/viewer state on disconnect and applies it on reconnect,
+    while ``to_dict``/``from_dict`` handle schema versioning, key validation,
+    and nested display-option/viewport serialization.
+
+    Args:
+        selection_guard: Selection identity captured at export time and used by
+            :class:`BaseView` to skip stale reconnect blobs.
+        z: View-local Z slice index.
+        t: View-local T slice index.
+        contrast_auto_per_slice: Whether contrast auto-scales per slice.
+        manual_contrast_lut: Named LUT used for manual contrast.
+        manual_contrast_range: Optional manual ``(min, max)`` contrast window.
+        display_options: Raster viewer display options.
+        viewport: Optional 2D viewport (applied post-build once data exists).
+        schema_version: Session blob schema version.
+    """
+
+    selection_guard: dict[str, Any]
+    z: int = 0
+    t: int = 0
+    contrast_auto_per_slice: bool = True
+    manual_contrast_lut: str = 'Gray'
+    manual_contrast_range: tuple[float, float] | None = None
+    display_options: PlotlyRasterViewerDisplayOptions = field(
+        default_factory=PlotlyRasterViewerDisplayOptions
+    )
+    viewport: RasterViewport | None = None
+    schema_version: int = VIEW_SESSION_SCHEMA_VERSION
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable session blob.
+
+        Returns:
+            Mapping with schema version, selection guard, slice indices,
+            contrast state, nested display options, and viewport.
+        """
+        manual_range = self.manual_contrast_range
+        return {
+            'schema_version': self.schema_version,
+            'selection_guard': dict(self.selection_guard),
+            'z': int(self.z),
+            't': int(self.t),
+            'contrast_auto_per_slice': bool(self.contrast_auto_per_slice),
+            'manual_contrast_lut': self.manual_contrast_lut,
+            'manual_contrast_range': (
+                [manual_range[0], manual_range[1]] if manual_range is not None else None
+            ),
+            'display_options': self.display_options.to_dict(),
+            'viewport_xy': None if self.viewport is None else self.viewport.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> PrimaryImageViewState:
+        """Build state from a blob produced by :meth:`to_dict`.
+
+        Args:
+            data: Session blob from :meth:`export_session_state`.
+
+        Returns:
+            Reconstructed :class:`PrimaryImageViewState`.
+
+        Raises:
+            KeyError: If required keys (including ``schema_version``) are absent.
+            ValueError: If ``schema_version`` is unsupported.
+        """
+        require_schema_version(data)
+        require_keys(
+            data,
+            'selection_guard',
+            'z',
+            't',
+            'contrast_auto_per_slice',
+            'manual_contrast_lut',
+            'manual_contrast_range',
+            'display_options',
+            'viewport_xy',
+        )
+        manual_range = data['manual_contrast_range']
+        viewport_xy = data['viewport_xy']
+        return cls(
+            selection_guard=dict(data['selection_guard']),
+            z=int(data['z']),
+            t=int(data['t']),
+            contrast_auto_per_slice=bool(data['contrast_auto_per_slice']),
+            manual_contrast_lut=data['manual_contrast_lut'],
+            manual_contrast_range=(
+                (manual_range[0], manual_range[1]) if manual_range is not None else None
+            ),
+            display_options=PlotlyRasterViewerDisplayOptions.from_dict(data['display_options']),
+            viewport=None if viewport_xy is None else RasterViewport.from_dict(viewport_xy),
+            schema_version=int(data.get('schema_version', VIEW_SESSION_SCHEMA_VERSION)),
+        )
 
 
 def slice_slider_spec_for_header(header: ImageHeader, dim: str) -> tuple[int, int] | None:
@@ -449,28 +586,22 @@ class PrimaryImageView(BaseView):
         Returns:
             Session blob with slice indices, contrast, display options, and viewport.
         """
-        viewport_xy: dict[str, list[float]] | None = None
-        viewport = self._viewer.get_viewport()
-        if viewport is not None:
-            (x_lo, x_hi), (y_lo, y_hi) = viewport
-            viewport_xy = {'x': [x_lo, x_hi], 'y': [y_lo, y_hi]}
-        display_options = asdict(self._viewer.display_options)
-        manual_contrast_range = self._manual_contrast_range
-        return {
-            'schema_version': VIEW_SESSION_SCHEMA_VERSION,
-            'selection_guard': selection_guard_from_selection(self.current_selection),
-            'z': self._z,
-            't': self._t,
-            'contrast_auto_per_slice': self._contrast_auto_per_slice,
-            'manual_contrast_lut': self._manual_contrast_lut,
-            'manual_contrast_range': (
-                [manual_contrast_range[0], manual_contrast_range[1]]
-                if manual_contrast_range is not None
-                else None
-            ),
-            'display_options': display_options,
-            'viewport_xy': viewport_xy,
-        }
+        viewport: RasterViewport | None = None
+        raster_viewport = self._viewer.get_viewport()
+        if raster_viewport is not None:
+            (x_lo, x_hi), (y_lo, y_hi) = raster_viewport
+            viewport = RasterViewport(x=(x_lo, x_hi), y=(y_lo, y_hi))
+        state = PrimaryImageViewState(
+            selection_guard=selection_guard_from_selection(self.current_selection),
+            z=self._z,
+            t=self._t,
+            contrast_auto_per_slice=self._contrast_auto_per_slice,
+            manual_contrast_lut=self._manual_contrast_lut,
+            manual_contrast_range=self._manual_contrast_range,
+            display_options=self._viewer.display_options,
+            viewport=viewport,
+        )
+        return state.to_dict()
 
     def apply_session_state(self, data: dict[str, Any]) -> None:
         """Apply reconnect session chrome before raster refresh on reconnect.
@@ -481,33 +612,16 @@ class PrimaryImageView(BaseView):
         Returns:
             None.
         """
-        require_schema_version(data)
-        require_keys(
-            data,
-            'selection_guard',
-            'z',
-            't',
-            'contrast_auto_per_slice',
-            'manual_contrast_lut',
-            'manual_contrast_range',
-            'display_options',
-            'viewport_xy',
+        state = PrimaryImageViewState.from_dict(data)
+        self._z = state.z
+        self._t = state.t
+        self._contrast_auto_per_slice = state.contrast_auto_per_slice
+        self._manual_contrast_lut = state.manual_contrast_lut
+        self._manual_contrast_range = state.manual_contrast_range
+        self._apply_raster_display_options(state.display_options)
+        self._pending_viewport_xy = (
+            state.viewport.to_dict() if state.viewport is not None else None
         )
-        self._z = data['z']
-        self._t = data['t']
-        self._contrast_auto_per_slice = data['contrast_auto_per_slice']
-        self._manual_contrast_lut = data['manual_contrast_lut']
-        manual_contrast_range = data['manual_contrast_range']
-        self._manual_contrast_range = (
-            (manual_contrast_range[0], manual_contrast_range[1])
-            if manual_contrast_range is not None
-            else None
-        )
-        self._apply_raster_display_options(
-            PlotlyRasterViewerDisplayOptions(**data['display_options'])
-        )
-        viewport_xy = data['viewport_xy']
-        self._pending_viewport_xy = dict(viewport_xy) if viewport_xy is not None else None
         self._sync_slice_sliders_from_header()
 
     def on_session_reconnect_restore(self) -> None:

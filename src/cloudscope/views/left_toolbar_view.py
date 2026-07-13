@@ -80,6 +80,9 @@ class LeftToolbarView(BaseView):
         dark_mode: Initial Plotly raster-viewer theme for the reference image panel.
         dark_mode_provider: Callable returning current dark-mode state for the reference image panel.
         raster_display_cache: Shared LRU cache for reference image planes and pyramids.
+        initial_active_view_id: Left toolbar tab to activate on build, or
+            ``None`` to start collapsed. Used to restore the active tab after a
+            client disconnect/reconnect.
     """
 
     view_id = ViewId.LEFT_TOOLBAR
@@ -97,6 +100,7 @@ class LeftToolbarView(BaseView):
         dark_mode: bool = False,
         dark_mode_provider: Callable[[], bool] | None = None,
         raster_display_cache: RasterDisplayCache | None = None,
+        initial_active_view_id: ViewId | None = None,
     ) -> None:
         super().__init__(
             event_bus=event_bus,
@@ -107,6 +111,7 @@ class LeftToolbarView(BaseView):
         self._app_config = app_config
         self._view_manager = view_manager
         self._on_panel_open_changed = on_panel_open_changed
+        self._initial_active_view_id = initial_active_view_id
         self._active_view_id: ViewId | None = None
         self._buttons: dict[ViewId, ui.button] = {}
         self._left_panel_root: ui.element | None = None
@@ -232,8 +237,20 @@ class LeftToolbarView(BaseView):
 
         self._register_child_views()
         self.after_build()
-        self._apply_active_view(None)
+        self._apply_active_view(self._resolve_initial_active_view_id())
         return self.root
+
+    def _resolve_initial_active_view_id(self) -> ViewId | None:
+        """Return the initial active tab, ignoring ids this toolbar can't show.
+
+        Returns:
+            Requested initial tab when it is a valid toolbar tab, otherwise
+            ``None`` (collapsed).
+        """
+        requested = self._initial_active_view_id
+        if requested is not None and requested in self.panel_view_ids:
+            return requested
+        return None
 
 
     def close_panel(self) -> None:

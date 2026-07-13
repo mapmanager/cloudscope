@@ -23,7 +23,7 @@ from cloudscope.events.selection import (
     SelectRoiIntent,
 )
 from cloudscope.events.session_reconnect import HomePageSessionReconnectRestore
-from cloudscope.session_state import HomePageSessionSnapshot
+from cloudscope.session_state import HomePageRestorableState, HomePageSessionSnapshot
 from cloudscope.state import PrimarySelection
 
 if TYPE_CHECKING:
@@ -73,6 +73,26 @@ class HomePageState:
             'file_count': len(self.file_ids),
             'acq_image_list_loaded': self.acq_image_list is not None,
         }
+
+    def to_restorable_state(self) -> HomePageRestorableState:
+        """Return the serializable app-level subset of this state.
+
+        Non-serializable runtime fields (``acq_image_list``,
+        ``visible_file_ids_provider``) are intentionally excluded.
+
+        Returns:
+            Typed, JSON-safe restorable state (selection, x-range, file ids).
+        """
+        return HomePageRestorableState(
+            selection=PrimarySelection(
+                file_id=self.selection.file_id,
+                channel=self.selection.channel,
+                roi_id=self.selection.roi_id,
+                analysis_name=self.selection.analysis_name,
+            ),
+            primary_x_range=self.primary_x_range,
+            file_ids=tuple(self.file_ids),
+        )
 
 
 class HomePageController:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Coroutine
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -20,6 +21,12 @@ from cloudscope.raster_display_cache import (
     RasterDisplayCache,
     RasterDisplayCacheKey,
     RasterDisplayPlaneKind,
+)
+from cloudscope.session_state import (
+    VIEW_SESSION_SCHEMA_VERSION,
+    require_keys,
+    require_schema_version,
+    selection_guard_from_selection,
 )
 from cloudscope.utils.load_errors import format_raster_load_error
 from cloudscope.utils.logging import get_logger
@@ -43,6 +50,63 @@ _REFERENCE_OVERVIEW_MAX_PIXELS = 4_000_000
 _SCAN_PATH_TRACE_ID = 'scan_path'
 _SCAN_PATH_TRACE_COLOR = 'cyan'
 _SCAN_PATH_LINE_WIDTH = 4.0
+
+
+@dataclass(slots=True)
+class ReferenceImageViewState:
+    """Serializable reconnect session state for :class:`ReferenceImageView`.
+
+    The reference image reloads its plane from the current selection on rebuild,
+    so only the user-mutable raster display options (context-menu toggles) are
+    worth restoring. A viewport is intentionally omitted because reference plane
+    reloads reset the Plotly viewport.
+
+    Args:
+        selection_guard: Selection identity captured at export time and used by
+            :class:`BaseView` to skip stale reconnect blobs.
+        display_options: Raster viewer display options.
+        schema_version: Session blob schema version.
+    """
+
+    selection_guard: dict[str, Any]
+    display_options: PlotlyRasterViewerDisplayOptions = field(
+        default_factory=PlotlyRasterViewerDisplayOptions
+    )
+    schema_version: int = VIEW_SESSION_SCHEMA_VERSION
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable session blob.
+
+        Returns:
+            Mapping with schema version, selection guard, and display options.
+        """
+        return {
+            'schema_version': self.schema_version,
+            'selection_guard': dict(self.selection_guard),
+            'display_options': self.display_options.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ReferenceImageViewState:
+        """Build state from a blob produced by :meth:`to_dict`.
+
+        Args:
+            data: Session blob from :meth:`export_session_state`.
+
+        Returns:
+            Reconstructed :class:`ReferenceImageViewState`.
+
+        Raises:
+            KeyError: If required keys (including ``schema_version``) are absent.
+            ValueError: If ``schema_version`` is unsupported.
+        """
+        require_schema_version(data)
+        require_keys(data, 'selection_guard', 'display_options')
+        return cls(
+            selection_guard=dict(data['selection_guard']),
+            display_options=PlotlyRasterViewerDisplayOptions.from_dict(data['display_options']),
+            schema_version=int(data.get('schema_version', VIEW_SESSION_SCHEMA_VERSION)),
+        )
 
 
 def raster_grid_spec_from_reference_plane(plane: ReferenceImagePlane) -> RasterGridSpec:
@@ -313,6 +377,50 @@ class ReferenceImageView(BaseView):
         self.after_build()
         self._refresh_reference_from_current_selection(force=True)
         return self.root
+
+    def export_session_state(self) -> dict[str, Any]:
+        """Return a reconnect session blob for this view.
+
+        Returns:
+            JSON-serializable blob describing selection identity and current
+            raster display options.
+        """
+        state = ReferenceImageViewState(
+            selection_guard=selection_guard_from_selection(self.current_selection),
+            display_options=self._viewer.display_options,
+        )
+        return state.to_dict()
+
+    def apply_session_state(self, data: dict[str, Any]) -> None:
+        """Apply a reconnect session blob to this view.
+
+        Args:
+            data: Blob produced by :meth:`export_session_state`.
+
+        Returns:
+            None.
+        """
+        state = ReferenceImageViewState.from_dict(data)
+        self._apply_raster_display_options(state.display_options)
+
+    def _apply_raster_display_options(self, options: PlotlyRasterViewerDisplayOptions) -> None:
+        """Push raster viewer display options to the Plotly widget.
+
+        Args:
+            options: Desired viewer display options.
+
+        Returns:
+            None.
+        """
+        viewer = self._viewer
+        viewer.set_plotly_toolbar_visible(options.show_plotly_toolbar)
+        viewer.set_roi_overlays_visible(options.show_rois)
+        viewer.set_roi_labels_visible(options.show_roi_labels)
+        viewer.set_trace_overlays_visible(options.show_trace_overlays)
+        viewer.set_x_axis_labels_visible(options.show_x_axis_labels)
+        viewer.set_y_axis_labels_visible(options.show_y_axis_labels)
+        viewer.set_square_plot(options.square_plot)
+        viewer.set_hover_info_visible(options.show_hover_info)
 
     def subscribe_events(self) -> None:
         """Subscribe to reference-image-specific events while visible.

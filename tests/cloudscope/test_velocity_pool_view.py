@@ -25,8 +25,46 @@ from cloudscope.events.velocity_pool import VelocityPoolChanged, VelocityPoolCha
 from cloudscope.views import velocity_pool_view as velocity_pool_view_module
 from cloudscope.views.sum_intensity_pool_plot_config import SUM_INTENSITY_POOL_INITIAL_PLOT_CONFIG
 from cloudscope.views.velocity_pool_plot_config import VELOCITY_POOL_INITIAL_PLOT_CONFIG
-from cloudscope.views.velocity_pool_view import VelocityPoolView
+from cloudscope.views.velocity_pool_view import VelocityPoolView, VelocityPoolViewState
 from nicewidgets.nicepool.config import NicePoolConfig
+
+
+class _FakeTabs:
+    """Minimal ``ui.tabs`` stand-in exposing value and set_value."""
+
+    def __init__(self, value: str) -> None:
+        self.value = value
+
+    def set_value(self, value: str) -> None:
+        self.value = value
+
+
+def test_velocity_pool_view_state_round_trip() -> None:
+    """VelocityPoolViewState should survive a to_dict/from_dict round trip."""
+    state = VelocityPoolViewState(active_tab="peaks")
+    restored = VelocityPoolViewState.from_dict(state.to_dict())
+    assert restored.active_tab == "peaks"
+
+
+def test_velocity_pool_view_state_from_dict_falls_back_for_unknown_tab() -> None:
+    """An unknown tab name should fall back to the velocity tab."""
+    state = VelocityPoolViewState.from_dict({"schema_version": 1, "active_tab": "bogus"})
+    assert state.active_tab == "velocity"
+
+
+def test_velocity_pool_view_export_and_apply_active_tab(monkeypatch) -> None:
+    """Export should capture the active tab and apply should restore it."""
+    view = VelocityPoolView(event_bus=EventBus(), app_state=None)
+    monkeypatch.setattr(view, "_run_ui", lambda fn: fn())
+    monkeypatch.setattr(view, "_relayout_active_tab", lambda: None)
+    view._tabs = _FakeTabs("peaks")  # noqa: SLF001
+
+    blob = view.export_session_state()
+    assert blob["active_tab"] == "peaks"
+
+    view._tabs = _FakeTabs("velocity")  # noqa: SLF001
+    view.apply_session_state(blob)
+    assert view._tabs.value == "peaks"  # noqa: SLF001
 
 
 class FakeRoot:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 import pandas as pd
@@ -24,6 +25,11 @@ from cloudscope.events.selection import (
 from cloudscope.events.sum_intensity_pool import SumIntensityPoolChanged
 from cloudscope.events.theme import ThemeChanged
 from cloudscope.events.velocity_pool import VelocityPoolChanged
+from cloudscope.session_state import (
+    VIEW_SESSION_SCHEMA_VERSION,
+    require_keys,
+    require_schema_version,
+)
 from cloudscope.utils.logging import get_logger
 from cloudscope.views.base_view import BaseView
 from cloudscope.views.sum_intensity_pool_plot_config import SUM_INTENSITY_POOL_INITIAL_PLOT_CONFIG
@@ -35,6 +41,55 @@ logger = get_logger(__name__)
 
 _TAB_VELOCITY = "velocity"
 _TAB_PEAKS = "peaks"
+
+
+@dataclass(slots=True)
+class VelocityPoolViewState:
+    """Serializable reconnect session state for :class:`VelocityPoolView`.
+
+    Args:
+        active_tab: Selected tab name (``"velocity"`` or ``"peaks"``).
+        schema_version: Session blob schema version.
+    """
+
+    active_tab: str = _TAB_VELOCITY
+    schema_version: int = VIEW_SESSION_SCHEMA_VERSION
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable session blob.
+
+        Returns:
+            Mapping with schema version and the active tab name.
+        """
+        active_tab = self.active_tab if self.active_tab in (_TAB_VELOCITY, _TAB_PEAKS) else _TAB_VELOCITY
+        return {
+            'schema_version': self.schema_version,
+            'active_tab': active_tab,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> VelocityPoolViewState:
+        """Build state from a blob produced by :meth:`to_dict`.
+
+        Args:
+            data: Session blob from :meth:`VelocityPoolView.export_session_state`.
+
+        Returns:
+            Reconstructed :class:`VelocityPoolViewState`.
+
+        Raises:
+            KeyError: If required keys (including ``schema_version``) are absent.
+            ValueError: If ``schema_version`` is unsupported.
+        """
+        require_schema_version(data)
+        require_keys(data, 'active_tab')
+        active_tab = str(data['active_tab'])
+        if active_tab not in (_TAB_VELOCITY, _TAB_PEAKS):
+            active_tab = _TAB_VELOCITY
+        return cls(
+            active_tab=active_tab,
+            schema_version=int(data.get('schema_version', VIEW_SESSION_SCHEMA_VERSION)),
+        )
 _VELOCITY_POOL_TABS_CLASS = "velocity-pool-tabs"
 _VELOCITY_POOL_TAB_PANELS_CLASS = "velocity-pool-tab-panels"
 _VELOCITY_POOL_TAB_CSS_ADDED = False
@@ -194,6 +249,32 @@ class VelocityPoolView(BaseView):
         Returns:
             None.
         """
+        self._run_ui(self._relayout_active_tab)
+
+    def export_session_state(self) -> dict[str, Any]:
+        """Return a reconnect session blob capturing the active pool tab.
+
+        Returns:
+            JSON-serializable blob with the currently selected tab.
+        """
+        active_tab = _TAB_VELOCITY
+        if self._tabs is not None and self._tabs.value in (_TAB_VELOCITY, _TAB_PEAKS):
+            active_tab = str(self._tabs.value)
+        return VelocityPoolViewState(active_tab=active_tab).to_dict()
+
+    def apply_session_state(self, data: dict[str, Any]) -> None:
+        """Restore the active pool tab from a reconnect session blob.
+
+        Args:
+            data: Blob produced by :meth:`export_session_state`.
+
+        Returns:
+            None.
+        """
+        state = VelocityPoolViewState.from_dict(data)
+        if self._tabs is None:
+            return
+        self._tabs.set_value(state.active_tab)
         self._run_ui(self._relayout_active_tab)
 
     def subscribe_events(self) -> None:

@@ -93,11 +93,14 @@ def test_collect_state_with_snapshot(monkeypatch) -> None:
 
     collected = DebugView._collect_state()  # noqa: SLF001
 
-    assert collected['session_snapshot']['view_ids'] == [
+    snapshot_state = collected['session_snapshot']
+    assert sorted(snapshot_state['views'].keys()) == [
         'primary_image',
         'sum_intensity_plot',
     ]
-    assert collected['session_snapshot']['views']['primary_image'] == {'zoom': 2}
+    assert snapshot_state['views']['primary_image'] == {'zoom': 2}
+    assert 'app_state' in snapshot_state
+    assert 'chrome' in snapshot_state
 
 
 def test_current_state_json_is_valid_json(monkeypatch) -> None:

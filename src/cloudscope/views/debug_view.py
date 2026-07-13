@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 import json
 from typing import Any
 
@@ -176,13 +175,5 @@ class DebugView(BaseView):
         return {
             'storage_location': 'CloudScopeRuntime (in-memory registry, not app.storage.*)',
             'live_home_page_state': home_state.to_debug_dict(),
-            'session_snapshot': (
-                None
-                if snapshot is None
-                else {
-                    'chrome': dataclasses.asdict(snapshot.chrome),
-                    'view_ids': sorted(snapshot.views.keys()),
-                    'views': snapshot.views,
-                }
-            ),
+            'session_snapshot': None if snapshot is None else snapshot.to_dict(),
         }

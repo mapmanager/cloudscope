@@ -12,14 +12,36 @@ from acqstore.acq_image.file_loaders.base_file_loader import ReferenceImage
 from cloudscope.event_bus import EventBus
 from cloudscope.state import PrimarySelection
 from cloudscope.views.base_view import BaseView
+from cloudscope.session_state import (
+    VIEW_SESSION_SCHEMA_VERSION,
+    selection_guard_from_selection,
+)
 from cloudscope.views.reference_image_view import (
     ReferenceImageView,
+    ReferenceImageViewState,
     _load_reference_plane_payload,
     raster_grid_spec_from_reference_plane,
     reference_contrast_window,
     scan_path_to_plotly_overlays,
 )
 from cloudscope.views.view_ids import ViewId
+from nicewidgets.raster_viewer.frontend.plotly_display_options import (
+    PlotlyRasterViewerDisplayOptions,
+)
+
+
+def test_reference_image_view_state_round_trip() -> None:
+    """ReferenceImageViewState should survive a to_dict/from_dict round trip."""
+    state = ReferenceImageViewState(
+        selection_guard=selection_guard_from_selection(
+            PrimarySelection(file_id='file-a', channel=0)
+        ),
+        display_options=PlotlyRasterViewerDisplayOptions(show_rois=False, theme='dark'),
+    )
+    restored = ReferenceImageViewState.from_dict(state.to_dict())
+    assert restored.display_options.show_rois is False
+    assert restored.display_options.theme == 'dark'
+    assert restored.schema_version == VIEW_SESSION_SCHEMA_VERSION
 
 
 class _Images:
