@@ -180,8 +180,12 @@ def test_publish_session_reconnect_restore_publishes_current_state() -> None:
         analysis_name='radon_velocity',
     )
     controller.state.primary_x_range = (10.0, 20.0)
-    snapshot = HomePageSessionSnapshot.empty()
-    snapshot.views['primary_image'] = {'schema_version': 1}
+    restorable = controller.state.to_restorable_state()
+    snapshot = HomePageSessionSnapshot(
+        chrome=HomePageSessionSnapshot.empty().chrome,
+        app_state=restorable,
+        views={'primary_image': {'schema_version': 1}},
+    )
 
     published: list[HomePageSessionReconnectRestore] = []
     event_bus.subscribe(HomePageSessionReconnectRestore, published.append)
@@ -190,11 +194,12 @@ def test_publish_session_reconnect_restore_publishes_current_state() -> None:
 
     assert len(published) == 1
     event = published[0]
-    assert event.file_id == 'file-b'
-    assert event.channel == 1
-    assert event.roi_id == 2
-    assert event.analysis_name == 'radon_velocity'
-    assert event.primary_x_range == (10.0, 20.0)
+    assert event.file_id == restorable.selection.file_id
+    assert event.channel == restorable.selection.channel
+    assert event.roi_id == restorable.selection.roi_id
+    assert event.analysis_name == restorable.selection.analysis_name
+    assert event.primary_x_range == restorable.primary_x_range
+    assert restorable.file_ids == ('file-a', 'file-b')
     assert event.view_session == {'primary_image': {'schema_version': 1}}
     assert event.acq_image is None
 

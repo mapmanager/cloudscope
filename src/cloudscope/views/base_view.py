@@ -21,6 +21,7 @@ from cloudscope.events.selection import (
     RoiSelectionChanged,
 )
 from cloudscope.events.session_reconnect import HomePageSessionReconnectRestore
+from cloudscope.runtime import get_current_runtime
 from cloudscope.session_state import selection_guard_matches
 from cloudscope.state import PrimarySelection
 from cloudscope.utils.logging import get_logger
@@ -587,16 +588,12 @@ class BaseView:
         """
 
     def _should_suppress_reconnect_hydrate(self) -> bool:
-        """Return whether reconnect build should defer hydrate until restore event.
+        """Return whether a runtime rebuild should defer normal hydration.
 
         Returns:
-            True when a reconnect build is in progress.
+            True while the runtime rebuild waits for its restore event.
         """
-        try:
-            from cloudscope.runtime import get_current_runtime
-        except ImportError:
-            return False
-        return bool(get_current_runtime().reconnect_build_in_progress)
+        return get_current_runtime().reconnect_build_in_progress
 
     def _sync_selection_cache_from_state(self) -> None:
         """Refresh cached selection from ``app_state`` without notifying subclasses.

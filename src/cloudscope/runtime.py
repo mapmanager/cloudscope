@@ -85,6 +85,10 @@ class CloudScopeRuntime:
     raster_display_cache: RasterDisplayCache
     initialized: bool = False
     controllers_bound: bool = False
+    # Latest in-memory home-page snapshot for rebuilding this runtime. It is
+    # scoped to the surviving Python process and is not persistent across a
+    # server restart. If multiple clients share a runtime, the most recently
+    # captured snapshot replaces the previous snapshot.
     session_snapshot: HomePageSessionSnapshot | None = None
     reconnect_build_in_progress: bool = False
 

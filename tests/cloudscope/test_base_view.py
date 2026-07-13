@@ -94,6 +94,20 @@ def test_hide_unsubscribes_from_events() -> None:
 from cloudscope.events.selection import ChannelSelectionChanged, FileSelectionChanged, RoiSelectionChanged
 
 
+def test_repeated_show_hide_does_not_accumulate_subscriptions(monkeypatch) -> None:
+    """Repeated lifecycle cycles should leave no stale event subscriptions."""
+    bus = EventBus()
+    view = FakeView(bus, initially_visible=False)
+    monkeypatch.setattr(view, '_should_suppress_reconnect_hydrate', lambda: False)
+    view.build()
+
+    for _ in range(5):
+        view.show()
+        assert sum(len(handlers) for handlers in bus._subscribers.values()) == 7
+        view.hide()
+        assert bus._subscribers == {}
+
+
 def test_base_view_tracks_primary_selection_for_all_views() -> None:
     """BaseView should cache file/channel/ROI selection while visible."""
     bus = EventBus()

@@ -20,7 +20,11 @@ from cloudscope.controllers.roi_controller import RoiController
 from cloudscope.controllers.velocity_pool_controller import VelocityPoolController
 from cloudscope.controllers.x_range_controller import XRangeController
 from cloudscope.event_bus import EventBus
-from cloudscope.runtime import CloudScopeRuntime, get_current_runtime
+from cloudscope.runtime import (
+    CloudScopeRuntime,
+    get_current_runtime,
+    runtime_key_from_user_context,
+)
 from cloudscope.session_state import HomePageChromeState, HomePageSessionSnapshot
 from cloudscope.task_runner import TaskRunner
 from cloudscope.user_context import UserContext
@@ -92,7 +96,11 @@ def _log_home_session_state(
 
     logger.info('home_page [%s]', phase)
     logger.info('  client_id=%s', client_id)
+    logger.info('  runtime_key=%s', runtime_key_from_user_context(runtime.user_context))
+    logger.info('  user_context_kind=%s', runtime.user_context.kind.value)
+    logger.info('  user_context_user_id=%s', runtime.user_context.user_id)
     logger.info('  runtime_initialized=%s', runtime.initialized)
+    logger.info('  session_snapshot_present=%s', runtime.session_snapshot is not None)
     logger.info('  acq_image_list=%s', acq_image_list_status)
     logger.info('  file_count=%s', file_count)
     logger.info('  selection=%s', _selection_snapshot(runtime))
@@ -158,7 +166,7 @@ class HomePage:
             reconnect_chrome = runtime.session_snapshot.chrome
         _log_home_session_state(
             'build(start)',
-            runtime=get_current_runtime(),
+            runtime=runtime,
             client_id=getattr(ui.context.client, 'id', None),
         )
 
@@ -215,7 +223,7 @@ class HomePage:
             initially_visible=True,
             dark_mode=dark_mode,
             dark_mode_provider=_dark_mode,
-            raster_display_cache=get_current_runtime().raster_display_cache,
+            raster_display_cache=runtime.raster_display_cache,
             app_config=self.app_config,
             app_state=app_state,
         )
@@ -829,7 +837,7 @@ class HomePage:
                     on_panel_open_changed=splitter_manager.set_left_toolbar_open,
                     dark_mode=dark_mode,
                     dark_mode_provider=_dark_mode,
-                    raster_display_cache=get_current_runtime().raster_display_cache,
+                    raster_display_cache=runtime.raster_display_cache,
                     initial_active_view_id=initial_left_toolbar_tab,
                 )
                 left_toolbar.build()
@@ -936,7 +944,6 @@ class HomePage:
         x_range_controller.bind()
 
         def _on_client_disconnect() -> None:
-            runtime = get_current_runtime()
             left_toolbar = left_toolbar_ref['value']
             active_left_tab = left_toolbar.active_view_id if left_toolbar is not None else None
             runtime.session_snapshot = HomePageSessionSnapshot(
@@ -965,7 +972,7 @@ class HomePage:
 
         _log_home_session_state(
             'build(complete)',
-            runtime=get_current_runtime(),
+            runtime=runtime,
             client_id=getattr(ui.context.client, 'id', None),
             view_count=len(view_manager.view_ids()),
             note='GUI widgets rebuilt; views hydrate from runtime state and/or pending load events',
@@ -1053,7 +1060,9 @@ def home_page() -> None:
     """
     runtime = get_current_runtime()
     client_id = getattr(ui.context.client, 'id', None)
-    was_initialized = runtime.initialized
+    # A runtime rebuild includes websocket reconnect, page reload, or another
+    # page build that resolves to an already initialized runtime.
+    is_runtime_rebuild = runtime.initialized
     had_acq_image_list = runtime.home_page_controller.state.acq_image_list is not None
     config_last_path = runtime.app_config.get_last_path().strip()
 
@@ -1065,7 +1074,7 @@ def home_page() -> None:
 
     runtime.initialize_once()
 
-    if not was_initialized:
+    if not is_runtime_rebuild:
         if had_acq_image_list:
             logger.info(
                 'home_page bootstrap: initialize_once skipped LoadPathIntent because '
@@ -1110,12 +1119,15 @@ def home_page() -> None:
         velocity_pool_controller=runtime.velocity_pool_controller,
         task_runner=runtime.task_runner,
     )
-    if was_initialized:
-        runtime.reconnect_build_in_progress = True
-    page.build(reconnect=was_initialized)
+    if not is_runtime_rebuild:
+        page.build(reconnect=False)
+        return
 
-    if was_initialized:
+    runtime.reconnect_build_in_progress = True
+    try:
+        page.build(reconnect=True)
         snapshot = runtime.session_snapshot or HomePageSessionSnapshot.empty()
         runtime.home_page_controller.publish_session_reconnect_restore(snapshot)
-    runtime.reconnect_build_in_progress = False
+    finally:
+        runtime.reconnect_build_in_progress = False
 

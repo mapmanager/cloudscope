@@ -46,6 +46,12 @@ remains the full plan.
   - Deferred (unchanged): moving restore delivery to true build time, and
     `HomePageChromeState` field cleanup / new page-chrome fields
     (`left_toolbar_open`, splitters, pool tab).
+- **Ticket 022 — reconnect stabilization cleanup.**
+  - Reuses the already-resolved runtime in the disconnect callback.
+  - Protects the runtime-rebuild hydrate-suppression flag with `try/finally`.
+  - Clarifies runtime-rebuild terminology and lifecycle identity logging.
+  - Documents same-process/single-worker/preferred-single-tab support limits.
+  - Adds app-state consistency and repeated subscription-lifecycle tests.
 - **Ticket 021 — page-level layout restore.**
   - `HomePageChromeState` cleaned to real page chrome: kept `file_list_open`
     and `analysis_plot_open`; removed dead `reference_image_open` /
@@ -63,6 +69,25 @@ remains the full plan.
     true build-time delivery of per-view blobs remains deferred.
 
 ---
+
+## Supported deployment and client boundary
+
+The reconnect snapshot is intentionally an in-memory runtime feature.
+
+```text
+temporary remote disconnect  supported when the same server process/runtime survives
+server/process restart       not supported
+multi-worker deployment      not supported safely
+multiple browser tabs        may share one runtime; one tab is the preferred workflow
+```
+
+Multiple tabs from the same browser can resolve to the same runtime and the most
+recently captured `session_snapshot` replaces the previous snapshot. Independent
+per-tab workspaces are not part of the current CloudScope architecture.
+
+Only views with meaningful persistent home-page UX state should gain typed
+reconnect state. Analysis editor forms and transient utility/config/debug views
+are allowed to rebuild from normal defaults.
 
 ## Problem
 
