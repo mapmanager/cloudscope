@@ -90,6 +90,43 @@ class CloudScopeRunConfig:
             kwargs['port'] = self.port
         return kwargs
 
+# abb google analytics on 20260713
+GOOGLE_ANALYTICS_MEASUREMENT_ID = 'G-8057JCR6M8'
+
+def configure_google_analytics(config: CloudScopeRunConfig) -> None:
+    """Configure Google Analytics for the remotely hosted web application.
+
+    Analytics is intentionally disabled for local and native desktop modes.
+
+    Args:
+        config: Runtime configuration.
+
+    Returns:
+        None.
+    """
+    if not config.remote or config.native:
+        logger.info(
+            'Skipping Google Analytics: remote=%s native=%s',
+            config.remote,
+            config.native,
+        )
+        return
+
+    measurement_id = GOOGLE_ANALYTICS_MEASUREMENT_ID
+    ui.add_head_html(
+        f"""
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id={measurement_id}"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag() {{ dataLayer.push(arguments); }}
+  gtag('js', new Date());
+  gtag('config', '{measurement_id}');
+</script>
+""",
+        shared=True,
+    )
+    logger.info('Configured Google Analytics: %s', measurement_id)
 
 def _parse_bool_env(name: str, *, default: bool) -> bool:
     """Parse a boolean environment variable.
@@ -223,6 +260,7 @@ def main() -> None:
         logger.info('Starting CloudScope in Option C multi-window desktop mode')
         run_option_c_desktop(config)
         return
+    configure_google_analytics(config)  # abb google analytics 20260713
     configure_native_window(config)
     ui.run(**config.ui_run_kwargs())
 
