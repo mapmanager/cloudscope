@@ -18,8 +18,8 @@ export PYPI_PACKAGE="${PYPI_PACKAGE:-cloudscope}"
 export BUNDLE_ID="${BUNDLE_ID:-com.mapmanager.cloudscope}"
 export MAIN_PY="${MAIN_PY:-$REPO_ROOT/src/cloudscope/app.py}"
 
-# Optional icon. By default this packaging folder includes assets/CloudScope.icns.
-DEFAULT_ICON="$SCRIPT_DIR/assets/CloudScope.icns"
+# Optional icon. Shared packaging assets live in packaging/assets/.
+DEFAULT_ICON="$SCRIPT_DIR/../assets/CloudScope.icns"
 if [[ -f "$DEFAULT_ICON" ]]; then
   export ICON_PATH="${ICON_PATH:-$DEFAULT_ICON}"
 else

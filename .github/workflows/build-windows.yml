@@ -93,7 +93,13 @@ jobs:
 
       - name: Build Windows app
         shell: pwsh
-        run: .\.venv\Scripts\nicegui-pack.exe --windowed --clean --name CloudScope src/cloudscope/app.py
+        run: >
+          .\.venv\Scripts\nicegui-pack.exe
+          --windowed
+          --clean
+          --name CloudScope
+          --icon packaging/assets/CloudScope.ico
+          src/cloudscope/app.py
 
       - name: Verify Windows app output
         shell: pwsh
