@@ -1,7 +1,14 @@
 #
 # CloudScope NiceGUI listens on port 8080 inside the image.
 #
-# Build image locally:
+# Stamped web deploy (recommended; macOS or Oracle host):
+#   ./packaging/deploy_cloudscope_web.sh
+# That wrapper writes src/cloudscope/_build_info.py before `docker compose
+# up --build`, so App Info shows commit/version identity. This Dockerfile
+# fails the build if that stamp file is missing.
+#
+# Build image only (requires a prior stamp):
+#   python3 packaging/write_build_info.py
 #   docker build -t cloudscope:latest .
 #
 # Run locally and open in browser:
@@ -11,10 +18,6 @@
 # Run locally with a mounted data folder available to the server/container:
 #   docker run --rm -p 8080:8080 -v "$PWD/data:/data" cloudscope:latest
 #   then load files from /data inside the CloudScope UI
-#
-# Run with Docker Compose:
-#   docker compose up --build cloudscope
-#   then visit http://localhost:8080
 #
 # Deploy on a remote host or cloud service:
 #   set CLOUDSCOPE_REMOTE=1 and CLOUDSCOPE_NATIVE=0
@@ -42,6 +45,14 @@ ENV PORT=8080
 
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
+
+# Fail fast when the image was built without a host-side stamp. Use:
+#   ./packaging/deploy_cloudscope_web.sh
+RUN test -f src/cloudscope/_build_info.py || ( \
+    echo "ERROR: missing src/cloudscope/_build_info.py" >&2; \
+    echo "Run ./packaging/deploy_cloudscope_web.sh (or packaging/write_build_info.py) before building." >&2; \
+    exit 1 \
+  )
 
 RUN uv sync --frozen --no-dev --no-editable
 

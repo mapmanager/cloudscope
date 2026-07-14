@@ -1,12 +1,23 @@
 # Docker Compose helpers for CloudScope.
 #
-# Build and run the production-like container:
-#   docker compose up --build cloudscope
+# Stamped production-like web deploy (recommended on macOS and Oracle):
+#   ./packaging/deploy_cloudscope_web.sh
+# Writes src/cloudscope/_build_info.py, then builds/starts `cloudscope`.
+# Bare `docker compose up --build cloudscope` without a stamp fails the
+# Dockerfile presence check.
+#
+# Build and run the production-like container (after stamping):
+#   python3 packaging/write_build_info.py
+#   docker compose up --build -d cloudscope
 #   then visit http://localhost:8080
 #
 # Build and run the development container with src/ mounted:
+#   python3 packaging/write_build_info.py   # required once per image build
 #   docker compose up --build cloudscope-dev
 #   then visit http://localhost:8080
+#   Note: same Dockerfile hard-requires the stamp at build time. The ./src
+#   bind mount then shadows the image stamp; App Info may show development
+#   fallbacks unless a host _build_info.py remains present while running.
 #
 # Web/single-window runtime env and startup: docs-dev/cloudscope_single_window_runtime.md
 #
