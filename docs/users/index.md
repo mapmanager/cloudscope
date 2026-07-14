@@ -16,14 +16,9 @@ The fastest way to try CloudScope is the public browser application:
 
 The browser app provides the same GUI and analysis workflows as the desktop app.
 
-## Install the desktop app
+## Running the desktop app
 
-CloudScope desktop is the same application on macOS and Windows. Download builds from the
-[CloudScope Releases](https://github.com/mapmanager/cloudscope/releases){target="_blank" rel="noopener"}
-page and follow the platform-specific steps in [Install the desktop app](install.md).
-
-Use official releases when you need stable, repeatable analysis results. Released desktop builds,
-checksum files, and matching source code are archived so you can return to the same version later.
+CloudScope desktop is the same application on macOS and Windows. [Please fill out this form to request the desktop app](request-desktop-app.md)
 
 ## Supported file formats
 

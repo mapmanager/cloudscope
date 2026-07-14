@@ -1,28 +1,16 @@
 # Install the desktop app
 
-CloudScope desktop is distributed from [GitHub Releases](https://github.com/mapmanager/cloudscope/releases){target="_blank" rel="noopener"}.
-Download the ZIP for your operating system and follow the steps below.
-
 !!! tip "Try CloudScope first"
     You can use the [web application](https://cloudscope.mapmanager.net){target="_blank" rel="noopener"}
     without installing anything.
 
-Use official releases when you need stable, repeatable analysis results. Released desktop builds,
-matching source code, and checksum files are archived on the Releases page so you can return to the
-same version later.
+## Get the desktop app
 
-## Download and run
+Please [fill out this form](request-desktop-app.md) to get the desktop app for macOS or Windows.
+
+## Running the desktop app
 
 === "Windows"
-
-    CloudScope for Windows is distributed as a standalone application in a ZIP archive.
-
-    ### Download
-
-    1. Open [CloudScope Releases](https://github.com/mapmanager/cloudscope/releases){target="_blank" rel="noopener"}.
-    2. Download the latest **`CloudScope-vX.Y.Z-windows-x64.zip`**.
-    3. Optionally verify the download using the accompanying
-       **`CloudScope-vX.Y.Z-windows-x64.zip.sha256`** file (see [Verify your download](#verify-your-download-optional)).
 
     ### Unblock the ZIP
 
@@ -60,8 +48,6 @@ same version later.
 
     If Windows SmartScreen appears, select **More info**, then **Run anyway**.
 
-    Only do this if you downloaded CloudScope from the official GitHub Releases page.
-
     ### Troubleshooting
 
     **CloudScope does not start**
@@ -80,16 +66,7 @@ same version later.
 
 === "macOS"
 
-    CloudScope for macOS is a signed, notarized **`.app`** bundle for **Apple Silicon (arm64)** Macs.
-
-    Intel Macs and universal builds are not supported.
-
-    ### Download
-
-    1. Open [CloudScope Releases](https://github.com/mapmanager/cloudscope/releases){target="_blank" rel="noopener"}.
-    2. Download the latest **`CloudScope-vX.Y.Z-macos.zip`**.
-    3. Optionally verify the download using the accompanying
-       **`CloudScope-vX.Y.Z-macos.zip.sha256`** file (see [Verify your download](#verify-your-download-optional)).
+    CloudScope for macOS is a signed, notarized **`.app`** bundle for **Apple Silicon (arm64)** Macs. Intel Macs and universal builds are not supported.
 
     ### Install and run
 
@@ -103,26 +80,19 @@ same version later.
     !!! info "Validated on"
         macOS Tahoe 26.2, Apple Silicon.
 
-## Verify your download (optional)
-
+<!-- ## Verify your download (optional)
 Each desktop ZIP on the Releases page has a matching `.sha256` checksum file. Download both files,
 then compare the hash of the ZIP to the contents of the checksum file.
-
 === "Windows"
-
     ```powershell
     Get-FileHash "CloudScope-vX.Y.Z-windows-x64.zip" -Algorithm SHA256
     ```
-
     The hash should match the first field in `CloudScope-vX.Y.Z-windows-x64.zip.sha256`.
-
 === "macOS"
-
     ```bash
     shasum -a 256 CloudScope-vX.Y.Z-macos.zip
     ```
-
-    The hash should match the first field in `CloudScope-vX.Y.Z-macos.zip.sha256`.
+    The hash should match the first field in `CloudScope-vX.Y.Z-macos.zip.sha256`. -->
 
 ## Next steps
 
