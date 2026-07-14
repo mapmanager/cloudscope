@@ -159,15 +159,23 @@ jobs:
           print(f'[build-info] State   : {git_state}')
           "@
 
+      # nicegui-pack spawns bare `pyinstaller`. Put .venv\Scripts on PATH so that
+      # resolves (macOS packaging activates the venv for the same reason).
       - name: Build Windows app
         shell: pwsh
-        run: >
-          .\.venv\Scripts\nicegui-pack.exe
-          --windowed
-          --clean
-          --name CloudScope
-          --icon packaging/assets/CloudScope.ico
-          src/cloudscope/app.py
+        run: |
+          $env:Path = "$(Join-Path $PWD '.venv\Scripts');" + $env:Path
+          if (-not (Get-Command pyinstaller -ErrorAction SilentlyContinue)) {
+            Write-Error "pyinstaller not found on PATH after prepending .venv\Scripts"
+            exit 1
+          }
+          Write-Host "pyinstaller: $((Get-Command pyinstaller).Source)"
+          & .\.venv\Scripts\nicegui-pack.exe `
+            --windowed `
+            --clean `
+            --name CloudScope `
+            --icon packaging/assets/CloudScope.ico `
+            src/cloudscope/app.py
 
       - name: Remove transient build metadata
         if: always()
