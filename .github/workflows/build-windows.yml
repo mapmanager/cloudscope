@@ -13,7 +13,8 @@ permissions:
 jobs:
   build-windows:
     name: Build unsigned Windows app artifact
-    runs-on: windows-latest
+    # Pin image so release packaging does not silently follow windows-latest churn.
+    runs-on: windows-2022
 
     env:
       CLOUDSCOPE_NATIVE: '1'
@@ -29,24 +30,37 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v6
         with:
+          # Keep macOS and Windows packaging on the same tested uv release.
+          version: '0.9.2'
           enable-cache: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version-file: .python-version
 
-      - name: Install dependencies
-        run: uv sync --frozen
+      - name: Validate dependency lock
+        shell: pwsh
+        run: uv lock --check
 
-      - name: Install packaging tools
-        run: uv pip install pyinstaller
+      # Sync once into the project .venv, then call its executables directly.
+      # Do not use bare `uv run` afterward: it can re-sync default groups (including
+      # `dev`) and undo --no-dev --group build. Matches macOS build_app.sh.
+      - name: Install locked packaging dependencies
+        run: uv sync --locked --no-dev --group build
+
+      - name: Log packaging environment
+        shell: pwsh
+        run: |
+          uv --version
+          .\.venv\Scripts\python.exe --version
+          .\.venv\Scripts\python.exe -c "import importlib.metadata as m; print('nicegui', m.version('nicegui')); print('pywebview', m.version('pywebview')); print('pyinstaller', m.version('pyinstaller'))"
 
       - name: Resolve project version
         id: version
         shell: pwsh
         run: |
-          $version = uv run python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])"
+          $version = .\.venv\Scripts\python.exe -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])"
           echo "version=$version" >> $env:GITHUB_OUTPUT
           echo "artifact_name=CloudScope-v$version-windows-x64" >> $env:GITHUB_OUTPUT
 
@@ -78,14 +92,26 @@ jobs:
           "@ | Set-Content -Encoding UTF8 src/cloudscope/_build_info.py
 
       - name: Build Windows app
-        run: uv run nicegui-pack --windowed --clean --name CloudScope src/cloudscope/app.py
+        shell: pwsh
+        run: .\.venv\Scripts\nicegui-pack.exe --windowed --clean --name CloudScope src/cloudscope/app.py
+
+      - name: Verify Windows app output
+        shell: pwsh
+        run: |
+          if (-not (Test-Path -Path "dist/CloudScope" -PathType Container)) {
+            Write-Error "Expected Windows app directory was not created: dist/CloudScope"
+            exit 1
+          }
 
       - name: Archive Windows app
         shell: pwsh
         run: |
           $artifactName = "${{ steps.version.outputs.artifact_name }}"
-          New-Item -ItemType Directory -Force -Path package
-          Copy-Item -Path dist/CloudScope -Destination package/CloudScope -Recurse
+          if (Test-Path "package") {
+            Remove-Item -Path "package" -Recurse -Force
+          }
+          New-Item -ItemType Directory -Path "package" | Out-Null
+          Copy-Item -Path "dist/CloudScope" -Destination "package/CloudScope" -Recurse
           Compress-Archive `
             -Path package/CloudScope `
             -DestinationPath "$artifactName.zip" `

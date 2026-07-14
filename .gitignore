@@ -28,6 +28,9 @@ packaging/macos/.venv-build/
 packaging/macos/*.zip
 packaging/macos/*.log
 
+# Transient packaging metadata (written by packaging/macos/build_info.sh)
+src/cloudscope/_build_info.py
+
 # -----------------------------
 # Python
 # -----------------------------

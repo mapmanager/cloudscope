@@ -11,6 +11,9 @@
 # - This script does NOT codesign or notarize.
 # - Build outputs stay under packaging/macos/dist and packaging/macos/build.
 # - All app-specific knobs live in packaging/macos/_config.sh.
+# - Dependencies come from the committed uv.lock via:
+#     uv sync --locked --no-dev --group build
+#   so local packaging matches GitHub Actions release builds.
 
 set -euo pipefail
 
@@ -20,15 +23,29 @@ source "$SCRIPT_DIR/_config.sh"
 
 cd "$SCRIPT_DIR"
 
+_cleanup_transient_build_info() {
+  if [[ -n "${BUILD_INFO_PATH:-}" && -f "$BUILD_INFO_PATH" ]]; then
+    rm -f "$BUILD_INFO_PATH"
+    echo "[build] Removed transient build info: $BUILD_INFO_PATH"
+  fi
+}
+
+trap _cleanup_transient_build_info EXIT
+
 echo "[build] Repo root : $REPO_ROOT"
 echo "[build] App name  : $APP_NAME"
 echo "[build] Bundle ID : $BUNDLE_ID"
 echo "[build] Main py   : $MAIN_PY"
 echo "[build] Dist dir  : $DIST_DIR"
 echo "[build] Build dir : $BUILD_DIR"
+echo "[build] Build venv: $BUILD_VENV_DIR"
 
 if [[ ! -f "$MAIN_PY" ]]; then
   echo "ERROR: MAIN_PY not found: $MAIN_PY" >&2
+  exit 2
+fi
+if [[ ! -f "$REPO_ROOT/uv.lock" ]]; then
+  echo "ERROR: uv.lock not found: $REPO_ROOT/uv.lock" >&2
   exit 2
 fi
 if ! command -v uv >/dev/null 2>&1; then
@@ -36,23 +53,23 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 2
 fi
 
-if [[ ! -d "$BUILD_VENV_DIR" ]]; then
-  echo "[build] Creating build venv: $BUILD_VENV_DIR"
-  uv venv "$BUILD_VENV_DIR"
-fi
+echo "[build] Syncing locked packaging environment (runtime + build group)..."
+(
+  cd "$REPO_ROOT"
+  UV_PROJECT_ENVIRONMENT="$BUILD_VENV_DIR" uv sync --locked --no-dev --group build
+)
 
 # shellcheck source=/dev/null
 source "$BUILD_VENV_DIR/bin/activate"
 
+echo "[build] uv: $(uv --version)"
 echo "[build] Python: $(python -V)"
-
-echo "[build] Installing build toolchain and local project..."
-uv pip install --upgrade pip >/dev/null
-uv pip install pyinstaller
-uv pip install -e "$REPO_ROOT"
+echo "[build] nicegui: $(python -c 'import importlib.metadata as m; print(m.version("nicegui"))')"
+echo "[build] pywebview: $(python -c 'import importlib.metadata as m; print(m.version("pywebview"))')"
+echo "[build] pyinstaller: $(python -c 'import importlib.metadata as m; print(m.version("pyinstaller"))')"
 
 if ! command -v nicegui-pack >/dev/null 2>&1; then
-  echo "ERROR: nicegui-pack not found on PATH after installing local project." >&2
+  echo "ERROR: nicegui-pack not found on PATH after locked sync." >&2
   echo "       nicegui-pack is provided by nicegui." >&2
   exit 2
 fi
@@ -119,11 +136,6 @@ if [[ ! -d "$APP_PATH" ]]; then
 fi
 
 bash "$SCRIPT_DIR/set_plist_versions.sh"
-
-if [[ -f "$BUILD_INFO_PATH" ]]; then
-  rm -f "$BUILD_INFO_PATH"
-  echo "[build] Removed transient build info: $BUILD_INFO_PATH"
-fi
 
 echo ""
 echo "[build] Done: $APP_PATH"
