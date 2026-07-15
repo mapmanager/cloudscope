@@ -77,9 +77,16 @@ Tooling: `codesign`, `xcrun notarytool`, `xcrun stapler`, `spctl`, `ditto`
 
 ## CI
 
-A dedicated GitHub Actions workflow can mirror `.github/workflows/build-macos.yml`
-with paths pointed at `packaging/acqstore_server/` (same secrets, distinct
-`NOTARY_PROFILE` name optional). Not added in this pass — run the local chain first.
+GitHub Actions: [`.github/workflows/build-acqstore-server-macos.yml`](../../.github/workflows/build-acqstore-server-macos.yml)
+
+- Triggers: `workflow_dispatch` and tags `v*.*.*` (same pattern as CloudScope)
+- Scripts: `./packaging/acqstore_server/*.sh` only (never `packaging/macos/`)
+- Reuses the same Developer ID / Apple secrets as CloudScope
+- Writes `_secrets.sh` in CI with a distinct keychain profile name:
+  `acqstore-server-ci-notary-profile`
+- Uploads `AcqStore-Server-*-macos.{zip,zip.sha256,manifest.json}`
+
+Icon: `packaging/assets/AcqStoreServer.icns` (teal **AS** monogram).
 
 ## Files not tracked
 

@@ -137,6 +137,10 @@ chmod 600 packaging/acqstore_server/_secrets.sh
 
 Details: [`packaging/acqstore_server/README.md`](../../packaging/acqstore_server/README.md).
 
+CI workflow (same Apple secrets as CloudScope):  
+[`.github/workflows/build-acqstore-server-macos.yml`](../../.github/workflows/build-acqstore-server-macos.yml)  
+(`workflow_dispatch` or tag `v*.*.*`).
+
 ### Code changed but browser looks old?
 
 Restart the server after pulling new code. A leftover process serves the **old** routes.

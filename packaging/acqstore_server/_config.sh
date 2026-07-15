@@ -20,7 +20,7 @@ export BUNDLE_ID="${BUNDLE_ID:-com.mapmanager.acqstore-server}"
 export MAIN_PY="${MAIN_PY:-$REPO_ROOT/src/acqstore_server/desktop.py}"
 
 # Optional icon. Shared packaging assets live in packaging/assets/.
-DEFAULT_ICON="$SCRIPT_DIR/../assets/CloudScope.icns"
+DEFAULT_ICON="$SCRIPT_DIR/../assets/AcqStoreServer.icns"
 if [[ -f "$DEFAULT_ICON" ]]; then
   export ICON_PATH="${ICON_PATH:-$DEFAULT_ICON}"
 else
