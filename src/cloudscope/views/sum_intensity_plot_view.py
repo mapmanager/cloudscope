@@ -19,11 +19,20 @@ from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_core impor
     ResultPoints,
     ResultTrace,
     SumIntensityEventPointKey,
+    SumIntensitySummaryKey,
     SumIntensityTraceKey,
 )
 from cloudscope.app_config import home_stack_layout_margins_profile
 from cloudscope.event_bus import EventBus
-from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind
+from cloudscope.events.analysis import (
+    AnalysisCompleted,
+    AnalysisKind,
+    AnalysisUiMode,
+    AnalysisUiModeChanged,
+    BeginAnalysisUiModeIntent,
+    CancelAnalysisUiModeIntent,
+    UpdateAnalysisDetectionParamsIntent,
+)
 from cloudscope.events.roi import RoiChanged
 from cloudscope.events.theme import ThemeChanged
 from cloudscope.events.x_range import PrimaryXRangeChanged, SetPrimaryXRangeIntent, x_ranges_equal
@@ -34,7 +43,9 @@ from cloudscope.session_state import (
     require_schema_version,
     selection_guard_from_selection,
 )
+from cloudscope.state import PrimarySelection
 from cloudscope.views.base_view import BaseView
+from cloudscope.views.sum_intensity_plot_toolbar import SumIntensityPlotToolbar
 from cloudscope.views.view_ids import ViewId
 from nicewidgets.plotly_plot.display_options import PlotlyPlotDisplayOptions
 from nicewidgets.plotly_plot.models import (
@@ -49,6 +60,10 @@ from nicewidgets.plotly_plot.widget import PlotlyPlotWidget
 _DIAMETER_TRACE_NAME = "Diameter"
 _DERIVATIVE_TRACE_NAME = "Derivative of df/f0"
 _DERIVATIVE_Y2_LABEL = "d(df/f0)/dt (1/s)"
+_MANUAL_F0_MEASUREMENT_NAME = "manual-f0"
+_AUTO_F0_MEASUREMENT_NAME = "auto-f0"
+_MANUAL_F0_LINE_COLOR = "#facc15"
+_AUTO_F0_LINE_COLOR = "#38bdf8"
 
 
 @dataclass(slots=True)
@@ -163,11 +178,16 @@ class SumIntensityPlotView(BaseView):
         self.title = title
         self._dark_mode_provider = dark_mode_provider
         self._initial_dark_mode = bool(dark_mode)
+        self._toolbar: SumIntensityPlotToolbar | None = None
         self._plot: PlotlyPlotWidget | None = None
         self._primary_x_range: tuple[float | None, float | None] = (None, None)
         self._plot_originated_x_range = False
         self._last_measurement_event: MeasurementChangeEvent | None = None
         self._plot_refresh_generation = 0
+        self._set_f0_mode = False
+        self._pending_f0: float | None = None
+        self._auto_f0: float | None = None
+        self._set_f0_lines_present = False
 
     @property
     def last_measurement_event(self) -> MeasurementChangeEvent | None:
@@ -298,6 +318,9 @@ class SumIntensityPlotView(BaseView):
         self.add_subscription(self.event_bus.subscribe(RoiChanged, self._on_roi_changed))
         self.add_subscription(self.event_bus.subscribe(PrimaryXRangeChanged, self._on_primary_x_range_changed))
         self.add_subscription(self.event_bus.subscribe(ThemeChanged, self._on_theme_changed))
+        self.add_subscription(
+            self.event_bus.subscribe(AnalysisUiModeChanged, self._on_analysis_ui_mode_changed)
+        )
 
     def refresh_from_state(self) -> None:
         """Refresh the plot from current application state.
@@ -343,6 +366,12 @@ class SumIntensityPlotView(BaseView):
         Returns:
             None.
         """
+        self._toolbar = SumIntensityPlotToolbar(
+            on_set_f0=self._on_set_f0_clicked,
+            on_accept=self._on_set_f0_accept_clicked,
+            on_cancel=self._on_set_f0_cancel_clicked,
+        )
+        self._toolbar.build()
         self._plot = PlotlyPlotWidget(
             display_options=PlotlyPlotDisplayOptions(
                 theme="dark" if self._initial_dark_mode else "light",
@@ -422,11 +451,7 @@ class SumIntensityPlotView(BaseView):
         self._apply_primary_x_range_to_plot()
 
     def _on_measurement_changed(self, event: MeasurementChangeEvent) -> None:
-        """Store measurement callbacks for future detection-parameter wiring.
-
-        Ticket 083 only wires the callback boundary. Later tickets can translate
-        specific measurement names into CloudScope intents for sum-intensity
-        detection-parameter edits.
+        """Track Set F0 line drags and retain the last measurement payload.
 
         Args:
             event: Measurement callback payload from ``PlotlyPlotWidget``.
@@ -435,6 +460,198 @@ class SumIntensityPlotView(BaseView):
             None.
         """
         self._last_measurement_event = event
+        if not self._set_f0_mode:
+            return
+        if event.name != _MANUAL_F0_MEASUREMENT_NAME:
+            return
+        if event.kind != "line":
+            return
+        self._pending_f0 = float(event.position)
+        if self._toolbar is not None:
+            self._toolbar.set_pending_f0(self._pending_f0)
+
+    def _on_analysis_ui_mode_changed(self, event: AnalysisUiModeChanged) -> None:
+        """Enter or leave Set F0 mode from authoritative controller state.
+
+        Args:
+            event: Analysis UI mode state event.
+
+        Returns:
+            None.
+        """
+        if event.is_active:
+            if event.mode is not AnalysisUiMode.SET_F0:
+                return
+            if event.analysis_kind is not AnalysisKind.SUM_INTENSITY:
+                return
+            if event.selection != self._selection_snapshot():
+                return
+            self._enter_set_f0_mode()
+            return
+        if self._set_f0_mode:
+            self._exit_set_f0_mode(refresh_normal_plot=True)
+
+    def _on_set_f0_clicked(self) -> None:
+        """Request Set F0 mode from the analysis controller.
+
+        Returns:
+            None.
+        """
+        analysis = self._get_selected_sum_intensity_analysis()
+        if analysis is None:
+            ui.notify("No sum-intensity analysis for the current selection.", type="warning")
+            return
+        if analysis.result.table is None:
+            ui.notify("Run sum-intensity analysis before setting F0.", type="warning")
+            return
+        f0 = analysis.get_summary_value(SumIntensitySummaryKey.F0_BASELINE)
+        if not isinstance(f0, (int, float)):
+            ui.notify("Sum-intensity analysis has no F0 baseline to edit.", type="warning")
+            return
+        self.event_bus.publish(
+            BeginAnalysisUiModeIntent(
+                analysis_kind=AnalysisKind.SUM_INTENSITY,
+                mode=AnalysisUiMode.SET_F0,
+                selection=self._selection_snapshot(),
+            )
+        )
+
+    def _on_set_f0_accept_clicked(self) -> None:
+        """Commit the pending F0 value into draft detection parameters.
+
+        Returns:
+            None.
+        """
+        if not self._set_f0_mode:
+            return
+        if self._pending_f0 is None:
+            ui.notify("Drag the F0 line before accepting.", type="warning")
+            return
+        self.event_bus.publish(
+            UpdateAnalysisDetectionParamsIntent(
+                analysis_kind=AnalysisKind.SUM_INTENSITY,
+                selection=self._selection_snapshot(),
+                param_updates={
+                    "baseline_method": "manual",
+                    "manual_f0_baseline": float(self._pending_f0),
+                },
+            )
+        )
+
+    def _on_set_f0_cancel_clicked(self) -> None:
+        """Cancel Set F0 mode without changing detection parameters.
+
+        Returns:
+            None.
+        """
+        if not self._set_f0_mode:
+            return
+        self.event_bus.publish(
+            CancelAnalysisUiModeIntent(
+                analysis_kind=AnalysisKind.SUM_INTENSITY,
+                mode=AnalysisUiMode.SET_F0,
+                selection=self._selection_snapshot(),
+            )
+        )
+
+    def _enter_set_f0_mode(self) -> None:
+        """Swap the plot to the F0 source trace and add Manual/Auto F0 lines.
+
+        Returns:
+            None.
+        """
+        if self._plot is None:
+            return
+        analysis = self._get_selected_sum_intensity_analysis()
+        if analysis is None or analysis.result.table is None:
+            ui.notify("No sum-intensity analysis for the current selection.", type="warning")
+            return
+        f0 = analysis.get_summary_value(SumIntensitySummaryKey.F0_BASELINE)
+        if not isinstance(f0, (int, float)):
+            ui.notify("Sum-intensity analysis has no F0 baseline to edit.", type="warning")
+            return
+        auto_f0 = analysis.get_percentile_f0_baseline()
+        self._set_f0_mode = True
+        self._pending_f0 = float(f0)
+        self._auto_f0 = float(auto_f0)
+        if self._toolbar is not None:
+            self._toolbar.enter_set_f0_mode()
+            self._toolbar.set_auto_f0(self._auto_f0)
+            self._toolbar.set_pending_f0(self._pending_f0)
+        self._remove_set_f0_lines()
+        trace = analysis.get_trace(SumIntensityTraceKey.DETRENDED_NORM_SUM_INTENSITY)
+        self._plot.set_series(traces=[self._trace_data(trace)], scatters=[])
+        self._plot.set_y2_label("")
+        x_label = kymograph_time_x_label(
+            self.get_selected_acq_image(),
+            fallback=trace.x_label,
+        )
+        self._plot.set_x_label(x_label)
+        self._plot.set_y_label(trace.y_label)
+        self._apply_primary_x_range_to_plot()
+        self._plot.add_measurement_line(
+            name=_AUTO_F0_MEASUREMENT_NAME,
+            orientation="horizontal",
+            value=self._auto_f0,
+            editable=False,
+            color=_AUTO_F0_LINE_COLOR,
+            dash="dot",
+            show_legend=True,
+            legend_label="Auto F0",
+        )
+        self._plot.add_measurement_line(
+            name=_MANUAL_F0_MEASUREMENT_NAME,
+            orientation="horizontal",
+            value=self._pending_f0,
+            editable=True,
+            color=_MANUAL_F0_LINE_COLOR,
+            dash="solid",
+            show_legend=True,
+            legend_label="Manual F0",
+        )
+        self._set_f0_lines_present = True
+
+    def _exit_set_f0_mode(self, *, refresh_normal_plot: bool) -> None:
+        """Leave Set F0 mode and optionally restore the normal plot.
+
+        Args:
+            refresh_normal_plot: When True, refresh the df/f0 plot series.
+
+        Returns:
+            None.
+        """
+        self._set_f0_mode = False
+        self._pending_f0 = None
+        self._auto_f0 = None
+        self._remove_set_f0_lines()
+        if self._toolbar is not None:
+            self._toolbar.exit_set_f0_mode()
+        if refresh_normal_plot:
+            self._refresh_plot()
+
+    def _remove_set_f0_lines(self) -> None:
+        """Remove Set F0 Manual/Auto measurement lines when this view added them.
+
+        Returns:
+            None.
+        """
+        if self._plot is None or not self._set_f0_lines_present:
+            return
+        self._plot.remove_measurement_line(_MANUAL_F0_MEASUREMENT_NAME)
+        self._plot.remove_measurement_line(_AUTO_F0_MEASUREMENT_NAME)
+        self._set_f0_lines_present = False
+
+    def _selection_snapshot(self) -> PrimarySelection:
+        """Return a copied selection snapshot for analysis UI intents.
+
+        Returns:
+            Copied primary selection.
+        """
+        return PrimarySelection(
+            file_id=self.current_selection.file_id,
+            channel=self.current_selection.channel,
+            roi_id=self.current_selection.roi_id,
+        )
 
     def _on_series_visibility_changed(self, series_name: str, visible: bool) -> None:
         """Refresh the right y-axis label when derivative or diameter toggles.
@@ -545,6 +762,8 @@ class SumIntensityPlotView(BaseView):
             None.
         """
         if self._plot is None:
+            return
+        if self._set_f0_mode:
             return
         analysis = self._get_selected_sum_intensity_analysis()
         if analysis is None:

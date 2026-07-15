@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Type
 
 from acqstore.acq_image.analysis.batch.acq_analysis_batch import AcqAnalysisBatch
 from acqstore.acq_image.analysis.batch.diameter_batch_strategy import DiameterBatchStrategy
@@ -13,6 +14,7 @@ from acqstore.acq_image.analysis.model import (
     AnalysisExclusionError,
     AnalysisKey,
     AnalysisRunContext,
+    BaseAnalysis,
 )
 from acqstore.acq_image.analysis.diameter_analysis.diameter_analysis import DiameterAnalysis
 from acqstore.acq_image.analysis.event_analysis.event_analysis import EventAnalysis
@@ -27,13 +29,20 @@ from cloudscope.controllers.home_page_controller import HomePageController
 from cloudscope.event_bus import EventBus
 from cloudscope.events.analysis import (
     AnalysisCompleted,
+    AnalysisDetectionParamsChanged,
+    AnalysisKind,
+    AnalysisUiMode,
+    AnalysisUiModeChanged,
+    AppBusyChanged,
     BatchAnalysisCompleted,
     BatchFileAnalysisCompleted,
-    AnalysisKind,
+    BeginAnalysisUiModeIntent,
+    CancelAnalysisUiModeIntent,
     CancelTaskIntent,
     RunAnalysisIntent,
     RunBatchAnalysisIntent,
     TaskKind,
+    UpdateAnalysisDetectionParamsIntent,
 )
 from cloudscope.events.status import AppStatusChanged, StatusLevel, StatusSource
 from cloudscope.state import PrimarySelection
@@ -56,6 +65,9 @@ class AnalysisController:
     event_bus: EventBus
     home_controller: HomePageController
     task_runner: TaskRunner
+    _ui_mode: AnalysisUiMode | None = field(default=None, init=False, repr=False)
+    _ui_mode_analysis_kind: AnalysisKind | None = field(default=None, init=False, repr=False)
+    _ui_mode_selection: PrimarySelection | None = field(default=None, init=False, repr=False)
 
     def bind(self) -> None:
         """Subscribe controller handlers to analysis intents.
@@ -66,6 +78,12 @@ class AnalysisController:
         self.event_bus.subscribe(RunAnalysisIntent, self._on_run_analysis)
         self.event_bus.subscribe(RunBatchAnalysisIntent, self._on_run_batch_analysis)
         self.event_bus.subscribe(CancelTaskIntent, self._on_cancel_task)
+        self.event_bus.subscribe(BeginAnalysisUiModeIntent, self._on_begin_analysis_ui_mode)
+        self.event_bus.subscribe(CancelAnalysisUiModeIntent, self._on_cancel_analysis_ui_mode)
+        self.event_bus.subscribe(
+            UpdateAnalysisDetectionParamsIntent,
+            self._on_update_analysis_detection_params,
+        )
 
     def _on_run_analysis(self, event: RunAnalysisIntent) -> None:
         """Start analysis for one selection snapshot.
@@ -164,6 +182,191 @@ class AnalysisController:
                     source=StatusSource.ANALYSIS,
                 )
             )
+
+    def _on_begin_analysis_ui_mode(self, event: BeginAnalysisUiModeIntent) -> None:
+        """Enter a modal analysis UI mode and freeze most of the GUI.
+
+        Args:
+            event: Begin-mode intent.
+
+        Returns:
+            None.
+        """
+        if self.task_runner.is_running():
+            self._publish_analysis_warning("Finish or cancel the current task before continuing")
+            return
+        if self._ui_mode is not None:
+            self._publish_analysis_warning("Finish or cancel the current analysis UI mode first")
+            return
+        selection = event.selection
+        if selection.file_id is None or selection.channel is None or selection.roi_id is None:
+            self._publish_analysis_warning("Select a file, channel, and ROI before continuing")
+            return
+        self._ui_mode = event.mode
+        self._ui_mode_analysis_kind = event.analysis_kind
+        self._ui_mode_selection = PrimarySelection(
+            file_id=selection.file_id,
+            channel=selection.channel,
+            roi_id=selection.roi_id,
+        )
+        message = self._ui_mode_busy_message(event.analysis_kind, event.mode)
+        self.event_bus.publish(
+            AppBusyChanged(
+                is_busy=True,
+                task_kind=None,
+                task_id=None,
+                message=message,
+            )
+        )
+        self.event_bus.publish(
+            AnalysisUiModeChanged(
+                is_active=True,
+                analysis_kind=event.analysis_kind,
+                mode=event.mode,
+                selection=self._ui_mode_selection,
+                message=message,
+            )
+        )
+
+    def _on_cancel_analysis_ui_mode(self, event: CancelAnalysisUiModeIntent) -> None:
+        """Leave a modal analysis UI mode without committing detection params.
+
+        Args:
+            event: Cancel-mode intent.
+
+        Returns:
+            None.
+        """
+        if self._ui_mode is None:
+            return
+        if self._ui_mode is not event.mode:
+            return
+        if self._ui_mode_analysis_kind is not event.analysis_kind:
+            return
+        self._clear_analysis_ui_mode(message="Analysis UI mode cancelled")
+
+    def _on_update_analysis_detection_params(
+        self,
+        event: UpdateAnalysisDetectionParamsIntent,
+    ) -> None:
+        """Validate and publish a draft detection-parameter update.
+
+        Args:
+            event: Partial detection-parameter update intent.
+
+        Returns:
+            None.
+        """
+        try:
+            analysis_cls = self._analysis_class_for_kind(event.analysis_kind)
+            analysis_cls.validate_detection_params(dict(event.param_updates))
+        except (KeyError, TypeError, ValueError, NotImplementedError) as exc:
+            self._publish_analysis_warning(f"Invalid detection parameters: {exc}")
+            return
+        param_updates = dict(event.param_updates)
+        selection = PrimarySelection(
+            file_id=event.selection.file_id,
+            channel=event.selection.channel,
+            roi_id=event.selection.roi_id,
+        )
+        self.event_bus.publish(
+            AnalysisDetectionParamsChanged(
+                analysis_kind=event.analysis_kind,
+                selection=selection,
+                param_updates=param_updates,
+            )
+        )
+        if (
+            self._ui_mode is not None
+            and self._ui_mode_analysis_kind is event.analysis_kind
+            and self._ui_mode_selection == selection
+        ):
+            self._clear_analysis_ui_mode(message="Detection parameters updated")
+
+    def _clear_analysis_ui_mode(self, *, message: str) -> None:
+        """Clear active analysis UI mode and release app-busy.
+
+        Args:
+            message: Human-readable terminal message for busy/mode consumers.
+
+        Returns:
+            None.
+        """
+        self._ui_mode = None
+        self._ui_mode_analysis_kind = None
+        self._ui_mode_selection = None
+        self.event_bus.publish(
+            AppBusyChanged(
+                is_busy=False,
+                task_kind=None,
+                task_id=None,
+                message=message,
+            )
+        )
+        self.event_bus.publish(
+            AnalysisUiModeChanged(
+                is_active=False,
+                analysis_kind=None,
+                mode=None,
+                selection=None,
+                message=message,
+            )
+        )
+
+    def _publish_analysis_warning(self, message: str) -> None:
+        """Publish an analysis warning status.
+
+        Args:
+            message: User-visible warning text.
+
+        Returns:
+            None.
+        """
+        self.event_bus.publish(
+            AppStatusChanged(
+                level=StatusLevel.WARNING,
+                message=message,
+                source=StatusSource.ANALYSIS,
+            )
+        )
+
+    @staticmethod
+    def _ui_mode_busy_message(analysis_kind: AnalysisKind, mode: AnalysisUiMode) -> str:
+        """Return the busy message for one analysis UI mode.
+
+        Args:
+            analysis_kind: Analysis kind that owns the mode.
+            mode: Mode identifier.
+
+        Returns:
+            Human-readable busy message.
+        """
+        if mode is AnalysisUiMode.SET_F0:
+            return f"Set F0 for {analysis_kind.value}: drag the line, then Accept or Cancel"
+        return f"Analysis UI mode active: {analysis_kind.value}/{mode.value}"
+
+    @staticmethod
+    def _analysis_class_for_kind(analysis_kind: AnalysisKind) -> Type[BaseAnalysis]:
+        """Return the AcqStore analysis class for one CloudScope analysis kind.
+
+        Args:
+            analysis_kind: CloudScope analysis kind.
+
+        Returns:
+            Concrete ``BaseAnalysis`` subclass.
+
+        Raises:
+            NotImplementedError: If the analysis kind is unsupported.
+        """
+        if analysis_kind is AnalysisKind.SUM_INTENSITY:
+            return SumIntensityAnalysis
+        if analysis_kind is AnalysisKind.DIAMETER:
+            return DiameterAnalysis
+        if analysis_kind is AnalysisKind.RADON_VELOCITY:
+            return RadonVelocityAnalysis
+        if analysis_kind is AnalysisKind.EVENT:
+            return EventAnalysis
+        raise NotImplementedError(f"Unsupported analysis kind: {analysis_kind}")
 
     def _validate_intent(self, event: RunAnalysisIntent) -> None:
         """Validate that an analysis intent can start.

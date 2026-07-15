@@ -222,7 +222,7 @@ class PlotlyAxisRange:
 
 @dataclass(slots=True)
 class MeasurementLine:
-    """One draggable horizontal or vertical measurement line.
+    """One horizontal or vertical measurement line.
 
     Args:
         name: Stable caller-defined measurement name.
@@ -230,6 +230,11 @@ class MeasurementLine:
         position: Current line position in data coordinates.
         visible: Whether the line is visible.
         y_axis: Y-axis for horizontal lines. Ignored for vertical lines.
+        editable: Whether the user can drag the line in the browser.
+        color: Plotly line color. ``None`` uses a theme-aware default.
+        dash: Plotly dash style (for example ``"solid"``, ``"dot"``, ``"dash"``).
+        show_legend: Whether the line appears in the Plotly legend.
+        legend_label: Legend text when ``show_legend`` is True. Defaults to ``name``.
     """
 
     name: str
@@ -237,6 +242,11 @@ class MeasurementLine:
     position: float
     visible: bool = True
     y_axis: PlotlyYAxisSide = "left"
+    editable: bool = True
+    color: str | None = None
+    dash: str = "dash"
+    show_legend: bool = False
+    legend_label: str | None = None
 
 
 @dataclass(slots=True)

@@ -1134,9 +1134,14 @@ class PlotlyPlotWidget:
         value: float,
         visible: bool = True,
         y_axis: PlotlyYAxisSide = "left",
+        editable: bool = True,
+        color: str | None = None,
+        dash: str = "dash",
+        show_legend: bool = False,
+        legend_label: str | None = None,
         on_changed: OnMeasurementChanged | None = None,
     ) -> MeasurementLine:
-        """Add a draggable horizontal or vertical measurement line.
+        """Add a horizontal or vertical measurement line.
 
         Args:
             name: Stable caller-defined measurement name.
@@ -1145,7 +1150,14 @@ class PlotlyPlotWidget:
             visible: Whether the line should be visible.
             y_axis: Y-axis for horizontal lines. ``"right"`` requires an
                 existing ``layout.yaxis2`` from a right-axis trace or scatter.
-            on_changed: Optional per-measurement callback.
+            editable: Whether the user can drag the line.
+            color: Plotly line color. ``None`` uses a theme-aware default.
+            dash: Plotly dash style (``"solid"``, ``"dot"``, ``"dash"``, ...).
+            show_legend: Whether the line appears in the Plotly legend.
+            legend_label: Legend text when ``show_legend`` is True. Defaults to
+                ``name``.
+            on_changed: Optional per-measurement callback. Ignored when
+                ``editable`` is False.
 
         Returns:
             Mutable measurement line object owned by the widget.
@@ -1167,18 +1179,35 @@ class PlotlyPlotWidget:
             raise ValueError(
                 "cannot add right-axis measurement before a right-axis trace or scatter exists"
             )
+        line_color = color if color is not None else self._default_measurement_color()
         line = MeasurementLine(
             name=clean,
             orientation=normalized,
             position=float(value),
             visible=bool(visible),
             y_axis=axis,
+            editable=bool(editable),
+            color=line_color,
+            dash=str(dash),
+            show_legend=bool(show_legend),
+            legend_label=legend_label,
         )
         self._measurements[clean] = line
-        if on_changed is not None:
+        if on_changed is not None and line.editable:
             self._measurement_callbacks[clean] = on_changed
         self._append_measurement_shape(
-            clean, "line", 1, normalized, float(value), visible, axis
+            clean,
+            "line",
+            1,
+            normalized,
+            float(value),
+            visible,
+            axis,
+            editable=line.editable,
+            color=line.color,
+            dash=line.dash,
+            show_legend=line.show_legend,
+            legend_label=line.legend_label or clean,
         )
         self._push_shapes()
         return line
@@ -1455,6 +1484,12 @@ class PlotlyPlotWidget:
         value: float,
         visible: bool,
         y_axis: PlotlyYAxisSide = "left",
+        *,
+        editable: bool = True,
+        color: str | None = None,
+        dash: str = "dash",
+        show_legend: bool = False,
+        legend_label: str | None = None,
     ) -> None:
         """Append one Plotly layout shape for a measurement line."""
         shape = self._line_shape(
@@ -1462,9 +1497,22 @@ class PlotlyPlotWidget:
             value=value,
             visible=visible,
             y_axis=y_axis,
+            editable=editable,
+            color=color if color is not None else self._default_measurement_color(),
+            dash=dash,
+            show_legend=show_legend,
+            legend_label=legend_label or name,
         )
         self._shapes().append(shape)
         self._shape_refs.append(_ShapeRef(name=name, kind=kind, line_number=line_number))
+
+    def _default_measurement_color(self) -> str:
+        """Return a high-contrast measurement line color for the current theme.
+
+        Returns:
+            Plotly color string.
+        """
+        return theme_for_name(self._theme).font_color
 
     def _line_shape(
         self,
@@ -1473,8 +1521,14 @@ class PlotlyPlotWidget:
         value: float,
         visible: bool,
         y_axis: PlotlyYAxisSide = "left",
+        editable: bool = True,
+        color: str,
+        dash: str = "dash",
+        show_legend: bool = False,
+        legend_label: str,
     ) -> dict[str, Any]:
-        """Build one editable Plotly line shape."""
+        """Build one Plotly line shape."""
+        line_style = {"width": 3, "dash": str(dash), "color": str(color)}
         if orientation == "horizontal":
             return {
                 "type": "line",
@@ -1485,8 +1539,10 @@ class PlotlyPlotWidget:
                 "y0": value,
                 "y1": value,
                 "visible": bool(visible),
-                "editable": True,
-                "line": {"width": 3, "dash": "dash"},
+                "editable": bool(editable),
+                "name": str(legend_label),
+                "showlegend": bool(show_legend),
+                "line": line_style,
             }
         return {
             "type": "line",
@@ -1497,8 +1553,10 @@ class PlotlyPlotWidget:
             "y0": 0,
             "y1": 1,
             "visible": bool(visible),
-            "editable": True,
-            "line": {"width": 3, "dash": "dash"},
+            "editable": bool(editable),
+            "name": str(legend_label),
+            "showlegend": bool(show_legend),
+            "line": line_style,
         }
 
     def _shapes(self) -> list[dict[str, Any]]:
@@ -1709,6 +1767,8 @@ class PlotlyPlotWidget:
             ref = self._shape_refs[index]
             measurement = self._measurements.get(ref.name)
             if measurement is None:
+                continue
+            if isinstance(measurement, MeasurementLine) and not measurement.editable:
                 continue
             position = self._shape_position(shape, measurement.orientation)
             if isinstance(measurement, MeasurementLine):

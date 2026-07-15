@@ -18,10 +18,19 @@ from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_core impor
     ResultPoints,
     ResultTrace,
     SumIntensityEventPointKey,
+    SumIntensitySummaryKey,
     SumIntensityTraceKey,
 )
 from cloudscope.event_bus import EventBus
-from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind
+from cloudscope.events.analysis import (
+    AnalysisCompleted,
+    AnalysisKind,
+    AnalysisUiMode,
+    AnalysisUiModeChanged,
+    BeginAnalysisUiModeIntent,
+    CancelAnalysisUiModeIntent,
+    UpdateAnalysisDetectionParamsIntent,
+)
 from cloudscope.events.roi import RoiChangeKind, RoiChanged
 from cloudscope.events.selection import FileSelectionChanged
 from cloudscope.events.theme import ThemeChanged
@@ -32,7 +41,13 @@ from cloudscope.views.base_view import BaseView
 from cloudscope.views.sum_intensity_plot_view import SumIntensityPlotView, SumIntensityPlotViewState
 from cloudscope.views.view_ids import ViewId
 from nicewidgets.plotly_plot.display_options import PlotlyPlotDisplayOptions
-from nicewidgets.plotly_plot.models import MeasurementChangeEvent, PlotlyScatterData, PlotlySeriesMenuItem, PlotlyTraceData
+from nicewidgets.plotly_plot.models import (
+    MeasurementChangeEvent,
+    MeasurementLine,
+    PlotlyScatterData,
+    PlotlySeriesMenuItem,
+    PlotlyTraceData,
+)
 
 
 class _FakePlot:
@@ -57,6 +72,7 @@ class _FakePlot:
         self.show_plotly_toolbar: bool | None = None
         self.show_hover_info: bool | None = None
         self.show_legend: bool | None = None
+        self.measurements: dict[str, MeasurementLine] = {}
 
     def register_series_menu_items(self, items: list[PlotlySeriesMenuItem]) -> None:
         """Record menu defaults while preserving existing visibility choices."""
@@ -134,6 +150,46 @@ class _FakePlot:
         """Record y-axis label updates."""
         self.y_label = str(label)
 
+    def add_measurement_line(
+        self,
+        *,
+        name: str,
+        orientation: str,
+        value: float,
+        visible: bool = True,
+        y_axis: str = "left",
+        editable: bool = True,
+        color: str | None = None,
+        dash: str = "dash",
+        show_legend: bool = False,
+        legend_label: str | None = None,
+        on_changed=None,
+    ) -> MeasurementLine:
+        """Record a measurement line add."""
+        _ = on_changed
+        line = MeasurementLine(
+            name=name,
+            orientation=orientation,  # type: ignore[arg-type]
+            position=float(value),
+            visible=bool(visible),
+            y_axis=y_axis,  # type: ignore[arg-type]
+            editable=bool(editable),
+            color=color,
+            dash=str(dash),
+            show_legend=bool(show_legend),
+            legend_label=legend_label,
+        )
+        if name in self.measurements:
+            raise ValueError(f"measurement {name!r} already exists")
+        self.measurements[name] = line
+        return line
+
+    def remove_measurement_line(self, name: str) -> None:
+        """Record a measurement line removal."""
+        if name not in self.measurements:
+            raise KeyError(name)
+        del self.measurements[name]
+
 
 def _view_with_fake_plot() -> SumIntensityPlotView:
     """Create a view with fake child plot."""
@@ -191,12 +247,23 @@ class _FakeSumIntensityAnalysis(SumIntensityAnalysis):
     def __init__(self) -> None:
         """Create fake analysis without running backend computation."""
         super().__init__(channel=0, roi_id=1)
+        self.result.table = object()  # type: ignore[assignment]
 
     def get_trace(self, key: SumIntensityTraceKey) -> ResultTrace:
         """Return deterministic continuous traces."""
         names = {
             SumIntensityTraceKey.DF_F_SIGNAL: "df/f0 signal",
             SumIntensityTraceKey.D_DF_F_SIGNAL: "Derivative of df/f0",
+            SumIntensityTraceKey.DETRENDED_NORM_SUM_INTENSITY: (
+                "Detrended normalized sum intensity"
+            ),
+        }
+        y_labels = {
+            SumIntensityTraceKey.DF_F_SIGNAL: "df/f0",
+            SumIntensityTraceKey.D_DF_F_SIGNAL: "df/f0",
+            SumIntensityTraceKey.DETRENDED_NORM_SUM_INTENSITY: (
+                "Detrended mean line intensity"
+            ),
         }
         if key not in names:
             raise KeyError(key)
@@ -206,9 +273,22 @@ class _FakeSumIntensityAnalysis(SumIntensityAnalysis):
             x=np.asarray([0.0, 1.0, 2.0], dtype=float),
             y=np.asarray([0.0, 0.5, 0.25], dtype=float),
             x_label="Time (s)",
-            y_label="df/f0",
+            y_label=y_labels[key],
             metadata={},
         )
+
+    def get_summary_value(self, key: SumIntensitySummaryKey) -> object:
+        """Return deterministic summary values."""
+        if key is SumIntensitySummaryKey.F0_BASELINE:
+            return 1.2345
+        if key is SumIntensitySummaryKey.BASELINE_PERCENTILE:
+            return 20.0
+        return None
+
+    def get_percentile_f0_baseline(self, percentile: float | None = None) -> float:
+        """Return deterministic auto F0 for Set F0 tests."""
+        _ = percentile
+        return 0.875
 
     def get_event_points(self, key: SumIntensityEventPointKey) -> ResultPoints:
         """Return deterministic event points."""
@@ -831,3 +911,162 @@ def test_file_selection_changed_schedules_plot_data_refresh(
     assert view._plot.set_series_calls >= 1
     assert view._plot.traces
     assert view._plot.traces[0].name == 'df/f0 signal'
+
+
+def _view_with_analysis_for_set_f0() -> SumIntensityPlotView:
+    """Return a fake-plot view with a sum-intensity analysis ready for Set F0."""
+    view = _view_with_fake_plot()
+    acq_image = _FakeAcqImage()
+    acq_image.analysis_set.set(AnalysisKey("sum_intensity", 0, 1), _FakeSumIntensityAnalysis())
+    view.current_acq_image = acq_image
+    view.current_selection = PrimarySelection(file_id="file", channel=0, roi_id=1)
+    return view
+
+
+def test_set_f0_click_publishes_begin_analysis_ui_mode_intent() -> None:
+    """Set F0 should request modal analysis UI mode for the current selection."""
+    bus = EventBus()
+    intents: list[BeginAnalysisUiModeIntent] = []
+    bus.subscribe(BeginAnalysisUiModeIntent, intents.append)
+    view = _view_with_analysis_for_set_f0()
+    view.event_bus = bus
+
+    view._on_set_f0_clicked()
+
+    assert len(intents) == 1
+    assert intents[0].analysis_kind is AnalysisKind.SUM_INTENSITY
+    assert intents[0].mode is AnalysisUiMode.SET_F0
+    assert intents[0].selection == PrimarySelection(file_id="file", channel=0, roi_id=1)
+
+
+def test_analysis_ui_mode_changed_enters_set_f0_with_detrended_trace_and_line() -> None:
+    """Active Set F0 mode should show the detrended F0 source trace and H-lines."""
+    view = _view_with_analysis_for_set_f0()
+
+    view._on_analysis_ui_mode_changed(
+        AnalysisUiModeChanged(
+            is_active=True,
+            analysis_kind=AnalysisKind.SUM_INTENSITY,
+            mode=AnalysisUiMode.SET_F0,
+            selection=PrimarySelection(file_id="file", channel=0, roi_id=1),
+        )
+    )
+
+    assert view._set_f0_mode is True
+    assert view._pending_f0 == 1.2345
+    assert view._auto_f0 == 0.875
+    assert [trace.name for trace in view._plot.traces] == [
+        "Detrended normalized sum intensity"
+    ]
+    assert view._plot.scatters == []
+    assert "auto-f0" in view._plot.measurements
+    assert "manual-f0" in view._plot.measurements
+    assert view._plot.measurements["auto-f0"].position == 0.875
+    assert view._plot.measurements["auto-f0"].editable is False
+    assert view._plot.measurements["auto-f0"].dash == "dot"
+    assert view._plot.measurements["manual-f0"].position == 1.2345
+    assert view._plot.measurements["manual-f0"].editable is True
+    assert view._plot.measurements["manual-f0"].dash == "solid"
+    assert view._plot.y_label == "Detrended mean line intensity"
+
+
+def test_set_f0_measurement_drag_updates_pending_f0() -> None:
+    """Dragging the manual-f0 line should update the pending F0 value."""
+    view = _view_with_analysis_for_set_f0()
+    view._on_analysis_ui_mode_changed(
+        AnalysisUiModeChanged(
+            is_active=True,
+            analysis_kind=AnalysisKind.SUM_INTENSITY,
+            mode=AnalysisUiMode.SET_F0,
+            selection=PrimarySelection(file_id="file", channel=0, roi_id=1),
+        )
+    )
+
+    view._on_measurement_changed(
+        MeasurementChangeEvent(
+            name="manual-f0",
+            kind="line",
+            orientation="horizontal",
+            position=9.5,
+        )
+    )
+
+    assert view._pending_f0 == 9.5
+
+
+def test_set_f0_accept_publishes_update_detection_params_intent() -> None:
+    """Accept should publish manual baseline params without running analysis."""
+    bus = EventBus()
+    intents: list[UpdateAnalysisDetectionParamsIntent] = []
+    bus.subscribe(UpdateAnalysisDetectionParamsIntent, intents.append)
+    view = _view_with_analysis_for_set_f0()
+    view.event_bus = bus
+    view._on_analysis_ui_mode_changed(
+        AnalysisUiModeChanged(
+            is_active=True,
+            analysis_kind=AnalysisKind.SUM_INTENSITY,
+            mode=AnalysisUiMode.SET_F0,
+            selection=PrimarySelection(file_id="file", channel=0, roi_id=1),
+        )
+    )
+    view._pending_f0 = 8.25
+
+    view._on_set_f0_accept_clicked()
+
+    assert len(intents) == 1
+    assert intents[0].param_updates == {
+        "baseline_method": "manual",
+        "manual_f0_baseline": 8.25,
+    }
+
+
+def test_set_f0_cancel_publishes_cancel_analysis_ui_mode_intent() -> None:
+    """Cancel should request UI-mode exit without param updates."""
+    bus = EventBus()
+    intents: list[CancelAnalysisUiModeIntent] = []
+    bus.subscribe(CancelAnalysisUiModeIntent, intents.append)
+    view = _view_with_analysis_for_set_f0()
+    view.event_bus = bus
+    view._on_analysis_ui_mode_changed(
+        AnalysisUiModeChanged(
+            is_active=True,
+            analysis_kind=AnalysisKind.SUM_INTENSITY,
+            mode=AnalysisUiMode.SET_F0,
+            selection=PrimarySelection(file_id="file", channel=0, roi_id=1),
+        )
+    )
+
+    view._on_set_f0_cancel_clicked()
+
+    assert len(intents) == 1
+    assert intents[0].mode is AnalysisUiMode.SET_F0
+
+
+def test_analysis_ui_mode_inactive_exits_set_f0_and_refreshes_normal_plot() -> None:
+    """Leaving Set F0 mode should remove both H-lines and restore the df/f0 plot."""
+    view = _view_with_analysis_for_set_f0()
+    view._on_analysis_ui_mode_changed(
+        AnalysisUiModeChanged(
+            is_active=True,
+            analysis_kind=AnalysisKind.SUM_INTENSITY,
+            mode=AnalysisUiMode.SET_F0,
+            selection=PrimarySelection(file_id="file", channel=0, roi_id=1),
+        )
+    )
+    assert "manual-f0" in view._plot.measurements
+    assert "auto-f0" in view._plot.measurements
+
+    view._on_analysis_ui_mode_changed(
+        AnalysisUiModeChanged(
+            is_active=False,
+            analysis_kind=None,
+            mode=None,
+            selection=None,
+        )
+    )
+
+    assert view._set_f0_mode is False
+    assert view._pending_f0 is None
+    assert view._auto_f0 is None
+    assert view._plot.measurements == {}
+    assert view._plot.traces[0].name == "df/f0 signal"

@@ -131,3 +131,27 @@ def test_sum_intensity_is_registered_builtin() -> None:
     """Analysis registry should include sum_intensity as a builtin."""
     registry = get_analysis_registry()
     assert registry["sum_intensity"] is SumIntensityAnalysis
+
+
+def test_get_percentile_f0_baseline_matches_percentile_run_f0() -> None:
+    """Percentile F0 accessor should match f0_baseline after a percentile run."""
+    analysis = SumIntensityAnalysis(channel=0, roi_id=1, detection_params=_params())
+    analysis.run(FakeProvider())
+
+    auto_f0 = analysis.get_percentile_f0_baseline()
+
+    assert auto_f0 == float(analysis.get_summary_value(SumIntensitySummaryKey.F0_BASELINE))
+
+
+def test_get_percentile_f0_baseline_works_after_manual_run() -> None:
+    """Percentile F0 accessor should recompute auto F0 even after a manual run."""
+    params = _params()
+    params["baseline_method"] = "manual"
+    params["manual_f0_baseline"] = 4.0
+    params["baseline_percentile"] = 0.0
+    analysis = SumIntensityAnalysis(channel=0, roi_id=1, detection_params=params)
+    analysis.run(FakeProvider())
+
+    assert analysis.get_summary_value(SumIntensitySummaryKey.F0_BASELINE) == 4.0
+    assert analysis.get_percentile_f0_baseline() == 1.0
+    assert analysis.get_percentile_f0_baseline(percentile=100.0) == 6.0

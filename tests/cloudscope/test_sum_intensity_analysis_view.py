@@ -14,7 +14,12 @@ from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_analysis i
     SumIntensityAnalysis,
 )
 from cloudscope.event_bus import EventBus
-from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind, RunAnalysisIntent
+from cloudscope.events.analysis import (
+    AnalysisCompleted,
+    AnalysisDetectionParamsChanged,
+    AnalysisKind,
+    RunAnalysisIntent,
+)
 from cloudscope.events.roi import RoiChangeKind, RoiChanged
 from cloudscope.state import PrimarySelection
 from cloudscope.views.base_view import BaseView
@@ -334,3 +339,40 @@ def test_on_run_clicked_noop_for_incomplete_selection(monkeypatch) -> None:
     view._on_run_clicked()
 
     assert intents == []
+
+
+def test_detection_params_changed_applies_manual_f0_controls() -> None:
+    """AnalysisDetectionParamsChanged should update matching draft controls."""
+    view = SumIntensityAnalysisView(event_bus=EventBus())
+    view.current_selection = PrimarySelection(file_id="f", channel=0, roi_id=1)
+    view._param_controls["baseline_method"] = _FakeControl("percentile")
+    view._param_controls["manual_f0_baseline"] = _FakeControl(1.0, visible=False)
+    view._schema_by_name["baseline_method"] = DetectionParamSchema(
+        name="baseline_method",
+        display_name="F0 Baseline Method",
+        value_type=DetectionValueType.ENUM,
+        default="percentile",
+        choices=("percentile", "manual"),
+    )
+    view._schema_by_name["manual_f0_baseline"] = DetectionParamSchema(
+        name="manual_f0_baseline",
+        display_name="Manual F0 Baseline",
+        value_type=DetectionValueType.FLOAT,
+        default=1.0,
+        methods=("manual",),
+    )
+
+    view._on_detection_params_changed(
+        AnalysisDetectionParamsChanged(
+            analysis_kind=AnalysisKind.SUM_INTENSITY,
+            selection=PrimarySelection(file_id="f", channel=0, roi_id=1),
+            param_updates={
+                "baseline_method": "manual",
+                "manual_f0_baseline": 7.5,
+            },
+        )
+    )
+
+    assert view._param_controls["baseline_method"].value == "manual"
+    assert view._param_controls["manual_f0_baseline"].value == 7.5
+    assert view._param_controls["manual_f0_baseline"].visible is True

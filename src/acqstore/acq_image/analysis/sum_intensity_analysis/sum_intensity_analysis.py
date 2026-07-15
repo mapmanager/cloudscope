@@ -668,6 +668,52 @@ class SumIntensityAnalysis(BaseAnalysis):
         """
         return self.result.summary.get(key.value)
 
+    def get_percentile_f0_baseline(self, percentile: float | None = None) -> float:
+        """Return the percentile-estimated F0 from the stored detrended trace.
+
+        This recomputes scalar F0 with the same signal and flooring rules used by
+        ``baseline_method="percentile"``, even when the last run used manual F0.
+        It does not mutate detection params or re-run analysis.
+
+        Args:
+            percentile: Percentile in ``[0, 100]``. When ``None``, uses the
+                analysis ``baseline_percentile`` from the result summary when
+                present, otherwise from ``detection_params``.
+
+        Returns:
+            Scalar F0 in detrended normalized intensity units.
+
+        Raises:
+            ValueError: If analysis has no result table, percentile is out of
+                range, or the detrended trace has no finite values.
+            KeyError: If the detrended trace column is missing.
+        """
+        if self.result.table is None:
+            raise ValueError("analysis has no result table")
+        if percentile is None:
+            summary_percentile = self.result.summary.get(
+                SumIntensitySummaryKey.BASELINE_PERCENTILE.value
+            )
+            if summary_percentile is None:
+                percentile = float(self.detection_params["baseline_percentile"])
+            else:
+                percentile = float(summary_percentile)
+        percentile = float(percentile)
+        if percentile < 0.0 or percentile > 100.0:
+            raise ValueError("percentile must be between 0 and 100")
+        trace = self.get_trace(SumIntensityTraceKey.DETRENDED_NORM_SUM_INTENSITY)
+        values = np.asarray(trace.y, dtype=float)
+        finite = values[np.isfinite(values)]
+        if finite.size == 0:
+            raise ValueError("detrended trace has no finite values")
+        f0 = float(np.percentile(finite, percentile))
+        baseline_min_value = float(self.detection_params["baseline_min_value"])
+        if not np.isfinite(f0):
+            return float(baseline_min_value)
+        if abs(f0) < baseline_min_value:
+            return float(baseline_min_value) if f0 >= 0 else -float(baseline_min_value)
+        return f0
+
     def get_plot_data(self) -> AnalysisPlotData | None:
         """Return canonical df/f0 plot data.
 

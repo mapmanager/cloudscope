@@ -12,12 +12,19 @@ from cloudscope.controllers.analysis_controller import AnalysisController
 from cloudscope.event_bus import EventBus
 from cloudscope.events.analysis import (
     AnalysisCompleted,
-    BatchAnalysisCompleted,
+    AnalysisDetectionParamsChanged,
     AnalysisKind,
+    AnalysisUiMode,
+    AnalysisUiModeChanged,
+    AppBusyChanged,
+    BatchAnalysisCompleted,
+    BeginAnalysisUiModeIntent,
+    CancelAnalysisUiModeIntent,
     CancelTaskIntent,
     RunAnalysisIntent,
     RunBatchAnalysisIntent,
     TaskKind,
+    UpdateAnalysisDetectionParamsIntent,
 )
 from cloudscope.events.status import AppStatusChanged, StatusLevel
 from cloudscope.state import PrimarySelection
@@ -57,6 +64,7 @@ class FakeTaskRunner:
         self.cancelled = False
         self.captured: CapturedTaskStart | None = None
         self.cancel_result = True
+        self._running = False
 
     def start(
         self,
@@ -70,6 +78,7 @@ class FakeTaskRunner:
     ) -> str:
         """Capture start args for inspection."""
         self.started = True
+        self._running = True
         self.captured = CapturedTaskStart(
             task_kind=task_kind,
             task_label=task_label,
@@ -84,6 +93,10 @@ class FakeTaskRunner:
         """Record cancellation."""
         self.cancelled = task_kind in (TaskKind.ANALYSIS, TaskKind.BATCH_ANALYSIS) and task_id is None
         return self.cancel_result
+
+    def is_running(self) -> bool:
+        """Return whether a fake task is active."""
+        return self._running
 
 
 @dataclass
@@ -896,3 +909,134 @@ def test_batch_completion_publishes_results_and_successful_file_refreshes() -> N
     assert len(completed) == 1
     assert completed[0].selection.file_id == "visible-a"
     assert completed[0].selection.roi_id == 3
+
+
+def test_begin_analysis_ui_mode_publishes_busy_and_mode_changed() -> None:
+    """BeginAnalysisUiModeIntent should freeze the GUI and announce the mode."""
+    controller, bus, _runner, _home, statuses, _completed = _make_controller()
+    busy_events: list[AppBusyChanged] = []
+    mode_events: list[AnalysisUiModeChanged] = []
+    bus.subscribe(AppBusyChanged, busy_events.append)
+    bus.subscribe(AnalysisUiModeChanged, mode_events.append)
+    selection = PrimarySelection(file_id="f", channel=0, roi_id=1)
+
+    bus.publish(
+        BeginAnalysisUiModeIntent(
+            analysis_kind=AnalysisKind.SUM_INTENSITY,
+            mode=AnalysisUiMode.SET_F0,
+            selection=selection,
+        )
+    )
+
+    assert len(busy_events) == 1
+    assert busy_events[0].is_busy is True
+    assert busy_events[0].task_kind is None
+    assert len(mode_events) == 1
+    assert mode_events[0].is_active is True
+    assert mode_events[0].mode is AnalysisUiMode.SET_F0
+    assert mode_events[0].selection == selection
+    assert statuses == []
+
+
+def test_begin_analysis_ui_mode_rejects_when_task_running() -> None:
+    """BeginAnalysisUiModeIntent should refuse while a long-running task is active."""
+    controller, bus, runner, _home, statuses, _completed = _make_controller()
+    runner._running = True
+    busy_events: list[AppBusyChanged] = []
+    bus.subscribe(AppBusyChanged, busy_events.append)
+
+    bus.publish(
+        BeginAnalysisUiModeIntent(
+            analysis_kind=AnalysisKind.SUM_INTENSITY,
+            mode=AnalysisUiMode.SET_F0,
+            selection=PrimarySelection(file_id="f", channel=0, roi_id=1),
+        )
+    )
+
+    assert busy_events == []
+    assert statuses
+    assert "current task" in statuses[-1].message
+
+
+def test_cancel_analysis_ui_mode_clears_busy() -> None:
+    """CancelAnalysisUiModeIntent should clear busy and mode state."""
+    controller, bus, _runner, _home, _statuses, _completed = _make_controller()
+    busy_events: list[AppBusyChanged] = []
+    mode_events: list[AnalysisUiModeChanged] = []
+    bus.subscribe(AppBusyChanged, busy_events.append)
+    bus.subscribe(AnalysisUiModeChanged, mode_events.append)
+    selection = PrimarySelection(file_id="f", channel=0, roi_id=1)
+    bus.publish(
+        BeginAnalysisUiModeIntent(
+            analysis_kind=AnalysisKind.SUM_INTENSITY,
+            mode=AnalysisUiMode.SET_F0,
+            selection=selection,
+        )
+    )
+
+    bus.publish(
+        CancelAnalysisUiModeIntent(
+            analysis_kind=AnalysisKind.SUM_INTENSITY,
+            mode=AnalysisUiMode.SET_F0,
+            selection=selection,
+        )
+    )
+
+    assert busy_events[-1].is_busy is False
+    assert mode_events[-1].is_active is False
+    assert controller._ui_mode is None
+
+
+def test_update_detection_params_publishes_state_and_clears_set_f0_mode() -> None:
+    """Accepted param updates should publish state and end an active Set F0 mode."""
+    controller, bus, _runner, _home, _statuses, _completed = _make_controller()
+    param_events: list[AnalysisDetectionParamsChanged] = []
+    busy_events: list[AppBusyChanged] = []
+    bus.subscribe(AnalysisDetectionParamsChanged, param_events.append)
+    bus.subscribe(AppBusyChanged, busy_events.append)
+    selection = PrimarySelection(file_id="f", channel=0, roi_id=1)
+    bus.publish(
+        BeginAnalysisUiModeIntent(
+            analysis_kind=AnalysisKind.SUM_INTENSITY,
+            mode=AnalysisUiMode.SET_F0,
+            selection=selection,
+        )
+    )
+
+    bus.publish(
+        UpdateAnalysisDetectionParamsIntent(
+            analysis_kind=AnalysisKind.SUM_INTENSITY,
+            selection=selection,
+            param_updates={
+                "baseline_method": "manual",
+                "manual_f0_baseline": 12.5,
+            },
+        )
+    )
+
+    assert len(param_events) == 1
+    assert param_events[0].param_updates == {
+        "baseline_method": "manual",
+        "manual_f0_baseline": 12.5,
+    }
+    assert busy_events[-1].is_busy is False
+    assert controller._ui_mode is None
+
+
+def test_update_detection_params_rejects_invalid_values() -> None:
+    """Invalid partial detection params should warn without publishing state."""
+    _controller, bus, _runner, _home, statuses, _completed = _make_controller()
+    param_events: list[AnalysisDetectionParamsChanged] = []
+    bus.subscribe(AnalysisDetectionParamsChanged, param_events.append)
+
+    bus.publish(
+        UpdateAnalysisDetectionParamsIntent(
+            analysis_kind=AnalysisKind.SUM_INTENSITY,
+            selection=PrimarySelection(file_id="f", channel=0, roi_id=1),
+            param_updates={"baseline_method": "not-a-method"},
+        )
+    )
+
+    assert param_events == []
+    assert statuses
+    assert "Invalid detection parameters" in statuses[-1].message

@@ -19,7 +19,12 @@ from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_presets im
     SumIntensityPresetName,
 )
 from cloudscope.event_bus import EventBus
-from cloudscope.events.analysis import AnalysisCompleted, AnalysisKind, RunAnalysisIntent
+from cloudscope.events.analysis import (
+    AnalysisCompleted,
+    AnalysisDetectionParamsChanged,
+    AnalysisKind,
+    RunAnalysisIntent,
+)
 from cloudscope.events.roi import RoiChanged
 from cloudscope.state import PrimarySelection
 from cloudscope.views.analysis_summary_display import build_analysis_summary_expansion_for_analysis
@@ -160,6 +165,12 @@ class SumIntensityAnalysisView(BaseView):
         """
         self.add_subscription(self.event_bus.subscribe(AnalysisCompleted, self._on_analysis_completed))
         self.add_subscription(self.event_bus.subscribe(RoiChanged, self._on_roi_changed))
+        self.add_subscription(
+            self.event_bus.subscribe(
+                AnalysisDetectionParamsChanged,
+                self._on_detection_params_changed,
+            )
+        )
 
     def refresh_from_state(self) -> None:
         """Refresh UI from the cached primary selection.
@@ -204,6 +215,26 @@ class SumIntensityAnalysisView(BaseView):
         if event.selection.file_id != self.current_selection.file_id:
             return
         self._refresh_selection_dependent_ui()
+
+    def _on_detection_params_changed(self, event: AnalysisDetectionParamsChanged) -> None:
+        """Apply accepted draft detection-parameter updates to visible controls.
+
+        Args:
+            event: Detection-parameter draft change from the analysis controller.
+
+        Returns:
+            None.
+        """
+        if event.analysis_kind is not AnalysisKind.SUM_INTENSITY:
+            return
+        if event.selection != self.current_selection:
+            return
+        for name, value in event.param_updates.items():
+            control = self._param_controls[name]
+            field = self._schema_by_name[name]
+            control.value = _coerce_detection_param_value(field, value)
+            control.update()
+        self._refresh_param_visibility()
 
     def _build_content(self) -> None:
         """Build static panel content.

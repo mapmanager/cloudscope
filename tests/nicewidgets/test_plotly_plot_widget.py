@@ -386,6 +386,52 @@ def test_measurement_line_drag_updates_state_and_callbacks(
     assert events[-1].position == 12.5
 
 
+def test_measurement_line_style_and_legend_options(
+    fake_plotly: list[_FakePlotlyElement],
+) -> None:
+    """Measurement lines should honor editable/color/dash/legend shape options."""
+    widget = PlotlyPlotWidget(
+        display_options=PlotlyPlotDisplayOptions(theme="dark"),
+    )
+    line = widget.add_measurement_line(
+        name="auto-f0",
+        orientation="horizontal",
+        value=1.5,
+        editable=False,
+        color="#38bdf8",
+        dash="dot",
+        show_legend=True,
+        legend_label="Auto F0",
+    )
+
+    shape = widget.figure["layout"]["shapes"][0]
+    assert line.editable is False
+    assert shape["editable"] is False
+    assert shape["line"]["color"] == "#38bdf8"
+    assert shape["line"]["dash"] == "dot"
+    assert shape["name"] == "Auto F0"
+    assert shape["showlegend"] is True
+
+
+def test_non_editable_measurement_line_ignores_relayout_drags(
+    fake_plotly: list[_FakePlotlyElement],
+) -> None:
+    """Non-editable measurement lines should not emit drag callbacks."""
+    events: list[MeasurementChangeEvent] = []
+    widget = PlotlyPlotWidget(on_measurement_changed=events.append)
+    line = widget.add_measurement_line(
+        name="auto-f0",
+        orientation="horizontal",
+        value=2.0,
+        editable=False,
+    )
+
+    widget._on_plotly_relayout(_RelayoutEvent({"shapes[0].y0": 9.0, "shapes[0].y1": 9.0}))
+
+    assert line.position == 2.0
+    assert events == []
+
+
 def test_measurement_pair_drag_updates_delta(fake_plotly: list[_FakePlotlyElement]) -> None:
     """Dragged pair lines should update positions and report absolute delta."""
     events: list[MeasurementChangeEvent] = []

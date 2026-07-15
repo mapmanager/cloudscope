@@ -221,3 +221,99 @@ class BeginPlotXRangeSelection(StateEvent):
 @dataclass(frozen=True)
 class CancelPlotXRangeSelection(StateEvent):
     """Request the plot view to leave x-range selection mode."""
+
+
+class AnalysisUiMode(StrEnum):
+    """Modal analysis UI modes that freeze most of the GUI via app-busy."""
+
+    SET_F0 = 'set_f0'
+
+
+@dataclass(frozen=True)
+class BeginAnalysisUiModeIntent(IntentEvent):
+    """Request entry into a modal analysis UI mode.
+
+    The analysis controller publishes ``AppBusyChanged(is_busy=True)`` and
+    ``AnalysisUiModeChanged`` when the mode starts successfully.
+
+    Args:
+        analysis_kind: Analysis kind that owns the mode.
+        mode: Stable mode identifier (for example ``AnalysisUiMode.SET_F0``).
+        selection: File/channel/ROI snapshot for the interaction.
+    """
+
+    analysis_kind: AnalysisKind
+    mode: AnalysisUiMode
+    selection: PrimarySelection
+
+
+@dataclass(frozen=True)
+class CancelAnalysisUiModeIntent(IntentEvent):
+    """Request exit from a modal analysis UI mode without committing params.
+
+    Args:
+        analysis_kind: Analysis kind that owns the active mode.
+        mode: Mode identifier to cancel.
+        selection: Selection snapshot from the requesting view.
+    """
+
+    analysis_kind: AnalysisKind
+    mode: AnalysisUiMode
+    selection: PrimarySelection
+
+
+@dataclass(frozen=True)
+class AnalysisUiModeChanged(StateEvent):
+    """Emitted when a modal analysis UI mode starts or ends.
+
+    Args:
+        is_active: True while the mode is active.
+        analysis_kind: Analysis kind that owns the mode, or None when inactive.
+        mode: Active mode identifier, or None when inactive.
+        selection: Selection for the active mode, or None when inactive.
+        message: Optional user-visible status text.
+    """
+
+    is_active: bool
+    analysis_kind: AnalysisKind | None
+    mode: AnalysisUiMode | None
+    selection: PrimarySelection | None
+    message: str = ''
+
+
+@dataclass(frozen=True)
+class UpdateAnalysisDetectionParamsIntent(IntentEvent):
+    """Request a partial update of analysis detection parameters (draft UI).
+
+    Does not run analysis and does not replace the analysis result table.
+    Controllers validate ``param_updates`` against the analysis schema and
+    publish ``AnalysisDetectionParamsChanged`` on success.
+
+    Args:
+        analysis_kind: Target analysis kind.
+        selection: Selection the update applies to.
+        param_updates: Partial schema-keyed values (Set F0 sends
+            ``baseline_method`` and ``manual_f0_baseline``).
+    """
+
+    analysis_kind: AnalysisKind
+    selection: PrimarySelection
+    param_updates: dict[str, object]
+
+
+@dataclass(frozen=True)
+class AnalysisDetectionParamsChanged(StateEvent):
+    """Detection-parameter draft values were accepted for one analysis kind.
+
+    Views that own detection-parameter controls apply ``param_updates``.
+    This is not a run-completion signal.
+
+    Args:
+        analysis_kind: Analysis kind whose draft params changed.
+        selection: Selection the update applies to.
+        param_updates: Partial schema-keyed values that were accepted.
+    """
+
+    analysis_kind: AnalysisKind
+    selection: PrimarySelection
+    param_updates: dict[str, object]
