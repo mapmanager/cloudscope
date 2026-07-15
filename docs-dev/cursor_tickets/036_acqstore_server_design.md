@@ -43,6 +43,49 @@ Ship (eventually) a double-clickable / CLI-runnable **AcqStore Server** that:
 
 CloudScope remains a separate product. AcqStore Server does not import `cloudscope` or `nicewidgets`.
 
+### 2.1 Parallel deliverable — precise HTML developer roadmap
+
+As we design and implement the server API, we treat **today’s calcium HTML snapshot** only as a **template / reverse-engineering reference** for what the page already knows how to ingest (e.g. `setImage`, dual `channels.ocamp` / `channels.fitc`, `msPerLine`, `umPerPixel`). We do **not** edit or version that HTML here; their file will change independently.
+
+**Required outcome of this workstream:** a precise, standalone integration note for external HTML developers that states:
+
+| Item | Precision required |
+|------|--------------------|
+| Endpoints | Method, path, when to call each |
+| Request bodies | Exact JSON fields, defaults, optionals |
+| Success JSON | Exact keys, types, nullability (e.g. no `vessels` when `C==1`) |
+| Binary channel body | dtype, endianness, layout, length formula |
+| Error shapes | `ok:false`, `error` codes, HTTP status rules |
+| Client steps | Ordered algorithm from button click → existing HTML ingest |
+| UI suggestions | Button label, base URL config — non-prescriptive beyond what the API needs |
+| Compatibility | How to keep the old TIFF “choose file” path alongside AcqStore Server |
+
+**Living source of truth while we build:** §7 (API) + §10 (HTML change list) in this ticket, updated when the wire format changes.  
+**Handout for the other team (later):** export/freeze those sections into a short doc (e.g. `docs-dev/acqstore_server/html_integration_v0.md` or a shareable markdown/PDF) so HTML authors are not asked to read the full design ticket.
+
+Any API change that would force HTML updates must update §7/§10 (and eventually the handout) in the same change.
+
+### 2.2 Handouts optimized for Claude-written HTML
+
+The calcium HTML is authored almost entirely by **Claude** (Claude.ai Artifacts / chat iteration) on the other team’s side. Every roadmap or integration note we give them must be written so that Claude can implement against it with **little to no guessing**.
+
+**Write for the LLM implementer, not for a human skimming prose.** Prefer:
+
+| Do | Avoid |
+|----|--------|
+| Exact endpoints, methods, JSON keys, types, nullability | “Something like…” / vague summaries |
+| Full example request + full example success + full example error JSON | Partial snippets missing required fields |
+| Binary rules as formulas (`byteLength = height * width * 4`, LE float32, row-major) | “Send the pixel data somehow” |
+| Ordered numbered client algorithm (button → fetch → decode → `setImage`) | Loose narrative |
+| Explicit hook into **existing** HTML symbols (`setImage`, `msPerLine`, `umPerPixel`, `dualMode`, `channels.ocamp` / `fitc`) | Inventing new analysis APIs they must invent |
+| “Do not change X / keep TIFF path” constraints | Open-ended refactors |
+| One dual-channel and one single-channel worked example | Only the happy dual-channel path |
+| Copy-pasteable JS skeleton in one fenced block | Scattered pseudo-code |
+
+**Tone for handouts:** imperative, contract-first, minimal background. Put design rationale in *our* tickets; put only wire + steps in the external Claude prompt/doc.
+
+Assume the other developers will paste our handout into Claude as the primary instruction alongside their current HTML file. If a detail is underspecified, Claude will invent it — so leave no gaps in the contract.
+
 ---
 
 ## 3. End-user workflow (v0)
@@ -344,19 +387,20 @@ Native dialog implementation notes (implementation ticket):
 
 ---
 
-## 10. HTML author change list (send externally; not applied here)
+## 10. HTML author change list (seed for the precise roadmap)
 
-Conceptual client changes (names illustrative):
+Conceptual client changes keyed to **today’s HTML ingest surface** (`setImage`, dual-channel opts, calibration inputs). Names for new UI chrome are suggestions only.
 
-1. Add button **Load from AcqStore Server**.
-2. Configurable base URL defaulting to `http://127.0.0.1:8767` (or discover via health).
-3. `POST /api/v1/pick-and-open` with optional channel overrides.
-4. On success: `GET` each channel URL → `Float32Array` → build `[height][width]` rows.
-5. Set `$('msPerLine')` / `$('umPerPixel')` from `calibration`.
-6. Call existing `setImage(calcium, source.path, { dualMode, channels })` when vessels present.
-7. Keep existing TIFF dual-file UI for backward compatibility.
+1. Add button **Load from AcqStore Server** (or equivalent).
+2. Configurable base URL defaulting to `http://127.0.0.1:8767` (or discover via `GET /api/v1/health`).
+3. On click: `POST /api/v1/pick-and-open` with optional channel overrides.
+4. On success: `GET` each channel `url` → `Float32Array` of length `height*width` → reshape to `[height][width]` rows (row-major).
+5. Set `$('msPerLine')` / `$('umPerPixel')` (and matching ranges if present) from `calibration`.
+6. Call existing `setImage(calcium, source.path, { dualMode, channels })` when vessels present; single-channel `setImage` otherwise.
+7. Keep existing TIFF dual-file Choose file UI for backward compatibility.
+8. Handle `{ ok: false, error: "cancelled" }` without treating it as a hard failure.
 
-We do **not** patch their HTML in this monorepo.
+We do **not** patch their HTML in this monorepo. As implementation stabilizes, expand this section into the **standalone HTML integration handout** (§2.1) with copy-pasteable request/response examples and a worked dual-channel + single-channel example.
 
 ---
 
