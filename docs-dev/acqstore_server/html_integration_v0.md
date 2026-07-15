@@ -1,0 +1,308 @@
+# AcqStore Server — HTML integration (v0)
+
+**Audience:** Claude (or a developer pasting this into Claude) updating `neuronal_calcium_linescan_analyzer_vN.html`.  
+**Do not invent API fields.** Implement exactly against this contract.
+
+Base URL (default): `http://127.0.0.1:8767`
+
+---
+
+## Preconditions
+
+1. User starts AcqStore Server: `uv run python -m acqstore_server` (or future `.app`).
+2. User opens the calcium HTML in a browser (any host/`file://`, or a static site).
+3. Keep existing TIFF “Choose file” UI working. Add a **second** load path.
+
+**External HTML is supported.** Server enables CORS (`Access-Control-Allow-Origin: *`), including `file://` (`Origin: null`). The HTML must call absolute URLs, e.g. `http://127.0.0.1:8767/api/v1/pick-and-open`, then fetch plane bytes from the returned `url` fields. Our `/demo/` is only a same-origin test page — colleagues do **not** need to host their HTML on this server.
+
+**Machine-readable contract:** live server exposes OpenAPI at `http://127.0.0.1:8767/openapi.json` (Swagger UI at `/docs`). Prefer this handout for workflow/display rules (transpose is client-side); use OpenAPI for exact request/response schemas.
+
+---
+
+## Endpoints
+
+### `GET /api/v1/health`
+
+Success JSON:
+
+```json
+{
+  "ok": true,
+  "app": "acqstore_server",
+  "version": "0.1.0",
+  "bind": "127.0.0.1:8767"
+}
+```
+
+### `POST /api/v1/pick-and-open`  ← primary button target
+
+Request body (all fields optional):
+
+```json
+{
+  "calciumChannel": 0,
+  "vesselChannel": 1,
+  "extensions": [".oir", ".czi", ".tif", ".tiff", ".nd2"]
+}
+```
+
+- Defaults: `calciumChannel=0`, `vesselChannel=1`.
+- Set `"vesselChannel": null` to force single-channel even if the file has more channels.
+- Server shows a **native OS file dialog**. Browser does not receive a filesystem path from `<input type=file>`.
+
+Success: same shape as `/api/v1/open` (below).  
+Cancel:
+
+```json
+{ "ok": false, "error": "cancelled", "message": "User cancelled file dialog" }
+```
+
+HTTP status for cancel: **200**.
+
+### `POST /api/v1/open`
+
+```json
+{
+  "path": "/absolute/path/to/file.oir",
+  "calciumChannel": 0,
+  "vesselChannel": 1
+}
+```
+
+### `GET /api/v1/session/{sessionId}/channel/{role}`
+
+- `role` is `calcium` or `vessels`
+- Body: raw **little-endian float32**, length `height * width * 4`
+- Layout: **row-major** `(y * width + x)` → reshape to `[height][width]`
+- `Content-Type: application/octet-stream`
+
+### `GET /api/v1/session/{sessionId}/reference/channel/{index}`
+
+- Present when open JSON has non-null `reference`
+- `index` is zero-based (`0` … `reference.numChannels - 1`)
+- Body: raw **little-endian float32** plane for that reference channel
+- Layout: **row-major** `(Y, X)` in reference-image pixel coordinates
+- `Content-Type: application/octet-stream`
+
+### `GET /api/v1/session/{sessionId}/reference/plane`
+
+- **Alias for reference channel 0** (backward compatible)
+- Prefer `reference.channels[i].url` for multi-channel reference images
+
+---
+
+## Success JSON (exact)
+
+```json
+{
+  "ok": true,
+  "sessionId": "…",
+  "source": {
+    "path": "/abs/file.oir",
+    "format": "oir",
+    "numChannels": 2,
+    "width": 256,
+    "height": 20000,
+    "dtype": "float32"
+  },
+  "calibration": {
+    "msPerLine": 2.118,
+    "umPerPixel": 0.33,
+    "stepYSeconds": 0.002118,
+    "stepXUm": 0.33,
+    "unitsSource": "acqimage"
+  },
+  "channels": {
+    "calcium": {
+      "index": 0,
+      "name": "CH1",
+      "role": "calcium",
+      "encoding": "raw-f32-le",
+      "layout": "row-major",
+      "height": 20000,
+      "width": 256,
+      "byteLength": 20480000,
+      "url": "/api/v1/session/…/channel/calcium"
+    },
+    "vessels": {
+      "index": 1,
+      "name": "CH2",
+      "role": "vessels",
+      "encoding": "raw-f32-le",
+      "layout": "row-major",
+      "height": 20000,
+      "width": 256,
+      "byteLength": 20480000,
+      "url": "/api/v1/session/…/channel/vessels"
+    }
+  },
+  "reference": {
+    "numChannels": 2,
+    "encoding": "raw-f32-le",
+    "layout": "row-major",
+    "height": 512,
+    "width": 512,
+    "byteLength": 1048576,
+    "url": "/api/v1/session/…/reference/plane",
+    "channels": [
+      {
+        "index": 0,
+        "encoding": "raw-f32-le",
+        "layout": "row-major",
+        "height": 512,
+        "width": 512,
+        "byteLength": 1048576,
+        "url": "/api/v1/session/…/reference/channel/0",
+        "dx": 0.5,
+        "dy": 0.25,
+        "xUnit": "um",
+        "yUnit": "um"
+      },
+      {
+        "index": 1,
+        "encoding": "raw-f32-le",
+        "layout": "row-major",
+        "height": 512,
+        "width": 512,
+        "byteLength": 1048576,
+        "url": "/api/v1/session/…/reference/channel/1",
+        "dx": 0.5,
+        "dy": 0.25,
+        "xUnit": "um",
+        "yUnit": "um"
+      }
+    ],
+    "lineRoi": [10.0, 20.0, 400.0, 20.0],
+    "scanPath": { "x": [10.0, 400.0], "y": [20.0, 20.0] },
+    "dx": 0.5,
+    "dy": 0.25,
+    "xUnit": "um",
+    "yUnit": "um"
+  }
+}
+```
+
+If single-channel linescan: **omit** `channels.vessels` (do not invent an empty plane).  
+If no reference attachment: **`"reference": null`** (not an error).
+
+Top-level `reference.url` / `height` / `width` / spacing fields mirror **channel 0** (compat). Prefer `reference.channels[]` for all planes.
+
+`lineRoi` is `[x0, y0, x1, y1]` in **reference pixel** coordinates, or `null`.  
+`scanPath` is plot-ready `{x:[...], y:[...]}` in **reference pixel** coordinates, or `null`. Prefer `scanPath` for overlay when present; else draw `lineRoi` as a segment. Draw the same overlay on **every** reference channel panel.
+
+**Note on `dx` / `dy`:** From AcqStore `ReferenceImagePlane`: `dx` is the physical step for **row/Y** indices; `dy` is the physical step for **column/X** indices.
+
+---
+
+## Ordered client algorithm
+
+1. Add button **Load from AcqStore Server**.
+2. Config base URL default `http://127.0.0.1:8767` (optional health check).
+3. On click: `POST ${base}/api/v1/pick-and-open` with JSON body (may be `{}`).
+4. If `ok === false` and `error === "cancelled"` → return quietly.
+5. If `ok === false` → show `message` to the user; stop.
+6. For `channels.calcium.url`: `GET` absolute URL `${base}${url}` if `url` is path-absolute.
+7. `const f32 = new Float32Array(await response.arrayBuffer())`.
+8. Build `raw` as array of length `height`, each row `f32.subarray(y*width, (y+1)*width)` **or** equivalent `[height][width]` structure expected by existing `setImage`.
+9. If `channels.vessels` present, repeat for vessels.
+10. Set `$('msPerLine').value = calibration.msPerLine` and `$('umPerPixel').value = calibration.umPerPixel` (and sync range inputs if present).
+11. If vessels present:
+
+```js
+setImage(calciumRows, source.path, {
+  dualMode: true,
+  channels: {
+    ocamp: calciumRows,
+    fitc: vesselsRows,
+    ocampName: channels.calcium.name,
+    fitcName: channels.vessels.name
+  }
+});
+```
+
+12. Else: `setImage(calciumRows, source.path)`.
+13. Call existing calibration refresh (`updateCalInfo` / `applyPixelDimensions` / `renderAll`) as the current HTML already does after load.
+14. **Optional (new UI):** if `reference !== null`, `GET reference.url`, decode float32 plane, draw overview; overlay `reference.scanPath` polyline or `reference.lineRoi` segment in the **same pixel coordinate system** as the reference plane.
+
+**Do not** replace TIFF choose-file. **Do not** invent new analysis APIs. **Do not** invent reference fields beyond this contract.
+
+---
+
+## Error codes
+
+| `error` | Meaning |
+|---------|---------|
+| `cancelled` | User closed dialog |
+| `path_not_found` | Missing path / session |
+| `unsupported_format` | AcqImage rejected format |
+| `channel_out_of_range` | Bad channel index |
+| `calibration_unavailable` | No usable physical units |
+| `decode_failed` | IO / plane decode failure |
+
+---
+
+## Copy-paste skeleton (adapt to existing `$` / `setImage`)
+
+```js
+const ACQSTORE_BASE = 'http://127.0.0.1:8767';
+
+async function fetchChannelRows(base, ch) {
+  const r = await fetch(base + ch.url);
+  if (!r.ok) throw new Error('channel fetch failed: ' + ch.url);
+  const buf = await r.arrayBuffer();
+  const f32 = new Float32Array(buf);
+  if (f32.length !== ch.height * ch.width) {
+    throw new Error('byte length mismatch for ' + (ch.role || 'plane'));
+  }
+  const rows = new Array(ch.height);
+  for (let y = 0; y < ch.height; y++) {
+    rows[y] = f32.subarray(y * ch.width, (y + 1) * ch.width);
+  }
+  return rows;
+}
+
+async function loadFromAcqStoreServer() {
+  const metaResp = await fetch(ACQSTORE_BASE + '/api/v1/pick-and-open', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ calciumChannel: 0, vesselChannel: 1 }),
+  });
+  const meta = await metaResp.json();
+  if (!meta.ok) {
+    if (meta.error === 'cancelled') return;
+    throw new Error(meta.message || meta.error);
+  }
+  const calcium = await fetchChannelRows(ACQSTORE_BASE, meta.channels.calcium);
+  const vessels = meta.channels.vessels
+    ? await fetchChannelRows(ACQSTORE_BASE, meta.channels.vessels)
+    : null;
+
+  $('msPerLine').value = meta.calibration.msPerLine;
+  $('umPerPixel').value = meta.calibration.umPerPixel;
+  if ($('msPerLineRange')) $('msPerLineRange').value = meta.calibration.msPerLine;
+  if ($('umPerPixelRange')) $('umPerPixelRange').value = meta.calibration.umPerPixel;
+
+  if (vessels) {
+    setImage(calcium, meta.source.path, {
+      dualMode: true,
+      channels: {
+        ocamp: calcium,
+        fitc: vessels,
+        ocampName: meta.channels.calcium.name,
+        fitcName: meta.channels.vessels.name,
+      },
+    });
+  } else {
+    setImage(calcium, meta.source.path);
+  }
+  updateCalInfo();
+  renderAll();
+
+  // Optional reference view (new panel — not in original calcium HTML):
+  // if (meta.reference) { const rows = await fetchChannelRows(ACQSTORE_BASE, meta.reference); drawRef(rows, meta.reference); }
+}
+```
+
+Live miniature of this integration (owned by AcqStore Server, not the calcium app):
+
+`http://127.0.0.1:8767/demo/`

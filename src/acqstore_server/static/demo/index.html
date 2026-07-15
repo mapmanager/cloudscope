@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AcqStore Server demo</title>
+<style>
+  :root { --bg:#0f172a; --panel:#111827; --text:#e5e7eb; --muted:#9ca3af; --accent:#38bdf8; --line:#374151; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:system-ui,sans-serif; background:var(--bg); color:var(--text); padding:16px; }
+  h1 { font-size:20px; color:var(--accent); margin:0 0 8px; }
+  h2 { font-size:14px; margin:0 0 8px; }
+  h3 { font-size:12px; margin:0 0 6px; color:var(--muted); font-weight:600; }
+  p, .muted { color:var(--muted); font-size:13px; }
+  button { background:var(--accent); color:#04111d; border:0; border-radius:8px; padding:10px 14px; font-weight:700; cursor:pointer; }
+  button:disabled { opacity:.45; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; margin:12px 0; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px; flex:1 1 420px; min-width:300px; }
+  .card.wide { flex:1 1 100%; }
+  .canvasWrap { width:100%; min-height:360px; overflow:auto; background:#020617; border-radius:8px; border:1px solid var(--line); }
+  .canvasWrap.ref { min-height:280px; }
+  .refGrid { display:flex; flex-wrap:wrap; gap:12px; }
+  .refPanel { flex:1 1 280px; max-width:420px; min-width:240px; }
+  canvas { display:block; background:#020617; }
+  pre { background:#020617; border:1px solid var(--line); border-radius:8px; padding:10px; overflow:auto; max-height:280px; font-size:11px; }
+  .alert { margin-top:8px; font-size:13px; }
+  .alert.err { color:#f87171; }
+  .alert.ok { color:#34d399; }
+</style>
+</head>
+<body>
+  <h1>AcqStore Server demo</h1>
+  <p class="muted">
+    Client-only display: <strong>transpose</strong> maps API dim0 → canvas X and dim1 → canvas Y
+    (server does not transpose). Requires a running AcqStore Server on this origin.
+  </p>
+  <div class="row">
+    <button id="loadBtn" type="button">Load from AcqStore Server</button>
+    <span id="status" class="alert"></span>
+  </div>
+  <div class="row">
+    <section class="card wide">
+      <h2 id="calciumTitle">Calcium channel · channel 0 (dim0→x, dim1→y)</h2>
+      <div class="canvasWrap"><canvas id="calciumCanvas" width="960" height="400"></canvas></div>
+    </section>
+  </div>
+  <div class="row">
+    <section class="card wide" id="vesselsCard" hidden>
+      <h2 id="vesselsTitle">Vessels channel · channel 1 (dim0→x, dim1→y)</h2>
+      <div class="canvasWrap"><canvas id="vesselsCanvas" width="960" height="400"></canvas></div>
+    </section>
+  </div>
+  <div class="row">
+    <section class="card wide">
+      <h2>Reference + scan path (transposed for display)</h2>
+      <div id="refGrid" class="refGrid"></div>
+      <p id="refHint" class="muted">No reference yet.</p>
+    </section>
+  </div>
+  <section class="card wide">
+    <h2>Open JSON (metadata)</h2>
+    <pre id="metaPre">{}</pre>
+  </section>
+
+<script>
+const BASE = '';
+
+async function fetchF32Plane(ch) {
+  const r = await fetch(BASE + ch.url);
+  if (!r.ok) throw new Error('fetch failed ' + ch.url + ' status ' + r.status);
+  const buf = await r.arrayBuffer();
+  const f32 = new Float32Array(buf);
+  if (f32.length !== ch.height * ch.width) {
+    throw new Error('length mismatch for ' + (ch.role || ('ch' + ch.index) || 'plane'));
+  }
+  return { f32, height: ch.height, width: ch.width };
+}
+
+/**
+ * Draw plane. API bytes are row-major (dim0, dim1) = (height, width).
+ * When transpose=true (display convention): canvas X = dim0, canvas Y = dim1.
+ * Transpose is display-only; the server never rearranges pixels.
+ */
+function drawPlane(canvas, f32, height, width, transpose, maxW, maxH) {
+  const srcH = height;
+  const srcW = width;
+  let viewH = srcH;
+  let viewW = srcW;
+  let sample;
+  if (transpose) {
+    viewH = srcW;
+    viewW = srcH;
+    sample = (vy, vx) => f32[vx * srcW + vy];
+  } else {
+    sample = (vy, vx) => f32[vy * srcW + vx];
+  }
+  const ctx = canvas.getContext('2d');
+  const scale = Math.min(maxW / viewW, maxH / viewH, 4);
+  const dw = Math.max(1, Math.floor(viewW * scale));
+  const dh = Math.max(1, Math.floor(viewH * scale));
+  canvas.width = dw;
+  canvas.height = dh;
+  const img = ctx.createImageData(dw, dh);
+  let vmin = Infinity, vmax = -Infinity;
+  const stepY = Math.max(1, Math.floor(viewH / dh));
+  const stepX = Math.max(1, Math.floor(viewW / dw));
+  for (let y = 0; y < viewH; y += stepY) {
+    for (let x = 0; x < viewW; x += stepX) {
+      const v = sample(y, x);
+      if (Number.isFinite(v)) { if (v < vmin) vmin = v; if (v > vmax) vmax = v; }
+    }
+  }
+  if (!(vmax > vmin)) { vmin = 0; vmax = 1; }
+  for (let py = 0; py < dh; py++) {
+    const y = Math.min(viewH - 1, Math.floor(py / scale));
+    for (let px = 0; px < dw; px++) {
+      const x = Math.min(viewW - 1, Math.floor(px / scale));
+      const t = (sample(y, x) - vmin) / (vmax - vmin);
+      const g = Math.max(0, Math.min(255, Math.round(t * 255)));
+      const o = (py * dw + px) * 4;
+      img.data[o] = g; img.data[o+1] = g; img.data[o+2] = Math.min(255, g + 40); img.data[o+3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return { scale, viewW, viewH, dw, dh };
+}
+
+function drawReference(canvas, f32, height, width, scanPath, lineRoi) {
+  // Same display transpose as calcium: dim0→X, dim1→Y.
+  // API scanPath/lineRoi are in reference pixel coords (x=dim1/X, y=dim0/Y).
+  // After transpose: canvasX = y (dim0), canvasY = x (dim1).
+  const layout = drawPlane(canvas, f32, height, width, true, 360, 360);
+  const ctx = canvas.getContext('2d');
+  const scale = layout.scale;
+  ctx.strokeStyle = '#f87171';
+  ctx.lineWidth = 2;
+  const toCanvas = (px, py) => [py * scale, px * scale]; // (API x,y) → (canvasX,canvasY)
+  if (scanPath && scanPath.x && scanPath.y && scanPath.x.length) {
+    ctx.beginPath();
+    for (let i = 0; i < scanPath.x.length; i++) {
+      const [cx, cy] = toCanvas(scanPath.x[i], scanPath.y[i]);
+      if (i === 0) ctx.moveTo(cx, cy); else ctx.lineTo(cx, cy);
+    }
+    ctx.stroke();
+  } else if (lineRoi && lineRoi.length === 4) {
+    const [x0, y0, x1, y1] = lineRoi;
+    const [c0x, c0y] = toCanvas(x0, y0);
+    const [c1x, c1y] = toCanvas(x1, y1);
+    ctx.beginPath();
+    ctx.moveTo(c0x, c0y);
+    ctx.lineTo(c1x, c1y);
+    ctx.stroke();
+  }
+}
+
+function clearRefGrid() {
+  const grid = document.getElementById('refGrid');
+  grid.innerHTML = '';
+}
+
+async function load() {
+  const status = document.getElementById('status');
+  const btn = document.getElementById('loadBtn');
+  const vesselsCard = document.getElementById('vesselsCard');
+  btn.disabled = true;
+  status.className = 'alert';
+  status.textContent = 'Waiting for native file dialog…';
+  vesselsCard.hidden = true;
+  clearRefGrid();
+  try {
+    const resp = await fetch(BASE + '/api/v1/pick-and-open', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ calciumChannel: 0, vesselChannel: 1 }),
+    });
+    const meta = await resp.json();
+    document.getElementById('metaPre').textContent = JSON.stringify(meta, null, 2);
+    if (!meta.ok) {
+      if (meta.error === 'cancelled') {
+        status.textContent = 'Cancelled.';
+        return;
+      }
+      throw new Error(meta.message || meta.error);
+    }
+
+    const caIdx = meta.channels.calcium.index;
+    document.getElementById('calciumTitle').textContent =
+      `Calcium channel · channel ${caIdx} (dim0→x, dim1→y)`;
+    const calcium = await fetchF32Plane(meta.channels.calcium);
+    drawPlane(
+      document.getElementById('calciumCanvas'),
+      calcium.f32, calcium.height, calcium.width,
+      true, 960, 400,
+    );
+
+    if (meta.channels.vessels) {
+      const vIdx = meta.channels.vessels.index;
+      document.getElementById('vesselsTitle').textContent =
+        `Vessels channel · channel ${vIdx} (dim0→x, dim1→y)`;
+      const vessels = await fetchF32Plane(meta.channels.vessels);
+      vesselsCard.hidden = false;
+      drawPlane(
+        document.getElementById('vesselsCanvas'),
+        vessels.f32, vessels.height, vessels.width,
+        true, 960, 400,
+      );
+    }
+
+    const hint = document.getElementById('refHint');
+    const grid = document.getElementById('refGrid');
+    if (meta.reference) {
+      const refChannels = (meta.reference.channels && meta.reference.channels.length)
+        ? meta.reference.channels
+        : [{
+            index: 0,
+            url: meta.reference.url,
+            height: meta.reference.height,
+            width: meta.reference.width,
+          }];
+      for (const ch of refChannels) {
+        const panel = document.createElement('div');
+        panel.className = 'refPanel';
+        const title = document.createElement('h3');
+        title.textContent = `Reference channel ${ch.index}`;
+        const wrap = document.createElement('div');
+        wrap.className = 'canvasWrap ref';
+        const canvas = document.createElement('canvas');
+        canvas.width = 360;
+        canvas.height = 360;
+        wrap.appendChild(canvas);
+        panel.appendChild(title);
+        panel.appendChild(wrap);
+        grid.appendChild(panel);
+        const plane = await fetchF32Plane(ch);
+        drawReference(
+          canvas,
+          plane.f32, plane.height, plane.width,
+          meta.reference.scanPath,
+          meta.reference.lineRoi,
+        );
+      }
+      hint.textContent =
+        `Reference ${meta.reference.height}×${meta.reference.width} (API H×W) · ` +
+        `${refChannels.length} channel(s) · display transposed` +
+        (meta.reference.scanPath ? ' · scan path on each' :
+          (meta.reference.lineRoi ? ' · lineRoi on each' : ''));
+    } else {
+      hint.textContent = 'No reference image in this file (reference: null).';
+    }
+    status.className = 'alert ok';
+    status.textContent = `Loaded ${meta.source.path} · C=${meta.source.numChannels}` +
+      (meta.channels.vessels ? ' · dual-channel' : ' · single-channel');
+  } catch (err) {
+    status.className = 'alert err';
+    status.textContent = String(err.message || err);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('loadBtn').onclick = load;
+</script>
+</body>
+</html>
