@@ -73,6 +73,9 @@ class _FakePlot:
         self.show_hover_info: bool | None = None
         self.show_legend: bool | None = None
         self.measurements: dict[str, MeasurementLine] = {}
+        self.added_traces: list[PlotlyTraceData] = []
+        self.removed_traces: list[str] = []
+        self.updated_traces: list[str] = []
 
     def register_series_menu_items(self, items: list[PlotlySeriesMenuItem]) -> None:
         """Record menu defaults while preserving existing visibility choices."""
@@ -189,6 +192,53 @@ class _FakePlot:
         if name not in self.measurements:
             raise KeyError(name)
         del self.measurements[name]
+
+    def add_trace(
+        self,
+        *,
+        name: str,
+        x,
+        y,
+        visible: bool = True,
+        y_axis: str = "left",
+        line_color: str | None = None,
+        line_dash: str | None = None,
+    ) -> None:
+        """Record a continuous trace add."""
+        data = PlotlyTraceData.from_sequences(
+            name=name,
+            x=x,
+            y=y,
+            visible=visible,
+            y_axis=y_axis,  # type: ignore[arg-type]
+            line_color=line_color,
+            line_dash=line_dash,
+        )
+        self.added_traces.append(data)
+        self.traces.append(data)
+
+    def update_trace(self, *, name: str, x, y, visible: bool | None = None) -> None:
+        """Record a continuous trace update."""
+        _ = visible
+        self.updated_traces.append(name)
+        for index, trace in enumerate(self.traces):
+            if trace.name == name:
+                self.traces[index] = PlotlyTraceData.from_sequences(
+                    name=name,
+                    x=x,
+                    y=y,
+                    visible=trace.visible,
+                    y_axis=trace.y_axis,
+                    line_color=trace.line_color,
+                    line_dash=trace.line_dash,
+                )
+                return
+        raise KeyError(name)
+
+    def remove_trace(self, name: str) -> None:
+        """Record a continuous trace removal."""
+        self.removed_traces.append(name)
+        self.traces = [trace for trace in self.traces if trace.name != name]
 
 
 def _view_with_fake_plot() -> SumIntensityPlotView:
@@ -956,17 +1006,20 @@ def test_analysis_ui_mode_changed_enters_set_f0_with_detrended_trace_and_line() 
     assert view._pending_f0 == 1.2345
     assert view._auto_f0 == 0.875
     assert [trace.name for trace in view._plot.traces] == [
-        "Detrended normalized sum intensity"
+        "Detrended normalized sum intensity",
+        "Auto F0",
     ]
     assert view._plot.scatters == []
-    assert "auto-f0" in view._plot.measurements
+    auto = next(trace for trace in view._plot.traces if trace.name == "Auto F0")
+    assert auto.line_dash == "dot"
+    assert auto.line_color == "#38bdf8"
+    assert set(auto.y) == {0.875}
     assert "manual-f0" in view._plot.measurements
-    assert view._plot.measurements["auto-f0"].position == 0.875
-    assert view._plot.measurements["auto-f0"].editable is False
-    assert view._plot.measurements["auto-f0"].dash == "dot"
+    assert "auto-f0" not in view._plot.measurements
     assert view._plot.measurements["manual-f0"].position == 1.2345
     assert view._plot.measurements["manual-f0"].editable is True
     assert view._plot.measurements["manual-f0"].dash == "solid"
+    assert view._plot.measurements["manual-f0"].show_legend is False
     assert view._plot.y_label == "Detrended mean line intensity"
 
 
@@ -1043,7 +1096,7 @@ def test_set_f0_cancel_publishes_cancel_analysis_ui_mode_intent() -> None:
 
 
 def test_analysis_ui_mode_inactive_exits_set_f0_and_refreshes_normal_plot() -> None:
-    """Leaving Set F0 mode should remove both H-lines and restore the df/f0 plot."""
+    """Leaving Set F0 mode should remove Manual/Auto overlays and restore df/f0."""
     view = _view_with_analysis_for_set_f0()
     view._on_analysis_ui_mode_changed(
         AnalysisUiModeChanged(
@@ -1054,7 +1107,7 @@ def test_analysis_ui_mode_inactive_exits_set_f0_and_refreshes_normal_plot() -> N
         )
     )
     assert "manual-f0" in view._plot.measurements
-    assert "auto-f0" in view._plot.measurements
+    assert any(trace.name == "Auto F0" for trace in view._plot.traces)
 
     view._on_analysis_ui_mode_changed(
         AnalysisUiModeChanged(
@@ -1069,4 +1122,48 @@ def test_analysis_ui_mode_inactive_exits_set_f0_and_refreshes_normal_plot() -> N
     assert view._pending_f0 is None
     assert view._auto_f0 is None
     assert view._plot.measurements == {}
+    assert view._plot.removed_traces == ["Auto F0"]
     assert view._plot.traces[0].name == "df/f0 signal"
+
+
+def test_compute_auto_f0_updates_auto_trace_without_moving_manual_line() -> None:
+    """Compute auto F0 should redraw Auto only; Manual drag line stays put."""
+    view = _view_with_analysis_for_set_f0()
+    view._on_analysis_ui_mode_changed(
+        AnalysisUiModeChanged(
+            is_active=True,
+            analysis_kind=AnalysisKind.SUM_INTENSITY,
+            mode=AnalysisUiMode.SET_F0,
+            selection=PrimarySelection(file_id="file", channel=0, roi_id=1),
+        )
+    )
+    view._pending_f0 = 1.2345
+    view._plot.measurements["manual-f0"].position = 1.2345
+
+    class _Toolbar:
+        def get_baseline_percentile(self) -> float:
+            return 50.0
+
+        def set_auto_f0(self, value: float) -> None:
+            self.last_auto = float(value)
+
+    toolbar = _Toolbar()
+    view._toolbar = toolbar  # type: ignore[assignment]
+    view.get_percentile_override = 50.0  # type: ignore[attr-defined]
+
+    def _percentile(percentile: float | None = None) -> float:
+        assert percentile == 50.0
+        return 2.5
+
+    analysis = view._get_selected_sum_intensity_analysis()
+    assert analysis is not None
+    analysis.get_percentile_f0_baseline = _percentile  # type: ignore[method-assign]
+
+    view._on_compute_auto_f0_clicked()
+
+    assert view._auto_f0 == 2.5
+    assert toolbar.last_auto == 2.5
+    assert view._plot.updated_traces == ["Auto F0"]
+    assert view._plot.measurements["manual-f0"].position == 1.2345
+    auto = next(trace for trace in view._plot.traces if trace.name == "Auto F0")
+    assert set(auto.y) == {2.5}

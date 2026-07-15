@@ -1,8 +1,7 @@
 """Modular top toolbar for :class:`SumIntensityPlotView`.
 
 The toolbar is a thin NiceGUI surface so a future ticket can show/hide it or
-host additional plot-local actions (percentile / compute auto F0) without
-rewriting Set F0 mode wiring.
+host additional plot-local actions without rewriting Set F0 mode wiring.
 """
 
 from __future__ import annotations
@@ -17,8 +16,10 @@ class SumIntensityPlotToolbar:
 
     Args:
         on_set_f0: Invoked when the user clicks Set F0.
-        on_accept: Invoked when the user accepts the pending F0 value.
+        on_accept: Invoked when the user accepts the pending Manual F0 value.
         on_cancel: Invoked when the user cancels Set F0 mode.
+        on_compute_auto_f0: Invoked when the user recomputes Auto F0 from the
+            toolbar percentile control.
     """
 
     def __init__(
@@ -27,15 +28,18 @@ class SumIntensityPlotToolbar:
         on_set_f0: Callable[[], None],
         on_accept: Callable[[], None],
         on_cancel: Callable[[], None],
+        on_compute_auto_f0: Callable[[], None],
     ) -> None:
         self._on_set_f0 = on_set_f0
         self._on_accept = on_accept
         self._on_cancel = on_cancel
+        self._on_compute_auto_f0 = on_compute_auto_f0
         self._root: ui.row | None = None
         self._idle_row: ui.row | None = None
         self._set_f0_row: ui.row | None = None
         self._auto_f0_label: ui.label | None = None
         self._pending_f0_label: ui.label | None = None
+        self._percentile_control: ui.number | None = None
         self._visible = True
         self._set_f0_mode = False
 
@@ -65,7 +69,19 @@ class SumIntensityPlotToolbar:
         ) as self._root:
             with ui.row().classes("items-center gap-2") as self._idle_row:
                 ui.button("Set F0", on_click=self._on_set_f0).props("dense outline")
-            with ui.row().classes("items-center gap-2") as self._set_f0_row:
+            with ui.row().classes("items-center gap-2 flex-wrap") as self._set_f0_row:
+                self._percentile_control = ui.number(
+                    label="Percentile",
+                    value=20.0,
+                    min=0.0,
+                    max=100.0,
+                    step=1.0,
+                    format="%.1f",
+                ).classes("w-28").props("dense")
+                ui.button(
+                    "Compute auto F0",
+                    on_click=self._on_compute_auto_f0,
+                ).props("dense outline")
                 self._auto_f0_label = ui.label("Auto F0: —").classes("text-sm opacity-80")
                 self._pending_f0_label = ui.label("Manual F0: —").classes("text-sm opacity-80")
                 ui.button("Accept", on_click=self._on_accept).props("dense")
@@ -109,6 +125,39 @@ class SumIntensityPlotToolbar:
             self._pending_f0_label.text = "Manual F0: —"
             self._pending_f0_label.update()
         self._sync_mode_rows()
+
+    def set_baseline_percentile(self, value: float) -> None:
+        """Set the percentile control value.
+
+        Args:
+            value: Baseline percentile in ``[0, 100]``.
+
+        Returns:
+            None.
+        """
+        if self._percentile_control is None:
+            return
+        self._percentile_control.value = float(value)
+        self._percentile_control.update()
+
+    def get_baseline_percentile(self) -> float:
+        """Return the current percentile control value.
+
+        Returns:
+            Baseline percentile.
+
+        Raises:
+            RuntimeError: If the toolbar has not been built.
+            TypeError: If the control value is not numeric.
+        """
+        if self._percentile_control is None:
+            raise RuntimeError("toolbar has not been built")
+        value = self._percentile_control.value
+        if not isinstance(value, (int, float)):
+            raise TypeError(
+                f"baseline percentile must be numeric, got {type(value).__name__}"
+            )
+        return float(value)
 
     def set_auto_f0(self, value: float) -> None:
         """Update the Auto F0 readout.

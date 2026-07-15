@@ -491,6 +491,8 @@ class PlotlyPlotWidget:
                 y=current.y,
                 visible=bool(visible),
                 y_axis=current.y_axis,
+                line_color=current.line_color,
+                line_dash=current.line_dash,
             )
             self._traces[clean] = data
             index = self._series_index(clean, "trace")
@@ -753,6 +755,8 @@ class PlotlyPlotWidget:
         y: Sequence[float],
         visible: bool = True,
         y_axis: PlotlyYAxisSide = "left",
+        line_color: str | None = None,
+        line_dash: str | None = None,
     ) -> None:
         """Add a named continuous ``scattergl`` line trace.
 
@@ -763,6 +767,8 @@ class PlotlyPlotWidget:
             visible: Whether the trace should be visible.
             y_axis: Primary ``y`` axis (``"left"``) or overlaid ``y2`` axis
                 (``"right"``). Right-axis traces create ``layout.yaxis2``.
+            line_color: Optional Plotly line color.
+            line_dash: Optional Plotly line dash.
 
         Raises:
             ValueError: If the name already exists or data are invalid.
@@ -770,7 +776,13 @@ class PlotlyPlotWidget:
         clean = _validate_unique_name(name, self._traces.get(str(name).strip()), label="trace")
         axis = _normalize_y_axis_side(y_axis)
         data = PlotlyTraceData.from_sequences(
-            name=clean, x=x, y=y, visible=visible, y_axis=axis
+            name=clean,
+            x=x,
+            y=y,
+            visible=visible,
+            y_axis=axis,
+            line_color=line_color,
+            line_dash=line_dash,
         )
         self._traces[clean] = data
         self._series_order.append(_SeriesRef(name=clean, kind="trace"))
@@ -810,6 +822,8 @@ class PlotlyPlotWidget:
             y=y,
             visible=current.visible if visible is None else visible,
             y_axis=current.y_axis,
+            line_color=current.line_color,
+            line_dash=current.line_dash,
         )
         self._traces[clean] = data
         index = self._series_index(clean, "trace")
@@ -968,6 +982,8 @@ class PlotlyPlotWidget:
                 y=data.y,
                 visible=visible,
                 y_axis=data.y_axis,
+                line_color=data.line_color,
+                line_dash=data.line_dash,
             )
             self._traces[stored.name] = stored
             self._series_order.append(_SeriesRef(name=stored.name, kind="trace"))
@@ -1453,6 +1469,13 @@ class PlotlyPlotWidget:
             "visible": True if data.visible else False,
             "hoverinfo": hoverinfo,
         }
+        if data.line_color is not None or data.line_dash is not None:
+            line: dict[str, str] = {}
+            if data.line_color is not None:
+                line["color"] = data.line_color
+            if data.line_dash is not None:
+                line["dash"] = data.line_dash
+            trace["line"] = line
         if data.y_axis == "right":
             trace["yaxis"] = "y2"
         return trace
@@ -1530,7 +1553,7 @@ class PlotlyPlotWidget:
         """Build one Plotly line shape."""
         line_style = {"width": 3, "dash": str(dash), "color": str(color)}
         if orientation == "horizontal":
-            return {
+            shape: dict[str, Any] = {
                 "type": "line",
                 "xref": "paper",
                 "x0": 0,
@@ -1540,24 +1563,27 @@ class PlotlyPlotWidget:
                 "y1": value,
                 "visible": bool(visible),
                 "editable": bool(editable),
-                "name": str(legend_label),
-                "showlegend": bool(show_legend),
                 "line": line_style,
             }
-        return {
-            "type": "line",
-            "xref": "x",
-            "x0": value,
-            "x1": value,
-            "yref": "paper",
-            "y0": 0,
-            "y1": 1,
-            "visible": bool(visible),
-            "editable": bool(editable),
-            "name": str(legend_label),
-            "showlegend": bool(show_legend),
-            "line": line_style,
-        }
+        else:
+            shape = {
+                "type": "line",
+                "xref": "x",
+                "x0": value,
+                "x1": value,
+                "yref": "paper",
+                "y0": 0,
+                "y1": 1,
+                "visible": bool(visible),
+                "editable": bool(editable),
+                "line": line_style,
+            }
+        # Omit legend keys unless requested. Shape legend/name can change Plotly
+        # edit interaction away from whole-shape drag under shapePosition.
+        if show_legend:
+            shape["name"] = str(legend_label)
+            shape["showlegend"] = True
+        return shape
 
     def _shapes(self) -> list[dict[str, Any]]:
         """Return the mutable layout shape list."""
@@ -1759,6 +1785,7 @@ class PlotlyPlotWidget:
         if not changed_indices:
             return
         shapes = self._shapes()
+        needs_shape_push = False
         for index in changed_indices:
             if index >= len(shapes) or index >= len(self._shape_refs):
                 continue
@@ -1773,6 +1800,8 @@ class PlotlyPlotWidget:
             position = self._shape_position(shape, measurement.orientation)
             if isinstance(measurement, MeasurementLine):
                 measurement.position = position
+                self._normalize_measurement_shape(shape, measurement)
+                needs_shape_push = True
                 event = MeasurementChangeEvent(
                     name=measurement.name,
                     kind="line",
@@ -1796,6 +1825,8 @@ class PlotlyPlotWidget:
                     y_axis=measurement.y_axis,
                 )
             self._emit_measurement_changed(event)
+        if needs_shape_push:
+            self._push_shapes()
 
     @staticmethod
     def _shape_indices_from_relayout(args: dict[str, Any]) -> set[int]:
@@ -1832,6 +1863,34 @@ class PlotlyPlotWidget:
         if orientation == "horizontal":
             return float(shape.get("y0", shape.get("y1")))
         return float(shape.get("x0", shape.get("x1")))
+
+    @staticmethod
+    def _normalize_measurement_shape(
+        shape: dict[str, Any],
+        measurement: MeasurementLine,
+    ) -> None:
+        """Keep single-line measurements axis-aligned after a drag.
+
+        Args:
+            shape: Mutable Plotly shape dict that was edited.
+            measurement: Owning measurement line.
+
+        Returns:
+            None.
+        """
+        position = float(measurement.position)
+        if measurement.orientation == "horizontal":
+            shape["y0"] = position
+            shape["y1"] = position
+            if shape.get("xref") == "paper":
+                shape["x0"] = 0
+                shape["x1"] = 1
+            return
+        shape["x0"] = position
+        shape["x1"] = position
+        if shape.get("yref") == "paper":
+            shape["y0"] = 0
+            shape["y1"] = 1
 
     def _emit_measurement_changed(self, event: MeasurementChangeEvent) -> None:
         """Invoke global and per-measurement callbacks for a measurement change."""

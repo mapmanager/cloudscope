@@ -432,6 +432,56 @@ def test_non_editable_measurement_line_ignores_relayout_drags(
     assert events == []
 
 
+def test_measurement_line_without_legend_omits_shape_name(
+    fake_plotly: list[_FakePlotlyElement],
+) -> None:
+    """Measurement shapes should omit legend keys when show_legend is False."""
+    widget = PlotlyPlotWidget()
+    widget.add_measurement_line(
+        name="manual-f0",
+        orientation="horizontal",
+        value=1.0,
+        show_legend=False,
+    )
+
+    shape = widget.figure["layout"]["shapes"][0]
+    assert "name" not in shape
+    assert "showlegend" not in shape
+
+
+def test_horizontal_measurement_drag_keeps_line_axis_aligned(
+    fake_plotly: list[_FakePlotlyElement],
+) -> None:
+    """Endpoint-style drags should be normalized back to a full horizontal line."""
+    events: list[MeasurementChangeEvent] = []
+    widget = PlotlyPlotWidget(on_measurement_changed=events.append)
+    line = widget.add_measurement_line(
+        name="manual-f0",
+        orientation="horizontal",
+        value=10.0,
+        show_legend=False,
+    )
+
+    widget._on_plotly_relayout(
+        _RelayoutEvent(
+            {
+                "shapes[0].y0": 12.0,
+                "shapes[0].y1": 8.0,
+                "shapes[0].x0": 0.2,
+                "shapes[0].x1": 0.8,
+            }
+        )
+    )
+
+    shape = widget.figure["layout"]["shapes"][0]
+    assert line.position == 12.0
+    assert shape["y0"] == 12.0
+    assert shape["y1"] == 12.0
+    assert shape["x0"] == 0
+    assert shape["x1"] == 1
+    assert events[-1].position == 12.0
+
+
 def test_measurement_pair_drag_updates_delta(fake_plotly: list[_FakePlotlyElement]) -> None:
     """Dragged pair lines should update positions and report absolute delta."""
     events: list[MeasurementChangeEvent] = []

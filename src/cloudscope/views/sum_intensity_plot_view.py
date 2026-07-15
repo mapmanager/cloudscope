@@ -61,7 +61,7 @@ _DIAMETER_TRACE_NAME = "Diameter"
 _DERIVATIVE_TRACE_NAME = "Derivative of df/f0"
 _DERIVATIVE_Y2_LABEL = "d(df/f0)/dt (1/s)"
 _MANUAL_F0_MEASUREMENT_NAME = "manual-f0"
-_AUTO_F0_MEASUREMENT_NAME = "auto-f0"
+_AUTO_F0_TRACE_NAME = "Auto F0"
 _MANUAL_F0_LINE_COLOR = "#facc15"
 _AUTO_F0_LINE_COLOR = "#38bdf8"
 
@@ -187,7 +187,9 @@ class SumIntensityPlotView(BaseView):
         self._set_f0_mode = False
         self._pending_f0: float | None = None
         self._auto_f0: float | None = None
-        self._set_f0_lines_present = False
+        self._set_f0_x: tuple[float, ...] = ()
+        self._manual_f0_line_present = False
+        self._auto_f0_trace_present = False
 
     @property
     def last_measurement_event(self) -> MeasurementChangeEvent | None:
@@ -370,6 +372,7 @@ class SumIntensityPlotView(BaseView):
             on_set_f0=self._on_set_f0_clicked,
             on_accept=self._on_set_f0_accept_clicked,
             on_cancel=self._on_set_f0_cancel_clicked,
+            on_compute_auto_f0=self._on_compute_auto_f0_clicked,
         )
         self._toolbar.build()
         self._plot = PlotlyPlotWidget(
@@ -554,8 +557,30 @@ class SumIntensityPlotView(BaseView):
             )
         )
 
+    def _on_compute_auto_f0_clicked(self) -> None:
+        """Recompute Auto F0 from the toolbar percentile and redraw the Auto line.
+
+        Returns:
+            None.
+        """
+        if not self._set_f0_mode or self._plot is None or self._toolbar is None:
+            return
+        analysis = self._get_selected_sum_intensity_analysis()
+        if analysis is None or analysis.result.table is None:
+            ui.notify("No sum-intensity analysis for the current selection.", type="warning")
+            return
+        percentile = self._toolbar.get_baseline_percentile()
+        try:
+            auto_f0 = analysis.get_percentile_f0_baseline(percentile=percentile)
+        except ValueError as exc:
+            ui.notify(f"Could not compute Auto F0: {exc}", type="warning")
+            return
+        self._auto_f0 = float(auto_f0)
+        self._toolbar.set_auto_f0(self._auto_f0)
+        self._update_auto_f0_trace()
+
     def _enter_set_f0_mode(self) -> None:
-        """Swap the plot to the F0 source trace and add Manual/Auto F0 lines.
+        """Swap the plot to the F0 source trace and add Manual/Auto F0 overlays.
 
         Returns:
             None.
@@ -570,16 +595,21 @@ class SumIntensityPlotView(BaseView):
         if not isinstance(f0, (int, float)):
             ui.notify("Sum-intensity analysis has no F0 baseline to edit.", type="warning")
             return
-        auto_f0 = analysis.get_percentile_f0_baseline()
+        percentile = analysis.get_summary_value(SumIntensitySummaryKey.BASELINE_PERCENTILE)
+        if not isinstance(percentile, (int, float)):
+            percentile = float(analysis.detection_params["baseline_percentile"])
+        auto_f0 = analysis.get_percentile_f0_baseline(percentile=float(percentile))
         self._set_f0_mode = True
         self._pending_f0 = float(f0)
         self._auto_f0 = float(auto_f0)
         if self._toolbar is not None:
             self._toolbar.enter_set_f0_mode()
+            self._toolbar.set_baseline_percentile(float(percentile))
             self._toolbar.set_auto_f0(self._auto_f0)
             self._toolbar.set_pending_f0(self._pending_f0)
-        self._remove_set_f0_lines()
+        self._remove_set_f0_overlays()
         trace = analysis.get_trace(SumIntensityTraceKey.DETRENDED_NORM_SUM_INTENSITY)
+        self._set_f0_x = tuple(float(value) for value in trace.x.tolist())
         self._plot.set_series(traces=[self._trace_data(trace)], scatters=[])
         self._plot.set_y2_label("")
         x_label = kymograph_time_x_label(
@@ -589,16 +619,7 @@ class SumIntensityPlotView(BaseView):
         self._plot.set_x_label(x_label)
         self._plot.set_y_label(trace.y_label)
         self._apply_primary_x_range_to_plot()
-        self._plot.add_measurement_line(
-            name=_AUTO_F0_MEASUREMENT_NAME,
-            orientation="horizontal",
-            value=self._auto_f0,
-            editable=False,
-            color=_AUTO_F0_LINE_COLOR,
-            dash="dot",
-            show_legend=True,
-            legend_label="Auto F0",
-        )
+        self._add_auto_f0_trace()
         self._plot.add_measurement_line(
             name=_MANUAL_F0_MEASUREMENT_NAME,
             orientation="horizontal",
@@ -606,10 +627,9 @@ class SumIntensityPlotView(BaseView):
             editable=True,
             color=_MANUAL_F0_LINE_COLOR,
             dash="solid",
-            show_legend=True,
-            legend_label="Manual F0",
+            show_legend=False,
         )
-        self._set_f0_lines_present = True
+        self._manual_f0_line_present = True
 
     def _exit_set_f0_mode(self, *, refresh_normal_plot: bool) -> None:
         """Leave Set F0 mode and optionally restore the normal plot.
@@ -623,23 +643,61 @@ class SumIntensityPlotView(BaseView):
         self._set_f0_mode = False
         self._pending_f0 = None
         self._auto_f0 = None
-        self._remove_set_f0_lines()
+        self._set_f0_x = ()
+        self._remove_set_f0_overlays()
         if self._toolbar is not None:
             self._toolbar.exit_set_f0_mode()
         if refresh_normal_plot:
             self._refresh_plot()
 
-    def _remove_set_f0_lines(self) -> None:
-        """Remove Set F0 Manual/Auto measurement lines when this view added them.
+    def _add_auto_f0_trace(self) -> None:
+        """Add the non-editable Auto F0 line as a continuous Plotly trace.
 
         Returns:
             None.
         """
-        if self._plot is None or not self._set_f0_lines_present:
+        if self._plot is None or self._auto_f0 is None or not self._set_f0_x:
             return
-        self._plot.remove_measurement_line(_MANUAL_F0_MEASUREMENT_NAME)
-        self._plot.remove_measurement_line(_AUTO_F0_MEASUREMENT_NAME)
-        self._set_f0_lines_present = False
+        y_values = tuple(self._auto_f0 for _ in self._set_f0_x)
+        self._plot.add_trace(
+            name=_AUTO_F0_TRACE_NAME,
+            x=self._set_f0_x,
+            y=y_values,
+            line_color=_AUTO_F0_LINE_COLOR,
+            line_dash="dot",
+        )
+        self._auto_f0_trace_present = True
+
+    def _update_auto_f0_trace(self) -> None:
+        """Update the Auto F0 trace y values from ``_auto_f0``.
+
+        Returns:
+            None.
+        """
+        if (
+            self._plot is None
+            or not self._auto_f0_trace_present
+            or self._auto_f0 is None
+            or not self._set_f0_x
+        ):
+            return
+        y_values = tuple(self._auto_f0 for _ in self._set_f0_x)
+        self._plot.update_trace(name=_AUTO_F0_TRACE_NAME, x=self._set_f0_x, y=y_values)
+
+    def _remove_set_f0_overlays(self) -> None:
+        """Remove Set F0 Manual shape and Auto F0 trace when present.
+
+        Returns:
+            None.
+        """
+        if self._plot is None:
+            return
+        if self._manual_f0_line_present:
+            self._plot.remove_measurement_line(_MANUAL_F0_MEASUREMENT_NAME)
+            self._manual_f0_line_present = False
+        if self._auto_f0_trace_present:
+            self._plot.remove_trace(_AUTO_F0_TRACE_NAME)
+            self._auto_f0_trace_present = False
 
     def _selection_snapshot(self) -> PrimarySelection:
         """Return a copied selection snapshot for analysis UI intents.

@@ -62,6 +62,8 @@ class PlotlyTraceData:
         y: Y-axis values in data coordinates.
         visible: Whether the trace should be visible.
         y_axis: Primary ``y`` axis (``"left"``) or overlaid ``y2`` axis (``"right"``).
+        line_color: Optional Plotly line color.
+        line_dash: Optional Plotly line dash (for example ``"solid"``, ``"dot"``).
     """
 
     name: str
@@ -69,6 +71,8 @@ class PlotlyTraceData:
     y: tuple[float, ...]
     visible: bool = True
     y_axis: PlotlyYAxisSide = "left"
+    line_color: str | None = None
+    line_dash: str | None = None
 
     @classmethod
     def from_sequences(
@@ -79,6 +83,8 @@ class PlotlyTraceData:
         y: Sequence[float],
         visible: bool = True,
         y_axis: PlotlyYAxisSide = "left",
+        line_color: str | None = None,
+        line_dash: str | None = None,
     ) -> "PlotlyTraceData":
         """Create trace data from numeric sequences.
 
@@ -88,6 +94,8 @@ class PlotlyTraceData:
             y: Y-axis values in data coordinates.
             visible: Whether the trace should be visible.
             y_axis: Primary ``y`` axis (``"left"``) or overlaid ``y2`` axis (``"right"``).
+            line_color: Optional Plotly line color.
+            line_dash: Optional Plotly line dash.
 
         Returns:
             Immutable trace data.
@@ -111,6 +119,8 @@ class PlotlyTraceData:
             y=y_values,
             visible=bool(visible),
             y_axis=axis,
+            line_color=None if line_color is None else str(line_color),
+            line_dash=None if line_dash is None else str(line_dash),
         )
 
 
