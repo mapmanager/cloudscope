@@ -324,6 +324,7 @@ class PlotlyPlotWidget:
         on_x_range_selected: OnPlotlyXRangeSelected | None = None,
         on_measurement_changed: OnMeasurementChanged | None = None,
         on_series_visibility_changed: OnSeriesVisibilityChanged | None = None,
+        on_build_context_menu: Callable[["PlotlyPlotWidget"], None] | None = None,
         layout_margins_profile: PlotlyLayoutMarginsProfile | None = None,
     ) -> None:
         """Create an empty Plotly widget.
@@ -346,6 +347,11 @@ class PlotlyPlotWidget:
                 drags a measurement line.
             on_series_visibility_changed: Optional callback invoked after a
                 context-menu series visibility toggle.
+            on_build_context_menu: Optional callback invoked while rebuilding the
+                right-click context menu, after built-in display toggles and
+                before Copy To Clipboard. Callers may add arbitrary
+                ``ui.menu_item`` / separator entries (same pattern as
+                ``TableWidget`` / ``TreeWidget``).
             layout_margins_profile: Optional fixed margin profile for aligned
                 multi-plot stacks.
         """
@@ -361,6 +367,7 @@ class PlotlyPlotWidget:
         self._on_x_range_selected = on_x_range_selected
         self._on_measurement_changed = on_measurement_changed
         self._on_series_visibility_changed = on_series_visibility_changed
+        self._on_build_context_menu = on_build_context_menu
         self._x_range = PlotlyAxisRange()
         self._series_menu_items: list[PlotlySeriesMenuItem] = []
         self._series_visibility: dict[str, bool] = {}
@@ -391,13 +398,16 @@ class PlotlyPlotWidget:
             self._sync_margins_to_plotly_dict()
             self._sync_axis_stabilization_to_plotly_dict()
 
-        with ui.element("div").classes("relative w-full h-full min-h-0") as self.container:
+        with ui.element("div").classes(
+            "relative w-full h-full min-h-0 nw-plotly-plot"
+        ) as self.container:
             self._plot_element = ui.plotly(self._figure).classes("w-full h-full min-h-0")
             with ui.element("div").classes(
                 "absolute inset-0 flex items-center justify-center pointer-events-none px-4"
             ) as self._placeholder_container:
                 self._placeholder_label = ui.label("").classes("text-sm opacity-70 text-center")
         self._placeholder_container.set_visibility(False)
+        self._ensure_measurement_drag_css()
         self._plot_element.on("plotly_relayout", self._on_plotly_relayout)
         self._plot_element.on("plotly_doubleclick", self._on_plotly_doubleclick)
         self._ctx_menu = ui.context_menu()
@@ -405,6 +415,32 @@ class PlotlyPlotWidget:
         self._plot_element.on("contextmenu", self._on_context_menu_event)
         if is_pywebview_desktop():
             ui.timer(0.05, self._install_pywebview_context_menu_guards, once=True)
+
+    @staticmethod
+    def _ensure_measurement_drag_css() -> None:
+        """Disable Plotly shape vertex handles so line bodies drag as a unit.
+
+        Plotly's shape editor exposes endpoint circles. Dragging a circle moves
+        one endpoint and looks like a broken diagonal / “first point” drag.
+        Measurement H/V lines should translate as one axis-aligned segment.
+        Source: Plotly community guidance for ``config.edits.shapePosition``
+        (disable pointer events on shape vertex circles).
+
+        Returns:
+            None.
+        """
+        ui.add_head_html(
+            """
+<style id="nw-plotly-measurement-drag-css">
+/* Prefer dragging the line body, not endpoint vertex circles. */
+.nw-plotly-plot .js-plotly-plot .draglayer circle,
+.nw-plotly-plot .js-plotly-plot g.draglayer circle {
+  pointer-events: none !important;
+}
+</style>
+""",
+            shared=True,
+        )
 
     @property
     def display_options(self) -> PlotlyPlotDisplayOptions:
@@ -439,6 +475,25 @@ class PlotlyPlotWidget:
     def series_menu_items(self) -> tuple[PlotlySeriesMenuItem, ...]:
         """Return registered trace/scatter context-menu items."""
         return tuple(self._series_menu_items)
+
+    @property
+    def on_build_context_menu(self) -> Callable[[PlotlyPlotWidget], None] | None:
+        """Return optional callback that adds custom context-menu items."""
+        return self._on_build_context_menu
+
+    def set_on_build_context_menu(
+        self,
+        callback: Callable[[PlotlyPlotWidget], None] | None,
+    ) -> None:
+        """Set or clear the custom context-menu build callback.
+
+        Args:
+            callback: Invoked while rebuilding the right-click menu, or ``None``.
+
+        Returns:
+            None.
+        """
+        self._on_build_context_menu = callback
 
     def register_series_menu_items(self, items: Sequence[PlotlySeriesMenuItem]) -> None:
         """Register trace/scatter items shown in the right-click context menu.
@@ -1797,7 +1852,12 @@ class PlotlyPlotWidget:
                 continue
             if isinstance(measurement, MeasurementLine) and not measurement.editable:
                 continue
-            position = self._shape_position(shape, measurement.orientation)
+            position = self._measurement_position_after_edit(
+                shape,
+                measurement.orientation,
+                index=index,
+                args=args,
+            )
             if isinstance(measurement, MeasurementLine):
                 measurement.position = position
                 self._normalize_measurement_shape(shape, measurement)
@@ -1861,8 +1921,49 @@ class PlotlyPlotWidget:
     def _shape_position(shape: dict[str, Any], orientation: PlotlyLineOrientation) -> float:
         """Return the data-coordinate position for a Plotly line shape."""
         if orientation == "horizontal":
-            return float(shape.get("y0", shape.get("y1")))
-        return float(shape.get("x0", shape.get("x1")))
+            y0 = float(shape.get("y0", shape.get("y1", 0.0)))
+            y1 = float(shape.get("y1", y0))
+            return (y0 + y1) / 2.0
+        x0 = float(shape.get("x0", shape.get("x1", 0.0)))
+        x1 = float(shape.get("x1", x0))
+        return (x0 + x1) / 2.0
+
+    @classmethod
+    def _measurement_position_after_edit(
+        cls,
+        shape: dict[str, Any],
+        orientation: PlotlyLineOrientation,
+        *,
+        index: int,
+        args: dict[str, Any],
+    ) -> float:
+        """Return the post-drag position for a measurement line.
+
+        Plotly line shapes expose two endpoints. Vertex drags often update only
+        ``y0`` or only ``y1`` (or ``x0`` / ``x1``). Prefer the endpoint value(s)
+        present in the relayout payload so dragging either handle moves the
+        line; then callers normalize back to a single axis-aligned line.
+
+        Args:
+            shape: Shape dict after :meth:`_apply_shape_args`.
+            orientation: Line orientation.
+            index: Shape index in ``layout.shapes``.
+            args: Raw Plotly relayout payload.
+
+        Returns:
+            Data-coordinate position for the measurement.
+        """
+        prefix = f"shapes[{index}]."
+        if orientation == "horizontal":
+            keys = (f"{prefix}y0", f"{prefix}y1")
+        else:
+            keys = (f"{prefix}x0", f"{prefix}x1")
+        changed = [float(args[key]) for key in keys if key in args]
+        if len(changed) == 1:
+            return changed[0]
+        if len(changed) == 2:
+            return (changed[0] + changed[1]) / 2.0
+        return cls._shape_position(shape, orientation)
 
     @staticmethod
     def _normalize_measurement_shape(
@@ -1882,15 +1983,16 @@ class PlotlyPlotWidget:
         if measurement.orientation == "horizontal":
             shape["y0"] = position
             shape["y1"] = position
-            if shape.get("xref") == "paper":
-                shape["x0"] = 0
-                shape["x1"] = 1
+            # Keep full-width paper span so the line stays a true H-line.
+            shape["xref"] = "paper"
+            shape["x0"] = 0
+            shape["x1"] = 1
             return
         shape["x0"] = position
         shape["x1"] = position
-        if shape.get("yref") == "paper":
-            shape["y0"] = 0
-            shape["y1"] = 1
+        shape["yref"] = "paper"
+        shape["y0"] = 0
+        shape["y1"] = 1
 
     def _emit_measurement_changed(self, event: MeasurementChangeEvent) -> None:
         """Invoke global and per-measurement callbacks for a measurement change."""

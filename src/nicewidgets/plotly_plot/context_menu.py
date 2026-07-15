@@ -67,6 +67,10 @@ class PlotlyPlotContextMenu:
             on_click=lambda: widget.set_legend_visible(not options.show_legend),
         )
 
+        if widget.on_build_context_menu is not None:
+            ui.separator()
+            widget.on_build_context_menu(widget)
+
         ui.separator()
         ui.menu_item("Copy To Clipboard", on_click=widget.copy_plot_to_clipboard)
 

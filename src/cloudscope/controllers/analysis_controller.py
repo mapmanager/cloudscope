@@ -115,6 +115,15 @@ class AnalysisController:
                     source=StatusSource.ANALYSIS,
                 )
             )
+            self.event_bus.publish(
+                AnalysisCompleted(
+                    analysis_kind=event.analysis_kind,
+                    selection=self._copy_selection(event.selection),
+                    success=False,
+                    message=message,
+                )
+            )
+            self._reassert_ui_mode_busy_if_active()
 
     def _on_run_batch_analysis(self, event: RunBatchAnalysisIntent) -> None:
         """Start batch analysis for explicit visible file-table rows.
@@ -251,6 +260,10 @@ class AnalysisController:
     ) -> None:
         """Validate and publish a draft detection-parameter update.
 
+        When ``event.run_analysis`` is True, merges ``param_updates`` onto the
+        last-run analysis detection params for the selection and starts analysis.
+        Does not exit an active analysis UI mode (Edit F0 stays open until Close).
+
         Args:
             event: Partial detection-parameter update intent.
 
@@ -276,12 +289,81 @@ class AnalysisController:
                 param_updates=param_updates,
             )
         )
-        if (
-            self._ui_mode is not None
-            and self._ui_mode_analysis_kind is event.analysis_kind
-            and self._ui_mode_selection == selection
-        ):
-            self._clear_analysis_ui_mode(message="Detection parameters updated")
+        if not event.run_analysis:
+            return
+        try:
+            detection_params = self._merged_detection_params_for_run(
+                analysis_kind=event.analysis_kind,
+                selection=selection,
+                param_updates=param_updates,
+            )
+        except (KeyError, TypeError, ValueError, RuntimeError, NotImplementedError) as exc:
+            message = f"Could not run analysis after param update: {exc}"
+            self._publish_analysis_warning(message)
+            self.event_bus.publish(
+                AnalysisCompleted(
+                    analysis_kind=event.analysis_kind,
+                    selection=selection,
+                    success=False,
+                    message=message,
+                )
+            )
+            return
+        self._on_run_analysis(
+            RunAnalysisIntent(
+                analysis_kind=event.analysis_kind,
+                selection=selection,
+                detection_params=detection_params,
+            )
+        )
+
+    def _merged_detection_params_for_run(
+        self,
+        *,
+        analysis_kind: AnalysisKind,
+        selection: PrimarySelection,
+        param_updates: dict[str, object],
+    ) -> dict[str, object]:
+        """Merge a detection-param patch onto last-run params for one selection.
+
+        Args:
+            analysis_kind: Analysis kind to resolve.
+            selection: File/channel/ROI snapshot.
+            param_updates: Partial schema-keyed values to overlay.
+
+        Returns:
+            Full validated detection-parameter mapping for a run.
+
+        Raises:
+            ValueError: If required selection fields are missing.
+            RuntimeError: If no acquisition list or analysis is available.
+            KeyError: If ``param_updates`` contains unknown keys.
+            TypeError: If a merged value has the wrong type.
+            NotImplementedError: If the analysis kind is unsupported.
+        """
+        file_id, channel, roi_id = self._required_selection_values(selection)
+        acq_image_list = self.home_controller.state.acq_image_list
+        if acq_image_list is None:
+            raise RuntimeError("No AcqImageList loaded")
+        acq_image = acq_image_list.get_file_by_id(file_id)
+        if acq_image is None:
+            raise RuntimeError(f"Selected file is no longer loaded: {file_id!r}")
+        analysis = acq_image.analysis_set.get(
+            AnalysisKey(analysis_kind.value, channel, roi_id)
+        )
+        analysis_cls = self._analysis_class_for_kind(analysis_kind)
+        if analysis is None:
+            base = analysis_cls.get_default_detection_params()
+        else:
+            if not isinstance(analysis, analysis_cls):
+                raise TypeError(
+                    f"Expected {analysis_cls.__name__}, got {type(analysis).__name__}"
+                )
+            base = dict(analysis.detection_params)
+        merged = dict(base)
+        merged.update(param_updates)
+        analysis_cls.validate_detection_params(merged)
+        return merged
 
     def _clear_analysis_ui_mode(self, *, message: str) -> None:
         """Clear active analysis UI mode and release app-busy.
@@ -342,7 +424,10 @@ class AnalysisController:
             Human-readable busy message.
         """
         if mode is AnalysisUiMode.SET_F0:
-            return f"Set F0 for {analysis_kind.value}: drag the line, then Accept or Cancel"
+            return (
+                f"Edit F0 for {analysis_kind.value}: "
+                "Set Manual F0, Set Auto F0, or Close"
+            )
         return f"Analysis UI mode active: {analysis_kind.value}/{mode.value}"
 
     @staticmethod
@@ -734,6 +819,25 @@ class AnalysisController:
                 level=StatusLevel.INFO if success else StatusLevel.WARNING,
                 message=message,
                 source=StatusSource.ANALYSIS,
+            )
+        )
+        self._reassert_ui_mode_busy_if_active()
+
+    def _reassert_ui_mode_busy_if_active(self) -> None:
+        """Restore Edit F0 (or other UI-mode) busy after a task clears app-busy.
+
+        Returns:
+            None.
+        """
+        if self._ui_mode is None or self._ui_mode_analysis_kind is None:
+            return
+        message = self._ui_mode_busy_message(self._ui_mode_analysis_kind, self._ui_mode)
+        self.event_bus.publish(
+            AppBusyChanged(
+                is_busy=True,
+                task_kind=None,
+                task_id=None,
+                message=message,
             )
         )
 

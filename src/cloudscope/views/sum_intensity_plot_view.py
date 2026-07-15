@@ -179,6 +179,8 @@ class SumIntensityPlotView(BaseView):
         self._dark_mode_provider = dark_mode_provider
         self._initial_dark_mode = bool(dark_mode)
         self._toolbar: SumIntensityPlotToolbar | None = None
+        self._f0_container: ui.element | None = None
+        self._f0_plot: PlotlyPlotWidget | None = None
         self._plot: PlotlyPlotWidget | None = None
         self._primary_x_range: tuple[float | None, float | None] = (None, None)
         self._plot_originated_x_range = False
@@ -190,6 +192,7 @@ class SumIntensityPlotView(BaseView):
         self._set_f0_x: tuple[float, ...] = ()
         self._manual_f0_line_present = False
         self._auto_f0_trace_present = False
+        self._live_set_running = False
 
     @property
     def last_measurement_event(self) -> MeasurementChangeEvent | None:
@@ -365,16 +368,38 @@ class SumIntensityPlotView(BaseView):
     def _build_content(self) -> None:
         """Build static child controls.
 
+        Layout (top to bottom): Edit F0 toolbar, F0 plot, primary df/f0 plot.
+        Toolbar and F0 plot are hidden until Edit F0 mode is active.
+
         Returns:
             None.
         """
         self._toolbar = SumIntensityPlotToolbar(
-            on_set_f0=self._on_set_f0_clicked,
-            on_accept=self._on_set_f0_accept_clicked,
-            on_cancel=self._on_set_f0_cancel_clicked,
-            on_compute_auto_f0=self._on_compute_auto_f0_clicked,
+            on_set_manual_f0=self._on_set_manual_f0_clicked,
+            on_set_auto_f0=self._on_set_auto_f0_clicked,
+            on_close=self._on_edit_f0_close_clicked,
+            on_percentile_changed=self._on_edit_f0_percentile_preview,
         )
         self._toolbar.build()
+        self._toolbar.set_visible(False)
+
+        with ui.element("div").classes(
+            "w-full shrink-0 min-h-0 h-40"
+        ) as self._f0_container:
+            self._f0_plot = PlotlyPlotWidget(
+                display_options=PlotlyPlotDisplayOptions(
+                    theme="dark" if self._initial_dark_mode else "light",
+                    show_legend=False,
+                    show_x_axis_labels=True,
+                    show_y_axis_labels=True,
+                ),
+                on_x_range_changed=self._on_plot_x_range_changed,
+                on_measurement_changed=self._on_f0_measurement_changed,
+                layout_margins_profile=home_stack_layout_margins_profile(),
+            )
+            self._f0_plot.container.classes("w-full h-full min-h-0")
+        self._f0_container.set_visibility(False)
+
         self._plot = PlotlyPlotWidget(
             display_options=PlotlyPlotDisplayOptions(
                 theme="dark" if self._initial_dark_mode else "light",
@@ -383,8 +408,8 @@ class SumIntensityPlotView(BaseView):
                 show_y_axis_labels=False,
             ),
             on_x_range_changed=self._on_plot_x_range_changed,
-            on_measurement_changed=self._on_measurement_changed,
             on_series_visibility_changed=self._on_series_visibility_changed,
+            on_build_context_menu=self._build_primary_plot_context_menu,
             layout_margins_profile=home_stack_layout_margins_profile(),
         )
         self._plot.register_series_menu_items(self._sum_intensity_series_menu_items())
@@ -407,6 +432,10 @@ class SumIntensityPlotView(BaseView):
             return
         if event.selection.roi_id != self.current_selection.roi_id:
             return
+        if event.analysis_kind is AnalysisKind.SUM_INTENSITY and self._live_set_running:
+            self._live_set_running = False
+            if self._toolbar is not None:
+                self._toolbar.set_actions_enabled(True)
         self._refresh_plot_from_current_selection()
 
     def _on_roi_changed(self, event: RoiChanged) -> None:
@@ -424,6 +453,9 @@ class SumIntensityPlotView(BaseView):
 
     def _on_plot_x_range_changed(self, x_min: float | None, x_max: float | None) -> None:
         """Publish user-driven Plotly x-range changes as app-level intent.
+
+        Shared by the primary plot and the Edit F0 plot so either child can
+        drive the app primary x-range.
 
         Args:
             x_min: Minimum x-axis value, or ``None`` for automatic scaling.
@@ -453,8 +485,8 @@ class SumIntensityPlotView(BaseView):
             return
         self._apply_primary_x_range_to_plot()
 
-    def _on_measurement_changed(self, event: MeasurementChangeEvent) -> None:
-        """Track Set F0 line drags and retain the last measurement payload.
+    def _on_f0_measurement_changed(self, event: MeasurementChangeEvent) -> None:
+        """Track Manual F0 H-line drags on the Edit F0 plot.
 
         Args:
             event: Measurement callback payload from ``PlotlyPlotWidget``.
@@ -474,7 +506,7 @@ class SumIntensityPlotView(BaseView):
             self._toolbar.set_pending_f0(self._pending_f0)
 
     def _on_analysis_ui_mode_changed(self, event: AnalysisUiModeChanged) -> None:
-        """Enter or leave Set F0 mode from authoritative controller state.
+        """Enter or leave Edit F0 mode from authoritative controller state.
 
         Args:
             event: Analysis UI mode state event.
@@ -489,23 +521,38 @@ class SumIntensityPlotView(BaseView):
                 return
             if event.selection != self._selection_snapshot():
                 return
-            self._enter_set_f0_mode()
+            self._enter_edit_f0_mode()
             return
         if self._set_f0_mode:
-            self._exit_set_f0_mode(refresh_normal_plot=True)
+            self._exit_edit_f0_mode()
 
-    def _on_set_f0_clicked(self) -> None:
-        """Request Set F0 mode from the analysis controller.
+    def _build_primary_plot_context_menu(self, _widget: PlotlyPlotWidget) -> None:
+        """Add Checkable Edit F0 entry to the primary plot context menu.
+
+        Args:
+            _widget: Plotly widget rebuilding its menu (unused).
 
         Returns:
             None.
         """
+        prefix = "✓ " if self._set_f0_mode else ""
+        ui.menu_item(f"{prefix}Edit F0", on_click=self._on_edit_f0_menu_clicked)
+
+    def _on_edit_f0_menu_clicked(self) -> None:
+        """Toggle Edit F0 mode from the primary plot context menu.
+
+        Returns:
+            None.
+        """
+        if self._set_f0_mode:
+            self._on_edit_f0_close_clicked()
+            return
         analysis = self._get_selected_sum_intensity_analysis()
         if analysis is None:
             ui.notify("No sum-intensity analysis for the current selection.", type="warning")
             return
         if analysis.result.table is None:
-            ui.notify("Run sum-intensity analysis before setting F0.", type="warning")
+            ui.notify("Run sum-intensity analysis before editing F0.", type="warning")
             return
         f0 = analysis.get_summary_value(SumIntensitySummaryKey.F0_BASELINE)
         if not isinstance(f0, (int, float)):
@@ -519,17 +566,20 @@ class SumIntensityPlotView(BaseView):
             )
         )
 
-    def _on_set_f0_accept_clicked(self) -> None:
-        """Commit the pending F0 value into draft detection parameters.
+    def _on_set_manual_f0_clicked(self) -> None:
+        """Commit Manual F0 detection params and run sum-intensity analysis.
 
         Returns:
             None.
         """
-        if not self._set_f0_mode:
+        if not self._set_f0_mode or self._live_set_running:
             return
         if self._pending_f0 is None:
-            ui.notify("Drag the F0 line before accepting.", type="warning")
+            ui.notify("Drag the Manual F0 line before setting.", type="warning")
             return
+        self._live_set_running = True
+        if self._toolbar is not None:
+            self._toolbar.set_actions_enabled(False)
         self.event_bus.publish(
             UpdateAnalysisDetectionParamsIntent(
                 analysis_kind=AnalysisKind.SUM_INTENSITY,
@@ -538,11 +588,39 @@ class SumIntensityPlotView(BaseView):
                     "baseline_method": "manual",
                     "manual_f0_baseline": float(self._pending_f0),
                 },
+                run_analysis=True,
             )
         )
 
-    def _on_set_f0_cancel_clicked(self) -> None:
-        """Cancel Set F0 mode without changing detection parameters.
+    def _on_set_auto_f0_clicked(self) -> None:
+        """Commit percentile Auto F0 detection params and run analysis.
+
+        Returns:
+            None.
+        """
+        if not self._set_f0_mode or self._toolbar is None or self._live_set_running:
+            return
+        try:
+            percentile = self._toolbar.get_baseline_percentile()
+        except (RuntimeError, TypeError) as exc:
+            ui.notify(f"Invalid percentile: {exc}", type="warning")
+            return
+        self._live_set_running = True
+        self._toolbar.set_actions_enabled(False)
+        self.event_bus.publish(
+            UpdateAnalysisDetectionParamsIntent(
+                analysis_kind=AnalysisKind.SUM_INTENSITY,
+                selection=self._selection_snapshot(),
+                param_updates={
+                    "baseline_method": "percentile",
+                    "baseline_percentile": float(percentile),
+                },
+                run_analysis=True,
+            )
+        )
+
+    def _on_edit_f0_close_clicked(self) -> None:
+        """Leave Edit F0 mode without changing detection parameters.
 
         Returns:
             None.
@@ -557,35 +635,34 @@ class SumIntensityPlotView(BaseView):
             )
         )
 
-    def _on_compute_auto_f0_clicked(self) -> None:
-        """Recompute Auto F0 from the toolbar percentile and redraw the Auto line.
+    def _on_edit_f0_percentile_preview(self, percentile: float) -> None:
+        """Preview Auto F0 on the F0 plot when the percentile control changes.
+
+        Args:
+            percentile: Toolbar percentile value.
 
         Returns:
             None.
         """
-        if not self._set_f0_mode or self._plot is None or self._toolbar is None:
+        if not self._set_f0_mode or self._f0_plot is None:
             return
         analysis = self._get_selected_sum_intensity_analysis()
         if analysis is None or analysis.result.table is None:
-            ui.notify("No sum-intensity analysis for the current selection.", type="warning")
             return
-        percentile = self._toolbar.get_baseline_percentile()
         try:
-            auto_f0 = analysis.get_percentile_f0_baseline(percentile=percentile)
-        except ValueError as exc:
-            ui.notify(f"Could not compute Auto F0: {exc}", type="warning")
+            auto_f0 = analysis.get_percentile_f0_baseline(percentile=float(percentile))
+        except ValueError:
             return
         self._auto_f0 = float(auto_f0)
-        self._toolbar.set_auto_f0(self._auto_f0)
         self._update_auto_f0_trace()
 
-    def _enter_set_f0_mode(self) -> None:
-        """Swap the plot to the F0 source trace and add Manual/Auto F0 overlays.
+    def _enter_edit_f0_mode(self) -> None:
+        """Show the Edit F0 toolbar and F0 plot; leave the primary plot unchanged.
 
         Returns:
             None.
         """
-        if self._plot is None:
+        if self._f0_plot is None or self._f0_container is None:
             return
         analysis = self._get_selected_sum_intensity_analysis()
         if analysis is None or analysis.result.table is None:
@@ -602,40 +679,17 @@ class SumIntensityPlotView(BaseView):
         self._set_f0_mode = True
         self._pending_f0 = float(f0)
         self._auto_f0 = float(auto_f0)
+        self._live_set_running = False
         if self._toolbar is not None:
-            self._toolbar.enter_set_f0_mode()
+            self._toolbar.enter_edit_f0_mode()
             self._toolbar.set_baseline_percentile(float(percentile))
-            self._toolbar.set_auto_f0(self._auto_f0)
             self._toolbar.set_pending_f0(self._pending_f0)
-        self._remove_set_f0_overlays()
-        trace = analysis.get_trace(SumIntensityTraceKey.DETRENDED_NORM_SUM_INTENSITY)
-        self._set_f0_x = tuple(float(value) for value in trace.x.tolist())
-        self._plot.set_series(traces=[self._trace_data(trace)], scatters=[])
-        self._plot.set_y2_label("")
-        x_label = kymograph_time_x_label(
-            self.get_selected_acq_image(),
-            fallback=trace.x_label,
-        )
-        self._plot.set_x_label(x_label)
-        self._plot.set_y_label(trace.y_label)
-        self._apply_primary_x_range_to_plot()
-        self._add_auto_f0_trace()
-        self._plot.add_measurement_line(
-            name=_MANUAL_F0_MEASUREMENT_NAME,
-            orientation="horizontal",
-            value=self._pending_f0,
-            editable=True,
-            color=_MANUAL_F0_LINE_COLOR,
-            dash="solid",
-            show_legend=False,
-        )
-        self._manual_f0_line_present = True
+            self._toolbar.set_actions_enabled(True)
+        self._f0_container.set_visibility(True)
+        self._refresh_f0_plot(preserve_manual_line=False)
 
-    def _exit_set_f0_mode(self, *, refresh_normal_plot: bool) -> None:
-        """Leave Set F0 mode and optionally restore the normal plot.
-
-        Args:
-            refresh_normal_plot: When True, refresh the df/f0 plot series.
+    def _exit_edit_f0_mode(self) -> None:
+        """Hide Edit F0 chrome; primary df/f0 plot is left as-is.
 
         Returns:
             None.
@@ -644,11 +698,86 @@ class SumIntensityPlotView(BaseView):
         self._pending_f0 = None
         self._auto_f0 = None
         self._set_f0_x = ()
-        self._remove_set_f0_overlays()
+        self._live_set_running = False
+        self._remove_f0_overlays()
+        if self._f0_plot is not None:
+            self._f0_plot.set_series()
+            self._f0_plot.set_placeholder_text(None)
+        if self._f0_container is not None:
+            self._f0_container.set_visibility(False)
         if self._toolbar is not None:
-            self._toolbar.exit_set_f0_mode()
-        if refresh_normal_plot:
-            self._refresh_plot()
+            self._toolbar.exit_edit_f0_mode()
+
+    def _refresh_f0_plot(self, *, preserve_manual_line: bool) -> None:
+        """Rebuild the Edit F0 plot from the selected analysis.
+
+        Args:
+            preserve_manual_line: When True, keep ``_pending_f0`` for the Manual
+                H-line; otherwise initialize from summary ``f0_baseline``.
+
+        Returns:
+            None.
+        """
+        if self._f0_plot is None or not self._set_f0_mode:
+            return
+        analysis = self._get_selected_sum_intensity_analysis()
+        if analysis is None or analysis.result.table is None:
+            self._f0_plot.set_series()
+            self._f0_plot.set_placeholder_text("No sum-intensity analysis for Edit F0")
+            return
+        if not preserve_manual_line or self._pending_f0 is None:
+            f0 = analysis.get_summary_value(SumIntensitySummaryKey.F0_BASELINE)
+            if isinstance(f0, (int, float)):
+                self._pending_f0 = float(f0)
+        percentile = (
+            self._toolbar.get_baseline_percentile()
+            if self._toolbar is not None
+            else float(analysis.detection_params["baseline_percentile"])
+        )
+        try:
+            self._auto_f0 = float(
+                analysis.get_percentile_f0_baseline(percentile=float(percentile))
+            )
+        except ValueError as exc:
+            self._f0_plot.set_series()
+            self._f0_plot.set_placeholder_text(f"Edit F0 unavailable: {exc}")
+            return
+        self._remove_f0_overlays()
+        trace = analysis.get_trace(SumIntensityTraceKey.DETRENDED_NORM_SUM_INTENSITY)
+        self._set_f0_x = tuple(float(value) for value in trace.x.tolist())
+        self._f0_plot.set_series(
+            traces=[
+                PlotlyTraceData.from_sequences(
+                    name=str(trace.name),
+                    x=trace.x,
+                    y=trace.y,
+                    visible=True,
+                )
+            ],
+            scatters=[],
+        )
+        self._f0_plot.set_placeholder_text(None)
+        x_label = kymograph_time_x_label(
+            self.get_selected_acq_image(),
+            fallback=trace.x_label,
+        )
+        self._f0_plot.set_x_label(x_label)
+        self._f0_plot.set_y_label(trace.y_label)
+        self._apply_primary_x_range_to_f0_plot()
+        self._add_auto_f0_trace()
+        if self._pending_f0 is not None:
+            self._f0_plot.add_measurement_line(
+                name=_MANUAL_F0_MEASUREMENT_NAME,
+                orientation="horizontal",
+                value=self._pending_f0,
+                editable=True,
+                color=_MANUAL_F0_LINE_COLOR,
+                dash="solid",
+                show_legend=False,
+            )
+            self._manual_f0_line_present = True
+            if self._toolbar is not None:
+                self._toolbar.set_pending_f0(self._pending_f0)
 
     def _add_auto_f0_trace(self) -> None:
         """Add the non-editable Auto F0 line as a continuous Plotly trace.
@@ -656,10 +785,10 @@ class SumIntensityPlotView(BaseView):
         Returns:
             None.
         """
-        if self._plot is None or self._auto_f0 is None or not self._set_f0_x:
+        if self._f0_plot is None or self._auto_f0 is None or not self._set_f0_x:
             return
         y_values = tuple(self._auto_f0 for _ in self._set_f0_x)
-        self._plot.add_trace(
+        self._f0_plot.add_trace(
             name=_AUTO_F0_TRACE_NAME,
             x=self._set_f0_x,
             y=y_values,
@@ -675,28 +804,36 @@ class SumIntensityPlotView(BaseView):
             None.
         """
         if (
-            self._plot is None
+            self._f0_plot is None
             or not self._auto_f0_trace_present
             or self._auto_f0 is None
             or not self._set_f0_x
         ):
             return
         y_values = tuple(self._auto_f0 for _ in self._set_f0_x)
-        self._plot.update_trace(name=_AUTO_F0_TRACE_NAME, x=self._set_f0_x, y=y_values)
+        self._f0_plot.update_trace(name=_AUTO_F0_TRACE_NAME, x=self._set_f0_x, y=y_values)
 
-    def _remove_set_f0_overlays(self) -> None:
-        """Remove Set F0 Manual shape and Auto F0 trace when present.
+    def _remove_f0_overlays(self) -> None:
+        """Remove Manual F0 shape and Auto F0 trace from the F0 plot.
 
         Returns:
             None.
         """
-        if self._plot is None:
+        if self._f0_plot is None:
+            self._manual_f0_line_present = False
+            self._auto_f0_trace_present = False
             return
         if self._manual_f0_line_present:
-            self._plot.remove_measurement_line(_MANUAL_F0_MEASUREMENT_NAME)
+            try:
+                self._f0_plot.remove_measurement_line(_MANUAL_F0_MEASUREMENT_NAME)
+            except KeyError:
+                pass
             self._manual_f0_line_present = False
         if self._auto_f0_trace_present:
-            self._plot.remove_trace(_AUTO_F0_TRACE_NAME)
+            try:
+                self._f0_plot.remove_trace(_AUTO_F0_TRACE_NAME)
+            except KeyError:
+                pass
             self._auto_f0_trace_present = False
 
     def _selection_snapshot(self) -> PrimarySelection:
@@ -751,7 +888,7 @@ class SumIntensityPlotView(BaseView):
                 self._plot.set_y2_label("Diameter (um)")
 
     def _on_theme_changed(self, event: ThemeChanged) -> None:
-        """Apply an application theme change to the child Plotly widget.
+        """Apply an application theme change to the child Plotly widgets.
 
         Args:
             event: Theme state event published by the page header.
@@ -759,9 +896,10 @@ class SumIntensityPlotView(BaseView):
         Returns:
             None.
         """
-        if self._plot is None:
-            return
-        self._plot.set_dark_mode(event.dark_mode)
+        if self._plot is not None:
+            self._plot.set_dark_mode(event.dark_mode)
+        if self._f0_plot is not None:
+            self._f0_plot.set_dark_mode(event.dark_mode)
 
     def _sync_theme_from_provider(self) -> None:
         """Apply the current application theme when a provider is available.
@@ -769,12 +907,16 @@ class SumIntensityPlotView(BaseView):
         Returns:
             None.
         """
-        if self._plot is None or self._dark_mode_provider is None:
+        if self._dark_mode_provider is None:
             return
-        self._plot.set_dark_mode(bool(self._dark_mode_provider()))
+        dark = bool(self._dark_mode_provider())
+        if self._plot is not None:
+            self._plot.set_dark_mode(dark)
+        if self._f0_plot is not None:
+            self._f0_plot.set_dark_mode(dark)
 
     def _apply_primary_x_range_to_plot(self) -> None:
-        """Push cached x-range state into the child Plotly widget.
+        """Push cached x-range state into the primary Plotly widget.
 
         Returns:
             None.
@@ -784,8 +926,23 @@ class SumIntensityPlotView(BaseView):
         x_min, x_max = self._primary_x_range
         if x_min is None or x_max is None:
             self._plot.reset_x_axis_limits()
+        else:
+            self._plot.set_x_axis_limits(x_min, x_max)
+        self._apply_primary_x_range_to_f0_plot()
+
+    def _apply_primary_x_range_to_f0_plot(self) -> None:
+        """Push cached x-range state into the Edit F0 Plotly widget.
+
+        Returns:
+            None.
+        """
+        if self._f0_plot is None or not self._set_f0_mode:
             return
-        self._plot.set_x_axis_limits(x_min, x_max)
+        x_min, x_max = self._primary_x_range
+        if x_min is None or x_max is None:
+            self._f0_plot.reset_x_axis_limits()
+            return
+        self._f0_plot.set_x_axis_limits(x_min, x_max)
 
     def _refresh_plot_from_current_selection(self) -> None:
         """Schedule async plot refresh from the current selection.
@@ -816,12 +973,13 @@ class SumIntensityPlotView(BaseView):
     def _refresh_plot(self) -> None:
         """Refresh Plotly traces and overlays from selected sum-intensity analysis.
 
+        The primary df/f0 plot always refreshes. When Edit F0 is active, the
+        dedicated F0 plot is refreshed separately.
+
         Returns:
             None.
         """
         if self._plot is None:
-            return
-        if self._set_f0_mode:
             return
         analysis = self._get_selected_sum_intensity_analysis()
         if analysis is None:
@@ -836,6 +994,8 @@ class SumIntensityPlotView(BaseView):
         self._apply_y2_label()
         self._apply_axis_labels(analysis)
         self._apply_primary_x_range_to_plot()
+        if self._set_f0_mode:
+            self._refresh_f0_plot(preserve_manual_line=True)
 
     def _apply_axis_labels(self, analysis: SumIntensityAnalysis) -> None:
         """Set x/y axis titles from the canonical df/f0 plot data.

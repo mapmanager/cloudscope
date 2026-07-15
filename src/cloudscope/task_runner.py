@@ -357,9 +357,11 @@ class TaskRunner:
                     100,
                     message.message,
                 )
+                # Clear busy before terminal callbacks so handlers can re-assert
+                # a longer-lived busy state (for example Edit F0 UI mode).
+                self._finish_task(message="Task complete")
                 if on_completed is not None:
                     on_completed(message.result)
-                self._finish_task(message="Task complete")
                 return
 
             if message.kind == TaskRunnerMessageKind.CANCELLED:
@@ -372,9 +374,9 @@ class TaskRunner:
                     100,
                     message.message,
                 )
+                self._finish_task(message="Task cancelled")
                 if on_cancelled is not None:
                     on_cancelled()
-                self._finish_task(message="Task cancelled")
                 return
 
             if message.kind == TaskRunnerMessageKind.FAILED:
@@ -387,9 +389,9 @@ class TaskRunner:
                     100,
                     message.message,
                 )
+                self._finish_task(message="Task failed")
                 if on_failed is not None and message.error is not None:
                     on_failed(message.error)
-                self._finish_task(message="Task failed")
                 return
                 
     def _finish_task(self, *, message: str) -> None:

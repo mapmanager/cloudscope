@@ -241,10 +241,66 @@ class _FakePlot:
         self.traces = [trace for trace in self.traces if trace.name != name]
 
 
+class _FakeVisibilityElement:
+    """Minimal stand-in for a NiceGUI element that supports set_visibility."""
+
+    def __init__(self) -> None:
+        """Create with hidden default."""
+        self.visible = False
+
+    def set_visibility(self, visible: bool) -> None:
+        """Record visibility."""
+        self.visible = bool(visible)
+
+
+class _FakeToolbar:
+    """Minimal Edit F0 toolbar stand-in for unit tests."""
+
+    def __init__(self) -> None:
+        """Create idle toolbar state."""
+        self.visible = False
+        self.pending_f0: float | None = None
+        self.percentile = 20.0
+        self.actions_enabled = True
+
+    def enter_edit_f0_mode(self) -> None:
+        """Show toolbar."""
+        self.visible = True
+
+    def exit_edit_f0_mode(self) -> None:
+        """Hide toolbar."""
+        self.visible = False
+        self.pending_f0 = None
+        self.actions_enabled = True
+
+    def set_visible(self, visible: bool) -> None:
+        """Record visibility."""
+        self.visible = bool(visible)
+
+    def set_baseline_percentile(self, value: float) -> None:
+        """Record percentile."""
+        self.percentile = float(value)
+
+    def get_baseline_percentile(self) -> float:
+        """Return percentile."""
+        return float(self.percentile)
+
+    def set_pending_f0(self, value: float) -> None:
+        """Record Manual F0 readout."""
+        self.pending_f0 = float(value)
+
+    def set_actions_enabled(self, enabled: bool) -> None:
+        """Record Set-button enabled state."""
+        self.actions_enabled = bool(enabled)
+
+
 def _view_with_fake_plot() -> SumIntensityPlotView:
-    """Create a view with fake child plot."""
+    """Create a view with fake child plots."""
     view = SumIntensityPlotView(event_bus=EventBus())
     view._plot = _FakePlot()  # type: ignore[assignment]
+    view._f0_plot = _FakePlot()  # type: ignore[assignment]
+    view._f0_container = _FakeVisibilityElement()  # type: ignore[assignment]
+    view._toolbar = _FakeToolbar()  # type: ignore[assignment]
     view._plot.register_series_menu_items(SumIntensityPlotView._sum_intensity_series_menu_items())  # type: ignore[attr-defined]
     return view
 
@@ -772,17 +828,17 @@ def test_primary_x_range_changed_resets_plot_for_auto_range() -> None:
     assert view._plot.x_reset_calls == 1
 
 
-def test_measurement_callback_stores_event_for_future_intent_wiring() -> None:
-    """Measurement callbacks should be captured without mutating app state yet."""
+def test_f0_measurement_callback_stores_event() -> None:
+    """F0 plot measurement callbacks should be captured on the view."""
     view = SumIntensityPlotView(event_bus=EventBus())
     event = MeasurementChangeEvent(
-        name="threshold",
+        name="manual-f0",
         kind="line",
         orientation="horizontal",
         position=1.5,
     )
 
-    view._on_measurement_changed(event)
+    view._on_f0_measurement_changed(event)
 
     assert view.last_measurement_event is event
 
@@ -973,15 +1029,15 @@ def _view_with_analysis_for_set_f0() -> SumIntensityPlotView:
     return view
 
 
-def test_set_f0_click_publishes_begin_analysis_ui_mode_intent() -> None:
-    """Set F0 should request modal analysis UI mode for the current selection."""
+def test_edit_f0_menu_publishes_begin_analysis_ui_mode_intent() -> None:
+    """Edit F0 context-menu action should request modal analysis UI mode."""
     bus = EventBus()
     intents: list[BeginAnalysisUiModeIntent] = []
     bus.subscribe(BeginAnalysisUiModeIntent, intents.append)
     view = _view_with_analysis_for_set_f0()
     view.event_bus = bus
 
-    view._on_set_f0_clicked()
+    view._on_edit_f0_menu_clicked()
 
     assert len(intents) == 1
     assert intents[0].analysis_kind is AnalysisKind.SUM_INTENSITY
@@ -989,9 +1045,11 @@ def test_set_f0_click_publishes_begin_analysis_ui_mode_intent() -> None:
     assert intents[0].selection == PrimarySelection(file_id="file", channel=0, roi_id=1)
 
 
-def test_analysis_ui_mode_changed_enters_set_f0_with_detrended_trace_and_line() -> None:
-    """Active Set F0 mode should show the detrended F0 source trace and H-lines."""
+def test_analysis_ui_mode_changed_enters_edit_f0_on_f0_plot_not_primary() -> None:
+    """Active Edit F0 should show detrended+F0 lines on the F0 plot only."""
     view = _view_with_analysis_for_set_f0()
+    view._refresh_plot()
+    primary_names_before = [trace.name for trace in view._plot.traces]
 
     view._on_analysis_ui_mode_changed(
         AnalysisUiModeChanged(
@@ -1005,26 +1063,25 @@ def test_analysis_ui_mode_changed_enters_set_f0_with_detrended_trace_and_line() 
     assert view._set_f0_mode is True
     assert view._pending_f0 == 1.2345
     assert view._auto_f0 == 0.875
-    assert [trace.name for trace in view._plot.traces] == [
+    assert view._f0_container.visible is True  # type: ignore[union-attr]
+    assert view._toolbar.visible is True  # type: ignore[union-attr]
+    assert [trace.name for trace in view._plot.traces] == primary_names_before
+    assert "manual-f0" not in view._plot.measurements
+    assert [trace.name for trace in view._f0_plot.traces] == [  # type: ignore[union-attr]
         "Detrended normalized sum intensity",
         "Auto F0",
     ]
-    assert view._plot.scatters == []
-    auto = next(trace for trace in view._plot.traces if trace.name == "Auto F0")
+    auto = next(trace for trace in view._f0_plot.traces if trace.name == "Auto F0")  # type: ignore[union-attr]
     assert auto.line_dash == "dot"
     assert auto.line_color == "#38bdf8"
     assert set(auto.y) == {0.875}
-    assert "manual-f0" in view._plot.measurements
-    assert "auto-f0" not in view._plot.measurements
-    assert view._plot.measurements["manual-f0"].position == 1.2345
-    assert view._plot.measurements["manual-f0"].editable is True
-    assert view._plot.measurements["manual-f0"].dash == "solid"
-    assert view._plot.measurements["manual-f0"].show_legend is False
-    assert view._plot.y_label == "Detrended mean line intensity"
+    assert "manual-f0" in view._f0_plot.measurements  # type: ignore[union-attr]
+    assert view._f0_plot.measurements["manual-f0"].position == 1.2345  # type: ignore[union-attr]
+    assert view._f0_plot.y_label == "Detrended mean line intensity"  # type: ignore[union-attr]
 
 
 def test_set_f0_measurement_drag_updates_pending_f0() -> None:
-    """Dragging the manual-f0 line should update the pending F0 value."""
+    """Dragging the manual-f0 line on the F0 plot should update pending F0."""
     view = _view_with_analysis_for_set_f0()
     view._on_analysis_ui_mode_changed(
         AnalysisUiModeChanged(
@@ -1035,7 +1092,7 @@ def test_set_f0_measurement_drag_updates_pending_f0() -> None:
         )
     )
 
-    view._on_measurement_changed(
+    view._on_f0_measurement_changed(
         MeasurementChangeEvent(
             name="manual-f0",
             kind="line",
@@ -1045,10 +1102,11 @@ def test_set_f0_measurement_drag_updates_pending_f0() -> None:
     )
 
     assert view._pending_f0 == 9.5
+    assert view._toolbar.pending_f0 == 9.5  # type: ignore[union-attr]
 
 
-def test_set_f0_accept_publishes_update_detection_params_intent() -> None:
-    """Accept should publish manual baseline params without running analysis."""
+def test_set_manual_f0_publishes_update_with_run_analysis() -> None:
+    """Set Manual F0 should publish manual baseline params and request a run."""
     bus = EventBus()
     intents: list[UpdateAnalysisDetectionParamsIntent] = []
     bus.subscribe(UpdateAnalysisDetectionParamsIntent, intents.append)
@@ -1064,17 +1122,47 @@ def test_set_f0_accept_publishes_update_detection_params_intent() -> None:
     )
     view._pending_f0 = 8.25
 
-    view._on_set_f0_accept_clicked()
+    view._on_set_manual_f0_clicked()
 
     assert len(intents) == 1
     assert intents[0].param_updates == {
         "baseline_method": "manual",
         "manual_f0_baseline": 8.25,
     }
+    assert intents[0].run_analysis is True
+    assert view._live_set_running is True
+    assert view._toolbar.actions_enabled is False  # type: ignore[union-attr]
 
 
-def test_set_f0_cancel_publishes_cancel_analysis_ui_mode_intent() -> None:
-    """Cancel should request UI-mode exit without param updates."""
+def test_set_auto_f0_publishes_percentile_update_with_run_analysis() -> None:
+    """Set Auto F0 should publish percentile params and request a run."""
+    bus = EventBus()
+    intents: list[UpdateAnalysisDetectionParamsIntent] = []
+    bus.subscribe(UpdateAnalysisDetectionParamsIntent, intents.append)
+    view = _view_with_analysis_for_set_f0()
+    view.event_bus = bus
+    view._on_analysis_ui_mode_changed(
+        AnalysisUiModeChanged(
+            is_active=True,
+            analysis_kind=AnalysisKind.SUM_INTENSITY,
+            mode=AnalysisUiMode.SET_F0,
+            selection=PrimarySelection(file_id="file", channel=0, roi_id=1),
+        )
+    )
+    view._toolbar.percentile = 33.0  # type: ignore[union-attr]
+
+    view._on_set_auto_f0_clicked()
+
+    assert len(intents) == 1
+    assert intents[0].param_updates == {
+        "baseline_method": "percentile",
+        "baseline_percentile": 33.0,
+    }
+    assert intents[0].run_analysis is True
+
+
+def test_edit_f0_close_publishes_cancel_analysis_ui_mode_intent() -> None:
+    """Close should request UI-mode exit without param updates."""
     bus = EventBus()
     intents: list[CancelAnalysisUiModeIntent] = []
     bus.subscribe(CancelAnalysisUiModeIntent, intents.append)
@@ -1089,15 +1177,16 @@ def test_set_f0_cancel_publishes_cancel_analysis_ui_mode_intent() -> None:
         )
     )
 
-    view._on_set_f0_cancel_clicked()
+    view._on_edit_f0_close_clicked()
 
     assert len(intents) == 1
     assert intents[0].mode is AnalysisUiMode.SET_F0
 
 
-def test_analysis_ui_mode_inactive_exits_set_f0_and_refreshes_normal_plot() -> None:
-    """Leaving Set F0 mode should remove Manual/Auto overlays and restore df/f0."""
+def test_analysis_ui_mode_inactive_exits_edit_f0_and_keeps_primary_plot() -> None:
+    """Leaving Edit F0 should hide F0 chrome and leave the primary plot alone."""
     view = _view_with_analysis_for_set_f0()
+    view._refresh_plot()
     view._on_analysis_ui_mode_changed(
         AnalysisUiModeChanged(
             is_active=True,
@@ -1106,8 +1195,9 @@ def test_analysis_ui_mode_inactive_exits_set_f0_and_refreshes_normal_plot() -> N
             selection=PrimarySelection(file_id="file", channel=0, roi_id=1),
         )
     )
-    assert "manual-f0" in view._plot.measurements
-    assert any(trace.name == "Auto F0" for trace in view._plot.traces)
+    assert "manual-f0" in view._f0_plot.measurements  # type: ignore[union-attr]
+    assert any(trace.name == "Auto F0" for trace in view._f0_plot.traces)  # type: ignore[union-attr]
+    primary_after_enter = [trace.name for trace in view._plot.traces]
 
     view._on_analysis_ui_mode_changed(
         AnalysisUiModeChanged(
@@ -1121,13 +1211,14 @@ def test_analysis_ui_mode_inactive_exits_set_f0_and_refreshes_normal_plot() -> N
     assert view._set_f0_mode is False
     assert view._pending_f0 is None
     assert view._auto_f0 is None
-    assert view._plot.measurements == {}
-    assert view._plot.removed_traces == ["Auto F0"]
-    assert view._plot.traces[0].name == "df/f0 signal"
+    assert view._f0_container.visible is False  # type: ignore[union-attr]
+    assert view._toolbar.visible is False  # type: ignore[union-attr]
+    assert view._f0_plot.measurements == {}  # type: ignore[union-attr]
+    assert [trace.name for trace in view._plot.traces] == primary_after_enter
 
 
-def test_compute_auto_f0_updates_auto_trace_without_moving_manual_line() -> None:
-    """Compute auto F0 should redraw Auto only; Manual drag line stays put."""
+def test_percentile_preview_updates_auto_trace_without_moving_manual_line() -> None:
+    """Percentile preview should redraw Auto only; Manual drag line stays put."""
     view = _view_with_analysis_for_set_f0()
     view._on_analysis_ui_mode_changed(
         AnalysisUiModeChanged(
@@ -1138,18 +1229,7 @@ def test_compute_auto_f0_updates_auto_trace_without_moving_manual_line() -> None
         )
     )
     view._pending_f0 = 1.2345
-    view._plot.measurements["manual-f0"].position = 1.2345
-
-    class _Toolbar:
-        def get_baseline_percentile(self) -> float:
-            return 50.0
-
-        def set_auto_f0(self, value: float) -> None:
-            self.last_auto = float(value)
-
-    toolbar = _Toolbar()
-    view._toolbar = toolbar  # type: ignore[assignment]
-    view.get_percentile_override = 50.0  # type: ignore[attr-defined]
+    view._f0_plot.measurements["manual-f0"].position = 1.2345  # type: ignore[union-attr]
 
     def _percentile(percentile: float | None = None) -> float:
         assert percentile == 50.0
@@ -1159,11 +1239,10 @@ def test_compute_auto_f0_updates_auto_trace_without_moving_manual_line() -> None
     assert analysis is not None
     analysis.get_percentile_f0_baseline = _percentile  # type: ignore[method-assign]
 
-    view._on_compute_auto_f0_clicked()
+    view._on_edit_f0_percentile_preview(50.0)
 
     assert view._auto_f0 == 2.5
-    assert toolbar.last_auto == 2.5
-    assert view._plot.updated_traces == ["Auto F0"]
-    assert view._plot.measurements["manual-f0"].position == 1.2345
-    auto = next(trace for trace in view._plot.traces if trace.name == "Auto F0")
+    assert view._f0_plot.updated_traces == ["Auto F0"]  # type: ignore[union-attr]
+    assert view._f0_plot.measurements["manual-f0"].position == 1.2345  # type: ignore[union-attr]
+    auto = next(trace for trace in view._f0_plot.traces if trace.name == "Auto F0")  # type: ignore[union-attr]
     assert set(auto.y) == {2.5}

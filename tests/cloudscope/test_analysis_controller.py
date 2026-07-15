@@ -987,8 +987,8 @@ def test_cancel_analysis_ui_mode_clears_busy() -> None:
     assert controller._ui_mode is None
 
 
-def test_update_detection_params_publishes_state_and_clears_set_f0_mode() -> None:
-    """Accepted param updates should publish state and end an active Set F0 mode."""
+def test_update_detection_params_publishes_state_and_keeps_edit_f0_mode() -> None:
+    """Accepted param updates should publish state and stay in Edit F0 mode."""
     controller, bus, _runner, _home, _statuses, _completed = _make_controller()
     param_events: list[AnalysisDetectionParamsChanged] = []
     busy_events: list[AppBusyChanged] = []
@@ -1019,8 +1019,62 @@ def test_update_detection_params_publishes_state_and_clears_set_f0_mode() -> Non
         "baseline_method": "manual",
         "manual_f0_baseline": 12.5,
     }
-    assert busy_events[-1].is_busy is False
-    assert controller._ui_mode is None
+    assert busy_events[-1].is_busy is True
+    assert controller._ui_mode is AnalysisUiMode.SET_F0
+
+
+def test_update_detection_params_run_analysis_merges_last_run_and_starts() -> None:
+    """run_analysis=True should merge onto last-run params and start analysis."""
+    from acqstore.acq_image.analysis.sum_intensity_analysis.sum_intensity_analysis import (
+        SumIntensityAnalysis,
+    )
+
+    controller, bus, runner, home, _statuses, completed = _make_controller()
+    aset = FakeAnalysisSet()
+    existing = SumIntensityAnalysis(channel=0, roi_id=1)
+    existing.detection_params["baseline_percentile"] = 20.0
+    existing.detection_params["baseline_method"] = "percentile"
+    aset._items[existing.key] = existing
+    home.state.acq_image_list = FakeAcqImageList(FakeAcqImage(aset))
+    selection = PrimarySelection(file_id="f", channel=0, roi_id=1)
+    bus.publish(
+        BeginAnalysisUiModeIntent(
+            analysis_kind=AnalysisKind.SUM_INTENSITY,
+            mode=AnalysisUiMode.SET_F0,
+            selection=selection,
+        )
+    )
+
+    bus.publish(
+        UpdateAnalysisDetectionParamsIntent(
+            analysis_kind=AnalysisKind.SUM_INTENSITY,
+            selection=selection,
+            param_updates={
+                "baseline_method": "manual",
+                "manual_f0_baseline": 12.5,
+            },
+            run_analysis=True,
+        )
+    )
+
+    assert runner.started
+    assert runner.captured is not None
+    worker_ctx = FakeTaskContext()
+    # Capture merged params via create args after worker runs
+    runner.captured.worker(worker_ctx)
+    assert aset.created
+    created_params = aset.created[-1][3]
+    assert created_params["baseline_method"] == "manual"
+    assert created_params["manual_f0_baseline"] == 12.5
+    assert created_params["baseline_percentile"] == 20.0
+    assert controller._ui_mode is AnalysisUiMode.SET_F0
+
+    busy_events: list[AppBusyChanged] = []
+    bus.subscribe(AppBusyChanged, busy_events.append)
+    runner.captured.on_completed(None)
+    assert controller._ui_mode is AnalysisUiMode.SET_F0
+    assert busy_events[-1].is_busy is True
+    assert any(event.success for event in completed) or completed[-1].success is True
 
 
 def test_update_detection_params_rejects_invalid_values() -> None:

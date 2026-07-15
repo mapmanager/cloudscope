@@ -1,8 +1,4 @@
-"""Modular top toolbar for :class:`SumIntensityPlotView`.
-
-The toolbar is a thin NiceGUI surface so a future ticket can show/hide it or
-host additional plot-local actions without rewriting Set F0 mode wiring.
-"""
+"""Modular top toolbar for :class:`SumIntensityPlotView` Edit F0 mode."""
 
 from __future__ import annotations
 
@@ -12,36 +8,41 @@ from nicegui import ui
 
 
 class SumIntensityPlotToolbar:
-    """Top toolbar for sum-intensity plot actions (Set F0 / Accept / Cancel).
+    """Edit F0 toolbar: Set Manual F0, Set Auto F0, and Close.
+
+    Visible only while the plot view is in Edit F0 mode. Organized as:
+
+    - Manual F0 readout (from the draggable H-line) + Set Manual F0
+    - Percentile number + Set Auto F0
+    - Close
 
     Args:
-        on_set_f0: Invoked when the user clicks Set F0.
-        on_accept: Invoked when the user accepts the pending Manual F0 value.
-        on_cancel: Invoked when the user cancels Set F0 mode.
-        on_compute_auto_f0: Invoked when the user recomputes Auto F0 from the
-            toolbar percentile control.
+        on_set_manual_f0: Commit Manual F0 and run analysis.
+        on_set_auto_f0: Commit Auto (percentile) F0 and run analysis.
+        on_close: Exit Edit F0 without committing.
+        on_percentile_changed: Optional preview callback when the percentile
+            control changes (does not commit params).
     """
 
     def __init__(
         self,
         *,
-        on_set_f0: Callable[[], None],
-        on_accept: Callable[[], None],
-        on_cancel: Callable[[], None],
-        on_compute_auto_f0: Callable[[], None],
+        on_set_manual_f0: Callable[[], None],
+        on_set_auto_f0: Callable[[], None],
+        on_close: Callable[[], None],
+        on_percentile_changed: Callable[[float], None] | None = None,
     ) -> None:
-        self._on_set_f0 = on_set_f0
-        self._on_accept = on_accept
-        self._on_cancel = on_cancel
-        self._on_compute_auto_f0 = on_compute_auto_f0
+        self._on_set_manual_f0 = on_set_manual_f0
+        self._on_set_auto_f0 = on_set_auto_f0
+        self._on_close = on_close
+        self._on_percentile_changed = on_percentile_changed
         self._root: ui.row | None = None
-        self._idle_row: ui.row | None = None
-        self._set_f0_row: ui.row | None = None
-        self._auto_f0_label: ui.label | None = None
         self._pending_f0_label: ui.label | None = None
         self._percentile_control: ui.number | None = None
-        self._visible = True
-        self._set_f0_mode = False
+        self._set_manual_button: ui.button | None = None
+        self._set_auto_button: ui.button | None = None
+        self._visible = False
+        self._actions_enabled = True
 
     @property
     def root(self) -> ui.row | None:
@@ -53,11 +54,6 @@ class SumIntensityPlotToolbar:
         """Return whether the toolbar root is visible."""
         return self._visible
 
-    @property
-    def is_set_f0_mode(self) -> bool:
-        """Return whether Accept/Cancel chrome is shown."""
-        return self._set_f0_mode
-
     def build(self) -> ui.row:
         """Build toolbar controls in the current NiceGUI slot.
 
@@ -65,29 +61,43 @@ class SumIntensityPlotToolbar:
             Root row element.
         """
         with ui.row().classes(
-            "w-full shrink-0 items-center gap-2 flex-nowrap px-1"
+            "w-full shrink-0 items-center gap-3 flex-nowrap px-1"
         ) as self._root:
-            with ui.row().classes("items-center gap-2") as self._idle_row:
-                ui.button("Set F0", on_click=self._on_set_f0).props("dense outline")
-            with ui.row().classes("items-center gap-2 flex-wrap") as self._set_f0_row:
-                self._percentile_control = ui.number(
-                    label="Percentile",
-                    value=20.0,
-                    min=0.0,
-                    max=100.0,
-                    step=1.0,
-                    format="%.1f",
-                ).classes("w-28").props("dense")
-                ui.button(
-                    "Compute auto F0",
-                    on_click=self._on_compute_auto_f0,
-                ).props("dense outline")
-                self._auto_f0_label = ui.label("Auto F0: —").classes("text-sm opacity-80")
-                self._pending_f0_label = ui.label("Manual F0: —").classes("text-sm opacity-80")
-                ui.button("Accept", on_click=self._on_accept).props("dense")
-                ui.button("Cancel", on_click=self._on_cancel).props("dense flat")
-            self._set_f0_row.set_visibility(False)
+            with ui.row().classes("items-center gap-2 shrink-0"):
+                self._pending_f0_label = ui.label("Manual F0: —").classes(
+                    "text-sm opacity-80 whitespace-nowrap"
+                )
+                self._set_manual_button = ui.button(
+                    "Set Manual F0",
+                    on_click=self._on_set_manual_f0,
+                ).props("dense")
+
+            ui.separator().props("vertical").classes("h-8")
+
+            with ui.row().classes("items-center gap-2 shrink-0"):
+                self._percentile_control = (
+                    ui.number(
+                        label="Percentile",
+                        value=20.0,
+                        min=0.0,
+                        max=100.0,
+                        step=1.0,
+                        format="%.1f",
+                        on_change=self._on_percentile_control_changed,
+                    )
+                    .classes("w-28")
+                    .props("dense")
+                )
+                self._set_auto_button = ui.button(
+                    "Set Auto F0",
+                    on_click=self._on_set_auto_f0,
+                ).props("dense")
+
+            ui.element("div").classes("flex-1 min-w-0")
+
+            ui.button("Close", on_click=self._on_close).props("dense flat")
         self._apply_visibility()
+        self._apply_actions_enabled()
         return self._root
 
     def set_visible(self, visible: bool) -> None:
@@ -102,29 +112,37 @@ class SumIntensityPlotToolbar:
         self._visible = bool(visible)
         self._apply_visibility()
 
-    def enter_set_f0_mode(self) -> None:
-        """Show Accept/Cancel controls and hide the idle Set F0 control.
+    def enter_edit_f0_mode(self) -> None:
+        """Show the Edit F0 toolbar.
 
         Returns:
             None.
         """
-        self._set_f0_mode = True
-        self._sync_mode_rows()
+        self.set_visible(True)
 
-    def exit_set_f0_mode(self) -> None:
-        """Restore idle Set F0 chrome and clear F0 labels.
+    def exit_edit_f0_mode(self) -> None:
+        """Hide the Edit F0 toolbar and clear the Manual F0 readout.
 
         Returns:
             None.
         """
-        self._set_f0_mode = False
-        if self._auto_f0_label is not None:
-            self._auto_f0_label.text = "Auto F0: —"
-            self._auto_f0_label.update()
         if self._pending_f0_label is not None:
             self._pending_f0_label.text = "Manual F0: —"
             self._pending_f0_label.update()
-        self._sync_mode_rows()
+        self.set_visible(False)
+        self.set_actions_enabled(True)
+
+    def set_actions_enabled(self, enabled: bool) -> None:
+        """Enable or disable Set Manual / Set Auto while a live run is in flight.
+
+        Args:
+            enabled: Whether Set buttons accept clicks.
+
+        Returns:
+            None.
+        """
+        self._actions_enabled = bool(enabled)
+        self._apply_actions_enabled()
 
     def set_baseline_percentile(self, value: float) -> None:
         """Set the percentile control value.
@@ -159,22 +177,8 @@ class SumIntensityPlotToolbar:
             )
         return float(value)
 
-    def set_auto_f0(self, value: float) -> None:
-        """Update the Auto F0 readout.
-
-        Args:
-            value: Percentile-estimated F0 value.
-
-        Returns:
-            None.
-        """
-        if self._auto_f0_label is None:
-            return
-        self._auto_f0_label.text = f"Auto F0: {value:.6g}"
-        self._auto_f0_label.update()
-
     def set_pending_f0(self, value: float) -> None:
-        """Update the pending Manual F0 readout.
+        """Update the Manual F0 readout from the draggable H-line.
 
         Args:
             value: Current horizontal-line F0 position.
@@ -187,16 +191,23 @@ class SumIntensityPlotToolbar:
         self._pending_f0_label.text = f"Manual F0: {value:.6g}"
         self._pending_f0_label.update()
 
-    def _sync_mode_rows(self) -> None:
-        """Sync idle vs Set F0 row visibility from mode state.
+    def _on_percentile_control_changed(self, event: object) -> None:
+        """Forward percentile edits for Auto F0 preview.
+
+        Args:
+            event: NiceGUI number change event.
 
         Returns:
             None.
         """
-        if self._idle_row is not None:
-            self._idle_row.set_visibility(not self._set_f0_mode)
-        if self._set_f0_row is not None:
-            self._set_f0_row.set_visibility(self._set_f0_mode)
+        if self._on_percentile_changed is None:
+            return
+        value = getattr(event, "value", None)
+        if value is None and self._percentile_control is not None:
+            value = self._percentile_control.value
+        if not isinstance(value, (int, float)):
+            return
+        self._on_percentile_changed(float(value))
 
     def _apply_visibility(self) -> None:
         """Apply root visibility.
@@ -207,3 +218,17 @@ class SumIntensityPlotToolbar:
         if self._root is None:
             return
         self._root.set_visibility(self._visible)
+
+    def _apply_actions_enabled(self) -> None:
+        """Apply Set-button enabled state.
+
+        Returns:
+            None.
+        """
+        if self._set_manual_button is not None:
+            self._set_manual_button.set_enabled(self._actions_enabled)
+        if self._set_auto_button is not None:
+            self._set_auto_button.set_enabled(self._actions_enabled)
+        if self._percentile_control is not None:
+            self._percentile_control.set_enabled(self._actions_enabled)
+

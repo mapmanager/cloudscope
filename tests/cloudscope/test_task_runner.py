@@ -64,6 +64,34 @@ def test_task_runner_terminal_progress_before_busy_false() -> None:
     assert events[1].is_busy is False
 
 
+def test_task_runner_on_completed_runs_after_busy_false() -> None:
+    """Terminal callbacks should see cleared busy so UI modes can re-assert it."""
+    bus = EventBus()
+    seen: list[object] = []
+    bus.subscribe(AppBusyChanged, lambda event: seen.append(event))
+    runner = TaskRunner(bus)
+    runner._active_task_id = "abc"
+    runner._active_task_kind = TaskKind.ANALYSIS
+    import queue
+
+    runner._queue = queue.Queue()
+    runner._queue.put(TaskRunnerMessage(kind=TaskRunnerMessageKind.COMPLETED, message="done"))
+
+    def _on_completed(_result: object) -> None:
+        seen.append("callback")
+
+    runner.drain_messages(
+        task_kind=TaskKind.ANALYSIS,
+        task_id="abc",
+        task_label="Analysis",
+        on_completed=_on_completed,
+    )
+
+    assert isinstance(seen[0], AppBusyChanged)
+    assert seen[0].is_busy is False
+    assert seen[1] == "callback"
+
+
 def test_task_runner_publishes_queued_worker_events() -> None:
     """EVENT messages should publish their payload on the event bus."""
     bus = EventBus()

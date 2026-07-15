@@ -285,20 +285,25 @@ class AnalysisUiModeChanged(StateEvent):
 class UpdateAnalysisDetectionParamsIntent(IntentEvent):
     """Request a partial update of analysis detection parameters (draft UI).
 
-    Does not run analysis and does not replace the analysis result table.
     Controllers validate ``param_updates`` against the analysis schema and
-    publish ``AnalysisDetectionParamsChanged`` on success.
+    publish ``AnalysisDetectionParamsChanged`` on success. When
+    ``run_analysis`` is True, the controller merges the patch onto the
+    last-run detection params for the selection and starts the same analysis
+    path as :class:`RunAnalysisIntent`.
 
     Args:
         analysis_kind: Target analysis kind.
         selection: Selection the update applies to.
-        param_updates: Partial schema-keyed values (Set F0 sends
-            ``baseline_method`` and ``manual_f0_baseline``).
+        param_updates: Partial schema-keyed values (Edit F0 Set Manual sends
+            ``baseline_method`` and ``manual_f0_baseline``; Set Auto sends
+            ``baseline_method`` and ``baseline_percentile``).
+        run_analysis: When True, run analysis after accepting the draft update.
     """
 
     analysis_kind: AnalysisKind
     selection: PrimarySelection
     param_updates: dict[str, object]
+    run_analysis: bool = False
 
 
 @dataclass(frozen=True)

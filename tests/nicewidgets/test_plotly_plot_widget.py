@@ -118,6 +118,10 @@ def fake_plotly(monkeypatch: pytest.MonkeyPatch) -> list[_FakePlotlyElement]:
     monkeypatch.setattr("nicewidgets.plotly_plot.widget.ui.plotly", plotly_factory)
     monkeypatch.setattr("nicewidgets.plotly_plot.widget.ui.element", _FakeUiElement)
     monkeypatch.setattr("nicewidgets.plotly_plot.widget.ui.label", _FakeUiLabel)
+    monkeypatch.setattr(
+        "nicewidgets.plotly_plot.widget.ui.add_head_html",
+        lambda *_args, **_kwargs: None,
+    )
     return created
 
 
@@ -474,12 +478,37 @@ def test_horizontal_measurement_drag_keeps_line_axis_aligned(
     )
 
     shape = widget.figure["layout"]["shapes"][0]
-    assert line.position == 12.0
-    assert shape["y0"] == 12.0
-    assert shape["y1"] == 12.0
+    assert line.position == 10.0  # mean of dragged endpoints
+    assert shape["y0"] == 10.0
+    assert shape["y1"] == 10.0
     assert shape["x0"] == 0
     assert shape["x1"] == 1
-    assert events[-1].position == 12.0
+    assert shape["xref"] == "paper"
+    assert events[-1].position == 10.0
+
+
+def test_horizontal_measurement_single_endpoint_drag_moves_whole_line(
+    fake_plotly: list[_FakePlotlyElement],
+) -> None:
+    """Dragging only y1 (Plotly vertex) should move the full H-line to that y."""
+    events: list[MeasurementChangeEvent] = []
+    widget = PlotlyPlotWidget(on_measurement_changed=events.append)
+    line = widget.add_measurement_line(
+        name="manual-f0",
+        orientation="horizontal",
+        value=10.0,
+        show_legend=False,
+    )
+
+    widget._on_plotly_relayout(_RelayoutEvent({"shapes[0].y1": 15.0}))
+
+    shape = widget.figure["layout"]["shapes"][0]
+    assert line.position == 15.0
+    assert shape["y0"] == 15.0
+    assert shape["y1"] == 15.0
+    assert shape["x0"] == 0
+    assert shape["x1"] == 1
+    assert events[-1].position == 15.0
 
 
 def test_measurement_pair_drag_updates_delta(fake_plotly: list[_FakePlotlyElement]) -> None:
@@ -1045,3 +1074,55 @@ def test_set_series_visible_state_restyles_loaded_series(
     assert widget.is_series_visible("trace") is False
     index = widget._series_index("trace", "trace")
     assert widget.figure["data"][index]["visible"] is False
+
+
+def test_on_build_context_menu_invoked_before_copy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Custom context-menu callback should run after display toggles, before Copy."""
+    from nicewidgets.plotly_plot.context_menu import PlotlyPlotContextMenu
+
+    labels: list[str] = []
+
+    def fake_menu_item(label: str, on_click: Any = None) -> None:
+        _ = on_click
+        labels.append(label)
+
+    monkeypatch.setattr(
+        "nicewidgets.plotly_plot.context_menu.ui.menu_item",
+        fake_menu_item,
+    )
+    monkeypatch.setattr(
+        "nicewidgets.plotly_plot.context_menu.ui.separator",
+        lambda: labels.append("---"),
+    )
+
+    class _StubWidget:
+        display_options = PlotlyPlotDisplayOptions()
+        series_menu_items: tuple[PlotlySeriesMenuItem, ...] = ()
+        on_build_context_menu = staticmethod(
+            lambda _w: fake_menu_item("Custom Action")
+        )
+
+        def copy_plot_to_clipboard(self) -> None:
+            return None
+
+        def set_x_axis_labels_visible(self, _visible: bool) -> None:
+            return None
+
+        def set_y_axis_labels_visible(self, _visible: bool) -> None:
+            return None
+
+        def set_plotly_toolbar_visible(self, _visible: bool) -> None:
+            return None
+
+        def set_hover_info_visible(self, _visible: bool) -> None:
+            return None
+
+        def set_legend_visible(self, _visible: bool) -> None:
+            return None
+
+    menu = PlotlyPlotContextMenu(get_widget=lambda: _StubWidget())  # type: ignore[arg-type, return-value]
+    menu.build()
+
+    assert "Custom Action" in labels
+    assert labels.index("Custom Action") < labels.index("Copy To Clipboard")
+    assert labels[labels.index("Custom Action") - 1] == "---"
