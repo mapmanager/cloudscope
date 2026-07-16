@@ -16,6 +16,7 @@ from acqstore.acq_image.image_contrast import contrast_clip_min_max
 from cloudscope.app_config import AppConfig
 from cloudscope.contrast_seeding import contrast_auto_percentiles
 from cloudscope.event_bus import EventBus
+from cloudscope.events.files import SaveReferenceAsTifIntent
 from cloudscope.events.theme import ThemeChanged
 from cloudscope.raster_display_cache import (
     RasterDisplayCache,
@@ -351,6 +352,7 @@ class ReferenceImageView(BaseView):
         self._last_channel: int | None = None
         self._dark_mode_provider = dark_mode_provider
         self._raster_display_cache = raster_display_cache
+        self._save_reference_button: ui.button | None = None
 
     def build(self, parent: ui.element | None = None) -> ui.element:
         """Create the reference image card.
@@ -367,6 +369,11 @@ class ReferenceImageView(BaseView):
             with ui.card().classes('w-full') as self.root:
                 plot = self._viewer.build()
                 plot.classes('w-full h-80')
+                self._save_reference_button = ui.button(
+                    'Save Reference As Tif',
+                    on_click=self._on_save_reference_as_tif,
+                ).props('color=primary')
+                self._save_reference_button.enabled = False
 
         if parent is None:
             _build()
@@ -546,6 +553,7 @@ class ReferenceImageView(BaseView):
                 operation='Reference image',
             )
             logger.exception(presentation.log_message)
+            self._run_ui(lambda: self._set_save_reference_enabled(False))
             self._run_ui(lambda: ui.notify(presentation.notify_message, type='negative'))
             try:
                 await self._viewer.clear_data()
@@ -554,6 +562,7 @@ class ReferenceImageView(BaseView):
             return
 
         if not is_real_reference or plane is None or grid is None:
+            self._run_ui(lambda: self._set_save_reference_enabled(False))
             try:
                 await self._viewer.clear_data()
             except RuntimeError as exc:
@@ -563,6 +572,7 @@ class ReferenceImageView(BaseView):
             return
 
         try:
+            self._run_ui(lambda: self._set_save_reference_enabled(True))
             if pyramid is None:
                 await self._viewer.set_data(
                     plane,
@@ -582,6 +592,23 @@ class ReferenceImageView(BaseView):
             logger.exception('Reference image display refresh failed: %s', exc)
             err_msg = str(exc)
             self._run_ui(lambda: ui.notify(err_msg, type='negative'))
+
+    def _set_save_reference_enabled(self, enabled: bool) -> None:
+        """Enable the reference export button only for a real reference image.
+
+        Args:
+            enabled: Desired button enabled state.
+        """
+        if self._save_reference_button is not None:
+            self._save_reference_button.enabled = bool(enabled)
+
+    def _on_save_reference_as_tif(self) -> None:
+        """Publish an intent to export the selected file's reference image."""
+        file_id = self.current_selection.file_id
+        if file_id is None:
+            ui.notify('No file selected', type='warning')
+            return
+        self.event_bus.publish(SaveReferenceAsTifIntent(file_id=file_id))
 
     def _refresh_scan_path_trace_overlays(
         self,

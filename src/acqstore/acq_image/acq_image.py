@@ -411,6 +411,80 @@ class AcqImage:
             overwrite=overwrite,
         )
 
+    def save_reference_as_tif(
+        self,
+        path: str | Path,
+        *,
+        imagej_metadata: bool = True,
+        overwrite: bool = False,
+    ) -> None:
+        """Export the complete reference-image array to a TIFF file.
+
+        The exported pixels do not include scan-path or line-ROI overlays.
+        Reference-image X/Y calibration is written through the same ImageJ
+        metadata path used by :meth:`save_as_tif`.
+
+        Args:
+            path: Explicit TIFF destination filename.
+            imagej_metadata: Whether to include ImageJ/Fiji calibration metadata.
+            overwrite: Whether to replace an existing TIFF file.
+
+        Raises:
+            ValueError: If this acquisition has no reference image, or if its
+                array rank does not match its dimension labels.
+            FileExistsError: If ``path`` exists and ``overwrite`` is false.
+        """
+        reference = self._images.reference_image
+        if reference is None:
+            raise ValueError(f'Acquisition has no reference image: {self.path}')
+
+        data = np.asarray(reference.array)
+        dims = tuple(reference.dims)
+        if data.ndim != len(dims):
+            raise ValueError(
+                'Reference image array rank does not match dimensions: '
+                f'shape={data.shape}, dims={dims!r}'
+            )
+
+        scales = dict(reference.coord_scales)
+        labels = dict(reference.coord_units)
+        physical_units: list[float] = []
+        physical_labels: list[str] = []
+        for dim in dims:
+            raw_scale = scales.get(dim, 1.0)
+            try:
+                scale = float(raw_scale)
+            except (TypeError, ValueError):
+                scale = 1.0
+            if not np.isfinite(scale) or scale <= 0.0:
+                scale = 1.0
+            physical_units.append(scale)
+            label = str(labels.get(dim, 'Pixels')).strip()
+            physical_labels.append(label or 'Pixels')
+
+        header = ImageHeader(
+            path=self.path,
+            shape=tuple(int(size) for size in data.shape),
+            dims=dims,
+            sizes={dim: int(data.shape[index]) for index, dim in enumerate(dims)},
+            dtype=data.dtype,
+            num_channels=int(reference.num_channels),
+            num_scenes=1,
+            physical_units=tuple(physical_units),
+            physical_units_labels=tuple(physical_labels),
+        )
+        reference_pixels = AcqPixels(
+            data=data,
+            header=header,
+            source_path=self.path,
+        )
+        save_pixels_as_tif(
+            reference_pixels,
+            path,
+            imagej_metadata=imagej_metadata,
+            overwrite=overwrite,
+        )
+
     def _mark_clean_after_save(self) -> None:
         """Clear dirty flags after a successful save."""
         self._rois.set_clean()

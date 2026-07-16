@@ -73,6 +73,18 @@ class SaveAsTifIntent(IntentEvent):
 
 
 @dataclass(frozen=True)
+class SaveReferenceAsTifIntent(IntentEvent):
+    """Request to export one acquisition's complete reference image as TIFF.
+
+    Attributes:
+        file_id: Stable acquisition file identifier whose reference image will
+            be exported.
+    """
+
+    file_id: str
+
+
+@dataclass(frozen=True)
 class UnloadImageDataIntent(IntentEvent):
     """Request lazy unload of one acquisition file's loaded data.
 
