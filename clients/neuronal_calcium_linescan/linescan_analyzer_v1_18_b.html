@@ -104,13 +104,12 @@
   .card.collapsible > .sectionTitleBar > h2{cursor:pointer}.card.collapsible > .sectionTitleBar > h2::after{content:'▾';color:var(--muted);font-size:12px;margin-left:8px}.card.collapsible.collapsed > .sectionTitleBar > h2::after{content:'▸'}
   .card.collapsible.collapsed > .sectionTitleBar{display:flex!important;margin-bottom:0}.card.collapsible.collapsed > .sectionTitleBar > *:not(h2){display:none!important}.card.collapsed > *:not(h2):not(.sectionTitleBar){display:none!important}
   /* ACQSTORE: begin 050 reference-overview-css */
-  /* CHATGPT: begin Plotly layout for AcqStore reference overview */
   .acqstoreRefGrid{display:flex;flex-wrap:wrap;gap:12px;margin-top:8px}
   .acqstoreRefPanel{flex:1 1 320px;max-width:520px;min-width:300px}
   .acqstoreRefPanel h3{font-size:12px;margin:0 0 6px;color:var(--muted);font-weight:600}
   .acqstoreRefPlot{width:100%;height:420px;min-height:340px;background:#020617;border-radius:8px;border:1px solid var(--line);overflow:hidden}
   @media(max-width:760px){.acqstoreRefPanel{min-width:0;max-width:none;flex-basis:100%}.acqstoreRefPlot{height:380px}}
-  /* CHATGPT: end Plotly layout for AcqStore reference overview */
+  .acqstoreLoadPanel{margin-top:10px;padding:10px;border:1px solid rgba(56,189,248,.55);border-radius:10px;background:rgba(56,189,248,.06)}
   /* ACQSTORE: end 050 reference-overview-css */
   .titleRibbon.coordControls{grid-template-columns:none;margin:0}.titleRibbon.coordControls select{max-width:190px}.titleRibbon.coordControls input[type=range]{width:120px}
   .titleRibbon .coordTopRoiSelector{padding:4px 6px;border-radius:8px;gap:6px;flex-wrap:nowrap;justify-content:flex-start;max-width:none}
@@ -250,16 +249,19 @@
       <div class="buttonRow"><button id="loadDualBtn" class="ok" type="button">Load channel(s)</button><button id="swapChannelsBtn" class="secondary" type="button">Swap Calcium/Vessels</button></div>
       <p class="hint">Load a calcium image alone for single-channel analysis, or add a matched vessel/reference image. The Calcium channel remains the analysis channel.</p>
       <!-- ACQSTORE: begin 049 linescan-server-load-ui -->
-      <div class="row" style="margin-top:10px">
-        <div style="flex:1">
-          <label>AcqStore Server base URL</label>
-          <input id="acqstoreBaseUrl" type="text" value="http://127.0.0.1:8767" spellcheck="false" />
+      <div class="acqstoreLoadPanel">
+        <div class="buttonRow" style="margin-top:0">
+          <button id="acqstoreLoadBtn" class="ok" type="button">Load from AcqStore Server</button>
         </div>
+        <!-- <p class="hint">Requires a running AcqStore Server (<code>uv run python -m acqstore_server</code>). Opens a native OS file dialog for .oir / .czi / .tif / .nd2. TIFF file inputs above are unchanged. When present, reference overview appears below Image Display.</p> -->
+        <div class="row" style="margin-top:10px">
+          <div style="flex:1">
+            <label>AcqStore Server URL: http://127.0.0.1:8767</label>
+            <!-- <input id="acqstoreBaseUrl" type="text" value="http://127.0.0.1:8767" spellcheck="false" /> -->
+          </div>
+        </div>
+        <div id="acqstoreLoadInfo" class="alert">AcqStore Server: idle. Click “Load from AcqStore Server” to open a file via a native dialog.</div>
       </div>
-      <div class="buttonRow" style="margin-top:8px">
-        <button id="acqstoreLoadBtn" class="ok" type="button">Load from AcqStore Server</button>
-      </div>
-      <p class="hint">Requires a running AcqStore Server (<code>uv run python -m acqstore_server</code>). Opens a native OS file dialog for .oir / .czi / .tif / .nd2. TIFF file inputs above are unchanged. When present, reference overview appears below Image Display.</p>
       <!-- ACQSTORE: end 049 linescan-server-load-ui -->
       <div class="buttonRow" style="margin-top:8px"><button id="demoBtn" class="secondary">Generate demo</button><button id="resetBtn" class="danger">Reset</button></div>
       <div id="loadInfo" class="alert">Choose a Calcium image. A Vessels/reference image is optional. TIFF decoding preserves 8-bit, 16-bit, and 32-bit float grayscale values when possible.</div>
@@ -443,7 +445,7 @@
     <!-- ACQSTORE: begin 050 reference-overview-ui -->
     <section class="card collapsible collapsed compactCard" id="acqstoreReferenceCard">
       <div class="sectionTitleBar">
-        <h2>Reference overview <span class="mini">AcqStore</span></h2>
+        <h2>Reference Images <span class="mini">AcqStore</span></h2>
       </div>
       <div id="acqstoreRefGrid" class="acqstoreRefGrid"></div>
       <p id="acqstoreRefHint" class="hint">Load from AcqStore Server to show reference channel(s) and scan-path overlay when the file includes a reference attachment.</p>
@@ -1065,7 +1067,7 @@ async function loadFromAcqStoreServer(){
   const base=getAcqStoreBaseUrl();
   try{
     if(btn) btn.disabled=true;
-    setAlert('loadInfo','Checking AcqStore Server at ' + base + '…','warn');
+    setAlert('acqstoreLoadInfo','Checking AcqStore Server at ' + base + '…','warn');
     await yieldToBrowser();
     let health;
     try{
@@ -1077,7 +1079,7 @@ async function loadFromAcqStoreServer(){
     } catch(err){
       throw new Error('Cannot reach AcqStore Server at ' + base + '. Start it with: uv run python -m acqstore_server. (' + err.message + ')');
     }
-    setAlert('loadInfo','Waiting for native file dialog from AcqStore Server…','warn');
+    setAlert('acqstoreLoadInfo','Waiting for native file dialog from AcqStore Server…','warn');
     await yieldToBrowser();
     clearAcqStoreReferenceOverview('Waiting for open…');
     const metaResp=await fetch(base + '/api/v1/pick-and-open', {
@@ -1090,7 +1092,7 @@ async function loadFromAcqStoreServer(){
     catch(_){ throw new Error('pick-and-open returned non-JSON (HTTP ' + metaResp.status + ')'); }
     if(!meta.ok){
       if(meta.error === 'cancelled'){
-        setAlert('loadInfo','AcqStore file dialog cancelled. TIFF load inputs are unchanged.','warn');
+        setAlert('acqstoreLoadInfo','AcqStore file dialog cancelled. TIFF load inputs are unchanged.','warn');
         return;
       }
       if(meta.error === 'load_timeout' || metaResp.status === 504){
@@ -1101,12 +1103,12 @@ async function loadFromAcqStoreServer(){
     if(!meta.channels || !meta.channels.calcium){
       throw new Error('Open response missing channels.calcium');
     }
-    setAlert('loadInfo','Fetching calcium plane from AcqStore Server…','warn');
+    setAlert('acqstoreLoadInfo','Fetching calcium plane from AcqStore Server…','warn');
     await yieldToBrowser();
     const calcium=await fetchAcqStoreChannelRows(base, meta.channels.calcium);
     let vessels=null;
     if(meta.channels.vessels){
-      setAlert('loadInfo','Fetching vessels plane from AcqStore Server…','warn');
+      setAlert('acqstoreLoadInfo','Fetching vessels plane from AcqStore Server…','warn');
       await yieldToBrowser();
       vessels=await fetchAcqStoreChannelRows(base, meta.channels.vessels);
       if(!sameImageDims(calcium, vessels)){
@@ -1129,11 +1131,11 @@ async function loadFromAcqStoreServer(){
         },
       });
       state.imageViewMode='overlay';
-      setAlert('loadInfo','Loaded from AcqStore Server: ' + shortName + ' (dual-channel). Calibration applied from server.','ok');
+      setAlert('acqstoreLoadInfo','Loaded from AcqStore Server: ' + shortName + ' · channels:' + meta.source.numChannels,'ok');
     } else {
       setImage(calcium, shortName);
       state.imageViewMode='ocamp';
-      setAlert('loadInfo','Loaded from AcqStore Server: ' + shortName + ' (single-channel). Calibration applied from server.','ok');
+      setAlert('acqstoreLoadInfo','Loaded from AcqStore Server: ' + shortName + ' · channels:' + meta.source.numChannels,'ok');
     }
     updateChannelViewTabs();
     clearDisplayImageCache();
@@ -1141,11 +1143,11 @@ async function loadFromAcqStoreServer(){
     await renderAcqStoreReferenceOverview(base, meta.reference);
     if(meta.reference){
       const nRef=meta.reference.numChannels || (meta.reference.channels||[]).length || 0;
-      setAlert('loadInfo',($('loadInfo')?.textContent || '') + ` Reference×${nRef} shown below Image Display.`,'ok');
+      setAlert('acqstoreLoadInfo',($('acqstoreLoadInfo')?.textContent || '') + ` Reference×${nRef}.`,'ok');
     }
   } catch(err){
     console.error(err);
-    setAlert('loadInfo','AcqStore load error: ' + (err && err.message ? err.message : String(err)),'warn');
+    setAlert('acqstoreLoadInfo','AcqStore load error: ' + (err && err.message ? err.message : String(err)),'warn');
   } finally {
     if(btn) btn.disabled=false;
   }
@@ -1197,66 +1199,80 @@ function acqStoreReferencePlotMatrix(f32, height, width){
   }
   return z;
 }
-function acqStoreReferenceOverlayTrace(scanPath, lineRoi){
+function acqStoreReferenceOverlayTrace(scanPath, lineRoi, dx, dy, xUnit, yUnit){
   const common={
     type:'scatter',
     mode:'lines',
     line:{color:'#f87171',width:3},
     name:'Scan path',
-    hovertemplate:'Scan path<br>Reference X: %{x:.2f} px<br>Reference Y: %{y:.2f} px<extra></extra>',
+    hovertemplate:`Scan path<br>Reference X: %{x:.4g} ${xUnit}<br>Reference Y: %{y:.4g} ${yUnit}<extra></extra>`,
   };
   if(scanPath && Array.isArray(scanPath.x) && Array.isArray(scanPath.y) && scanPath.x.length && scanPath.x.length===scanPath.y.length){
-    return {...common,x:Array.from(scanPath.y),y:Array.from(scanPath.x)};
+    return {
+      ...common,
+      x:Array.from(scanPath.y,value=>value * dx),
+      y:Array.from(scanPath.x,value=>value * dy),
+    };
   }
   if(Array.isArray(lineRoi) && lineRoi.length===4){
     const [x0,y0,x1,y1]=lineRoi;
     return {
       ...common,
       mode:'lines+markers',
-      x:[y0,y1],
-      y:[x0,x1],
+      x:[y0 * dx,y1 * dx],
+      y:[x0 * dy,x1 * dy],
       marker:{size:6,color:'#f87171'},
       name:'Line ROI',
-      hovertemplate:'Line ROI<br>Reference X: %{x:.2f} px<br>Reference Y: %{y:.2f} px<extra></extra>',
+      hovertemplate:`Line ROI<br>Reference X: %{x:.4g} ${xUnit}<br>Reference Y: %{y:.4g} ${yUnit}<extra></extra>`,
     };
   }
   return null;
 }
-function renderAcqStoreReferencePlot(plot, f32, height, width, scanPath, lineRoi, channelIndex){
+function renderAcqStoreReferencePlot(plot, f32, height, width, scanPath, lineRoi, channel){
   if(typeof Plotly==='undefined') throw new Error('Plotly.js was not loaded. Check the internet connection used by this prototype.');
+  const {dx,dy,xUnit,yUnit,index:channelIndex}=channel;
+  if(!Number.isFinite(dx) || dx<=0 || !Number.isFinite(dy) || dy<=0 || !xUnit || !yUnit){
+    throw new Error(`invalid reference calibration for channel ${channelIndex}`);
+  }
   const z=acqStoreReferencePlotMatrix(f32,height,width);
+  // Match Image Display default channel LUTs (lutMode=yellow, fitcLutMode=cyan);
+  // stops mirror this page's rgbStops() LUT definitions.
+  const referenceColorscales={
+    0:[[0,'rgb(0,0,0)'],[0.35,'rgb(105,80,0)'],[0.75,'rgb(255,210,0)'],[1,'rgb(255,255,220)']],
+    1:[[0,'rgb(0,0,0)'],[0.35,'rgb(0,77,102)'],[0.75,'rgb(0,200,255)'],[1,'rgb(230,255,255)']],
+  };
   const traces=[{
     type:'heatmap',
     z,
-    colorscale:'Gray',
-    showscale:true,
-    colorbar:{title:{text:'Intensity',side:'right'},thickness:12,len:0.82},
-    hovertemplate:'Reference X: %{x} px<br>Reference Y: %{y} px<br>Intensity: %{z:.4g}<extra></extra>',
+    x:Array.from({length:height},(_,i)=>i * dx),
+    y:Array.from({length:width},(_,i)=>i * dy),
+    colorscale:referenceColorscales[channelIndex] || [[0,'rgb(0,0,0)'],[1,'rgb(255,255,255)']],
+    showscale:false,
+    hovertemplate:`Reference X: %{x:.4g} ${xUnit}<br>Reference Y: %{y:.4g} ${yUnit}<br>Intensity: %{z:.4g}<extra></extra>`,
   }];
-  const overlay=acqStoreReferenceOverlayTrace(scanPath,lineRoi);
+  const overlay=acqStoreReferenceOverlayTrace(scanPath,lineRoi,dx,dy,xUnit,yUnit);
   if(overlay) traces.push(overlay);
   const layout={
     autosize:true,
     height:420,
-    margin:{l:62,r:72,t:18,b:56},
+    margin:{l:62,r:18,t:18,b:56},
     paper_bgcolor:'#020617',
     plot_bgcolor:'#020617',
     font:{color:'#e5e7eb',family:'system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif',size:11},
     showlegend:false,
     hovermode:'closest',
     xaxis:{
-      title:{text:'Reference X, pixels'},
+      title:{text:`${xUnit}`},
       color:'#cbd5e1',
       gridcolor:'#263244',
       zeroline:false,
       constrain:'domain',
     },
     yaxis:{
-      title:{text:'Reference Y, pixels'},
+      title:{text:`${yUnit}`},
       color:'#cbd5e1',
       gridcolor:'#263244',
       zeroline:false,
-      autorange:'reversed',
       scaleanchor:'x',
       scaleratio:1,
     },
@@ -1314,7 +1330,7 @@ async function renderAcqStoreReferenceOverview(base, reference){
         plane.f32,plane.height,plane.width,
         reference.scanPath,
         reference.lineRoi,
-        ch.index,
+        ch,
       );
     } catch(err){
       console.error(err);
@@ -1324,9 +1340,11 @@ async function renderAcqStoreReferenceOverview(base, reference){
       plot.style.color='#fde68a';
     }
   }
+  const summaryChannel=channels[0];
   hint.textContent=
-    `Reference ${reference.height}×${reference.width} (API H×W) · ${channels.length} channel(s) · Plotly display transposed (dim0→X, dim1→Y)` +
-    (reference.scanPath ? ' · scan path on each' : (reference.lineRoi ? ' · lineRoi on each' : ''));
+    `Reference ${reference.height}×${reference.width} · ${channels.length} channel(s)` +
+    ` · X ${summaryChannel.dx} ${summaryChannel.xUnit}/px · Y ${summaryChannel.dy} ${summaryChannel.yUnit}/px` +
+    (Array.isArray(reference.lineRoi) && reference.lineRoi.length ? ` · lineRoi [${reference.lineRoi.join(', ')}]` : '');
 }
 /* CHATGPT: end Plotly conversion for AcqStore reference overview */
 /* ACQSTORE: end 050 reference-overview-js */

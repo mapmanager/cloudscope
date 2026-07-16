@@ -128,7 +128,11 @@ def test_parse_open_request_null_vessel() -> None:
     assert v is None
 
 
-def test_open_path_with_reference_monkeypatch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_open_path_with_reference_monkeypatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """When loader exposes a ReferenceImage, open payload includes reference + plane bytes."""
     from acqstore.acq_image.file_loaders.base_file_loader import BaseFileLoader, ReferenceImage
 
@@ -159,7 +163,8 @@ def test_open_path_with_reference_monkeypatch(tmp_path: Path, monkeypatch: pytes
         property(lambda self: reference),
     )
 
-    payload = open_path(str(path), store)
+    with caplog.at_level('INFO', logger='acqstore_server.open_service'):
+        payload = open_path(str(path), store)
     assert payload['reference'] is not None
     assert payload['reference']['numChannels'] == 1
     assert payload['reference']['height'] == 8
@@ -168,6 +173,7 @@ def test_open_path_with_reference_monkeypatch(tmp_path: Path, monkeypatch: pytes
     assert payload['reference']['scanPath'] is not None
     assert payload['reference']['scanPath']['x'] == [1.0, 7.0]
     assert payload['reference']['scanPath']['y'] == [2.0, 6.0]
+    assert '  reference lineRoi=[1.0, 2.0, 7.0, 6.0]' in caplog.messages
     assert len(payload['reference']['channels']) == 1
     assert payload['reference']['channels'][0]['index'] == 0
 

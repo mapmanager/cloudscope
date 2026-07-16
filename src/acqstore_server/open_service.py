@@ -449,6 +449,8 @@ def open_path(
             float(reference['dy']),
             reference.get('xUnit') or 'um',
         )
+        if reference['lineRoi'] is not None:
+            logger.info('  reference lineRoi=%s', reference['lineRoi'])
 
     return {
         'ok': True,
