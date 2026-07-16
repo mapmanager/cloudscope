@@ -2,10 +2,8 @@ name: Build AcqStore Server macOS
 run-name: Build AcqStore Server macOS • ${{ github.ref_name }}
 
 on:
+  # Manual only — no tag/push auto-runs. Select branch in Actions → Run workflow.
   workflow_dispatch:
-  push:
-    tags:
-      - 'v*.*.*'
 
 permissions:
   contents: write
