@@ -47,18 +47,23 @@ def _reference_snapshot_from_oir_reference(ref: Any) -> ReferenceImage:
     )
 
 def _step_from_coord(coord: Any) -> float | None:
-    """Spacing between the first two samples of a 1D coordinate array.
+    """Spacing between the first two samples of a 1D numeric coordinate array.
 
     Args:
         coord: One-dimensional coordinate array-like, or ``None``.
 
     Returns:
-        Difference as ``float``, or ``None`` if fewer than two points.
+        Difference as ``float``, or ``None`` if fewer than two points or the
+        values are not numeric (for example channel-name labels on ``C``).
     """
     if coord is None or len(coord) < 2:
         return None
 
-    value = coord[1] - coord[0]
+    arr = np.asarray(coord)
+    if not np.issubdtype(arr.dtype, np.number):
+        return None
+
+    value = arr[1] - arr[0]
     if hasattr(value, "item"):
         value = value.item()
     return float(value)
@@ -175,12 +180,15 @@ def _physical_units_for_oir_header(scene: Any) -> tuple[tuple[Any, ...], tuple[s
     Labels default to ``coord_units`` from ``oirfile``. Line-scan kymographs
     whose ``Y`` size matches an enabled TIMELAPSE axis are labeled ``seconds``.
 
+    Categorical channel axes (``C`` / ``S``) have no spatial step: ``oirfile``
+    stores channel names in ``coords`` and omits them from ``coord_scales``.
+
     Args:
         scene: Open ``oirfile.OirFile`` instance.
 
     Returns:
         Tuple of ``(physical_units, physical_units_labels)`` aligned to
-        ``scene.dims``.
+        ``scene.dims``. Channel dims use ``None`` step and empty label.
     """
     dims = tuple(str(d) for d in scene.dims)
     coord_units: dict[str, str] = dict(scene.coord_units)
@@ -191,6 +199,11 @@ def _physical_units_for_oir_header(scene: Any) -> tuple[tuple[Any, ...], tuple[s
     physical_units: list[Any] = []
     physical_units_labels: list[str] = []
     for dim in dims:
+        if dim in ("C", "S"):
+            physical_units.append(None)
+            physical_units_labels.append("")
+            continue
+
         step = coord_scales.get(dim)
         if step is None:
             if coords is None:

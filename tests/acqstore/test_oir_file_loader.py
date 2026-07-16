@@ -19,6 +19,7 @@ from acqstore.acq_image.file_loaders.oir_file_loader import (
     _is_y_timelapse_line_scan_axis,
     _physical_units_for_oir_header,
     _reference_snapshot_from_oir_reference,
+    _step_from_coord,
 )
 
 _OIR_SAMPLES = Path(__file__).resolve().parent / "data" / "oir-samples"
@@ -155,6 +156,57 @@ def test_physical_units_for_oir_header_skips_coords_when_scales_complete() -> No
 
     assert labels == ("seconds", "µm")
     assert units == (pytest.approx(0.000535), pytest.approx(0.0114))
+
+
+def test_step_from_coord_returns_none_for_string_channel_names() -> None:
+    """Channel-name coordinate arrays are categorical, not numeric spacing."""
+    assert _step_from_coord(np.array(["CH1", "CH2"])) is None
+    assert _step_from_coord(np.array([0.0, 0.5])) == pytest.approx(0.5)
+
+
+def test_physical_units_for_oir_header_skips_channel_dim_c() -> None:
+    """Multi-channel OIR dims include ``C`` with string coords; skip spatial step."""
+    # TIMELAPSE maxSize must match Y for line-scan seconds labeling.
+    timelapse_xml = """
+<root xmlns:commonparam="urn:test">
+  <commonparam:axis enable="true">
+    <commonparam:axis>TIMELAPSE</commonparam:axis>
+    <commonparam:startPosition>0.0</commonparam:startPosition>
+    <commonparam:endPosition>0.0</commonparam:endPosition>
+    <commonparam:step>0.0</commonparam:step>
+    <commonparam:maxSize>10000</commonparam:maxSize>
+  </commonparam:axis>
+</root>
+"""
+    scene = _FakeOirScene(
+        dims=("C", "Y", "X"),
+        sizes={"C": 2, "Y": 10000, "X": 512},
+        coord_units={"Y": "micrometer", "X": "micrometer"},
+        coord_scales={"Y": 0.000966, "X": 0.000966},
+        coords={"C": np.array(["CH1", "CH2"])},
+        lsmimage_xml=timelapse_xml,
+    )
+
+    units, labels = _physical_units_for_oir_header(scene)
+
+    assert labels == ("", "seconds", "micrometer")
+    assert units == (None, pytest.approx(0.000966), pytest.approx(0.000966))
+
+
+def test_physical_units_for_oir_header_skips_sample_dim_s() -> None:
+    """RGB sample axis ``S`` is categorical like ``C``."""
+    scene = _FakeOirScene(
+        dims=("S", "Y", "X"),
+        sizes={"S": 3, "Y": 64, "X": 64},
+        coord_units={"Y": "micrometer", "X": "micrometer"},
+        coord_scales={"Y": 0.1, "X": 0.1},
+        coords={"S": np.array(["R", "G", "B"])},
+    )
+
+    units, labels = _physical_units_for_oir_header(scene)
+
+    assert labels == ("", "micrometer", "micrometer")
+    assert units == (None, pytest.approx(0.1), pytest.approx(0.1))
 
 
 @pytest.mark.skipif(not _KYMOGRAPH.is_file(), reason="kymograph OIR fixture missing")
