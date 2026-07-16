@@ -174,11 +174,92 @@ def _is_y_timelapse_line_scan_axis(scene: Any) -> bool:
     return int(max_size) == int(y_size)
 
 
+def _series_interval_ms_values_from_lsmimage_xml(xml: str) -> list[float]:
+    """Return all ``seriesInterval`` values (milliseconds) from LSMIMAGE XML.
+
+    Args:
+        xml: Raw LSMIMAGE metadata XML string from ``oirfile``.
+
+    Returns:
+        Parsed ``seriesInterval`` floats in document order.
+    """
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return []
+
+    values: list[float] = []
+    for elem in root.iter():
+        if _strip_xml_tag(str(elem.tag)) != "seriesInterval":
+            continue
+        text = (elem.text or "").strip()
+        if not text:
+            continue
+        try:
+            values.append(float(text))
+        except ValueError:
+            continue
+    return values
+
+
+def _line_scan_y_step_seconds_from_scene(scene: Any) -> float | None:
+    """Return seconds-per-line for TIMELAPSE-on-Y line scans from LSMIMAGE XML.
+
+    ``oirfile.coord_scales['Y']`` is often a spatial coordinate delta, not line
+    period. Olympus exports and LSMIMAGE ``seriesInterval`` (milliseconds)
+    match the TIFF+TXT sidecar ``secondsPerLine`` field.
+
+    Args:
+        scene: Open ``oirfile.OirFile`` instance.
+
+    Returns:
+        Positive seconds per line, or ``None`` when no usable interval is found.
+    """
+    xml_metadata = scene.xml_metadata
+    lsm_xmls = xml_metadata.get(METADATA.LSMIMAGE, [])
+    if not lsm_xmls:
+        return None
+
+    ms_values: list[float] = []
+    for xml in lsm_xmls:
+        ms_values.extend(_series_interval_ms_values_from_lsmimage_xml(xml))
+    # Line-scan intervals are single-digit ms; exclude unrelated frame-rate values.
+    candidates = [v for v in ms_values if v > 0.0 and v < 30.0]
+    if not candidates:
+        return None
+    return min(candidates) / 1000.0
+
+
+def _line_scan_x_step_um_from_scene(scene: Any) -> float | None:
+    """Return micrometers-per-pixel for line-scan ``X`` from oirfile pixel length.
+
+    ``oirfile.coord_scales['X']`` is often ``pixel_length / nX``. Olympus TXT
+    exports report ``umPerPixel`` as the full per-pixel step (``_pixel_length_x``).
+
+    Args:
+        scene: Open ``oirfile.OirFile`` instance.
+
+    Returns:
+        Positive micrometers per pixel, or ``None`` when unavailable.
+    """
+    raw = getattr(scene, "_pixel_length_x", None)
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(value) or value <= 0.0:
+        return None
+    return value
+
+
 def _physical_units_for_oir_header(scene: Any) -> tuple[tuple[Any, ...], tuple[str, ...]]:
     """Return per-axis calibration for an open ``oirfile.OirFile``.
 
     Labels default to ``coord_units`` from ``oirfile``. Line-scan kymographs
-    whose ``Y`` size matches an enabled TIMELAPSE axis are labeled ``seconds``.
+    whose ``Y`` size matches an enabled TIMELAPSE axis are labeled ``seconds``
+    and use LSMIMAGE ``seriesInterval`` (time) plus ``_pixel_length_x`` (space).
 
     Categorical channel axes (``C`` / ``S``) have no spatial step: ``oirfile``
     stores channel names in ``coords`` and omits them from ``coord_scales``.
@@ -195,6 +276,19 @@ def _physical_units_for_oir_header(scene: Any) -> tuple[tuple[Any, ...], tuple[s
     coord_scales: dict[str, float] = dict(scene.coord_scales)
     coords: Any | None = None
     y_is_timelapse_line_scan = _is_y_timelapse_line_scan_axis(scene)
+    line_scan_y_step_s: float | None = None
+    line_scan_x_step_um: float | None = None
+    if y_is_timelapse_line_scan:
+        line_scan_y_step_s = _line_scan_y_step_seconds_from_scene(scene)
+        line_scan_x_step_um = _line_scan_x_step_um_from_scene(scene)
+        if line_scan_y_step_s is None:
+            logger.warning(
+                'Line-scan OIR missing usable seriesInterval; falling back to coord_scales for Y'
+            )
+        if line_scan_x_step_um is None:
+            logger.warning(
+                'Line-scan OIR missing _pixel_length_x; falling back to coord_scales for X'
+            )
 
     physical_units: list[Any] = []
     physical_units_labels: list[str] = []
@@ -204,11 +298,16 @@ def _physical_units_for_oir_header(scene: Any) -> tuple[tuple[Any, ...], tuple[s
             physical_units_labels.append("")
             continue
 
-        step = coord_scales.get(dim)
-        if step is None:
-            if coords is None:
-                coords = scene.coords
-            step = _step_from_coord(coords.get(dim))
+        if dim == "Y" and y_is_timelapse_line_scan and line_scan_y_step_s is not None:
+            step: Any = line_scan_y_step_s
+        elif dim == "X" and y_is_timelapse_line_scan and line_scan_x_step_um is not None:
+            step = line_scan_x_step_um
+        else:
+            step = coord_scales.get(dim)
+            if step is None:
+                if coords is None:
+                    coords = scene.coords
+                step = _step_from_coord(coords.get(dim))
         physical_units.append(step)
 
         if dim == "Y" and y_is_timelapse_line_scan:

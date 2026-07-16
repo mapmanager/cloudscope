@@ -35,6 +35,7 @@ _TIMELAPSE_AXIS_XML = """
     <commonparam:step>0.0</commonparam:step>
     <commonparam:maxSize>30000</commonparam:maxSize>
   </commonparam:axis>
+  <commonparam:seriesInterval>1.142</commonparam:seriesInterval>
 </root>
 """
 
@@ -67,6 +68,7 @@ class _FakeOirScene:
         coords: dict[str, np.ndarray] | None = None,
         lsmimage_xml: str | None = None,
         coords_raises: bool = False,
+        pixel_length_x: float | None = None,
     ) -> None:
         self.dims = dims
         self.sizes = sizes
@@ -76,6 +78,7 @@ class _FakeOirScene:
         self.coord_scales = coord_scales
         self._coords = coords or {}
         self._coords_raises = coords_raises
+        self._pixel_length_x = pixel_length_x
         self.datetime = None
         if lsmimage_xml is None:
             self.xml_metadata = MappingProxyType({})
@@ -125,37 +128,39 @@ def test_physical_units_for_oir_header_uses_coord_units_by_default() -> None:
 
 
 def test_physical_units_for_oir_header_relabels_y_for_line_scan_kymograph() -> None:
-    """TIMELAPSE-on-Y line scans label ``Y`` as seconds and keep ``X`` units."""
+    """TIMELAPSE-on-Y line scans use seriesInterval (time) and pixel length (space)."""
     scene = _FakeOirScene(
         dims=("Y", "X"),
         sizes={"Y": 30000, "X": 24},
         coord_units={"Y": "µm", "X": "µm"},
         coord_scales={"Y": 0.000535, "X": 0.0114},
         lsmimage_xml=_TIMELAPSE_AXIS_XML,
+        pixel_length_x=0.274,
     )
 
     assert _is_y_timelapse_line_scan_axis(scene) is True
     units, labels = _physical_units_for_oir_header(scene)
 
     assert labels == ("seconds", "µm")
-    assert units == (pytest.approx(0.000535), pytest.approx(0.0114))
+    assert units == (pytest.approx(0.001142), pytest.approx(0.274))
 
 
 def test_physical_units_for_oir_header_skips_coords_when_scales_complete() -> None:
-    """Header calibration avoids ``coords`` when ``coord_scales`` covers every dim."""
+    """Line-scan calibration does not need ``coords`` when scales are present."""
     scene = _FakeOirScene(
         dims=("Y", "X"),
         sizes={"Y": 30000, "X": 24},
         coord_units={"Y": "µm", "X": "µm"},
         coord_scales={"Y": 0.000535, "X": 0.0114},
         lsmimage_xml=_TIMELAPSE_AXIS_XML,
+        pixel_length_x=0.274,
         coords_raises=True,
     )
 
     units, labels = _physical_units_for_oir_header(scene)
 
     assert labels == ("seconds", "µm")
-    assert units == (pytest.approx(0.000535), pytest.approx(0.0114))
+    assert units == (pytest.approx(0.001142), pytest.approx(0.274))
 
 
 def test_step_from_coord_returns_none_for_string_channel_names() -> None:
@@ -176,6 +181,7 @@ def test_physical_units_for_oir_header_skips_channel_dim_c() -> None:
     <commonparam:step>0.0</commonparam:step>
     <commonparam:maxSize>10000</commonparam:maxSize>
   </commonparam:axis>
+  <commonparam:seriesInterval>2.118</commonparam:seriesInterval>
 </root>
 """
     scene = _FakeOirScene(
@@ -185,12 +191,13 @@ def test_physical_units_for_oir_header_skips_channel_dim_c() -> None:
         coord_scales={"Y": 0.000966, "X": 0.000966},
         coords={"C": np.array(["CH1", "CH2"])},
         lsmimage_xml=timelapse_xml,
+        pixel_length_x=0.331,
     )
 
     units, labels = _physical_units_for_oir_header(scene)
 
     assert labels == ("", "seconds", "micrometer")
-    assert units == (None, pytest.approx(0.000966), pytest.approx(0.000966))
+    assert units == (None, pytest.approx(0.002118), pytest.approx(0.331))
 
 
 def test_physical_units_for_oir_header_skips_sample_dim_s() -> None:
@@ -258,13 +265,17 @@ def test_oir_reference_image_still_decodes_lazily() -> None:
 
 @pytest.mark.skipif(not _KYMOGRAPH.is_file(), reason="kymograph OIR fixture missing")
 def test_oir_kymograph_fixture_labels_y_seconds_x_um() -> None:
-    """Real line-scan OIR labels slow scan axis as seconds."""
+    """Real line-scan OIR matches Olympus TXT seconds/um calibration."""
     header = OirFileLoader(str(_KYMOGRAPH)).header
 
     assert header.dims == ("Y", "X")
     assert header.physical_units_labels == ("seconds", "micrometer")
-    assert header.physical_units[0] == pytest.approx(0.0005350211513449023)
-    assert header.physical_units[1] == pytest.approx(0.011413784562024583)
+    assert header.physical_units[0] == pytest.approx(0.001142, rel=1e-4)
+    assert header.physical_units[1] == pytest.approx(0.274, rel=1e-3)
+    acq = AcqImage(str(_KYMOGRAPH), load_images=False, load_analysis_csv=False)
+    y_step, x_step = acq.get_image_physical_units()
+    assert y_step == pytest.approx(0.001142, rel=1e-4)
+    assert x_step == pytest.approx(0.274, rel=1e-3)
 
 
 @pytest.mark.skipif(not _ZSTACK.is_file(), reason="Z-stack OIR fixture missing")
