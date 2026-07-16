@@ -83,11 +83,7 @@ HTTP status for cancel: **200**.
 - Body: raw **little-endian float32** plane for that reference channel
 - Layout: **row-major** `(Y, X)` in reference-image pixel coordinates
 - `Content-Type: application/octet-stream`
-
-### `GET /api/v1/session/{sessionId}/reference/plane`
-
-- **Alias for reference channel 0** (backward compatible)
-- Prefer `reference.channels[i].url` for multi-channel reference images
+- See also [`reference_api_v0.md`](reference_api_v0.md)
 
 ---
 
@@ -143,7 +139,6 @@ HTTP status for cancel: **200**.
     "height": 512,
     "width": 512,
     "byteLength": 1048576,
-    "url": "/api/v1/session/…/reference/plane",
     "channels": [
       {
         "index": 0,
@@ -185,7 +180,7 @@ HTTP status for cancel: **200**.
 If single-channel linescan: **omit** `channels.vessels` (do not invent an empty plane).  
 If no reference attachment: **`"reference": null`** (not an error).
 
-Top-level `reference.url` / `height` / `width` / spacing fields mirror **channel 0** (compat). Prefer `reference.channels[]` for all planes.
+Top-level `reference.height` / `width` / `byteLength` / spacing summarize channel 0 (all channels share H×W). Fetch planes only via `reference.channels[i].url`.
 
 `lineRoi` is `[x0, y0, x1, y1]` in **reference pixel** coordinates, or `null`.  
 `scanPath` is plot-ready `{x:[...], y:[...]}` in **reference pixel** coordinates, or `null`. Prefer `scanPath` for overlay when present; else draw `lineRoi` as a segment. Draw the same overlay on **every** reference channel panel.
@@ -222,7 +217,8 @@ setImage(calciumRows, source.path, {
 
 12. Else: `setImage(calciumRows, source.path)`.
 13. Call existing calibration refresh (`updateCalInfo` / `applyPixelDimensions` / `renderAll`) as the current HTML already does after load.
-14. **Optional (new UI):** if `reference !== null`, `GET reference.url`, decode float32 plane, draw overview; overlay `reference.scanPath` polyline or `reference.lineRoi` segment in the **same pixel coordinate system** as the reference plane.
+14. **Optional (new UI):** if `reference !== null`, for each `reference.channels[i]`, `GET` that channel `url`, decode float32 plane, draw overview panel(s); overlay `reference.scanPath` polyline or `reference.lineRoi` segment in the **same pixel coordinate system** as the reference plane. See [`reference_api_v0.md`](reference_api_v0.md).
+15. If `error === "load_timeout"` (HTTP 504) → show that open/decode exceeded the server soft timeout (default 120s).
 
 **Do not** replace TIFF choose-file. **Do not** invent new analysis APIs. **Do not** invent reference fields beyond this contract.
 

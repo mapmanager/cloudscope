@@ -132,9 +132,11 @@ def test_openapi_docs_available() -> None:
     assert '/api/v1/health' in paths
     assert '/api/v1/open' in paths
     assert '/api/v1/pick-and-open' in paths
+    assert '/api/v1/session/{session_id}/reference/channel/{channel}' in paths
+    assert '/api/v1/session/{session_id}/reference/plane' not in paths
 
 
-def test_reference_plane_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_reference_channel_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from acqstore.acq_image.file_loaders.base_file_loader import BaseFileLoader, ReferenceImage
 
     path = tmp_path / 'ref_api.tif'
@@ -160,13 +162,40 @@ def test_reference_plane_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     payload = opened.json()
     assert payload['reference'] is not None
     assert payload['reference']['numChannels'] == 1
+    assert 'url' not in payload['reference']
     assert len(payload['reference']['channels']) == 1
-    ref_resp = client.get(payload['reference']['url'])
-    assert ref_resp.status_code == 200
-    assert len(ref_resp.content) == 4 * 5 * 4
-    ch0 = client.get(payload['reference']['channels'][0]['url'])
+    ch0_url = payload['reference']['channels'][0]['url']
+    assert ch0_url.endswith('/reference/channel/0')
+    ch0 = client.get(ch0_url)
     assert ch0.status_code == 200
-    assert ch0.content == ref_resp.content
+    assert len(ch0.content) == 4 * 5 * 4
+    # Removed alias route must 404.
+    sid = payload['sessionId']
+    assert client.get(f'/api/v1/session/{sid}/reference/plane').status_code == 404
+
+
+def test_open_load_timeout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Soft open timeout returns load_timeout without hanging the event loop."""
+    import time
+
+    import acqstore_server.routes as routes_mod
+
+    path = tmp_path / 'slow.tif'
+    _write_cyx_tif(path)
+
+    def _slow_open(*_args: object, **_kwargs: object) -> dict[str, object]:
+        time.sleep(0.35)
+        return {'ok': True}
+
+    monkeypatch.setenv('ACQSTORE_SERVER_OPEN_TIMEOUT_S', '0.05')
+    monkeypatch.setattr(routes_mod, 'open_path', _slow_open)
+
+    client = TestClient(create_app(session_store=SessionStore()))
+    response = client.post('/api/v1/open', json={'path': str(path.resolve())})
+    assert response.status_code == 504
+    body = response.json()
+    assert body['ok'] is False
+    assert body['error'] == 'load_timeout'
 
 
 def test_reference_multi_channel_endpoints(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import platform
 import subprocess
 import webbrowser
@@ -10,33 +11,28 @@ from pathlib import Path
 from nicegui import app as nicegui_app
 from nicegui import ui
 
-from acqstore_server.logging_setup import get_logger, log_dir, log_file_path
+from acqstore_server.logging_setup import get_logger, log_file_path
 from acqstore_server.routes import APP_NAME, APP_VERSION
 
 logger = get_logger('status_ui')
 
 
-def _open_path(path: Path) -> None:
-    """Reveal or open ``path`` with the OS file manager."""
-    path = path.expanduser()
+def _open_path_with_default_app(path: Path) -> None:
+    """Open ``path`` with the OS default application (same idea as CloudScope).
+
+    Args:
+        path: Existing file or directory path.
+    """
+    resolved = path.expanduser().resolve()
+    if not resolved.exists():
+        raise FileNotFoundError(str(resolved))
     system = platform.system()
-    try:
-        if system == 'Darwin':
-            if path.is_file():
-                subprocess.run(['open', '-R', str(path)], check=False)
-            else:
-                subprocess.run(['open', str(path)], check=False)
-        elif system == 'Windows':
-            if path.is_file():
-                subprocess.run(['explorer', f'/select,{path}'], check=False)
-            else:
-                subprocess.run(['explorer', str(path)], check=False)
-        else:
-            target = path.parent if path.is_file() else path
-            subprocess.run(['xdg-open', str(target)], check=False)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning('Failed to open path %s: %s', path, exc)
-        ui.notify(f'Could not open {path}: {exc}', type='negative')
+    if system == 'Darwin':
+        subprocess.run(['open', str(resolved)], check=False)
+    elif system == 'Windows':
+        os.startfile(resolved)  # type: ignore[attr-defined]
+    else:
+        subprocess.run(['xdg-open', str(resolved)], check=False)
 
 
 def build_status_page(*, host: str, port: int) -> None:
@@ -70,14 +66,17 @@ def build_status_page(*, host: str, port: int) -> None:
                 'Open health JSON',
                 on_click=lambda: webbrowser.open(f'{base}/api/v1/health'),
             ).props('outline')
-            ui.button(
-                'Reveal log',
-                on_click=lambda: _open_path(log_path),
-            ).props('outline')
-            ui.button(
-                'Open log folder',
-                on_click=lambda: _open_path(log_dir()),
-            ).props('outline')
+
+            def _open_log() -> None:
+                try:
+                    _open_path_with_default_app(log_path)
+                except FileNotFoundError:
+                    ui.notify('Log file is not available yet.', type='warning')
+                except OSError as exc:
+                    ui.notify(f'Unable to open log file: {exc}', type='negative')
+                    logger.warning('Failed to open log %s: %s', log_path, exc)
+
+            ui.button('Open log', on_click=_open_log).props('outline')
 
         ui.separator()
         ui.label(

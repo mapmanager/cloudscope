@@ -83,8 +83,8 @@ class ReferenceMeta(TypedDict):
     """Reference/overview image metadata plus per-channel plane URLs.
 
     Shared ``lineRoi`` / ``scanPath`` apply to every channel plane.
-    Top-level ``url`` / ``height`` / ``width`` / ``byteLength`` / spacing fields
-    mirror channel ``0`` for backward compatibility with v0 clients.
+    Top-level ``height`` / ``width`` / ``byteLength`` / spacing fields summarize
+    channel ``0`` (all channels share H×W). Fetch planes via ``channels[i].url``.
     """
 
     numChannels: int
@@ -93,7 +93,6 @@ class ReferenceMeta(TypedDict):
     height: int
     width: int
     byteLength: int
-    url: str
     channels: list[ReferenceChannelMeta]
     lineRoi: list[float] | None
     scanPath: ScanPathMeta | None

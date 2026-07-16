@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 from collections.abc import Callable, Sequence
@@ -28,15 +29,79 @@ APP_VERSION = '0.1.0'
 DEFAULT_HOST = '127.0.0.1'
 DEFAULT_PORT = 8767
 
+# Soft timeout for AcqImage open/decode after a path is known (not the OS picker).
+DEFAULT_OPEN_LOAD_TIMEOUT_S = 120.0
+
 _ERROR_STATUS: dict[str, int] = {
     'cancelled': 200,
     'path_not_found': 404,
     'unsupported_format': 422,
     'channel_out_of_range': 422,
     'calibration_unavailable': 422,
+    'load_timeout': 504,
     'decode_failed': 500,
     'not_implemented': 501,
 }
+
+
+def open_load_timeout_s() -> float:
+    """Return open/decode soft timeout in seconds.
+
+    Override with env ``ACQSTORE_SERVER_OPEN_TIMEOUT_S`` (positive float).
+
+    Returns:
+        Timeout seconds used by ``/api/v1/open`` and post-pick load.
+    """
+    raw = os.environ.get('ACQSTORE_SERVER_OPEN_TIMEOUT_S', '').strip()
+    if not raw:
+        return DEFAULT_OPEN_LOAD_TIMEOUT_S
+    try:
+        value = float(raw)
+    except ValueError:
+        return DEFAULT_OPEN_LOAD_TIMEOUT_S
+    if value <= 0.0:
+        return DEFAULT_OPEN_LOAD_TIMEOUT_S
+    return value
+
+
+async def _open_path_threaded(
+    path: str,
+    store: SessionStore,
+    *,
+    calcium_channel: int,
+    vessel_channel: int | None,
+) -> dict[str, Any]:
+    """Run :func:`open_path` off the event loop with a soft timeout.
+
+    Args:
+        path: Absolute or resolvable acquisition path.
+        store: Session byte store.
+        calcium_channel: Calcium channel index.
+        vessel_channel: Vessel channel index, or ``None`` for single-channel.
+
+    Returns:
+        Open success payload.
+
+    Raises:
+        OpenServiceError: On domain failures or ``load_timeout``.
+    """
+    timeout_s = open_load_timeout_s()
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(
+                open_path,
+                path,
+                store,
+                calcium_channel=calcium_channel,
+                vessel_channel=vessel_channel,
+            ),
+            timeout=timeout_s,
+        )
+    except TimeoutError as exc:
+        raise OpenServiceError(
+            'load_timeout',
+            f'Open/decode exceeded {timeout_s:g}s for path: {path}',
+        ) from exc
 
 PickFileFn = Callable[[Sequence[str] | None], str | None]
 
@@ -185,7 +250,7 @@ def register_api_routes(
             if not isinstance(body, dict):
                 raise OpenServiceError('path_not_found', 'JSON body object required')
             path, calcium_ch, vessel_ch = parse_open_request(body)
-            payload = open_path(
+            payload = await _open_path_threaded(
                 path,
                 store,
                 calcium_channel=calcium_ch,
@@ -211,7 +276,7 @@ def register_api_routes(
             calcium_ch, vessel_ch = parse_channel_overrides(body)
             extensions = parse_pick_extensions(body)
             logger.info('pick-and-open dialog requested')
-            selected = pick_file(extensions)
+            selected = await asyncio.to_thread(pick_file, extensions)
             if selected is None:
                 logger.info('pick-and-open cancelled')
                 return JSONResponse(
@@ -219,7 +284,7 @@ def register_api_routes(
                     status_code=200,
                 )
             logger.info('pick-and-open selected path=%s', selected)
-            payload = open_path(
+            payload = await _open_path_threaded(
                 selected,
                 store,
                 calcium_channel=calcium_ch,
@@ -253,7 +318,13 @@ def register_api_routes(
             },
         )
 
-    def _reference_bytes_response(session_id: str, channel: int) -> Response:
+    @app.get('/api/v1/session/{session_id}/reference/channel/{channel}')
+    def reference_channel(session_id: str, channel: int) -> Response:
+        if channel < 0:
+            return JSONResponse(
+                error_body('channel_out_of_range', f'channel must be >= 0, got {channel}'),
+                status_code=422,
+            )
         data = store.get_reference(session_id, channel)
         if data is None:
             return JSONResponse(
@@ -271,17 +342,3 @@ def register_api_routes(
                 'Cache-Control': 'no-store',
             },
         )
-
-    @app.get('/api/v1/session/{session_id}/reference/plane')
-    def reference_plane(session_id: str) -> Response:
-        """Legacy alias for reference channel 0."""
-        return _reference_bytes_response(session_id, 0)
-
-    @app.get('/api/v1/session/{session_id}/reference/channel/{channel}')
-    def reference_channel(session_id: str, channel: int) -> Response:
-        if channel < 0:
-            return JSONResponse(
-                error_body('channel_out_of_range', f'channel must be >= 0, got {channel}'),
-                status_code=422,
-            )
-        return _reference_bytes_response(session_id, channel)

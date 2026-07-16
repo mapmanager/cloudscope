@@ -199,7 +199,7 @@ def test_open_path_multi_channel_reference(
     assert len(ref['channels']) == 2
     assert ref['channels'][0]['url'].endswith('/reference/channel/0')
     assert ref['channels'][1]['url'].endswith('/reference/channel/1')
-    assert ref['url'].endswith('/reference/plane')
+    assert 'url' not in ref
 
     sid = payload['sessionId']
     b0 = store.get_reference(sid, 0)

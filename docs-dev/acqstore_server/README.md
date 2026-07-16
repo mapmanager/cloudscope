@@ -2,7 +2,14 @@
 
 Living documentation for the local **AcqStore Server** lab tool (HTTP open API for external calcium HTML clients).
 
-**We do not edit or vend the colleague calcium HTML.** This server + `/demo/` + handouts are ours.
+## Clients
+
+| Client | Role |
+|--------|------|
+| `/demo/` (`src/acqstore_server/static/demo/`) | Small same-origin API smoke UI; keep in sync with API changes |
+| [`clients/neuronal_calcium_linescan/`](../../clients/neuronal_calcium_linescan/) | In-repo working fork of the ~5k-line neuronal calcium HTML; **additive** server load path (keep TIFF file load). Edit rules: do not delete upstream code (comment out); mark new blocks with `<!-- ACQSTORE: … -->` and a cursor ticket |
+
+Handouts below are the public API contract for HTML authors (including that fork).
 
 ## Layout
 
@@ -11,6 +18,7 @@ Living documentation for the local **AcqStore Server** lab tool (HTTP open API f
 | `README.md` | This index |
 | `roadmap.md` | Living implementation sequence + product boundaries |
 | `html_integration_v0.md` | Claude-optimized handout for HTML authors |
+| `reference_api_v0.md` | Reference-image metadata + plane fetch contract |
 | `entry_point_and_packaging.md` | `__main__` / freeze notes vs CloudScope NiceGUI |
 
 Numbered implementation reports stay in `docs-dev/cursor_tickets/` (036 design, 038 scaffold, 039 pick-and-open, 040 reference+demo+logging).
@@ -19,7 +27,9 @@ Numbered implementation reports stay in `docs-dev/cursor_tickets/` (036 design, 
 
 [`../cursor_tickets/036_acqstore_server_design.md`](../cursor_tickets/036_acqstore_server_design.md)
 
-Wire contract for HTML authors: [`html_integration_v0.md`](html_integration_v0.md) (keep in sync when API changes).
+Wire contract for HTML authors: [`html_integration_v0.md`](html_integration_v0.md) (keep in sync when API changes). Reference planes: [`reference_api_v0.md`](reference_api_v0.md).
+
+**Demo policy:** when the HTTP API changes, update `/demo/` (`src/acqstore_server/static/demo/index.html`) in the same ticket so the bundled client stays a working contract check.
 
 ## Dev run (start / stop on macOS)
 
@@ -50,6 +60,12 @@ uv run python -m acqstore_server.desktop
 ```
 
 Quit the status window to stop the server. Buttons: Open demo, health, reveal log.
+
+Native mode uses NiceGUI `ui.run(..., gzip_middleware_factory=None)`. NiceGUI’s
+default GZip middleware must stay off: browsers send `Accept-Encoding: gzip`,
+and compressing real ~20 MB float32 session planes at level 9 delayed response
+headers by ~15–20 s per GET (API-only uvicorn was always fast because it never
+installed that middleware). See ticket `048_native_gzip_session_fetch_fix`.
 
 ### Useful URLs
 

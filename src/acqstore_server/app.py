@@ -122,6 +122,44 @@ def main_uvicorn() -> None:
         raise
 
 
+def native_ui_run_kwargs(*, host: str, port: int) -> dict[str, object]:
+    """Return ``ui.run`` kwargs for the native status window.
+
+    NiceGUI's ``ui.run`` installs Starlette ``GZipMiddleware`` by default
+    (``compresslevel=9``). Browsers send ``Accept-Encoding: gzip``, and that
+    middleware compresses the full body before sending response headers. Real
+    float32 session planes (~20 MB) are highly compressible and take on the
+    order of 15–20 seconds per GET at level 9; the same payload without gzip is
+    tens of milliseconds on localhost. API-only uvicorn never installs this
+    middleware. Pass ``gzip_middleware_factory=None`` so native mode matches.
+
+    Args:
+        host: Bind host for ``ui.run``.
+        port: Bind port for ``ui.run``.
+
+    Returns:
+        Keyword arguments for :func:`nicegui.ui.run`.
+
+    See also:
+        https://nicegui.io/documentation/section_configuration_deployment
+    """
+    return {
+        'host': host,
+        'port': port,
+        'title': 'AcqStore Server',
+        'native': True,
+        'reload': False,
+        'dark': True,
+        'window_size': (560, 520),
+        'show': True,
+        'storage_secret': 'acqstore-server-local',
+        'fastapi_docs': True,
+        'show_welcome_message': False,
+        # Required: do not gzip large /api/v1/session binary responses.
+        'gzip_middleware_factory': None,
+    }
+
+
 def main_native() -> None:
     """Run NiceGUI native status window + same API routes on one port."""
     from nicegui import app as nicegui_app
@@ -160,19 +198,7 @@ def main_native() -> None:
     print(f'[acqstore_server] log {log_file_path()}')
     print('[acqstore_server] Quit the status window to stop the server')
 
-    ui.run(
-        host=host,
-        port=port,
-        title='AcqStore Server',
-        native=True,
-        reload=False,
-        dark=True,
-        window_size=(560, 520),
-        show=True,
-        storage_secret='acqstore-server-local',
-        fastapi_docs=True,
-        show_welcome_message=False,
-    )
+    ui.run(**native_ui_run_kwargs(host=host, port=port))
 
 
 def main() -> None:

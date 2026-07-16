@@ -338,8 +338,6 @@ def open_path(
             'height': ch0['height'],
             'width': ch0['width'],
             'byteLength': ch0['byteLength'],
-            # Channel-0 alias for v0 clients.
-            'url': f'/api/v1/session/{session_id}/reference/plane',
             'channels': channels_meta,
             'lineRoi': ref_shared['lineRoi'],
             'scanPath': ref_shared['scanPath'],
