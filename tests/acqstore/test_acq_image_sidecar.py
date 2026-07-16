@@ -323,6 +323,9 @@ def test_save_includes_reference_image_metadata_for_oir(tmp_path: Path) -> None:
     assert ref_meta['physical_label_y'] == 'um'
     assert ref_meta['physical_unit_x'] == pytest.approx(0.274, rel=1e-3)
     assert ref_meta['physical_unit_y'] == pytest.approx(0.274, rel=1e-3)
+    assert 'has_scan_path' in ref_meta
+    assert 'scan_path_x_pixels' in ref_meta
+    assert isinstance(ref_meta['scan_path_x_pixels'], list)
 
 
 @pytest.mark.skipif(not _KYMOGRAPH.is_file(), reason='kymograph OIR fixture missing')

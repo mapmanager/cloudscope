@@ -273,6 +273,33 @@ def test_reference_image_metadata_from_snapshot() -> None:
     assert values['physical_unit_y'] == pytest.approx(0.331)
     assert values['physical_label_x'] == 'um'
     assert values['physical_label_y'] == 'um'
+    assert values['has_scan_path'] is False
+    assert values['scan_path_num_points'] == 0
+    assert values['line_roi'] == ''
+    assert values['scan_path_x_pixels'] == []
+    assert values['scan_path_y_pixels'] == []
+
+
+def test_reference_image_metadata_includes_scan_path_lists() -> None:
+    """Reference metadata stores scan-path coordinates as JSON-serializable lists."""
+    scan_path = np.asarray([[1.0, 7.0], [2.0, 6.0]])
+    ref = ReferenceImage(
+        array=np.zeros((8, 8), dtype=np.uint8),
+        dims=('Y', 'X'),
+        num_channels=1,
+        line_roi=(1.0, 2.0, 7.0, 6.0),
+        coord_units=(('Y', 'um'), ('X', 'um')),
+        coord_scales=(('Y', 1.0), ('X', 1.0)),
+        coords=(),
+        scan_path=scan_path,
+    )
+    values = ReferenceImageMetadata.from_reference_image(ref).get_values()
+    validate_values_for_schema(REFERENCE_IMAGE_METADATA_SCHEMA, values)
+    assert values['has_scan_path'] is True
+    assert values['scan_path_num_points'] == 2
+    assert values['line_roi'] == '(1.0, 2.0, 7.0, 6.0)'
+    assert values['scan_path_x_pixels'] == [1.0, 7.0]
+    assert values['scan_path_y_pixels'] == [2.0, 6.0]
 
 
 def test_reference_image_metadata_rejects_edits() -> None:

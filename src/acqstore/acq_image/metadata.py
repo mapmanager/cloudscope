@@ -760,7 +760,7 @@ def _normalize_reference_physical_label(label: str) -> str:
 
 REFERENCE_IMAGE_METADATA_SCHEMA = SchemaDefinition(
     schema_id='reference_image_metadata',
-    version=1,
+    version=2,
     fields=(
         FieldSchema(
             name='shape',
@@ -834,6 +834,48 @@ REFERENCE_IMAGE_METADATA_SCHEMA = SchemaDefinition(
             editable=False,
             group='Calibration',
         ),
+        FieldSchema(
+            name='has_scan_path',
+            display_name='Has Scan Path',
+            value_type=ValueType.BOOL,
+            default_value=False,
+            editable=False,
+            group='Scan path',
+        ),
+        FieldSchema(
+            name='scan_path_num_points',
+            display_name='Scan Path Points',
+            value_type=ValueType.INT,
+            default_value=0,
+            editable=False,
+            group='Scan path',
+        ),
+        FieldSchema(
+            name='line_roi',
+            display_name='Line ROI',
+            value_type=ValueType.STR,
+            default_value='',
+            editable=False,
+            group='Scan path',
+        ),
+        FieldSchema(
+            name='scan_path_x_pixels',
+            display_name='Scan Path X (px)',
+            value_type=ValueType.STR,
+            default_value='',
+            editable=False,
+            visible=False,
+            group='Scan path',
+        ),
+        FieldSchema(
+            name='scan_path_y_pixels',
+            display_name='Scan Path Y (px)',
+            value_type=ValueType.STR,
+            default_value='',
+            editable=False,
+            visible=False,
+            group='Scan path',
+        ),
     ),
 )
 
@@ -893,6 +935,36 @@ class ReferenceImageMetadata:
             return _normalize_reference_physical_label(str(unit))
         return 'um'
 
+    def _scan_path_values(self) -> dict[str, object]:
+        """Return scan-path summary and coordinate lists for metadata export."""
+        line_roi = self._reference_image.get_line_roi()
+        line_roi_str = '' if line_roi is None else str(tuple(float(v) for v in line_roi))
+        if not self._reference_image.has_scan_path():
+            return {
+                'has_scan_path': False,
+                'scan_path_num_points': 0,
+                'line_roi': line_roi_str,
+                'scan_path_x_pixels': [],
+                'scan_path_y_pixels': [],
+            }
+        scan_path_plot = self._reference_image.get_scan_path_plot()
+        if scan_path_plot is None:
+            return {
+                'has_scan_path': False,
+                'scan_path_num_points': 0,
+                'line_roi': line_roi_str,
+                'scan_path_x_pixels': [],
+                'scan_path_y_pixels': [],
+            }
+        x_pixels, y_pixels = scan_path_plot
+        return {
+            'has_scan_path': True,
+            'scan_path_num_points': int(len(x_pixels)),
+            'line_roi': line_roi_str,
+            'scan_path_x_pixels': [float(value) for value in x_pixels],
+            'scan_path_y_pixels': [float(value) for value in y_pixels],
+        }
+
     def get_values(self) -> dict[str, object]:
         """Return reference-image values keyed by schema field names."""
         plane = self._reference_image.get_plane(channel=0)
@@ -910,6 +982,7 @@ class ReferenceImageMetadata:
             'physical_label_y': self._label_for_dim('Y'),
             'physical_label_x': self._label_for_dim('X'),
         }
+        values.update(self._scan_path_values())
         validate_values_for_schema(self.get_schema(), values)
         return values
 

@@ -366,7 +366,32 @@ def test_oir_kymograph_reference_image_metadata_matches_plane_scales() -> None:
     assert ref_meta['physical_label_y'] == 'um'
 
 
-@pytest.mark.skipif(not _OIR_DEBUG_0010.is_file(), reason="oir-debug 0010 missing")
+@pytest.mark.skipif(not _KYMOGRAPH.is_file(), reason="kymograph OIR fixture missing")
+def test_oir_kymograph_reference_metadata_scan_path_matches_snapshot() -> None:
+    """Reference metadata scan-path fields mirror ReferenceImage scan-path API."""
+    acq = AcqImage(str(_KYMOGRAPH), load_images=False, load_analysis_csv=False)
+    reference = acq.images.reference_image
+    assert reference is not None
+    ref_meta = acq.get_metadata_section('reference_image_metadata').get_values()
+
+    assert ref_meta['has_scan_path'] is reference.has_scan_path()
+    if not reference.has_scan_path():
+        assert ref_meta['scan_path_num_points'] == 0
+        assert ref_meta['scan_path_x_pixels'] == []
+        assert ref_meta['scan_path_y_pixels'] == []
+        return
+
+    scan_path_plot = reference.get_scan_path_plot()
+    assert scan_path_plot is not None
+    x_pixels, y_pixels = scan_path_plot
+    assert ref_meta['scan_path_num_points'] == len(x_pixels)
+    assert ref_meta['scan_path_x_pixels'] == [float(value) for value in x_pixels]
+    assert ref_meta['scan_path_y_pixels'] == [float(value) for value in y_pixels]
+    line_roi = reference.get_line_roi()
+    if line_roi is None:
+        assert ref_meta['line_roi'] == ''
+    else:
+        assert ref_meta['line_roi'] == str(tuple(float(v) for v in line_roi))
 def test_oir_debug_0010_reference_image_metadata_matches_primary_x() -> None:
     """Reference metadata spatial units match primary image X calibration."""
     acq = AcqImage(str(_OIR_DEBUG_0010), load_images=False, load_analysis_csv=False)
