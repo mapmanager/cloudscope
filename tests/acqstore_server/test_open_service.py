@@ -45,6 +45,11 @@ def test_open_path_dual_channel(tmp_path: Path) -> None:
     assert payload['calibration']['msPerLine'] == pytest.approx(
         payload['calibration']['stepYSeconds'] * 1000.0
     )
+    cal = payload['calibration']
+    assert cal['dim_0_step'] == pytest.approx(cal['stepYSeconds'])
+    assert cal['dim_1_step'] == pytest.approx(cal['stepXUm'])
+    assert isinstance(cal['dim_0_units'], str) and cal['dim_0_units'].strip()
+    assert isinstance(cal['dim_1_units'], str) and cal['dim_1_units'].strip()
 
     sid = payload['sessionId']
     calcium = store.get_channel(sid, 'calcium')

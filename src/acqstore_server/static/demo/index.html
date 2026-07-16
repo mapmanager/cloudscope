@@ -381,7 +381,7 @@ async function load() {
 
     const cal = meta.calibration;
     const channelTitle = (idx, height, width) =>
-      `Channel ${idx} · ${height}×${width} · ${cal.msPerLine} ms/line · ${cal.umPerPixel} µm/px`;
+      `Channel ${idx} · ${height}×${width} · ${cal.dim_0_step} ${cal.dim_0_units} · ${cal.dim_1_step} ${cal.dim_1_units}`;
 
     if (meta.channels.vessels) {
       vesselsCard.hidden = false;

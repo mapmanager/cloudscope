@@ -77,6 +77,10 @@ def _plane_to_f32_le(plane: np.ndarray) -> tuple[bytes, int, int]:
 def _calibration_from_acq(acq: AcqImage) -> CalibrationMeta:
     """Map AcqImage physical units to HTML calibration fields.
 
+    Existing HTML aliases (``msPerLine``, ``umPerPixel``, …) are preserved.
+    Additive ``dim_0_*`` / ``dim_1_*`` fields expose the served 2-D plane
+    (rows/Y, columns/X) steps and physical unit labels from the header.
+
     Args:
         acq: Loaded acquisition.
 
@@ -104,12 +108,34 @@ def _calibration_from_acq(acq: AcqImage) -> CalibrationMeta:
             f'Non-positive physical units: step_y={step_y_f!r}, step_x={step_x_f!r}',
         )
 
+    header = acq.images.header
+    dims = header.dims
+    try:
+        i_y = dims.index('Y')
+        i_x = dims.index('X')
+    except ValueError as exc:
+        raise OpenServiceError(
+            'calibration_unavailable',
+            f'Expected header dims to include Y and X; got dims={dims!r}',
+        ) from exc
+    labels = header.physical_units_labels
+    dim_0_units = str(labels[i_y]) if i_y < len(labels) else 'Pixels'
+    dim_1_units = str(labels[i_x]) if i_x < len(labels) else 'Pixels'
+    if not dim_0_units.strip():
+        dim_0_units = 'Pixels'
+    if not dim_1_units.strip():
+        dim_1_units = 'Pixels'
+
     return {
         'msPerLine': step_y_f * 1000.0,
         'umPerPixel': step_x_f,
         'stepYSeconds': step_y_f,
         'stepXUm': step_x_f,
         'unitsSource': 'acqimage',
+        'dim_0_step': step_y_f,
+        'dim_1_step': step_x_f,
+        'dim_0_units': dim_0_units,
+        'dim_1_units': dim_1_units,
     }
 
 

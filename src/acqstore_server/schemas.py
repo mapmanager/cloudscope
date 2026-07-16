@@ -40,13 +40,24 @@ class SourceMeta(TypedDict):
 
 
 class CalibrationMeta(TypedDict):
-    """Physical scaling mapped for the calcium HTML client."""
+    """Physical scaling for HTML clients plus header-faithful plane axes.
+
+    HTML-facing aliases (``msPerLine``, ``umPerPixel``, ``stepYSeconds``,
+    ``stepXUm``) stay stable for the calcium analyzer. Additive
+    ``dim_0_*`` / ``dim_1_*`` fields expose the served 2-D plane steps and
+    physical unit labels from the AcqImage header (dim0 = rows/Y, dim1 =
+    columns/X).
+    """
 
     msPerLine: float
     umPerPixel: float
     stepYSeconds: float
     stepXUm: float
     unitsSource: Literal['acqimage']
+    dim_0_step: float
+    dim_1_step: float
+    dim_0_units: str
+    dim_1_units: str
 
 
 class ChannelsMeta(TypedDict, total=False):
