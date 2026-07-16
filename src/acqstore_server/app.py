@@ -150,7 +150,7 @@ def native_ui_run_kwargs(*, host: str, port: int) -> dict[str, object]:
         'native': True,
         'reload': False,
         'dark': True,
-        'window_size': (560, 520),
+        'window_size': (560, 640),
         'show': True,
         'storage_secret': 'acqstore-server-local',
         'fastapi_docs': True,

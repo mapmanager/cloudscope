@@ -1,17 +1,29 @@
 # AcqStore Server — HTML integration (v0)
 
-**Audience:** Claude (or a developer pasting this into Claude) updating `neuronal_calcium_linescan_analyzer_vN.html`.  
+**Audience:** Claude (or a developer pasting this into Claude) updating
+`neuronal_calcium_linescan_analyzer_vN.html` (or the in-repo fork under
+`clients/neuronal_calcium_linescan/`).
+
 **Do not invent API fields.** Implement exactly against this contract.
 
+**Also read:** [`llm_agent_guide_v0.md`](llm_agent_guide_v0.md) (server context),
+[`reference_api_v0.md`](reference_api_v0.md) (reference planes).
+
 Base URL (default): `http://127.0.0.1:8767`
+
+**In-repo status:** the fork already implements pick-and-open load (ticket 049)
+and reference overview (ticket 050). This handout remains the contract if you
+extend or re-port the integration.
 
 ---
 
 ## Preconditions
 
-1. User starts AcqStore Server: `uv run python -m acqstore_server` (or future `.app`).
+1. User starts AcqStore Server: `uv run python -m acqstore_server` or
+   `uv run python -m acqstore_server.desktop` (or packaged `.app`).
 2. User opens the calcium HTML in a browser (any host/`file://`, or a static site).
-3. Keep existing TIFF “Choose file” UI working. Add a **second** load path.
+3. Keep existing TIFF “Choose file” UI working. Add a **second** load path
+   (already present in the in-repo fork).
 
 **External HTML is supported.** Server enables CORS (`Access-Control-Allow-Origin: *`), including `file://` (`Origin: null`). The HTML must call absolute URLs, e.g. `http://127.0.0.1:8767/api/v1/pick-and-open`, then fetch plane bytes from the returned `url` fields. Our `/demo/` is only a same-origin test page — colleagues do **not** need to host their HTML on this server.
 
@@ -23,14 +35,17 @@ Base URL (default): `http://127.0.0.1:8767`
 
 ### `GET /api/v1/health`
 
-Success JSON:
+Success JSON (fields may grow; always check `ok`):
 
 ```json
 {
   "ok": true,
   "app": "acqstore_server",
   "version": "0.1.0",
-  "bind": "127.0.0.1:8767"
+  "bind": "127.0.0.1:8767",
+  "docs": "/docs",
+  "demo": "/demo/",
+  "logFile": "/Users/…/Library/Logs/AcqStore Server/acqstore_server.log"
 }
 ```
 
@@ -84,6 +99,8 @@ HTTP status for cancel: **200**.
 - Layout: **row-major** `(Y, X)` in reference-image pixel coordinates
 - `Content-Type: application/octet-stream`
 - See also [`reference_api_v0.md`](reference_api_v0.md)
+
+**Removed (do not call):** `GET …/reference/plane`, top-level `reference.url`.
 
 ---
 
@@ -187,6 +204,8 @@ Top-level `reference.height` / `width` / `byteLength` / spacing summarize channe
 
 **Note on `dx` / `dy`:** From AcqStore `ReferenceImagePlane`: `dx` is the physical step for **row/Y** indices; `dy` is the physical step for **column/X** indices.
 
+**Display:** server does not transpose. Demo + in-repo fork use dim0→canvas X, dim1→canvas Y for kymograph and reference.
+
 ---
 
 ## Ordered client algorithm
@@ -195,7 +214,7 @@ Top-level `reference.height` / `width` / `byteLength` / spacing summarize channe
 2. Config base URL default `http://127.0.0.1:8767` (optional health check).
 3. On click: `POST ${base}/api/v1/pick-and-open` with JSON body (may be `{}`).
 4. If `ok === false` and `error === "cancelled"` → return quietly.
-5. If `ok === false` → show `message` to the user; stop.
+5. If `ok === false` → show `message` to the user; stop. (`load_timeout` → HTTP 504.)
 6. For `channels.calcium.url`: `GET` absolute URL `${base}${url}` if `url` is path-absolute.
 7. `const f32 = new Float32Array(await response.arrayBuffer())`.
 8. Build `raw` as array of length `height`, each row `f32.subarray(y*width, (y+1)*width)` **or** equivalent `[height][width]` structure expected by existing `setImage`.
@@ -217,8 +236,8 @@ setImage(calciumRows, source.path, {
 
 12. Else: `setImage(calciumRows, source.path)`.
 13. Call existing calibration refresh (`updateCalInfo` / `applyPixelDimensions` / `renderAll`) as the current HTML already does after load.
-14. **Optional (new UI):** if `reference !== null`, for each `reference.channels[i]`, `GET` that channel `url`, decode float32 plane, draw overview panel(s); overlay `reference.scanPath` polyline or `reference.lineRoi` segment in the **same pixel coordinate system** as the reference plane. See [`reference_api_v0.md`](reference_api_v0.md).
-15. If `error === "load_timeout"` (HTTP 504) → show that open/decode exceeded the server soft timeout (default 120s).
+14. **Reference overview:** if `reference !== null`, for each `reference.channels[i]`, `GET` that channel `url`, decode float32 plane, draw overview panel(s); overlay `reference.scanPath` polyline or `reference.lineRoi` segment in the **same pixel coordinate system** as the reference plane. See [`reference_api_v0.md`](reference_api_v0.md). (Implemented in the in-repo fork as a collapsible card after Image Display.)
+15. If `error === "load_timeout"` (HTTP 504) → show that open/decode exceeded the server soft timeout (default 120s; env `ACQSTORE_SERVER_OPEN_TIMEOUT_S`).
 
 **Do not** replace TIFF choose-file. **Do not** invent new analysis APIs. **Do not** invent reference fields beyond this contract.
 
@@ -233,6 +252,7 @@ setImage(calciumRows, source.path, {
 | `unsupported_format` | AcqImage rejected format |
 | `channel_out_of_range` | Bad channel index |
 | `calibration_unavailable` | No usable physical units |
+| `load_timeout` | Open/decode exceeded soft timeout (HTTP 504) |
 | `decode_failed` | IO / plane decode failure |
 
 ---
@@ -294,11 +314,15 @@ async function loadFromAcqStoreServer() {
   updateCalInfo();
   renderAll();
 
-  // Optional reference view (new panel — not in original calcium HTML):
-  // if (meta.reference) { const rows = await fetchChannelRows(ACQSTORE_BASE, meta.reference); drawRef(rows, meta.reference); }
+  // Reference: fetch meta.reference.channels[i].url — see reference_api_v0.md
+  // and clients/neuronal_calcium_linescan (ticket 050) for a working panel.
 }
 ```
 
 Live miniature of this integration (owned by AcqStore Server, not the calcium app):
 
 `http://127.0.0.1:8767/demo/`
+
+In-repo full analyzer fork:
+
+`clients/neuronal_calcium_linescan/neuronal_calcium_linescan_analyzer_v1_18.html`

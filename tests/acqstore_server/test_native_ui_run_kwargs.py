@@ -18,3 +18,4 @@ def test_native_ui_run_kwargs_disables_gzip_middleware() -> None:
     assert kwargs['reload'] is False
     assert kwargs['host'] == '127.0.0.1'
     assert kwargs['port'] == 8767
+    assert kwargs['window_size'] == (560, 640)

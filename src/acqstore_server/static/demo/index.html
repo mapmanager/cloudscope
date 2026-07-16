@@ -39,31 +39,33 @@
 </head>
 <body>
   <h1>AcqStore Server demo</h1>
-  <p class="muted">
+  <!-- <p class="muted">
     Client-only display: <strong>transpose</strong> maps API dim0 → canvas X and dim1 → canvas Y
     (server does not transpose). Long kymographs use a <strong>time sampleStep</strong> preview
     (same idea as the calcium HTML), then <code>drawImage</code> scale — not a full-resolution
     pixel loop. Keep this page in sync when the HTTP API changes.
-  </p>
+  </p> -->
   <div class="row">
     <button id="loadBtn" type="button">Load from AcqStore Server</button>
     <span id="status" class="alert"></span>
   </div>
   <div class="row">
     <section class="card wide">
-      <h2 id="calciumTitle">Calcium channel · channel 0 (dim0→x, dim1→y)</h2>
-      <div class="canvasWrap"><canvas id="calciumCanvas" width="960" height="200"></canvas></div>
+        <!-- <h2 id="calciumTitle">Calcium channel · channel 0 (dim0→x, dim1→y)</h2> -->
+        <h2 id="calciumTitle">Channel 0</h2>
+        <div class="canvasWrap"><canvas id="calciumCanvas" width="960" height="200"></canvas></div>
     </section>
   </div>
   <div class="row">
     <section class="card wide" id="vesselsCard" hidden>
-      <h2 id="vesselsTitle">Vessels channel · channel 1 (dim0→x, dim1→y)</h2>
-      <div class="canvasWrap"><canvas id="vesselsCanvas" width="960" height="200"></canvas></div>
+        <!-- <h2 id="vesselsTitle">Vessels channel · channel 1 (dim0→x, dim1→y)</h2> -->
+        <h2 id="vesselsTitle">Channel 1</h2>
+        <div class="canvasWrap"><canvas id="vesselsCanvas" width="960" height="200"></canvas></div>
     </section>
   </div>
   <div class="row">
     <section class="card wide">
-      <h2>Reference + scan path (transposed for display)</h2>
+      <h2>Reference + scan path</h2>
       <div id="refGrid" class="refGrid"></div>
       <p id="refHint" class="muted">No reference yet.</p>
     </section>
@@ -342,6 +344,8 @@ async function load() {
   vesselsCard.hidden = true;
   clearRefGrid();
   hint.textContent = 'No reference yet.';
+  document.getElementById('calciumTitle').textContent = 'Channel 0';
+  document.getElementById('vesselsTitle').textContent = 'Channel 1';
   const tAll0 = performance.now();
   try {
     const tOpen0 = performance.now();
@@ -375,19 +379,21 @@ async function load() {
     );
     await tick();
 
+    const cal = meta.calibration;
+    const channelTitle = (idx, height, width) =>
+      `Channel ${idx} · ${height}×${width} · ${cal.msPerLine} ms/line · ${cal.umPerPixel} µm/px`;
+
     if (meta.channels.vessels) {
       vesselsCard.hidden = false;
       document.getElementById('vesselsTitle').textContent =
-        `Vessels channel · channel ${meta.channels.vessels.index} (dim0→x, dim1→y) — pending…`;
+        `Channel ${meta.channels.vessels.index} — pending…`;
     }
 
     const caIdx = meta.channels.calcium.index;
-    document.getElementById('calciumTitle').textContent =
-      `Calcium channel · channel ${caIdx} (dim0→x, dim1→y)`;
     const calcium = await fetchF32Plane(meta.channels.calcium);
     setStatus(
       status,
-      `Calcium fetched — drawing…`,
+      `fetched channel 0 — drawing…`,
     );
     await tick();
     drawPlane(
@@ -395,21 +401,23 @@ async function load() {
       calcium.f32, calcium.height, calcium.width,
       true, 960, 400,
     );
+    document.getElementById('calciumTitle').textContent =
+      channelTitle(caIdx, calcium.height, calcium.width);
 
     if (meta.channels.vessels) {
       const vIdx = meta.channels.vessels.index;
-      document.getElementById('vesselsTitle').textContent =
-        `Vessels channel · channel ${vIdx} (dim0→x, dim1→y)`;
       setStatus(status, 'Fetching vessels…');
       await tick();
       const vessels = await fetchF32Plane(meta.channels.vessels);
-      setStatus(status, 'Vessels fetched — drawing…');
+      setStatus(status, 'fetched channel 1 — drawing…');
       await tick();
       drawPlane(
         document.getElementById('vesselsCanvas'),
         vessels.f32, vessels.height, vessels.width,
         true, 960, 400,
       );
+      document.getElementById('vesselsTitle').textContent =
+        channelTitle(vIdx, vessels.height, vessels.width);
     }
 
     const grid = document.getElementById('refGrid');
@@ -448,8 +456,9 @@ async function load() {
         perfMark(`draw.ref${ch.index}.TOTAL`, performance.now() - tRef1);
       }
       hint.textContent =
-        `Reference ${meta.reference.height}×${meta.reference.width} (API H×W) · ` +
-        `${refChannels.length} channel(s) · display transposed · scroll primary panels if wide` +
+        `Reference ${meta.reference.height}×${meta.reference.width} · ` +
+        // `${refChannels.length} channel(s) · display transposed · scroll primary panels if wide` +
+        `${refChannels.length} channel(s)` +
         (meta.reference.scanPath ? ' · scan path on each' :
           (meta.reference.lineRoi ? ' · lineRoi on each' : ''));
     } else {

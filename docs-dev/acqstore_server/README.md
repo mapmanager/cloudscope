@@ -1,35 +1,42 @@
 # AcqStore Server docs
 
-Living documentation for the local **AcqStore Server** lab tool (HTTP open API for external calcium HTML clients).
+Living documentation for the local **AcqStore Server** lab tool (HTTP open API for calcium HTML clients).
+
+## Start here (humans + LLMs)
+
+| Doc | Role |
+|-----|------|
+| **[`llm_agent_guide_v0.md`](llm_agent_guide_v0.md)** | **Preferred entry** — what exists, boundaries, run, API map, tickets, remaining work |
+| [`html_integration_v0.md`](html_integration_v0.md) | HTML author contract (load algorithm) |
+| [`reference_api_v0.md`](reference_api_v0.md) | Reference planes + overlay |
+| [`roadmap.md`](roadmap.md) | Status table + product boundaries |
+| [`entry_point_and_packaging.md`](entry_point_and_packaging.md) | `__main__` / freeze / native pack notes |
+
+Live OpenAPI (when server is running): `http://127.0.0.1:8767/openapi.json` · Swagger `/docs`.
+
+Design history: [`../cursor_tickets/036_acqstore_server_design.md`](../cursor_tickets/036_acqstore_server_design.md) (prefer agent guide if they disagree).
 
 ## Clients
 
 | Client | Role |
 |--------|------|
 | `/demo/` (`src/acqstore_server/static/demo/`) | Small same-origin API smoke UI; keep in sync with API changes |
-| [`clients/neuronal_calcium_linescan/`](../../clients/neuronal_calcium_linescan/) | In-repo working fork of the ~5k-line neuronal calcium HTML; **additive** server load path (keep TIFF file load). Edit rules: do not delete upstream code (comment out); mark new blocks with `<!-- ACQSTORE: … -->` and a cursor ticket |
-
-Handouts below are the public API contract for HTML authors (including that fork).
+| [`clients/neuronal_calcium_linescan/`](../../clients/neuronal_calcium_linescan/) | In-repo ~5k HTML fork: **Load from AcqStore Server** (049) + **Reference overview** (050). Keep TIFF load. Edit rules: do not delete upstream (comment out); mark adds with `<!-- ACQSTORE: … -->` + cursor ticket |
 
 ## Layout
 
 | Path | Role |
 |------|------|
 | `README.md` | This index |
-| `roadmap.md` | Living implementation sequence + product boundaries |
-| `html_integration_v0.md` | Claude-optimized handout for HTML authors |
-| `reference_api_v0.md` | Reference-image metadata + plane fetch contract |
-| `entry_point_and_packaging.md` | `__main__` / freeze notes vs CloudScope NiceGUI |
+| `llm_agent_guide_v0.md` | LLM / agent handoff |
+| `roadmap.md` | Living sequence + boundaries |
+| `html_integration_v0.md` | HTML integration contract |
+| `reference_api_v0.md` | Reference-image contract |
+| `entry_point_and_packaging.md` | Entry / freeze / native |
 
-Numbered implementation reports stay in `docs-dev/cursor_tickets/` (036 design, 038 scaffold, 039 pick-and-open, 040 reference+demo+logging).
+Implementation reports: `docs-dev/cursor_tickets/038`–`052` (server) and related.
 
-## Design source of truth
-
-[`../cursor_tickets/036_acqstore_server_design.md`](../cursor_tickets/036_acqstore_server_design.md)
-
-Wire contract for HTML authors: [`html_integration_v0.md`](html_integration_v0.md) (keep in sync when API changes). Reference planes: [`reference_api_v0.md`](reference_api_v0.md).
-
-**Demo policy:** when the HTTP API changes, update `/demo/` (`src/acqstore_server/static/demo/index.html`) in the same ticket so the bundled client stays a working contract check.
+**Demo policy:** when the HTTP API changes, update `/demo/` in the same ticket.
 
 ## Dev run (start / stop on macOS)
 
@@ -59,7 +66,10 @@ ACQSTORE_SERVER_NATIVE=1 uv run python -m acqstore_server
 uv run python -m acqstore_server.desktop
 ```
 
-Quit the status window to stop the server. Buttons: Open demo, health, reveal log.
+Quit the status window to stop the server. Buttons: Open demo, API docs, Show
+health (logs JSON into the in-window log), Open log, Quit. Footer shows
+`acqstore_server vX.Y.Z · host:port`. The main pane is a scrolling live log
+(same logger as the rotating file).
 
 Native mode uses NiceGUI `ui.run(..., gzip_middleware_factory=None)`. NiceGUI’s
 default GZip middleware must stay off: browsers send `Accept-Encoding: gzip`,
@@ -83,17 +93,17 @@ installed that middleware). See ticket `048_native_gzip_session_fetch_fix`.
 
 Yes for a working demo. The page calls `POST /api/v1/pick-and-open` and binary session URLs. Opening `src/acqstore_server/static/demo/index.html` via `file://` can show the chrome, but the Load button still needs a running server (set `BASE` would be required). Prefer `http://127.0.0.1:8767/demo/`.
 
-### Display transpose (demo only)
+### Display transpose (client only)
 
-The **server never transposes** pixels. The demo JS draws with dim0→canvas X, dim1→canvas Y. Reference overlay swaps scanPath/lineRoi the same way for display.
+The **server never transposes** pixels. Demo and the HTML fork draw with dim0→canvas X, dim1→canvas Y. Reference overlay maps scanPath/lineRoi the same way for display.
 
 ### Packaged app: `/demo/` was 404
 
-Frozen builds must include static files. `build_app.sh` now passes:
+Frozen builds must include static files. `build_app.sh` passes:
 
 `--add-data src/acqstore_server/static:acqstore_server/static`
 
-Rebuild the `.app` after pulling this change. `/demo/` is also served via explicit `FileResponse` (not only `StaticFiles`).
+Rebuild the `.app` after pulling UI/API changes (gzip fix, status log, etc.). `/demo/` is also served via explicit `FileResponse` (not only `StaticFiles`).
 
 Default port: **8767** (override with `ACQSTORE_SERVER_PORT`).
 
@@ -165,5 +175,6 @@ Restart the server after pulling new code. A leftover process serves the **old**
 
 - Runtime: `src/acqstore_server/`
 - Static demo: `src/acqstore_server/static/demo/`
+- HTML fork: `clients/neuronal_calcium_linescan/`
 - Tests: `tests/acqstore_server/`
 - Pack scaffold: `packaging/acqstore_server/`

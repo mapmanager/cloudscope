@@ -6,9 +6,12 @@
 **Do not invent fields.** Prefer live OpenAPI at `/openapi.json` for exact
 schemas; this page explains reference-specific behavior.
 
-Related: [`html_integration_v0.md`](html_integration_v0.md) (full open contract).
+Related: [`html_integration_v0.md`](html_integration_v0.md) · [`llm_agent_guide_v0.md`](llm_agent_guide_v0.md).
 
 Base URL (default): `http://127.0.0.1:8767`
+
+**In-repo:** the calcium HTML fork already shows a collapsible **Reference overview**
+card (ticket 050) between Image Display and Trace Display.
 
 ---
 
@@ -21,8 +24,7 @@ After a successful open, JSON field `reference` is either:
 
 There is **no** standalone “get reference without open” endpoint in v0.
 
-Sessions are short-lived (in-memory TTL; see server session store). Fetch plane
-bytes soon after open.
+Sessions are short-lived (in-memory TTL ~600 s). Fetch plane bytes soon after open.
 
 ---
 
@@ -49,6 +51,10 @@ Each `channels[i]`:
 | `height`, `width`, `byteLength` | Same layout rules as primary planes |
 | `dx`, `dy`, `xUnit`, `yUnit` | Per-channel spacing (usually identical across channels) |
 
+**`dx` / `dy`:** `dx` = physical step for **row/Y**; `dy` = physical step for **column/X**.
+
+**Removed:** `GET …/reference/plane`, top-level `reference.url`. Use `channels[i].url` only.
+
 ---
 
 ## Binary plane fetch
@@ -63,16 +69,15 @@ GET /api/v1/session/{sessionId}/reference/channel/{index}
 - Missing session/channel → JSON error, HTTP 404
 - Negative `index` → HTTP 422
 
-Display tip: the bundled `/demo/` **transposes** reference for screen layout
-(same convention as calcium/vessels). Apply the same client-side transpose
-policy as documented in `html_integration_v0.md`.
+Display tip: `/demo/` and the HTML fork **transpose** for screen layout
+(dim0→canvas X, dim1→canvas Y). Overlay mapping: canvas `(scanPath.y * scaleX, scanPath.x * scaleY)` after that transpose (see demo `drawReference`).
 
 ---
 
 ## Client recipe
 
 1. Open file → read `meta.reference`.
-2. If `null`, hide reference UI.
+2. If `null`, hide / collapse reference UI.
 3. For each entry in `meta.reference.channels`, `fetch(BASE + ch.url)` and decode float32.
 4. Overlay `scanPath` / `lineRoi` in **reference pixel coordinates** (not primary kymograph coords).
 

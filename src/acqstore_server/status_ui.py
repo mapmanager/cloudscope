@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 import platform
 import subprocess
+import urllib.request
 import webbrowser
 from pathlib import Path
 
 from nicegui import app as nicegui_app
 from nicegui import ui
 
-from acqstore_server.logging_setup import get_logger, log_file_path
+from acqstore_server.gui_defaults import setUpGuiDefaults
+from acqstore_server.logging_setup import get_logger, get_ui_log_text, log_file_path
 from acqstore_server.routes import APP_NAME, APP_VERSION
 
 logger = get_logger('status_ui')
@@ -42,16 +46,15 @@ def build_status_page(*, host: str, port: int) -> None:
         host: Bind host shown to the user.
         port: Bind port.
     """
+    setUpGuiDefaults('text-xs')
+
     base = f'http://{host}:{port}'
     log_path = log_file_path()
 
     ui.colors(primary='#38bdf8')
-    with ui.column().classes('w-full max-w-xl p-4 gap-3'):
-        ui.label('AcqStore Server').classes('text-h5 text-primary')
-        ui.label(f'{APP_NAME} v{APP_VERSION}').classes('text-caption text-grey-5')
-        ui.separator()
-        ui.label(f'Status: listening on {base}').classes('text-body1')
-        ui.label(f'Log file: {log_path}').classes('text-caption text-grey-5 break-all')
+
+    with ui.column().classes('w-full h-full p-3 gap-2'):
+        ui.label('AcqStore Server').classes('text-h6 text-primary')
 
         with ui.row().classes('gap-2 flex-wrap'):
             ui.button(
@@ -62,10 +65,25 @@ def build_status_page(*, host: str, port: int) -> None:
                 'API docs (/docs)',
                 on_click=lambda: webbrowser.open(f'{base}/docs'),
             ).props('outline')
-            ui.button(
-                'Open health JSON',
-                on_click=lambda: webbrowser.open(f'{base}/api/v1/health'),
-            ).props('outline')
+
+            async def _show_health() -> None:
+                url = f'{base}/api/v1/health'
+                try:
+                    def _fetch() -> str:
+                        with urllib.request.urlopen(url, timeout=5) as resp:
+                            return resp.read().decode('utf-8')
+
+                    raw = await asyncio.to_thread(_fetch)
+                    try:
+                        text = json.dumps(json.loads(raw), indent=2)
+                    except json.JSONDecodeError:
+                        text = raw
+                    logger.info('Health %s\n%s', url, text)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning('Health request failed: %s — %s', url, exc)
+                    ui.notify(f'Health request failed: {exc}', type='negative')
+
+            ui.button('Show health', on_click=_show_health).props('outline')
 
             def _open_log() -> None:
                 try:
@@ -78,14 +96,25 @@ def build_status_page(*, host: str, port: int) -> None:
 
             ui.button('Open log', on_click=_open_log).props('outline')
 
-        ui.separator()
-        ui.label(
-            'Calcium HTML clients call POST /api/v1/pick-and-open on this host. '
-            'Quit this window to stop the server.'
-        ).classes('text-caption text-grey-5')
+            def _quit() -> None:
+                logger.info('Quit requested from status UI')
+                nicegui_app.shutdown()
 
-        def _quit() -> None:
-            logger.info('Quit requested from status UI')
-            nicegui_app.shutdown()
+            ui.button('Quit server', on_click=_quit).props('flat color=negative')
 
-        ui.button('Quit server', on_click=_quit).props('flat color=negative')
+        ui.label('Server log').classes('text-caption text-grey-5')
+        with ui.scroll_area().classes('w-full border rounded').style('height: 360px'):
+            log_view = (
+                ui.label(get_ui_log_text())
+                .classes('w-full font-mono whitespace-pre-wrap text-xs select-text')
+            )
+
+        def _refresh_log() -> None:
+            text = get_ui_log_text()
+            if log_view.text != text:
+                log_view.set_text(text)
+
+        ui.timer(0.5, _refresh_log)
+
+    with ui.footer().classes('bg-grey-10 text-grey-4 q-px-md q-py-xs'):
+        ui.label(f'{APP_NAME} v{APP_VERSION}  ·  {host}:{port}').classes('text-caption')

@@ -375,14 +375,54 @@ def open_path(
     }
 
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
-    logger.info(
-        'Opened %s in %.1f ms (C=%s vessels=%s reference=%s)',
-        resolved.name,
-        elapsed_ms,
-        num_channels,
-        vessels_index is not None,
-        reference is not None,
+    try:
+        dims_display = acq.images.header.format_dims_display()
+    except Exception:  # noqa: BLE001 — logging must not fail open
+        dims_display = '?'
+    try:
+        header_shape = tuple(int(v) for v in acq.images.header.shape)
+    except Exception:  # noqa: BLE001
+        header_shape = ()
+    step_y = float(calibration['stepYSeconds'])
+    step_x = float(calibration['stepXUm'])
+    vessels_summary = (
+        f'[{vessels_index}]={height}x{width}'
+        if vessels_index is not None
+        else 'omit'
     )
+    logger.info('Opened %s in %.1f ms', resolved.name, elapsed_ms)
+    logger.info('  dims=%s', dims_display)
+    logger.info('  shape=%s C=%s', header_shape, num_channels)
+    logger.info(
+        '  calcium[%s]=%sx%s vessels=%s',
+        calcium_channel,
+        height,
+        width,
+        vessels_summary,
+    )
+    logger.info(
+        '  msPerLine=%.6g umPerPixel=%.6g',
+        float(calibration['msPerLine']),
+        float(calibration['umPerPixel']),
+    )
+    logger.info('  units stepY=%.6gs stepX=%.6g um', step_y, step_x)
+    if reference is None:
+        logger.info('  reference=none')
+    else:
+        logger.info(
+            '  reference=channels=%s %sx%s',
+            reference['numChannels'],
+            reference['height'],
+            reference['width'],
+        )
+        # ReferenceImagePlane: dx → row/Y step, dy → column/X step.
+        logger.info(
+            '  reference units stepY=%.6g %s stepX=%.6g %s',
+            float(reference['dx']),
+            reference.get('yUnit') or 'um',
+            float(reference['dy']),
+            reference.get('xUnit') or 'um',
+        )
 
     return {
         'ok': True,

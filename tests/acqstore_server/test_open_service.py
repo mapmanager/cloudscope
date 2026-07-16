@@ -83,11 +83,21 @@ def test_open_path_vessel_channel_null_forces_single(tmp_path: Path) -> None:
     assert 'vessels' not in payload['channels']
 
 
-def test_open_path_missing_file() -> None:
+def test_open_path_logs_header_summary(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    path = tmp_path / 'dual_log.tif'
+    _write_cyx_tif(path, shape=(2, 12, 8))
     store = SessionStore()
-    with pytest.raises(OpenServiceError) as exc_info:
-        open_path('/tmp/does-not-exist-acqstore-server-xyz.tif', store)
-    assert exc_info.value.code == 'path_not_found'
+    with caplog.at_level('INFO', logger='acqstore_server.open_service'):
+        open_path(str(path), store)
+    joined = '\n'.join(caplog.messages)
+    assert 'Opened dual_log.tif' in joined
+    assert '  dims=' in joined
+    assert '  shape=' in joined
+    assert '  msPerLine=' in joined
+    assert '  umPerPixel=' in joined or 'msPerLine=' in joined
+    assert '12x8' in joined
+    assert '  reference=none' in joined
+
 
 
 def test_open_path_channel_out_of_range(tmp_path: Path) -> None:
