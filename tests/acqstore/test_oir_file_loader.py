@@ -351,3 +351,27 @@ def test_oir_debug_0010_reference_matches_primary_x_and_txt_um_per_pixel() -> No
     assert plane.dy == pytest.approx(primary_x_um, rel=1e-3)
     # Olympus TXT: 512 px reference field is 169.706 µm per side → ~0.331 µm/px.
     assert plane.dx == pytest.approx(169.706 / 512.0, rel=1e-3)
+
+
+@pytest.mark.skipif(not _KYMOGRAPH.is_file(), reason="kymograph OIR fixture missing")
+def test_oir_kymograph_reference_image_metadata_matches_plane_scales() -> None:
+    """AcqImage reference metadata matches corrected ReferenceImage scales."""
+    acq = AcqImage(str(_KYMOGRAPH), load_images=False, load_analysis_csv=False)
+    ref_meta = acq.get_metadata_section('reference_image_metadata').get_values()
+    plane = acq.images.reference_image.get_plane(channel=0)
+    assert ref_meta['physical_unit_x'] == pytest.approx(plane.dy, rel=1e-6)
+    assert ref_meta['physical_unit_y'] == pytest.approx(plane.dx, rel=1e-6)
+    assert ref_meta['shape'] == str(plane.array.shape)
+    assert ref_meta['physical_label_x'] == 'um'
+    assert ref_meta['physical_label_y'] == 'um'
+
+
+@pytest.mark.skipif(not _OIR_DEBUG_0010.is_file(), reason="oir-debug 0010 missing")
+def test_oir_debug_0010_reference_image_metadata_matches_primary_x() -> None:
+    """Reference metadata spatial units match primary image X calibration."""
+    acq = AcqImage(str(_OIR_DEBUG_0010), load_images=False, load_analysis_csv=False)
+    _, primary_x_um = acq.get_image_physical_units()
+    ref_meta = acq.get_metadata_section('reference_image_metadata').get_values()
+    assert ref_meta['physical_unit_x'] == pytest.approx(primary_x_um, rel=1e-3)
+    assert ref_meta['physical_unit_y'] == pytest.approx(primary_x_um, rel=1e-3)
+    assert ref_meta['physical_unit_x'] == pytest.approx(169.706 / 512.0, rel=1e-3)

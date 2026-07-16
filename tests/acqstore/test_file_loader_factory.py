@@ -148,3 +148,14 @@ def test_acq_image_exposes_experiment_and_header_metadata_sections(tmp_path: Pat
     acq = AcqImage(str(path))
     ids = tuple(section.metadata_section_id for section in acq.get_metadata_sections())
     assert ids == ('experiment_metadata', 'acq_image_header')
+
+
+@pytest.mark.skipif(
+    not (Path(__file__).resolve().parent / 'data' / 'oir-samples' / '20251030_A106_0002.oir').is_file(),
+    reason='kymograph OIR fixture missing',
+)
+def test_acq_image_exposes_reference_metadata_section_for_oir() -> None:
+    oir = Path(__file__).resolve().parent / 'data' / 'oir-samples' / '20251030_A106_0002.oir'
+    acq = AcqImage(str(oir), load_images=False, load_analysis_csv=False)
+    ids = tuple(section.metadata_section_id for section in acq.get_metadata_sections())
+    assert ids == ('experiment_metadata', 'acq_image_header', 'reference_image_metadata')

@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from acqstore.acq_image.metadata import ExperimentMetadata, ImageHeaderMetadata
+from acqstore.acq_image.metadata import (
+    ExperimentMetadata,
+    ImageHeaderMetadata,
+    ReferenceImageMetadata,
+)
 from acqstore.schema import FieldSchema, SchemaDefinition, ValueType
 from cloudscope.event_bus import EventBus
 from cloudscope.events.metadata import ApplyMetadataIntent, MetadataChanged
@@ -40,14 +44,34 @@ class _FakeSection:
         return dict(self._values)
 
 
+class _FakeImages:
+    """Stand-in for the file loader on ``AcqImage.images``."""
+
+    def __init__(self, *, has_reference_image: bool = False) -> None:
+        self.has_reference_image = has_reference_image
+
+
 class _FakeAcqImage:
     """Stand-in for AcqImage exposing metadata sections."""
 
-    def __init__(self, sections: list[_FakeSection]) -> None:
+    def __init__(
+        self,
+        sections: list[_FakeSection],
+        *,
+        has_reference_image: bool = False,
+    ) -> None:
         self._sections = {section.metadata_section_id: section for section in sections}
+        self.images = _FakeImages(has_reference_image=has_reference_image)
 
     def get_metadata_section(self, section_id: str) -> _FakeSection:
         return self._sections[section_id]
+
+
+class _FakeUiElement:
+    """Minimal stand-in for a NiceGUI element with a ``visible`` flag."""
+
+    def __init__(self) -> None:
+        self.visible = False
 
 
 def _new_view() -> ImageHeaderMetadataView:
@@ -177,3 +201,52 @@ def test_on_primary_selection_changed_delegates_to_sync_selection() -> None:
 
     assert captured['file_id'] == 'f'
     assert captured['force'] is False
+
+
+def test_sync_selection_shows_no_reference_message_when_file_lacks_reference() -> None:
+    """Files without a reference image should show the no-reference label."""
+    view = _new_view()
+    header = _FakeSection(
+        section_id=ImageHeaderMetadata.metadata_section_id,
+        title='Header',
+        values={'physical_unit_x': 1.0},
+    )
+    acq = _FakeAcqImage([header], has_reference_image=False)
+    view._no_reference_label = _FakeUiElement()
+    view._reference_card_column = _FakeUiElement()
+
+    view._sync_selection(file_id='f', acq_image=acq, force=True)  # type: ignore[arg-type]
+
+    assert view._no_reference_label is not None
+    assert view._no_reference_label.visible is True
+    assert view._reference_card_column is not None
+    assert view._reference_card_column.visible is False
+
+
+def test_sync_selection_populates_reference_card_when_present() -> None:
+    """Files with a reference image should populate the read-only reference card."""
+    view = _new_view()
+    header = _FakeSection(
+        section_id=ImageHeaderMetadata.metadata_section_id,
+        title='Header',
+        values={'physical_unit_x': 1.0},
+    )
+    reference = _FakeSection(
+        section_id=ReferenceImageMetadata.metadata_section_id,
+        title='Reference Image',
+        values={'physical_unit_x': 0.331, 'shape': '(512, 512)'},
+    )
+    acq = _FakeAcqImage([header, reference], has_reference_image=True)
+    view._no_reference_label = _FakeUiElement()
+    view._reference_card_column = _FakeUiElement()
+
+    captured: list[dict[str, object]] = []
+    view._reference_card.update_values = lambda values: captured.append(dict(values))  # type: ignore[method-assign]
+
+    view._sync_selection(file_id='f', acq_image=acq, force=True)  # type: ignore[arg-type]
+
+    assert view._no_reference_label is not None
+    assert view._no_reference_label.visible is False
+    assert view._reference_card_column is not None
+    assert view._reference_card_column.visible is True
+    assert captured == [{'physical_unit_x': 0.331, 'shape': '(512, 512)'}]

@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import numpy as np
+import pytest
 import tifffile
 
 from acqstore.acq_image.acq_image import AcqImage
 from acqstore.acq_image.image_contrast import ImageContrast
 from acqstore.acq_image.roi import LineEndpoints, RectRoiBounds
+
+_OIR_SAMPLES = Path(__file__).resolve().parent / 'data' / 'oir-samples'
+_KYMOGRAPH = _OIR_SAMPLES / '20251030_A106_0002.oir'
 
 
 def _write_tif(path: Path) -> None:
@@ -296,6 +301,66 @@ def test_image_contrast_key_does_not_trigger_unknown_key_warning(
     _write_tif(path)
     src = AcqImage(str(path))
     src.save()
+    with caplog.at_level('WARNING'):
+        AcqImage(str(path))
+    assert not any('Ignoring unknown AcqImage sidecar keys' in r.message for r in caplog.records)
+
+
+@pytest.mark.skipif(not _KYMOGRAPH.is_file(), reason='kymograph OIR fixture missing')
+def test_save_includes_reference_image_metadata_for_oir(tmp_path: Path) -> None:
+    """OIR files with a reference image persist reference metadata in the sidecar."""
+    oir_path = tmp_path / _KYMOGRAPH.name
+    shutil.copy(_KYMOGRAPH, oir_path)
+    acq = AcqImage(str(oir_path), load_images=False, load_analysis_csv=False)
+    assert acq.images.has_reference_image
+    acq.save()
+
+    payload = json.loads(Path(acq.get_sidecar_json_path()).read_text(encoding='utf-8'))
+    assert 'reference_image_metadata' in payload
+    ref_meta = payload['reference_image_metadata']
+    assert ref_meta['dims'] == "('Y', 'X')"
+    assert ref_meta['physical_label_x'] == 'um'
+    assert ref_meta['physical_label_y'] == 'um'
+    assert ref_meta['physical_unit_x'] == pytest.approx(0.274, rel=1e-3)
+    assert ref_meta['physical_unit_y'] == pytest.approx(0.274, rel=1e-3)
+
+
+@pytest.mark.skipif(not _KYMOGRAPH.is_file(), reason='kymograph OIR fixture missing')
+def test_load_round_trip_restores_reference_image_metadata(tmp_path: Path) -> None:
+    """Reference metadata round-trips through save/load from file-derived values."""
+    oir_path = tmp_path / _KYMOGRAPH.name
+    shutil.copy(_KYMOGRAPH, oir_path)
+    source = AcqImage(str(oir_path), load_images=False, load_analysis_csv=False)
+    source.save()
+
+    loaded = AcqImage(str(oir_path), load_images=False, load_analysis_csv=False)
+    ref = loaded.get_metadata_section('reference_image_metadata').get_values()
+    assert ref['shape'] == '(512, 512)'
+    assert ref['physical_unit_x'] == pytest.approx(0.274, rel=1e-3)
+    assert ref['physical_unit_y'] == pytest.approx(0.274, rel=1e-3)
+
+
+def test_reference_image_metadata_key_does_not_trigger_unknown_key_warning(
+    tmp_path: Path, caplog
+) -> None:
+    """Optional ``reference_image_metadata`` must not warn on load."""
+    path = tmp_path / 'sample.tif'
+    _write_tif(path)
+    sidecar = Path(str(path.resolve()) + '.json')
+    sidecar.write_text(
+        json.dumps(
+            {
+                'version': 2,
+                'accepted': True,
+                'rois': [],
+                'experiment_metadata': {},
+                'image_header_metadata': {},
+                'analysis': [],
+                'reference_image_metadata': {'dtype': 'uint8'},
+            }
+        ),
+        encoding='utf-8',
+    )
     with caplog.at_level('WARNING'):
         AcqImage(str(path))
     assert not any('Ignoring unknown AcqImage sidecar keys' in r.message for r in caplog.records)

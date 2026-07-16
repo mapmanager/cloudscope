@@ -116,6 +116,8 @@ def _make_acq_image(path: Path, *, with_analysis: bool = True) -> AcqImage:
     acq_image._images = _FakeImages(num_channels=2, path=str(path.resolve()))
     acq_image._experimental_metadata = _FakeMetadata(genotype='wt', condition='control')
     acq_image._image_header_metadata = _FakeMetadata(genotype='')
+    acq_image._reference_image_metadata = None
+    acq_image._image_contrast_dirty = False
     acq_image._rois = _FakeRois(num_rois=3)
     acq_image._acq_analysis_set = AcqAnalysisSet(acq_image.path)
     if with_analysis:
