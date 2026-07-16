@@ -392,6 +392,9 @@ def test_oir_kymograph_reference_metadata_scan_path_matches_snapshot() -> None:
         assert ref_meta['line_roi'] == ''
     else:
         assert ref_meta['line_roi'] == str(tuple(float(v) for v in line_roi))
+
+
+@pytest.mark.skipif(not _OIR_DEBUG_0010.is_file(), reason="oir-debug 0010 missing")
 def test_oir_debug_0010_reference_image_metadata_matches_primary_x() -> None:
     """Reference metadata spatial units match primary image X calibration."""
     acq = AcqImage(str(_OIR_DEBUG_0010), load_images=False, load_analysis_csv=False)
