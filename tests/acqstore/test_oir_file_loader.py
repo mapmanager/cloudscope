@@ -17,6 +17,7 @@ from acqstore.acq_image.file_loaders.oir_file_loader import (
     _enabled_axes_from_lsmimage_xml,
     _image_header_from_oir_scene,
     _is_y_timelapse_line_scan_axis,
+    _oir_reference_spatial_coord_scales,
     _physical_units_for_oir_header,
     _reference_snapshot_from_oir_reference,
     _step_from_coord,
@@ -25,6 +26,8 @@ from acqstore.acq_image.file_loaders.oir_file_loader import (
 _OIR_SAMPLES = Path(__file__).resolve().parent / "data" / "oir-samples"
 _KYMOGRAPH = _OIR_SAMPLES / "20251030_A106_0002.oir"
 _ZSTACK = _OIR_SAMPLES / "20251030_A106.oir"
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_OIR_DEBUG_0010 = _REPO_ROOT / "tmp/oir-debug/two-channel-oir/20260709_A131_0010.oir"
 
 _TIMELAPSE_AXIS_XML = """
 <root xmlns:commonparam="urn:test">
@@ -35,6 +38,7 @@ _TIMELAPSE_AXIS_XML = """
     <commonparam:step>0.0</commonparam:step>
     <commonparam:maxSize>30000</commonparam:maxSize>
   </commonparam:axis>
+  <commonparam:seriesInterval>1.142</commonparam:seriesInterval>
 </root>
 """
 
@@ -67,6 +71,7 @@ class _FakeOirScene:
         coords: dict[str, np.ndarray] | None = None,
         lsmimage_xml: str | None = None,
         coords_raises: bool = False,
+        pixel_length_x: float | None = None,
     ) -> None:
         self.dims = dims
         self.sizes = sizes
@@ -76,6 +81,7 @@ class _FakeOirScene:
         self.coord_scales = coord_scales
         self._coords = coords or {}
         self._coords_raises = coords_raises
+        self._pixel_length_x = pixel_length_x
         self.datetime = None
         if lsmimage_xml is None:
             self.xml_metadata = MappingProxyType({})
@@ -125,37 +131,39 @@ def test_physical_units_for_oir_header_uses_coord_units_by_default() -> None:
 
 
 def test_physical_units_for_oir_header_relabels_y_for_line_scan_kymograph() -> None:
-    """TIMELAPSE-on-Y line scans label ``Y`` as seconds and keep ``X`` units."""
+    """TIMELAPSE-on-Y line scans use seriesInterval (time) and pixel length (space)."""
     scene = _FakeOirScene(
         dims=("Y", "X"),
         sizes={"Y": 30000, "X": 24},
         coord_units={"Y": "µm", "X": "µm"},
         coord_scales={"Y": 0.000535, "X": 0.0114},
         lsmimage_xml=_TIMELAPSE_AXIS_XML,
+        pixel_length_x=0.274,
     )
 
     assert _is_y_timelapse_line_scan_axis(scene) is True
     units, labels = _physical_units_for_oir_header(scene)
 
     assert labels == ("seconds", "µm")
-    assert units == (pytest.approx(0.000535), pytest.approx(0.0114))
+    assert units == (pytest.approx(0.001142), pytest.approx(0.274))
 
 
 def test_physical_units_for_oir_header_skips_coords_when_scales_complete() -> None:
-    """Header calibration avoids ``coords`` when ``coord_scales`` covers every dim."""
+    """Line-scan calibration does not need ``coords`` when scales are present."""
     scene = _FakeOirScene(
         dims=("Y", "X"),
         sizes={"Y": 30000, "X": 24},
         coord_units={"Y": "µm", "X": "µm"},
         coord_scales={"Y": 0.000535, "X": 0.0114},
         lsmimage_xml=_TIMELAPSE_AXIS_XML,
+        pixel_length_x=0.274,
         coords_raises=True,
     )
 
     units, labels = _physical_units_for_oir_header(scene)
 
     assert labels == ("seconds", "µm")
-    assert units == (pytest.approx(0.000535), pytest.approx(0.0114))
+    assert units == (pytest.approx(0.001142), pytest.approx(0.274))
 
 
 def test_step_from_coord_returns_none_for_string_channel_names() -> None:
@@ -176,6 +184,7 @@ def test_physical_units_for_oir_header_skips_channel_dim_c() -> None:
     <commonparam:step>0.0</commonparam:step>
     <commonparam:maxSize>10000</commonparam:maxSize>
   </commonparam:axis>
+  <commonparam:seriesInterval>2.118</commonparam:seriesInterval>
 </root>
 """
     scene = _FakeOirScene(
@@ -185,12 +194,13 @@ def test_physical_units_for_oir_header_skips_channel_dim_c() -> None:
         coord_scales={"Y": 0.000966, "X": 0.000966},
         coords={"C": np.array(["CH1", "CH2"])},
         lsmimage_xml=timelapse_xml,
+        pixel_length_x=0.331,
     )
 
     units, labels = _physical_units_for_oir_header(scene)
 
     assert labels == ("", "seconds", "micrometer")
-    assert units == (None, pytest.approx(0.000966), pytest.approx(0.000966))
+    assert units == (None, pytest.approx(0.002118), pytest.approx(0.331))
 
 
 def test_physical_units_for_oir_header_skips_sample_dim_s() -> None:
@@ -258,13 +268,17 @@ def test_oir_reference_image_still_decodes_lazily() -> None:
 
 @pytest.mark.skipif(not _KYMOGRAPH.is_file(), reason="kymograph OIR fixture missing")
 def test_oir_kymograph_fixture_labels_y_seconds_x_um() -> None:
-    """Real line-scan OIR labels slow scan axis as seconds."""
+    """Real line-scan OIR matches Olympus TXT seconds/um calibration."""
     header = OirFileLoader(str(_KYMOGRAPH)).header
 
     assert header.dims == ("Y", "X")
     assert header.physical_units_labels == ("seconds", "micrometer")
-    assert header.physical_units[0] == pytest.approx(0.0005350211513449023)
-    assert header.physical_units[1] == pytest.approx(0.011413784562024583)
+    assert header.physical_units[0] == pytest.approx(0.001142, rel=1e-4)
+    assert header.physical_units[1] == pytest.approx(0.274, rel=1e-3)
+    acq = AcqImage(str(_KYMOGRAPH), load_images=False, load_analysis_csv=False)
+    y_step, x_step = acq.get_image_physical_units()
+    assert y_step == pytest.approx(0.001142, rel=1e-4)
+    assert x_step == pytest.approx(0.274, rel=1e-3)
 
 
 @pytest.mark.skipif(not _ZSTACK.is_file(), reason="Z-stack OIR fixture missing")
@@ -287,3 +301,105 @@ def test_image_header_from_oir_scene_aligns_labels_with_dims() -> None:
     assert len(header.physical_units_labels) == len(header.dims)
     assert header._physical_label_for_dim("Y") == "seconds"
     assert header._physical_label_for_dim("X") == "micrometer"
+
+
+def test_oir_reference_spatial_coord_scales_override() -> None:
+    """Reference planes use parent pixel length as µm/px, not coord deltas."""
+    ref = _FakeOirReference()
+    scales = _oir_reference_spatial_coord_scales(
+        ref,
+        pixel_length_x=0.331,
+        pixel_length_y=0.331,
+    )
+    assert scales["X"] == pytest.approx(0.331)
+    assert scales["Y"] == pytest.approx(0.331)
+
+    snapshot = _reference_snapshot_from_oir_reference(
+        ref,
+        pixel_length_x=0.331,
+        pixel_length_y=0.331,
+    )
+    plane = snapshot.get_plane(channel=0)
+    assert plane.dx == pytest.approx(0.331)
+    assert plane.dy == pytest.approx(0.331)
+
+
+@pytest.mark.skipif(not _KYMOGRAPH.is_file(), reason="kymograph OIR fixture missing")
+def test_oir_kymograph_reference_plane_matches_primary_spatial_x() -> None:
+    """Reference overview uses spatial µm/px (primary X), not time axis step."""
+    acq = AcqImage(str(_KYMOGRAPH), load_images=False, load_analysis_csv=False)
+    _, primary_x_um = acq.get_image_physical_units()
+    loader = OirFileLoader(str(_KYMOGRAPH))
+    ref = loader.reference_image
+    assert ref is not None
+    plane = ref.get_plane(channel=0)
+    assert plane.dx == pytest.approx(primary_x_um, rel=1e-3)
+    assert plane.dy == pytest.approx(primary_x_um, rel=1e-3)
+    assert plane.dx * plane.array.shape[0] == pytest.approx(primary_x_um * 512, rel=1e-3)
+
+
+@pytest.mark.skipif(not _OIR_DEBUG_0010.is_file(), reason="oir-debug 0010 missing")
+def test_oir_debug_0010_reference_matches_primary_x_and_txt_um_per_pixel() -> None:
+    """Reference µm/px matches primary spatial X and Olympus TXT reference size."""
+    acq = AcqImage(str(_OIR_DEBUG_0010), load_images=False, load_analysis_csv=False)
+    _, primary_x_um = acq.get_image_physical_units()
+    loader = OirFileLoader(str(_OIR_DEBUG_0010))
+    ref = loader.reference_image
+    assert ref is not None
+    plane = ref.get_plane(channel=0)
+    assert plane.dx == pytest.approx(primary_x_um, rel=1e-3)
+    assert plane.dy == pytest.approx(primary_x_um, rel=1e-3)
+    # Olympus TXT: 512 px reference field is 169.706 µm per side → ~0.331 µm/px.
+    assert plane.dx == pytest.approx(169.706 / 512.0, rel=1e-3)
+
+
+@pytest.mark.skipif(not _KYMOGRAPH.is_file(), reason="kymograph OIR fixture missing")
+def test_oir_kymograph_reference_image_metadata_matches_plane_scales() -> None:
+    """AcqImage reference metadata matches corrected ReferenceImage scales."""
+    acq = AcqImage(str(_KYMOGRAPH), load_images=False, load_analysis_csv=False)
+    ref_meta = acq.get_metadata_section('reference_image_metadata').get_values()
+    plane = acq.images.reference_image.get_plane(channel=0)
+    assert ref_meta['physical_unit_x'] == pytest.approx(plane.dy, rel=1e-6)
+    assert ref_meta['physical_unit_y'] == pytest.approx(plane.dx, rel=1e-6)
+    assert ref_meta['shape'] == str(plane.array.shape)
+    assert ref_meta['physical_label_x'] == 'um'
+    assert ref_meta['physical_label_y'] == 'um'
+
+
+@pytest.mark.skipif(not _KYMOGRAPH.is_file(), reason="kymograph OIR fixture missing")
+def test_oir_kymograph_reference_metadata_scan_path_matches_snapshot() -> None:
+    """Reference metadata scan-path fields mirror ReferenceImage scan-path API."""
+    acq = AcqImage(str(_KYMOGRAPH), load_images=False, load_analysis_csv=False)
+    reference = acq.images.reference_image
+    assert reference is not None
+    ref_meta = acq.get_metadata_section('reference_image_metadata').get_values()
+
+    assert ref_meta['has_scan_path'] is reference.has_scan_path()
+    if not reference.has_scan_path():
+        assert ref_meta['scan_path_num_points'] == 0
+        assert ref_meta['scan_path_x_pixels'] == []
+        assert ref_meta['scan_path_y_pixels'] == []
+        return
+
+    scan_path_plot = reference.get_scan_path_plot()
+    assert scan_path_plot is not None
+    x_pixels, y_pixels = scan_path_plot
+    assert ref_meta['scan_path_num_points'] == len(x_pixels)
+    assert ref_meta['scan_path_x_pixels'] == [float(value) for value in x_pixels]
+    assert ref_meta['scan_path_y_pixels'] == [float(value) for value in y_pixels]
+    line_roi = reference.get_line_roi()
+    if line_roi is None:
+        assert ref_meta['line_roi'] == ''
+    else:
+        assert ref_meta['line_roi'] == str(tuple(float(v) for v in line_roi))
+
+
+@pytest.mark.skipif(not _OIR_DEBUG_0010.is_file(), reason="oir-debug 0010 missing")
+def test_oir_debug_0010_reference_image_metadata_matches_primary_x() -> None:
+    """Reference metadata spatial units match primary image X calibration."""
+    acq = AcqImage(str(_OIR_DEBUG_0010), load_images=False, load_analysis_csv=False)
+    _, primary_x_um = acq.get_image_physical_units()
+    ref_meta = acq.get_metadata_section('reference_image_metadata').get_values()
+    assert ref_meta['physical_unit_x'] == pytest.approx(primary_x_um, rel=1e-3)
+    assert ref_meta['physical_unit_y'] == pytest.approx(primary_x_um, rel=1e-3)
+    assert ref_meta['physical_unit_x'] == pytest.approx(169.706 / 512.0, rel=1e-3)

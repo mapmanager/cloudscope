@@ -13,8 +13,53 @@ from acqstore.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-def _reference_snapshot_from_oir_reference(ref: Any) -> ReferenceImage:
-    """Build a :class:`ReferenceImage` while ``oirfile.OirFile`` is still open."""
+def _oir_reference_spatial_coord_scales(
+    ref: Any,
+    *,
+    pixel_length_x: float | None,
+    pixel_length_y: float | None,
+) -> dict[str, float]:
+    """Return reference ``coord_scales`` with spatial µm/px steps for ``Y`` and ``X``.
+
+    ``oirfile.reference.coord_scales`` are often coordinate-array deltas
+    (``pixel_length / n_pixels``). Reference/overview images are spatial 2-D
+    planes; use the parent ``OirFile`` pixel lengths as µm/px, matching
+    Olympus TXT ``[Reference Image]`` unit-converted size.
+
+    Args:
+        ref: Open ``oirfile`` reference object.
+        pixel_length_x: Micrometers per pixel along ``X``, from parent ``OirFile``.
+        pixel_length_y: Micrometers per pixel along ``Y``; defaults to
+            ``pixel_length_x`` when omitted.
+
+    Returns:
+        ``coord_scales`` mapping with ``Y``/``X`` overridden when lengths are
+        available; otherwise the reference object's scales are returned unchanged.
+    """
+    scales = dict(ref.coord_scales)
+    step_x = pixel_length_x
+    step_y = pixel_length_y if pixel_length_y is not None else pixel_length_x
+    dims = tuple(str(d) for d in ref.dims)
+    if step_y is not None and np.isfinite(step_y) and step_y > 0 and "Y" in dims:
+        scales["Y"] = float(step_y)
+    if step_x is not None and np.isfinite(step_x) and step_x > 0 and "X" in dims:
+        scales["X"] = float(step_x)
+    return scales
+
+
+def _reference_snapshot_from_oir_reference(
+    ref: Any,
+    *,
+    pixel_length_x: float | None = None,
+    pixel_length_y: float | None = None,
+) -> ReferenceImage:
+    """Build a :class:`ReferenceImage` while ``oirfile.OirFile`` is still open.
+
+    Args:
+        ref: Open ``oirfile`` reference attachment.
+        pixel_length_x: Parent-file micrometers per pixel along ``X``.
+        pixel_length_y: Parent-file micrometers per pixel along ``Y``.
+    """
     raw = np.asarray(ref.asarray())
     raw.setflags(write=False)
     dims = tuple(str(d) for d in ref.dims)
@@ -28,7 +73,11 @@ def _reference_snapshot_from_oir_reference(ref: Any) -> ReferenceImage:
         scan_path = np.asarray([[x0, x1], [y0, y1]], dtype=float)
         scan_path.setflags(write=False)
     units_t = tuple(sorted((str(k), str(v)) for k, v in ref.coord_units.items()))
-    scales_raw = ref.coord_scales
+    scales_raw = _oir_reference_spatial_coord_scales(
+        ref,
+        pixel_length_x=pixel_length_x,
+        pixel_length_y=pixel_length_y,
+    )
     scales_t = tuple(sorted((str(k), float(v)) for k, v in scales_raw.items()))
     coord_items: list[tuple[str, np.ndarray]] = []
     for key in sorted(ref.coords.keys(), key=str):
@@ -174,11 +223,92 @@ def _is_y_timelapse_line_scan_axis(scene: Any) -> bool:
     return int(max_size) == int(y_size)
 
 
+def _series_interval_ms_values_from_lsmimage_xml(xml: str) -> list[float]:
+    """Return all ``seriesInterval`` values (milliseconds) from LSMIMAGE XML.
+
+    Args:
+        xml: Raw LSMIMAGE metadata XML string from ``oirfile``.
+
+    Returns:
+        Parsed ``seriesInterval`` floats in document order.
+    """
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return []
+
+    values: list[float] = []
+    for elem in root.iter():
+        if _strip_xml_tag(str(elem.tag)) != "seriesInterval":
+            continue
+        text = (elem.text or "").strip()
+        if not text:
+            continue
+        try:
+            values.append(float(text))
+        except ValueError:
+            continue
+    return values
+
+
+def _line_scan_y_step_seconds_from_scene(scene: Any) -> float | None:
+    """Return seconds-per-line for TIMELAPSE-on-Y line scans from LSMIMAGE XML.
+
+    ``oirfile.coord_scales['Y']`` is often a spatial coordinate delta, not line
+    period. Olympus exports and LSMIMAGE ``seriesInterval`` (milliseconds)
+    match the TIFF+TXT sidecar ``secondsPerLine`` field.
+
+    Args:
+        scene: Open ``oirfile.OirFile`` instance.
+
+    Returns:
+        Positive seconds per line, or ``None`` when no usable interval is found.
+    """
+    xml_metadata = scene.xml_metadata
+    lsm_xmls = xml_metadata.get(METADATA.LSMIMAGE, [])
+    if not lsm_xmls:
+        return None
+
+    ms_values: list[float] = []
+    for xml in lsm_xmls:
+        ms_values.extend(_series_interval_ms_values_from_lsmimage_xml(xml))
+    # Line-scan intervals are single-digit ms; exclude unrelated frame-rate values.
+    candidates = [v for v in ms_values if v > 0.0 and v < 30.0]
+    if not candidates:
+        return None
+    return min(candidates) / 1000.0
+
+
+def _line_scan_x_step_um_from_scene(scene: Any) -> float | None:
+    """Return micrometers-per-pixel for line-scan ``X`` from oirfile pixel length.
+
+    ``oirfile.coord_scales['X']`` is often ``pixel_length / nX``. Olympus TXT
+    exports report ``umPerPixel`` as the full per-pixel step (``_pixel_length_x``).
+
+    Args:
+        scene: Open ``oirfile.OirFile`` instance.
+
+    Returns:
+        Positive micrometers per pixel, or ``None`` when unavailable.
+    """
+    raw = getattr(scene, "_pixel_length_x", None)
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(value) or value <= 0.0:
+        return None
+    return value
+
+
 def _physical_units_for_oir_header(scene: Any) -> tuple[tuple[Any, ...], tuple[str, ...]]:
     """Return per-axis calibration for an open ``oirfile.OirFile``.
 
     Labels default to ``coord_units`` from ``oirfile``. Line-scan kymographs
-    whose ``Y`` size matches an enabled TIMELAPSE axis are labeled ``seconds``.
+    whose ``Y`` size matches an enabled TIMELAPSE axis are labeled ``seconds``
+    and use LSMIMAGE ``seriesInterval`` (time) plus ``_pixel_length_x`` (space).
 
     Categorical channel axes (``C`` / ``S``) have no spatial step: ``oirfile``
     stores channel names in ``coords`` and omits them from ``coord_scales``.
@@ -195,6 +325,19 @@ def _physical_units_for_oir_header(scene: Any) -> tuple[tuple[Any, ...], tuple[s
     coord_scales: dict[str, float] = dict(scene.coord_scales)
     coords: Any | None = None
     y_is_timelapse_line_scan = _is_y_timelapse_line_scan_axis(scene)
+    line_scan_y_step_s: float | None = None
+    line_scan_x_step_um: float | None = None
+    if y_is_timelapse_line_scan:
+        line_scan_y_step_s = _line_scan_y_step_seconds_from_scene(scene)
+        line_scan_x_step_um = _line_scan_x_step_um_from_scene(scene)
+        if line_scan_y_step_s is None:
+            logger.warning(
+                'Line-scan OIR missing usable seriesInterval; falling back to coord_scales for Y'
+            )
+        if line_scan_x_step_um is None:
+            logger.warning(
+                'Line-scan OIR missing _pixel_length_x; falling back to coord_scales for X'
+            )
 
     physical_units: list[Any] = []
     physical_units_labels: list[str] = []
@@ -204,11 +347,16 @@ def _physical_units_for_oir_header(scene: Any) -> tuple[tuple[Any, ...], tuple[s
             physical_units_labels.append("")
             continue
 
-        step = coord_scales.get(dim)
-        if step is None:
-            if coords is None:
-                coords = scene.coords
-            step = _step_from_coord(coords.get(dim))
+        if dim == "Y" and y_is_timelapse_line_scan and line_scan_y_step_s is not None:
+            step: Any = line_scan_y_step_s
+        elif dim == "X" and y_is_timelapse_line_scan and line_scan_x_step_um is not None:
+            step = line_scan_x_step_um
+        else:
+            step = coord_scales.get(dim)
+            if step is None:
+                if coords is None:
+                    coords = scene.coords
+                step = _step_from_coord(coords.get(dim))
         physical_units.append(step)
 
         if dim == "Y" and y_is_timelapse_line_scan:
@@ -361,7 +509,13 @@ class OirFileLoader(BaseFileLoader):
             if ref is None:
                 self._referenceImage = None
             else:
-                self._referenceImage = _reference_snapshot_from_oir_reference(ref)
+                pixel_length_x = getattr(oir, "_pixel_length_x", None)
+                pixel_length_y = getattr(oir, "_pixel_length_y", None)
+                self._referenceImage = _reference_snapshot_from_oir_reference(
+                    ref,
+                    pixel_length_x=float(pixel_length_x) if pixel_length_x is not None else None,
+                    pixel_length_y=float(pixel_length_y) if pixel_length_y is not None else None,
+                )
 
         return self._referenceImage
 

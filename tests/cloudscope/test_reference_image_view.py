@@ -10,6 +10,7 @@ import pytest
 
 from acqstore.acq_image.file_loaders.base_file_loader import ReferenceImage
 from cloudscope.event_bus import EventBus
+from cloudscope.events.files import SaveReferenceAsTifIntent
 from cloudscope.state import PrimarySelection
 from cloudscope.views.base_view import BaseView
 from cloudscope.session_state import (
@@ -92,6 +93,19 @@ def test_reference_image_view_is_base_view_and_display_only() -> None:
     assert isinstance(view, BaseView)
     assert view.view_id is ViewId.REFERENCE_IMAGE
     assert view.disable_when_busy is False
+
+
+def test_save_reference_button_publishes_selected_file_intent() -> None:
+    """Reference export button publishes intent for the selected acquisition."""
+    bus = EventBus()
+    intents: list[SaveReferenceAsTifIntent] = []
+    bus.subscribe(SaveReferenceAsTifIntent, intents.append)
+    view = ReferenceImageView(bus)
+    view.current_selection = PrimarySelection(file_id='/tmp/sample.oir', channel=0)
+
+    view._on_save_reference_as_tif()
+
+    assert intents == [SaveReferenceAsTifIntent(file_id='/tmp/sample.oir')]
 
 
 class _FakeAcqImageList:
@@ -187,11 +201,14 @@ def test_refresh_reference_async_clears_viewer_when_no_reference(
     view._viewer = MagicMock()
     view._viewer.clear_data = AsyncMock()
     view._viewer.set_data = AsyncMock()
+    view._save_reference_button = MagicMock()
+    view._save_reference_button.enabled = True
 
     asyncio.run(view._refresh_reference_async("file", _AcqImage(None), 0))
 
     view._viewer.clear_data.assert_awaited_once()
     view._viewer.set_data.assert_not_awaited()
+    assert view._save_reference_button.enabled is False
 
 
 def test_refresh_reference_async_set_data_when_reference_exists(
@@ -210,12 +227,15 @@ def test_refresh_reference_async_set_data_when_reference_exists(
     view._viewer.clear_data = AsyncMock()
     view._viewer.set_data = AsyncMock()
     view._apply_reference_contrast = AsyncMock()
+    view._save_reference_button = MagicMock()
+    view._save_reference_button.enabled = False
 
     asyncio.run(view._refresh_reference_async("file", _AcqImage(_reference_image()), 0))
 
     view._viewer.clear_data.assert_not_awaited()
     view._viewer.set_data.assert_awaited_once()
     view._apply_reference_contrast.assert_awaited_once()
+    assert view._save_reference_button.enabled is True
 
 
 def test_reference_contrast_window_uses_percentiles() -> None:

@@ -7,7 +7,12 @@ from typing import Any
 from nicegui import ui
 
 from acqstore.acq_image.acq_image import AcqImage
-from acqstore.acq_image.metadata import IMAGE_HEADER_METADATA_SCHEMA, ImageHeaderMetadata
+from acqstore.acq_image.metadata import (
+    IMAGE_HEADER_METADATA_SCHEMA,
+    REFERENCE_IMAGE_METADATA_SCHEMA,
+    ImageHeaderMetadata,
+    ReferenceImageMetadata,
+)
 from cloudscope.event_bus import EventBus
 from cloudscope.events.metadata import ApplyMetadataIntent, MetadataChanged
 from cloudscope.views.base_view import BaseView
@@ -49,6 +54,16 @@ class ImageHeaderMetadataView(BaseView):
             readonly_columns=2,
             editable_columns=2,
         )
+        self._reference_card = SchemaCardWidget(
+            title=ReferenceImageMetadata.display_section_title,
+            schema=REFERENCE_IMAGE_METADATA_SCHEMA,
+            values={},
+            show_apply_button=False,
+            readonly_columns=2,
+            editable_columns=2,
+        )
+        self._no_reference_label: ui.label | None = None
+        self._reference_card_column: ui.column | None = None
         self._current_file_id: str | None = None
         self._current_acq_image: AcqImage | None = None
 
@@ -73,6 +88,14 @@ class ImageHeaderMetadataView(BaseView):
                     with ui.column().classes('w-full gap-2') as card_column:
                         self._card_column = card_column
                         self._header_card.build(parent=card_column)
+                        self._no_reference_label = ui.label(
+                            'No reference image for this file'
+                        ).classes('opacity-70')
+                        self._no_reference_label.visible = False
+                        with ui.column().classes('w-full gap-2') as reference_card_column:
+                            self._reference_card_column = reference_card_column
+                            self._reference_card.build(parent=reference_card_column)
+                        self._reference_card_column.visible = False
                     self._card_column.visible = False
             return self.root
 
@@ -164,10 +187,41 @@ class ImageHeaderMetadataView(BaseView):
 
         if file_id is None or acq_image is None:
             self._header_card.update_values({})
+            self._sync_reference_card(acq_image=None)
             return
 
         header_section = acq_image.get_metadata_section(ImageHeaderMetadata.metadata_section_id)
         self._header_card.update_values(header_section.get_values())
+        self._sync_reference_card(acq_image=acq_image)
+
+    def _sync_reference_card(self, *, acq_image: AcqImage | None) -> None:
+        """Show read-only reference metadata or a no-reference message.
+
+        Args:
+            acq_image: Selected acquisition image, or ``None`` when no file is selected.
+        """
+        if self._no_reference_label is None:
+            return
+
+        if acq_image is None:
+            self._no_reference_label.visible = False
+            if self._reference_card_column is not None:
+                self._reference_card_column.visible = False
+            self._reference_card.update_values({})
+            return
+
+        if acq_image.images.has_reference_image:
+            self._no_reference_label.visible = False
+            if self._reference_card_column is not None:
+                self._reference_card_column.visible = True
+            section = acq_image.get_metadata_section(ReferenceImageMetadata.metadata_section_id)
+            self._reference_card.update_values(section.get_values())
+            return
+
+        self._no_reference_label.visible = True
+        if self._reference_card_column is not None:
+            self._reference_card_column.visible = False
+        self._reference_card.update_values({})
 
     def _on_header_apply(self, patch: dict[str, object]) -> None:
         """Publish an image-header metadata apply intent.

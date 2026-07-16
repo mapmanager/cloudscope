@@ -30,7 +30,7 @@ from .io.store_utils import (
     write_json_file,
     zip_directory_store,
 )
-from .metadata import ExperimentMetadata, ImageHeaderMetadata
+from .metadata import ExperimentMetadata, ImageHeaderMetadata, ReferenceImageMetadata
 from .roi import ImageBounds, LineROI, RectROI, RoiSet
 from .file_loaders.file_loader_factory import create_file_loader
 from .supported_import_extensions import (
@@ -73,7 +73,7 @@ _ACQIMAGE_SIDECAR_REQUIRED_KEYS = {
 # To disable image_contrast persistence entirely, comment out 'image_contrast'
 # below and the region-marked blocks in _build_sidecar_payload and
 # _apply_loaded_sidecar_payload; the in-memory defaults flow continues to work.
-_ACQIMAGE_SIDECAR_OPTIONAL_KEYS = {'image_contrast'}
+_ACQIMAGE_SIDECAR_OPTIONAL_KEYS = {'image_contrast', 'reference_image_metadata'}
 
 
 def parent_grandparent_folder_names(
@@ -224,6 +224,7 @@ class AcqImage:
         self._load_analysis_csv_on_sidecar_load = bool(load_analysis_csv)
         self._experimental_metadata = ExperimentMetadata()
         self._image_header_metadata = ImageHeaderMetadata(self._images.header, self._apply_image_header)
+        self._reference_image_metadata: ReferenceImageMetadata | None = None
         self._rois = RoiSet(self._infer_image_bounds())
         self._acq_analysis_set = AcqAnalysisSet(
             self.path,
@@ -253,12 +254,17 @@ class AcqImage:
     @property
     def is_dirty(self) -> bool:
         """Return whether this file has unsaved changes."""
-        return (
+        dirty_sections = (
             self._rois.is_dirty()
             or self._acq_analysis_set.is_dirty()
             or getattr(self, '_image_contrast_dirty', False)
-            or any(section.is_dirty() for section in self.get_metadata_sections())
+            or self._experimental_metadata.is_dirty()
+            or self._image_header_metadata.is_dirty()
         )
+        # Do not force-decode reference pixels just to check dirty state.
+        if self._reference_image_metadata is not None:
+            dirty_sections = dirty_sections or self._reference_image_metadata.is_dirty()
+        return dirty_sections
 
     def save(self) -> None:
         """Persist metadata, ROIs, contrast state, and analysis results.
@@ -405,6 +411,80 @@ class AcqImage:
             overwrite=overwrite,
         )
 
+    def save_reference_as_tif(
+        self,
+        path: str | Path,
+        *,
+        imagej_metadata: bool = True,
+        overwrite: bool = False,
+    ) -> None:
+        """Export the complete reference-image array to a TIFF file.
+
+        The exported pixels do not include scan-path or line-ROI overlays.
+        Reference-image X/Y calibration is written through the same ImageJ
+        metadata path used by :meth:`save_as_tif`.
+
+        Args:
+            path: Explicit TIFF destination filename.
+            imagej_metadata: Whether to include ImageJ/Fiji calibration metadata.
+            overwrite: Whether to replace an existing TIFF file.
+
+        Raises:
+            ValueError: If this acquisition has no reference image, or if its
+                array rank does not match its dimension labels.
+            FileExistsError: If ``path`` exists and ``overwrite`` is false.
+        """
+        reference = self._images.reference_image
+        if reference is None:
+            raise ValueError(f'Acquisition has no reference image: {self.path}')
+
+        data = np.asarray(reference.array)
+        dims = tuple(reference.dims)
+        if data.ndim != len(dims):
+            raise ValueError(
+                'Reference image array rank does not match dimensions: '
+                f'shape={data.shape}, dims={dims!r}'
+            )
+
+        scales = dict(reference.coord_scales)
+        labels = dict(reference.coord_units)
+        physical_units: list[float] = []
+        physical_labels: list[str] = []
+        for dim in dims:
+            raw_scale = scales.get(dim, 1.0)
+            try:
+                scale = float(raw_scale)
+            except (TypeError, ValueError):
+                scale = 1.0
+            if not np.isfinite(scale) or scale <= 0.0:
+                scale = 1.0
+            physical_units.append(scale)
+            label = str(labels.get(dim, 'Pixels')).strip()
+            physical_labels.append(label or 'Pixels')
+
+        header = ImageHeader(
+            path=self.path,
+            shape=tuple(int(size) for size in data.shape),
+            dims=dims,
+            sizes={dim: int(data.shape[index]) for index, dim in enumerate(dims)},
+            dtype=data.dtype,
+            num_channels=int(reference.num_channels),
+            num_scenes=1,
+            physical_units=tuple(physical_units),
+            physical_units_labels=tuple(physical_labels),
+        )
+        reference_pixels = AcqPixels(
+            data=data,
+            header=header,
+            source_path=self.path,
+        )
+        save_pixels_as_tif(
+            reference_pixels,
+            path,
+            imagej_metadata=imagej_metadata,
+            overwrite=overwrite,
+        )
+
     def _mark_clean_after_save(self) -> None:
         """Clear dirty flags after a successful save."""
         self._rois.set_clean()
@@ -443,6 +523,8 @@ class AcqImage:
         # in-memory defaults seeded by PrimaryPlaneLoaded continue to work.
         payload['image_contrast'] = self._serialize_image_contrast_for_sidecar()
         # endregion image_contrast persistence
+        if self._images.has_reference_image:
+            payload['reference_image_metadata'] = self._get_reference_image_metadata().get_values()
         return payload
 
     def _serialize_image_contrast_for_sidecar(self) -> dict[str, dict[str, object]]:
@@ -483,6 +565,8 @@ class AcqImage:
         self._rois.from_list(rois_obj)
         self._experimental_metadata = ExperimentMetadata.from_dict(exp_obj)
         self._apply_image_header_metadata_from_sidecar(payload['image_header_metadata'])
+        if 'reference_image_metadata' in payload:
+            self._apply_reference_image_metadata_from_sidecar(payload['reference_image_metadata'])
 
         analysis_obj = payload['analysis']
         if not isinstance(analysis_obj, list):
@@ -823,11 +907,22 @@ class AcqImage:
         self._image_contrasts[key] = contrast
         return contrast
 
-    def get_metadata_sections(self) -> tuple[ExperimentMetadata | ImageHeaderMetadata, ...]:
+    def get_metadata_sections(
+        self,
+    ) -> tuple[ExperimentMetadata | ImageHeaderMetadata | ReferenceImageMetadata, ...]:
         """Return metadata section objects exposed for schema-driven UIs."""
-        return (self._experimental_metadata, self._image_header_metadata)
+        sections: list[ExperimentMetadata | ImageHeaderMetadata | ReferenceImageMetadata] = [
+            self._experimental_metadata,
+            self._image_header_metadata,
+        ]
+        if self._images.has_reference_image:
+            sections.append(self._get_reference_image_metadata())
+        return tuple(sections)
 
-    def get_metadata_section(self, metadata_section_id: str) -> ExperimentMetadata | ImageHeaderMetadata:
+    def get_metadata_section(
+        self,
+        metadata_section_id: str,
+    ) -> ExperimentMetadata | ImageHeaderMetadata | ReferenceImageMetadata:
         """Return one metadata section by identifier.
 
         Raises:
@@ -838,6 +933,23 @@ class AcqImage:
             if sid == metadata_section_id:
                 return section
         raise ValueError(f'Unknown metadata section_id: {metadata_section_id!r}')
+
+    def _get_reference_image_metadata(self) -> ReferenceImageMetadata:
+        """Return cached reference-image metadata, building it from the loader once.
+
+        Returns:
+            Reference-image metadata for files that expose a reference snapshot.
+
+        Raises:
+            ValueError: If the loader reports a reference image but none can be loaded.
+        """
+        if self._reference_image_metadata is not None:
+            return self._reference_image_metadata
+        reference_image = self._images.reference_image
+        if reference_image is None:
+            raise ValueError(f'Reference image metadata requested but none loaded for {self.path!r}')
+        self._reference_image_metadata = ReferenceImageMetadata.from_reference_image(reference_image)
+        return self._reference_image_metadata
 
     def apply_metadata_patch(self, metadata_section_id: str, patch: dict[str, object]) -> None:
         """Apply metadata patch to a known section.
@@ -1094,3 +1206,18 @@ class AcqImage:
     def _apply_image_header(self, header: ImageHeader) -> None:
         """Apply updated header to backing loader."""
         self._images.replace_header(header)
+
+    def _apply_reference_image_metadata_from_sidecar(self, raw: object) -> None:
+        """Accept sidecar ``reference_image_metadata`` without overriding file scales.
+
+        v1 reference metadata is file-derived and read-only. Sidecar values are
+        validated as an object for forward compatibility, but calibration is not
+        applied (and reference pixels are not decoded here).
+
+        Args:
+            raw: ``reference_image_metadata`` value from the sidecar payload.
+        """
+        if not isinstance(raw, dict):
+            raise ValueError("Sidecar field 'reference_image_metadata' must be an object")
+        if self._images.has_reference_image and self._reference_image_metadata is not None:
+            self._reference_image_metadata.apply_sidecar_calibration(raw)

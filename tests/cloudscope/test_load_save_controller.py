@@ -17,11 +17,13 @@ from cloudscope.events.files import (
     RemoveRecentPathIntent,
     SaveAllIntent,
     SaveAsTifIntent,
+    SaveReferenceAsTifIntent,
     SaveSelectedIntent,
 )
 from cloudscope.events.status import AppStatusChanged
 from cloudscope.controllers.load_save_controller import (
     LoadSaveController,
+    suggested_reference_tif_filename,
     suggested_tif_filename,
 )
 from cloudscope.app_config import AppConfig, normalize_stored_path
@@ -35,6 +37,7 @@ class _FakeFile:
         self._dirty = dirty
         self.saved = 0
         self.save_as_tif_calls: list[tuple[object, bool]] = []
+        self.save_reference_as_tif_calls: list[tuple[object, bool]] = []
 
     @property
     def is_dirty(self) -> bool:
@@ -49,6 +52,18 @@ class _FakeFile:
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(b'tiff-bytes')
         self.save_as_tif_calls.append((dest, overwrite))
+
+    def save_reference_as_tif(
+        self,
+        path,
+        *,
+        imagej_metadata: bool = True,
+        overwrite: bool = False,
+    ) -> None:
+        dest = Path(path)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b'reference-tiff-bytes')
+        self.save_reference_as_tif_calls.append((dest, overwrite))
 
     def get_default_channel(self) -> int | None:
         return 0
@@ -826,6 +841,13 @@ def test_suggested_tif_filename_uses_source_stem() -> None:
     assert suggested_tif_filename('') == 'export.tif'
 
 
+def test_suggested_reference_tif_filename_uses_source_stem() -> None:
+    """Reference TIFF filenames should add the ``-reference`` suffix."""
+    assert suggested_reference_tif_filename('/data/sample.oir') == 'sample-reference.tif'
+    assert suggested_reference_tif_filename('/data/sample.czi') == 'sample-reference.tif'
+    assert suggested_reference_tif_filename('') == 'export-reference.tif'
+
+
 def test_save_as_tif_warns_when_file_missing(tmp_path, monkeypatch) -> None:
     """SaveAsTifIntent should warn when the file_id is not in the loaded list."""
     monkeypatch.setattr(
@@ -966,3 +988,118 @@ def test_save_as_tif_native_cancel_emits_info(tmp_path, monkeypatch) -> None:
 
     assert fake.save_as_tif_calls == []
     assert statuses[-1].message == 'Save As Tif cancelled'
+
+
+def test_save_reference_as_tif_browser_download_exports_and_downloads(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Web mode exports the reference image and downloads its suggested name."""
+    monkeypatch.setattr(
+        'cloudscope.controllers.load_save_controller._is_native_desktop_mode',
+        lambda: False,
+    )
+    downloads: list[tuple[object, str]] = []
+    monkeypatch.setattr(
+        'cloudscope.controllers.load_save_controller.ui.download',
+        lambda src, filename=None, media_type='': downloads.append((src, filename or '')),
+    )
+
+    async def _immediate_io_bound(callback, *args, **kwargs):
+        return callback(*args, **kwargs)
+
+    monkeypatch.setattr(
+        'cloudscope.controllers.load_save_controller.run.io_bound',
+        _immediate_io_bound,
+    )
+
+    bus = EventBus()
+    cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
+    home = HomePageController(event_bus=bus)
+    controller = LoadSaveController(event_bus=bus, home_controller=home, app_config=cfg)
+    controller.bind()
+    fake = _FakeFile(str(tmp_path / 'sample.czi'))
+    home.state.acq_image_list = _FakeList([fake])
+
+    statuses: list[AppStatusChanged] = []
+    bus.subscribe(AppStatusChanged, statuses.append)
+    bus.publish(SaveReferenceAsTifIntent(file_id=fake.file_id))
+
+    assert len(fake.save_reference_as_tif_calls) == 1
+    dest, overwrite = fake.save_reference_as_tif_calls[0]
+    assert overwrite is True
+    assert Path(dest).name == 'sample-reference.tif'
+    assert downloads == [(dest, 'sample-reference.tif')]
+    assert [status.message for status in statuses] == [
+        'Saving reference tif: sample-reference.tif...',
+        'Reference tif saved: sample-reference.tif',
+    ]
+
+
+def test_save_reference_as_tif_native_writes_chosen_path(tmp_path, monkeypatch) -> None:
+    """Native mode uses the chosen path for reference TIFF export."""
+    monkeypatch.setattr(
+        'cloudscope.controllers.load_save_controller._is_native_desktop_mode',
+        lambda: True,
+    )
+    chosen = tmp_path / 'chosen-reference.tif'
+
+    async def _fake_prompt(initial, *, suggested_filename='export.tif', file_extension='.tif'):
+        assert suggested_filename == 'sample-reference.tif'
+        assert file_extension == '.tif'
+        return str(chosen)
+
+    async def _immediate_io_bound(callback, *args, **kwargs):
+        return callback(*args, **kwargs)
+
+    monkeypatch.setattr(
+        'cloudscope.controllers.load_save_controller._prompt_for_save_path',
+        _fake_prompt,
+    )
+    monkeypatch.setattr(
+        'cloudscope.controllers.load_save_controller.run.io_bound',
+        _immediate_io_bound,
+    )
+
+    bus = EventBus()
+    cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
+    home = HomePageController(event_bus=bus)
+    controller = LoadSaveController(event_bus=bus, home_controller=home, app_config=cfg)
+    controller.bind()
+    fake = _FakeFile(str(tmp_path / 'sample.oir'))
+    home.state.acq_image_list = _FakeList([fake])
+
+    bus.publish(SaveReferenceAsTifIntent(file_id=fake.file_id))
+
+    assert fake.save_reference_as_tif_calls == [(chosen, True)]
+
+
+def test_save_reference_as_tif_native_cancel_emits_info(tmp_path, monkeypatch) -> None:
+    """Cancelling native reference export does not call the backend API."""
+    monkeypatch.setattr(
+        'cloudscope.controllers.load_save_controller._is_native_desktop_mode',
+        lambda: True,
+    )
+
+    async def _fake_prompt(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(
+        'cloudscope.controllers.load_save_controller._prompt_for_save_path',
+        _fake_prompt,
+    )
+
+    bus = EventBus()
+    cfg = AppConfig.load(config_path=tmp_path / 'app_config.json')
+    home = HomePageController(event_bus=bus)
+    controller = LoadSaveController(event_bus=bus, home_controller=home, app_config=cfg)
+    controller.bind()
+    fake = _FakeFile(str(tmp_path / 'sample.oir'))
+    home.state.acq_image_list = _FakeList([fake])
+    statuses: list[AppStatusChanged] = []
+    bus.subscribe(AppStatusChanged, statuses.append)
+
+    bus.publish(SaveReferenceAsTifIntent(file_id=fake.file_id))
+
+    assert fake.save_reference_as_tif_calls == []
+    assert statuses[-1].message == 'Save Reference As Tif cancelled'

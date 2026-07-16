@@ -5,12 +5,14 @@ from __future__ import annotations
 import pytest
 import numpy as np
 
-from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader
+from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader, ReferenceImage
 from acqstore.acq_image.metadata import (
     EXPERIMENT_METADATA_SCHEMA,
     IMAGE_HEADER_METADATA_SCHEMA,
+    REFERENCE_IMAGE_METADATA_SCHEMA,
     ExperimentMetadata,
     ImageHeaderMetadata,
+    ReferenceImageMetadata,
 )
 from acqstore.schema import ACQ_FILE_LIST_SCHEMA, ValueType, validate_values_for_schema
 
@@ -246,3 +248,72 @@ def test_metadata_section_objects_expose_expected_methods_and_attributes() -> No
         assert callable(section.update_values)
         assert callable(section.is_dirty)
         assert callable(section.set_clean)
+
+
+def test_reference_image_metadata_from_snapshot() -> None:
+    """Reference metadata exposes spatial Y/X calibration from ReferenceImage."""
+    array = np.zeros((512, 512), dtype=np.uint16)
+    ref = ReferenceImage(
+        array=array,
+        dims=('Y', 'X'),
+        num_channels=1,
+        line_roi=None,
+        coord_units=(('Y', 'micrometer'), ('X', 'micrometer')),
+        coord_scales=(('Y', 0.331), ('X', 0.331)),
+        coords=(),
+    )
+    section = ReferenceImageMetadata.from_reference_image(ref)
+    values = section.get_values()
+    validate_values_for_schema(REFERENCE_IMAGE_METADATA_SCHEMA, values)
+    assert values['shape'] == '(512, 512)'
+    assert values['dims'] == "('Y', 'X')"
+    assert values['dtype'] == 'uint16'
+    assert values['num_channels'] == 1
+    assert values['physical_unit_x'] == pytest.approx(0.331)
+    assert values['physical_unit_y'] == pytest.approx(0.331)
+    assert values['physical_label_x'] == 'um'
+    assert values['physical_label_y'] == 'um'
+    assert values['has_scan_path'] is False
+    assert values['scan_path_num_points'] == 0
+    assert values['line_roi'] == ''
+    assert values['scan_path_x_pixels'] == []
+    assert values['scan_path_y_pixels'] == []
+
+
+def test_reference_image_metadata_includes_scan_path_lists() -> None:
+    """Reference metadata stores scan-path coordinates as JSON-serializable lists."""
+    scan_path = np.asarray([[1.0, 7.0], [2.0, 6.0]])
+    ref = ReferenceImage(
+        array=np.zeros((8, 8), dtype=np.uint8),
+        dims=('Y', 'X'),
+        num_channels=1,
+        line_roi=(1.0, 2.0, 7.0, 6.0),
+        coord_units=(('Y', 'um'), ('X', 'um')),
+        coord_scales=(('Y', 1.0), ('X', 1.0)),
+        coords=(),
+        scan_path=scan_path,
+    )
+    values = ReferenceImageMetadata.from_reference_image(ref).get_values()
+    validate_values_for_schema(REFERENCE_IMAGE_METADATA_SCHEMA, values)
+    assert values['has_scan_path'] is True
+    assert values['scan_path_num_points'] == 2
+    assert values['line_roi'] == '(1.0, 2.0, 7.0, 6.0)'
+    assert values['scan_path_x_pixels'] == [1.0, 7.0]
+    assert values['scan_path_y_pixels'] == [2.0, 6.0]
+
+
+def test_reference_image_metadata_rejects_edits() -> None:
+    """Reference metadata is read-only in v1."""
+    array = np.zeros((4, 4), dtype=np.uint8)
+    ref = ReferenceImage(
+        array=array,
+        dims=('Y', 'X'),
+        num_channels=1,
+        line_roi=None,
+        coord_units=(('Y', 'um'), ('X', 'um')),
+        coord_scales=(('Y', 1.0), ('X', 1.0)),
+        coords=(),
+    )
+    section = ReferenceImageMetadata.from_reference_image(ref)
+    with pytest.raises(ValueError, match='not editable'):
+        section.update_values({'physical_unit_x': 0.5})

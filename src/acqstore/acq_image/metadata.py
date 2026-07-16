@@ -5,7 +5,7 @@ from collections.abc import Callable, Mapping
 from typing import Any, ClassVar
 
 import pandas as pd
-from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader
+from acqstore.acq_image.file_loaders.base_file_loader import ImageHeader, ReferenceImage
 
 from acqstore.schema import (
     FieldSchema,
@@ -748,5 +748,263 @@ class ImageHeaderMetadata:
         )
         self._apply_header(self._header)
         self._is_dirty = True
+
+
+def _normalize_reference_physical_label(label: str) -> str:
+    """Return a stable physical-unit label for reference-image metadata."""
+    normalized = label.strip().lower()
+    if normalized in ('micrometer', 'µm', 'um'):
+        return 'um'
+    return label
+
+
+REFERENCE_IMAGE_METADATA_SCHEMA = SchemaDefinition(
+    schema_id='reference_image_metadata',
+    version=2,
+    fields=(
+        FieldSchema(
+            name='shape',
+            display_name='Shape',
+            value_type=ValueType.STR,
+            default_value='',
+            editable=False,
+            group='Reference',
+        ),
+        FieldSchema(
+            name='dims',
+            display_name='Dims',
+            value_type=ValueType.STR,
+            default_value='',
+            editable=False,
+            group='Reference',
+        ),
+        FieldSchema(
+            name='sizes',
+            display_name='Sizes',
+            value_type=ValueType.STR,
+            default_value='',
+            editable=False,
+            group='Reference',
+        ),
+        FieldSchema(
+            name='dtype',
+            display_name='DType',
+            value_type=ValueType.STR,
+            default_value='',
+            editable=False,
+            group='Reference',
+        ),
+        FieldSchema(
+            name='num_channels',
+            display_name='Channels',
+            value_type=ValueType.INT,
+            default_value=0,
+            editable=False,
+            group='Reference',
+        ),
+        FieldSchema(
+            name='physical_unit_y',
+            display_name='Physical Unit Y',
+            value_type=ValueType.FLOAT,
+            default_value=1.0,
+            editable=False,
+            group='Calibration',
+        ),
+        FieldSchema(
+            name='physical_unit_x',
+            display_name='Physical Unit X',
+            value_type=ValueType.FLOAT,
+            default_value=1.0,
+            editable=False,
+            group='Calibration',
+        ),
+        FieldSchema(
+            name='physical_label_y',
+            display_name='Physical Label Y',
+            value_type=ValueType.STR,
+            default_value='um',
+            editable=False,
+            group='Calibration',
+        ),
+        FieldSchema(
+            name='physical_label_x',
+            display_name='Physical Label X',
+            value_type=ValueType.STR,
+            default_value='um',
+            editable=False,
+            group='Calibration',
+        ),
+        FieldSchema(
+            name='has_scan_path',
+            display_name='Has Scan Path',
+            value_type=ValueType.BOOL,
+            default_value=False,
+            editable=False,
+            group='Scan path',
+        ),
+        FieldSchema(
+            name='scan_path_num_points',
+            display_name='Scan Path Points',
+            value_type=ValueType.INT,
+            default_value=0,
+            editable=False,
+            group='Scan path',
+        ),
+        FieldSchema(
+            name='line_roi',
+            display_name='Line ROI',
+            value_type=ValueType.STR,
+            default_value='',
+            editable=False,
+            group='Scan path',
+        ),
+        FieldSchema(
+            name='scan_path_x_pixels',
+            display_name='Scan Path X (px)',
+            value_type=ValueType.STR,
+            default_value='',
+            editable=False,
+            visible=False,
+            group='Scan path',
+        ),
+        FieldSchema(
+            name='scan_path_y_pixels',
+            display_name='Scan Path Y (px)',
+            value_type=ValueType.STR,
+            default_value='',
+            editable=False,
+            visible=False,
+            group='Scan path',
+        ),
+    ),
+)
+
+
+class ReferenceImageMetadata:
+    """Schema-driven metadata adapter for a reference/overview image snapshot."""
+
+    metadata_section_id: ClassVar[str] = 'reference_image_metadata'
+    display_section_title: ClassVar[str] = 'Reference Image'
+
+    def __init__(self, reference_image: ReferenceImage) -> None:
+        """Construct adapter around one frozen :class:`ReferenceImage`.
+
+        Args:
+            reference_image: Reference snapshot from the backing file loader.
+        """
+        self._reference_image = reference_image
+        self._is_dirty = False
+
+    @classmethod
+    def from_reference_image(cls, reference_image: ReferenceImage) -> ReferenceImageMetadata:
+        """Build metadata from one loader reference snapshot.
+
+        Args:
+            reference_image: Frozen reference image from a file loader.
+
+        Returns:
+            Metadata adapter for the reference image.
+        """
+        return cls(reference_image)
+
+    def is_dirty(self) -> bool:
+        """Return whether metadata was edited since last ``set_clean``."""
+        return self._is_dirty
+
+    def set_clean(self) -> None:
+        """Reset dirty flag after persisting metadata changes."""
+        self._is_dirty = False
+
+    def get_schema(self) -> SchemaDefinition:
+        """Return schema for the reference-image metadata section."""
+        return REFERENCE_IMAGE_METADATA_SCHEMA
+
+    def _scale_for_dim(self, dim: str) -> float:
+        mapping = dict(self._reference_image.coord_scales)
+        value = mapping.get(dim)
+        if value is None:
+            return 1.0
+        scale = float(value)
+        if scale <= 0.0:
+            return 1.0
+        return scale
+
+    def _label_for_dim(self, dim: str) -> str:
+        unit = dict(self._reference_image.coord_units).get(dim)
+        if unit:
+            return _normalize_reference_physical_label(str(unit))
+        return 'um'
+
+    def _scan_path_values(self) -> dict[str, object]:
+        """Return scan-path summary and coordinate lists for metadata export."""
+        line_roi = self._reference_image.get_line_roi()
+        line_roi_str = '' if line_roi is None else str(tuple(float(v) for v in line_roi))
+        if not self._reference_image.has_scan_path():
+            return {
+                'has_scan_path': False,
+                'scan_path_num_points': 0,
+                'line_roi': line_roi_str,
+                'scan_path_x_pixels': [],
+                'scan_path_y_pixels': [],
+            }
+        scan_path_plot = self._reference_image.get_scan_path_plot()
+        if scan_path_plot is None:
+            return {
+                'has_scan_path': False,
+                'scan_path_num_points': 0,
+                'line_roi': line_roi_str,
+                'scan_path_x_pixels': [],
+                'scan_path_y_pixels': [],
+            }
+        x_pixels, y_pixels = scan_path_plot
+        return {
+            'has_scan_path': True,
+            'scan_path_num_points': int(len(x_pixels)),
+            'line_roi': line_roi_str,
+            'scan_path_x_pixels': [float(value) for value in x_pixels],
+            'scan_path_y_pixels': [float(value) for value in y_pixels],
+        }
+
+    def get_values(self) -> dict[str, object]:
+        """Return reference-image values keyed by schema field names."""
+        plane = self._reference_image.get_plane(channel=0)
+        y_size, x_size = (int(plane.array.shape[0]), int(plane.array.shape[1]))
+        dims = ('Y', 'X')
+        sizes = {'Y': y_size, 'X': x_size}
+        values: dict[str, object] = {
+            'shape': str((y_size, x_size)),
+            'dims': str(dims),
+            'sizes': str(sizes),
+            'dtype': str(self._reference_image.array.dtype),
+            'num_channels': int(self._reference_image.num_channels),
+            'physical_unit_y': self._scale_for_dim('Y'),
+            'physical_unit_x': self._scale_for_dim('X'),
+            'physical_label_y': self._label_for_dim('Y'),
+            'physical_label_x': self._label_for_dim('X'),
+        }
+        values.update(self._scan_path_values())
+        validate_values_for_schema(self.get_schema(), values)
+        return values
+
+    def apply_sidecar_calibration(self, raw: Mapping[str, object]) -> None:
+        """No-op for v1: reference metadata fields are file-derived and read-only.
+
+        Args:
+            raw: ``reference_image_metadata`` object from an AcqImage sidecar.
+        """
+        _ = raw
+
+    def update_values(self, patch: dict[str, object]) -> None:
+        """Reject edits because reference metadata is read-only in v1.
+
+        Args:
+            patch: Field patch for this section.
+
+        Raises:
+            ValueError: If ``patch`` contains any keys.
+        """
+        validate_patch_for_schema(self.get_schema(), patch)
+        if patch:
+            raise ValueError('reference_image_metadata fields are read-only')
 
 

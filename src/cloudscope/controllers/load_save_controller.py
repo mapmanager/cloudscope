@@ -42,6 +42,7 @@ from cloudscope.events.files import (
     RemoveRecentPathIntent,
     SaveAllIntent,
     SaveAsTifIntent,
+    SaveReferenceAsTifIntent,
     SaveSelectedIntent,
 )
 from cloudscope.events.status import AppStatusChanged, StatusLevel, StatusSource
@@ -91,6 +92,21 @@ def suggested_tif_filename(source_path: str | Path) -> str:
     if not stem:
         stem = 'export'
     return f'{stem}.tif'
+
+
+def suggested_reference_tif_filename(source_path: str | Path) -> str:
+    """Return a reference-image TIFF filename derived from ``source_path``.
+
+    Args:
+        source_path: Acquisition source path or file id.
+
+    Returns:
+        Filename ending in ``-reference.tif`` using the source stem.
+    """
+    stem = Path(source_path).stem
+    if not stem:
+        stem = 'export'
+    return f'{stem}-reference.tif'
 
 
 def _file_display_name(acq_file: AcqImage) -> str:
@@ -222,6 +238,7 @@ class LoadSaveController:
         self.event_bus.subscribe(SaveSelectedIntent, self._on_save_selected)
         self.event_bus.subscribe(SaveAllIntent, self._on_save_all)
         self.event_bus.subscribe(SaveAsTifIntent, self._on_save_as_tif)
+        self.event_bus.subscribe(SaveReferenceAsTifIntent, self._on_save_reference_as_tif)
         self.event_bus.subscribe(ClearRecentPathsIntent, self._on_clear_recent_paths)
         self.event_bus.subscribe(CancelTaskIntent, self._on_cancel_task)
 
@@ -493,6 +510,156 @@ class LoadSaveController:
                 level=StatusLevel.INFO,
                 source=StatusSource.SAVE,
                 message=f'Tif saved: {tif_name}',
+            )
+        return True
+
+    def _on_save_reference_as_tif(self, event: SaveReferenceAsTifIntent) -> None:
+        """Export one acquisition's reference image as TIFF.
+
+        Args:
+            event: Intent containing the target acquisition file id.
+        """
+        acq_list = self.home_controller.state.acq_image_list
+        if acq_list is None:
+            self._publish_status(
+                level=StatusLevel.WARNING,
+                source=StatusSource.SAVE,
+                message='No files loaded',
+            )
+            return
+        acq_file = acq_list.get_file_by_id(event.file_id)
+        if acq_file is None:
+            self._publish_status(
+                level=StatusLevel.WARNING,
+                source=StatusSource.SAVE,
+                message='Selected file no longer exists',
+            )
+            return
+
+        client = getattr(getattr(ui, 'context', None), 'client', None)
+        if _is_native_desktop_mode():
+            _schedule_coro(self._save_reference_as_tif_native(acq_file))
+            return
+        _schedule_coro(
+            self._save_reference_as_tif_browser_download(acq_file, client=client)
+        )
+
+    async def _save_reference_as_tif_native(self, acq_file: AcqImage) -> None:
+        """Prompt for a local reference TIFF path and export it.
+
+        Args:
+            acq_file: Acquisition whose reference image will be exported.
+        """
+        source_path = acq_file.path
+        suggested = suggested_reference_tif_filename(source_path)
+        initial = Path(source_path).expanduser().resolve(strict=False).parent
+        if not initial.is_dir():
+            initial = Path.cwd()
+        selected = await _prompt_for_save_path(
+            initial,
+            suggested_filename=suggested,
+            file_extension='.tif',
+        )
+        if selected is None:
+            self._publish_status(
+                level=StatusLevel.INFO,
+                source=StatusSource.SAVE,
+                message='Save Reference As Tif cancelled',
+            )
+            return
+        dest = Path(selected)
+        if dest.suffix.lower() not in {'.tif', '.tiff'}:
+            dest = dest.with_suffix('.tif')
+        await self._export_reference_tif_io_bound(acq_file, dest)
+
+    async def _save_reference_as_tif_browser_download(
+        self,
+        acq_file: AcqImage,
+        *,
+        client: Any | None,
+    ) -> None:
+        """Export a temporary reference TIFF and trigger browser download.
+
+        Args:
+            acq_file: Acquisition whose reference image will be exported.
+            client: NiceGUI client captured when the intent was published.
+        """
+        filename = suggested_reference_tif_filename(acq_file.path)
+        tmp_dir = Path(tempfile.mkdtemp(prefix='cloudscope_save_reference_as_tif_'))
+        dest = tmp_dir / filename
+        ok = await self._export_reference_tif_io_bound(
+            acq_file,
+            dest,
+            publish_done=False,
+        )
+        if not ok:
+            return
+
+        def _trigger_download() -> None:
+            ui.download(dest, filename=filename)
+
+        try:
+            if client is not None:
+                client.safe_invoke(_trigger_download)
+            else:
+                _trigger_download()
+        except Exception as exc:
+            logger.exception('Save Reference As Tif browser download failed')
+            self._publish_status(
+                level=StatusLevel.ERROR,
+                source=StatusSource.SAVE,
+                message=f'Save Reference As Tif download failed: {exc}',
+            )
+            return
+        self._publish_status(
+            level=StatusLevel.INFO,
+            source=StatusSource.SAVE,
+            message=f'Reference tif saved: {filename}',
+        )
+
+    async def _export_reference_tif_io_bound(
+        self,
+        acq_file: AcqImage,
+        dest: Path,
+        *,
+        publish_done: bool = True,
+    ) -> bool:
+        """Write a reference TIFF off the UI thread and publish status.
+
+        Args:
+            acq_file: Acquisition whose reference image will be exported.
+            dest: Destination TIFF path.
+            publish_done: Whether to publish success after writing.
+
+        Returns:
+            ``True`` when export succeeded.
+        """
+        display_name = _file_display_name(acq_file)
+        tif_name = dest.name
+        self._publish_status(
+            level=StatusLevel.INFO,
+            source=StatusSource.SAVE,
+            message=f'Saving reference tif: {tif_name}...',
+        )
+        try:
+            await run.io_bound(
+                acq_file.save_reference_as_tif,
+                dest,
+                overwrite=True,
+            )
+        except Exception as exc:
+            logger.exception('Save Reference As Tif failed for %s', display_name)
+            self._publish_status(
+                level=StatusLevel.ERROR,
+                source=StatusSource.SAVE,
+                message=f'Save Reference As Tif failed for {display_name}: {exc}',
+            )
+            return False
+        if publish_done:
+            self._publish_status(
+                level=StatusLevel.INFO,
+                source=StatusSource.SAVE,
+                message=f'Reference tif saved: {tif_name}',
             )
         return True
 
