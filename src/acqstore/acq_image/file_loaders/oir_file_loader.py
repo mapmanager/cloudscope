@@ -13,8 +13,53 @@ from acqstore.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-def _reference_snapshot_from_oir_reference(ref: Any) -> ReferenceImage:
-    """Build a :class:`ReferenceImage` while ``oirfile.OirFile`` is still open."""
+def _oir_reference_spatial_coord_scales(
+    ref: Any,
+    *,
+    pixel_length_x: float | None,
+    pixel_length_y: float | None,
+) -> dict[str, float]:
+    """Return reference ``coord_scales`` with spatial µm/px steps for ``Y`` and ``X``.
+
+    ``oirfile.reference.coord_scales`` are often coordinate-array deltas
+    (``pixel_length / n_pixels``). Reference/overview images are spatial 2-D
+    planes; use the parent ``OirFile`` pixel lengths as µm/px, matching
+    Olympus TXT ``[Reference Image]`` unit-converted size.
+
+    Args:
+        ref: Open ``oirfile`` reference object.
+        pixel_length_x: Micrometers per pixel along ``X``, from parent ``OirFile``.
+        pixel_length_y: Micrometers per pixel along ``Y``; defaults to
+            ``pixel_length_x`` when omitted.
+
+    Returns:
+        ``coord_scales`` mapping with ``Y``/``X`` overridden when lengths are
+        available; otherwise the reference object's scales are returned unchanged.
+    """
+    scales = dict(ref.coord_scales)
+    step_x = pixel_length_x
+    step_y = pixel_length_y if pixel_length_y is not None else pixel_length_x
+    dims = tuple(str(d) for d in ref.dims)
+    if step_y is not None and np.isfinite(step_y) and step_y > 0 and "Y" in dims:
+        scales["Y"] = float(step_y)
+    if step_x is not None and np.isfinite(step_x) and step_x > 0 and "X" in dims:
+        scales["X"] = float(step_x)
+    return scales
+
+
+def _reference_snapshot_from_oir_reference(
+    ref: Any,
+    *,
+    pixel_length_x: float | None = None,
+    pixel_length_y: float | None = None,
+) -> ReferenceImage:
+    """Build a :class:`ReferenceImage` while ``oirfile.OirFile`` is still open.
+
+    Args:
+        ref: Open ``oirfile`` reference attachment.
+        pixel_length_x: Parent-file micrometers per pixel along ``X``.
+        pixel_length_y: Parent-file micrometers per pixel along ``Y``.
+    """
     raw = np.asarray(ref.asarray())
     raw.setflags(write=False)
     dims = tuple(str(d) for d in ref.dims)
@@ -28,7 +73,11 @@ def _reference_snapshot_from_oir_reference(ref: Any) -> ReferenceImage:
         scan_path = np.asarray([[x0, x1], [y0, y1]], dtype=float)
         scan_path.setflags(write=False)
     units_t = tuple(sorted((str(k), str(v)) for k, v in ref.coord_units.items()))
-    scales_raw = ref.coord_scales
+    scales_raw = _oir_reference_spatial_coord_scales(
+        ref,
+        pixel_length_x=pixel_length_x,
+        pixel_length_y=pixel_length_y,
+    )
     scales_t = tuple(sorted((str(k), float(v)) for k, v in scales_raw.items()))
     coord_items: list[tuple[str, np.ndarray]] = []
     for key in sorted(ref.coords.keys(), key=str):
@@ -460,7 +509,13 @@ class OirFileLoader(BaseFileLoader):
             if ref is None:
                 self._referenceImage = None
             else:
-                self._referenceImage = _reference_snapshot_from_oir_reference(ref)
+                pixel_length_x = getattr(oir, "_pixel_length_x", None)
+                pixel_length_y = getattr(oir, "_pixel_length_y", None)
+                self._referenceImage = _reference_snapshot_from_oir_reference(
+                    ref,
+                    pixel_length_x=float(pixel_length_x) if pixel_length_x is not None else None,
+                    pixel_length_y=float(pixel_length_y) if pixel_length_y is not None else None,
+                )
 
         return self._referenceImage
 

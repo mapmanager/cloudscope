@@ -17,6 +17,7 @@ from acqstore.acq_image.file_loaders.oir_file_loader import (
     _enabled_axes_from_lsmimage_xml,
     _image_header_from_oir_scene,
     _is_y_timelapse_line_scan_axis,
+    _oir_reference_spatial_coord_scales,
     _physical_units_for_oir_header,
     _reference_snapshot_from_oir_reference,
     _step_from_coord,
@@ -25,6 +26,8 @@ from acqstore.acq_image.file_loaders.oir_file_loader import (
 _OIR_SAMPLES = Path(__file__).resolve().parent / "data" / "oir-samples"
 _KYMOGRAPH = _OIR_SAMPLES / "20251030_A106_0002.oir"
 _ZSTACK = _OIR_SAMPLES / "20251030_A106.oir"
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_OIR_DEBUG_0010 = _REPO_ROOT / "tmp/oir-debug/two-channel-oir/20260709_A131_0010.oir"
 
 _TIMELAPSE_AXIS_XML = """
 <root xmlns:commonparam="urn:test">
@@ -298,3 +301,53 @@ def test_image_header_from_oir_scene_aligns_labels_with_dims() -> None:
     assert len(header.physical_units_labels) == len(header.dims)
     assert header._physical_label_for_dim("Y") == "seconds"
     assert header._physical_label_for_dim("X") == "micrometer"
+
+
+def test_oir_reference_spatial_coord_scales_override() -> None:
+    """Reference planes use parent pixel length as µm/px, not coord deltas."""
+    ref = _FakeOirReference()
+    scales = _oir_reference_spatial_coord_scales(
+        ref,
+        pixel_length_x=0.331,
+        pixel_length_y=0.331,
+    )
+    assert scales["X"] == pytest.approx(0.331)
+    assert scales["Y"] == pytest.approx(0.331)
+
+    snapshot = _reference_snapshot_from_oir_reference(
+        ref,
+        pixel_length_x=0.331,
+        pixel_length_y=0.331,
+    )
+    plane = snapshot.get_plane(channel=0)
+    assert plane.dx == pytest.approx(0.331)
+    assert plane.dy == pytest.approx(0.331)
+
+
+@pytest.mark.skipif(not _KYMOGRAPH.is_file(), reason="kymograph OIR fixture missing")
+def test_oir_kymograph_reference_plane_matches_primary_spatial_x() -> None:
+    """Reference overview uses spatial µm/px (primary X), not time axis step."""
+    acq = AcqImage(str(_KYMOGRAPH), load_images=False, load_analysis_csv=False)
+    _, primary_x_um = acq.get_image_physical_units()
+    loader = OirFileLoader(str(_KYMOGRAPH))
+    ref = loader.reference_image
+    assert ref is not None
+    plane = ref.get_plane(channel=0)
+    assert plane.dx == pytest.approx(primary_x_um, rel=1e-3)
+    assert plane.dy == pytest.approx(primary_x_um, rel=1e-3)
+    assert plane.dx * plane.array.shape[0] == pytest.approx(primary_x_um * 512, rel=1e-3)
+
+
+@pytest.mark.skipif(not _OIR_DEBUG_0010.is_file(), reason="oir-debug 0010 missing")
+def test_oir_debug_0010_reference_matches_primary_x_and_txt_um_per_pixel() -> None:
+    """Reference µm/px matches primary spatial X and Olympus TXT reference size."""
+    acq = AcqImage(str(_OIR_DEBUG_0010), load_images=False, load_analysis_csv=False)
+    _, primary_x_um = acq.get_image_physical_units()
+    loader = OirFileLoader(str(_OIR_DEBUG_0010))
+    ref = loader.reference_image
+    assert ref is not None
+    plane = ref.get_plane(channel=0)
+    assert plane.dx == pytest.approx(primary_x_um, rel=1e-3)
+    assert plane.dy == pytest.approx(primary_x_um, rel=1e-3)
+    # Olympus TXT: 512 px reference field is 169.706 µm per side → ~0.331 µm/px.
+    assert plane.dx == pytest.approx(169.706 / 512.0, rel=1e-3)
