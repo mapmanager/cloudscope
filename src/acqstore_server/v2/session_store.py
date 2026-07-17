@@ -38,6 +38,17 @@ class SessionBuffers:
 
 
 @dataclass(frozen=True, slots=True)
+class SessionDescription:
+    """Metadata describing one unexpired session without exposing payloads."""
+
+    session_id: str
+    ttl_seconds_remaining: float
+    channel_indices: tuple[int, ...]
+    reference_channel_indices: tuple[int, ...]
+    total_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
 class _SessionEntry:
     buffers: SessionBuffers
     expires_at: float
@@ -71,6 +82,33 @@ class SessionStore:
     def has_session(self, session_id: str) -> bool:
         """Return whether an unexpired session exists."""
         return self._get_entry(session_id) is not None
+
+    def describe(self, session_id: str) -> SessionDescription | None:
+        """Return metadata for one unexpired session, or ``None``."""
+        now = time.monotonic()
+        with self._lock:
+            self._purge_expired_unlocked(now)
+            entry = self._sessions.get(session_id)
+            if entry is None:
+                return None
+            buffers = entry.buffers
+            return SessionDescription(
+                session_id=session_id,
+                ttl_seconds_remaining=max(0.0, entry.expires_at - now),
+                channel_indices=tuple(sorted(buffers.channels)),
+                reference_channel_indices=tuple(sorted(buffers.reference_channels)),
+                total_bytes=(
+                    sum(len(payload) for payload in buffers.channels.values())
+                    + sum(len(payload) for payload in buffers.reference_channels.values())
+                ),
+            )
+
+    def delete(self, session_id: str) -> bool:
+        """Delete one session and return whether it existed and was unexpired."""
+        now = time.monotonic()
+        with self._lock:
+            self._purge_expired_unlocked(now)
+            return self._sessions.pop(session_id, None) is not None
 
     def get_channel(self, session_id: str, channel_index: int) -> bytes | None:
         """Return one source channel payload, or ``None`` when unavailable."""

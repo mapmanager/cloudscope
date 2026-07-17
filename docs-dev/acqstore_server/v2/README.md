@@ -2,27 +2,31 @@
 
 API v2 is the active development API. It is a general AcqStore HTTP interface and does not assign biological roles to source channels.
 
-## Current implementation status
+## Implemented
 
-Implemented foundation:
+- strict camelCase Pydantic request and response schemas;
+- generic ordered `channelIndices` selection;
+- AcqImage-backed loading with transport-neutral internal models;
+- calibrated two-dimensional source and reference planes;
+- raw little-endian float32 binary transport;
+- independent TTL session storage;
+- session metadata and explicit session deletion;
+- runtime capabilities derived from AcqStore's public extension API;
+- maintained JavaScript demo at `/demo/v2/`;
+- isolated v2 tests and OpenAPI coverage.
 
-- strict Pydantic request and response schemas;
-- generic `channelIndices` selection;
-- channel-indexed in-memory session storage;
-- independent `acqstore_server.v2` package;
-- isolated tests under `tests/acqstore_server/v2`.
+## Documents
 
-Not yet implemented:
-
-- AcqImage loading service;
-- v2 HTTP routes;
-- application registration;
-- reference-image transport;
-- generated OpenAPI examples.
+- [API reference](api.md)
+- [Architecture](architecture.md)
+- [Demo client](demo.md)
+- [JavaScript client](javascript-client.md)
+- [Python client](python-client.md)
+- [Format validation](format-validation.md)
 
 ## Compatibility boundary
 
-API v1 remains frozen for the neuronal linescan analyzer v1.18_b client. V2 code must not import the v1 `routes`, `schemas`, `open_service`, or `session_store` modules.
+API v1 remains frozen for the neuronal linescan analyzer v1.18_b client. V2 code does not import the v1 `routes`, `schemas`, `open_service`, or `session_store` modules.
 
 ## Design rules
 
@@ -31,3 +35,4 @@ API v1 remains frozen for the neuronal linescan analyzer v1.18_b client. V2 code
 - JSON aliases and URLs are created only at the HTTP schema/route boundary.
 - Channels are identified by source index, never by calcium/vessel roles.
 - The server reports array orientation and AcqStore coordinates without applying client display transposes.
+- `src/acqstore/` is read-only and is inspected before using AcqStore APIs.

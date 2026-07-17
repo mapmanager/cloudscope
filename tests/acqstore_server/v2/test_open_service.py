@@ -99,3 +99,35 @@ def test_internal_models_have_no_http_urls_or_client_roles(tmp_path: Path) -> No
     assert 'url=' not in text
     assert 'calcium' not in text
     assert 'vessel' not in text
+
+
+def test_directory_backed_acquisition_path_is_not_rejected_as_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from acqstore_server.v2 import open_service
+
+    path = tmp_path / 'example.ome.zarr'
+    path.mkdir()
+
+    class LoaderReachedError(ValueError):
+        pass
+
+    def fake_acq_image(*_args: object, **_kwargs: object) -> object:
+        raise LoaderReachedError('loader was reached')
+
+    monkeypatch.setattr(open_service, 'AcqImage', fake_acq_image)
+
+    with pytest.raises(OpenServiceError) as exc_info:
+        open_acquisition(str(path))
+
+    assert exc_info.value.code == 'unsupported_format'
+    assert 'loader was reached' in exc_info.value.message
+
+
+def test_compound_ome_zarr_format_uses_acqstore_normalization(tmp_path: Path) -> None:
+    from acqstore_server.v2.open_service import _format_from_path
+
+    assert _format_from_path(tmp_path / 'sample.ome.zarr') == 'ome.zarr'
+    assert _format_from_path(tmp_path / 'sample.cs.ome.zarr') == 'cs.ome.zarr'
+    assert _format_from_path(tmp_path / 'sample.ome.zarr.zip') == 'ome.zarr.zip'

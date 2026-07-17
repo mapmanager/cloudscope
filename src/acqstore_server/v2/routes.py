@@ -8,13 +8,20 @@ from collections.abc import Callable, Sequence
 from fastapi import APIRouter, Response
 from fastapi.responses import JSONResponse
 
+from acqstore.acq_image.supported_import_extensions import (
+    get_allowed_import_extensions,
+    get_supported_import_extensions,
+)
+
 from acqstore_server.logging_setup import get_logger
 from acqstore_server.v2.encoding import encode_raw_f32_le
 from acqstore_server.v2.models import OpenedAcquisition, ReferenceImageData
 from acqstore_server.v2.open_service import OpenServiceError, open_acquisition
 from acqstore_server.v2.schemas import (
     AxisResponse,
+    CapabilitiesResponse,
     ChannelResponse,
+    DeleteSessionResponse,
     ErrorResponse,
     OpenRequest,
     OpenResponse,
@@ -23,6 +30,7 @@ from acqstore_server.v2.schemas import (
     ReferenceChannelResponse,
     ReferenceResponse,
     ScanPathResponse,
+    SessionResponse,
     SourceResponse,
 )
 from acqstore_server.v2.session_store import SessionBuffers, SessionStore
@@ -99,10 +107,7 @@ def _reference_response(
             ReferenceChannelResponse(
                 index=channel.index,
                 byte_length=len(payloads[channel.index]),
-                data_url=(
-                    f'/api/v2/sessions/{session_id}/reference/channels/'
-                    f'{channel.index}/data'
-                ),
+                data_url=(f'/api/v2/sessions/{session_id}/reference/channels/{channel.index}/data'),
             )
             for channel in reference.channels
         ],
@@ -112,15 +117,10 @@ def _reference_response(
 
 
 def _register_opened(opened: OpenedAcquisition, store: SessionStore) -> OpenResponse:
-    channel_payloads = {
-        channel.index: encode_raw_f32_le(channel.array) for channel in opened.channels
-    }
+    channel_payloads = {channel.index: encode_raw_f32_le(channel.array) for channel in opened.channels}
     reference_payloads: dict[int, bytes] = {}
     if opened.reference is not None:
-        reference_payloads = {
-            channel.index: encode_raw_f32_le(channel.array)
-            for channel in opened.reference.channels
-        }
+        reference_payloads = {channel.index: encode_raw_f32_le(channel.array) for channel in opened.reference.channels}
     session_id = store.create(
         SessionBuffers(
             channels=channel_payloads,
@@ -177,6 +177,14 @@ def create_router(*, store: SessionStore, pick_file: PickFileFn) -> APIRouter:
     def health() -> dict[str, object]:
         return {'ok': True, 'apiVersion': 'v2'}
 
+    @router.get('/capabilities', response_model=CapabilitiesResponse)
+    def capabilities() -> CapabilitiesResponse:
+        return CapabilitiesResponse(
+            supported_import_extensions=list(get_supported_import_extensions()),
+            allowed_import_extensions=list(get_allowed_import_extensions()),
+            session_ttl_seconds=store.ttl_seconds,
+        )
+
     @router.post(
         '/open',
         response_model=OpenResponse,
@@ -219,6 +227,41 @@ def create_router(*, store: SessionStore, pick_file: PickFileFn) -> APIRouter:
         except OpenServiceError as exc:
             logger.warning('v2 pick-and-open failed: %s — %s', exc.code, exc.message)
             return _error(exc.code, exc.message)
+
+    @router.get(
+        '/sessions/{session_id}',
+        response_model=SessionResponse,
+        responses={404: {'model': ErrorResponse}},
+    )
+    def session_metadata(session_id: str) -> SessionResponse | JSONResponse:
+        description = store.describe(session_id)
+        if description is None:
+            return _error(
+                'session_not_found',
+                f'Session not found: {session_id}',
+                status_code=404,
+            )
+        return SessionResponse(
+            session_id=description.session_id,
+            ttl_seconds_remaining=description.ttl_seconds_remaining,
+            channel_indices=list(description.channel_indices),
+            reference_channel_indices=list(description.reference_channel_indices),
+            total_bytes=description.total_bytes,
+        )
+
+    @router.delete(
+        '/sessions/{session_id}',
+        response_model=DeleteSessionResponse,
+        responses={404: {'model': ErrorResponse}},
+    )
+    def delete_session(session_id: str) -> DeleteSessionResponse | JSONResponse:
+        if not store.delete(session_id):
+            return _error(
+                'session_not_found',
+                f'Session not found: {session_id}',
+                status_code=404,
+            )
+        return DeleteSessionResponse(session_id=session_id)
 
     @router.get('/sessions/{session_id}/channels/{channel_index}/data')
     def channel_data(session_id: str, channel_index: int) -> Response:

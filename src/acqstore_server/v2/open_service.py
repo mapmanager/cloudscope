@@ -8,6 +8,9 @@ from collections.abc import Sequence
 import numpy as np
 
 from acqstore.acq_image.acq_image import AcqImage
+from acqstore.acq_image.supported_import_extensions import (
+    normalize_import_extension_for_path,
+)
 from acqstore.acq_image.file_loaders.base_file_loader import ReferenceImage
 from acqstore_server.v2.models import (
     AxisInfo,
@@ -29,8 +32,8 @@ class OpenServiceError(Exception):
 
 
 def _format_from_path(path: Path) -> str:
-    suffix = path.suffix.lower().lstrip('.')
-    return 'tif' if suffix == 'tiff' else suffix or 'unknown'
+    """Return AcqStore's canonical simple or compound import extension."""
+    return normalize_import_extension_for_path(path) or 'unknown'
 
 
 def _channel_name(index: int) -> str:
@@ -231,8 +234,8 @@ def open_acquisition(
         raise OpenServiceError('path_required', 'path is required')
 
     resolved = Path(path).expanduser().resolve(strict=False)
-    if not resolved.is_file():
-        raise OpenServiceError('path_not_found', f'File not found: {resolved}')
+    if not resolved.exists():
+        raise OpenServiceError('path_not_found', f'Acquisition path not found: {resolved}')
 
     try:
         acq = AcqImage(str(resolved), load_images=True, load_analysis_csv=False)

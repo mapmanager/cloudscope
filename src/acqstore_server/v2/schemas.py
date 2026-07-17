@@ -78,6 +78,26 @@ class PickAndOpenRequest(_ChannelSelectionRequest):
         return normalized
 
 
+class BinaryEncodingResponse(ApiModel):
+    """Binary transport representation used for served planes."""
+
+    served_dtype: Literal['float32'] = 'float32'
+    encoding: Literal['raw-f32-le'] = 'raw-f32-le'
+    layout: Literal['row-major'] = 'row-major'
+    media_type: Literal['application/octet-stream'] = 'application/octet-stream'
+
+
+class CapabilitiesResponse(ApiModel):
+    """Runtime AcqStore loader and transport capabilities."""
+
+    ok: Literal[True] = True
+    api_version: Literal['v2'] = 'v2'
+    supported_import_extensions: list[str]
+    allowed_import_extensions: list[str]
+    binary: BinaryEncodingResponse = Field(default_factory=BinaryEncodingResponse)
+    session_ttl_seconds: float = Field(gt=0)
+
+
 class AxisResponse(ApiModel):
     """Description of one array dimension in a served plane."""
 
@@ -166,6 +186,25 @@ class OpenResponse(ApiModel):
     plane: PlaneResponse
     channels: list[ChannelResponse]
     reference: ReferenceResponse | None = None
+
+
+class SessionResponse(ApiModel):
+    """Metadata for one live binary session."""
+
+    ok: Literal[True] = True
+    session_id: str
+    ttl_seconds_remaining: float = Field(ge=0)
+    channel_indices: list[ChannelIndex]
+    reference_channel_indices: list[ChannelIndex]
+    total_bytes: int = Field(ge=0)
+
+
+class DeleteSessionResponse(ApiModel):
+    """Confirmation that a live session was explicitly deleted."""
+
+    ok: Literal[True] = True
+    session_id: str
+    deleted: Literal[True] = True
 
 
 class ErrorResponse(ApiModel):

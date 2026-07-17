@@ -87,7 +87,7 @@ def test_v2_missing_session_and_channel_errors(tmp_path: Path) -> None:
     assert missing.json()['error'] == 'session_not_found'
 
     opened = client.post('/api/v2/open', json={'path': str(path.resolve())}).json()
-    absent = client.get(f"/api/v2/sessions/{opened['sessionId']}/channels/9/data")
+    absent = client.get(f'/api/v2/sessions/{opened["sessionId"]}/channels/9/data')
     assert absent.status_code == 404
     assert absent.json()['error'] == 'channel_not_found'
 
@@ -163,3 +163,63 @@ def test_v2_negative_binary_channel_index_is_rejected() -> None:
     response = client.get('/api/v2/sessions/example/channels/-1/data')
     assert response.status_code == 422
     assert response.json()['error'] == 'channel_out_of_range'
+
+
+def test_v2_session_metadata_and_explicit_delete(tmp_path: Path) -> None:
+    path = tmp_path / 'session-lifecycle.tif'
+    source = _write_cyx_tif(path, shape=(2, 5, 4))
+    client = TestClient(create_app(v2_session_store=SessionStore(ttl_seconds=30.0)))
+
+    opened = client.post('/api/v2/open', json={'path': str(path.resolve())})
+    assert opened.status_code == 200
+    payload = opened.json()
+    session_id = payload['sessionId']
+
+    metadata = client.get(f'/api/v2/sessions/{session_id}')
+    assert metadata.status_code == 200
+    session = metadata.json()
+    assert session['ok'] is True
+    assert session['sessionId'] == session_id
+    assert session['channelIndices'] == [0, 1]
+    assert session['referenceChannelIndices'] == []
+    assert session['totalBytes'] == source.size * 4
+    assert 0 < session['ttlSecondsRemaining'] <= 30.0
+
+    deleted = client.delete(f'/api/v2/sessions/{session_id}')
+    assert deleted.status_code == 200
+    assert deleted.json() == {'ok': True, 'sessionId': session_id, 'deleted': True}
+
+    missing_metadata = client.get(f'/api/v2/sessions/{session_id}')
+    assert missing_metadata.status_code == 404
+    assert missing_metadata.json()['error'] == 'session_not_found'
+
+    missing_binary = client.get(payload['channels'][0]['dataUrl'])
+    assert missing_binary.status_code == 404
+    assert missing_binary.json()['error'] == 'session_not_found'
+
+    repeated_delete = client.delete(f'/api/v2/sessions/{session_id}')
+    assert repeated_delete.status_code == 404
+    assert repeated_delete.json()['error'] == 'session_not_found'
+
+
+def test_v2_capabilities_are_sourced_from_acqstore_public_api() -> None:
+    from acqstore.acq_image.supported_import_extensions import (
+        get_allowed_import_extensions,
+        get_supported_import_extensions,
+    )
+
+    response = TestClient(create_app(v2_session_store=SessionStore(ttl_seconds=42.0))).get('/api/v2/capabilities')
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['ok'] is True
+    assert payload['apiVersion'] == 'v2'
+    assert payload['supportedImportExtensions'] == list(get_supported_import_extensions())
+    assert payload['allowedImportExtensions'] == list(get_allowed_import_extensions())
+    assert payload['binary'] == {
+        'servedDtype': 'float32',
+        'encoding': 'raw-f32-le',
+        'layout': 'row-major',
+        'mediaType': 'application/octet-stream',
+    }
+    assert payload['sessionTtlSeconds'] == 42.0

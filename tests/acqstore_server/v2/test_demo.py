@@ -16,6 +16,9 @@ def test_v2_demo_file_exists_and_targets_only_v2_api() -> None:
     assert 'vesselChannel' not in html
     assert 'dataUrl' in html
     assert 'plane.shape' in html
+    assert '/capabilities' in html
+    assert "method:'DELETE'" in html
+    assert 'currentSessionId' in html
 
 
 def test_v2_demo_is_served_at_versioned_path() -> None:

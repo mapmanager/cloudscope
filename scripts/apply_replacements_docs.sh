@@ -41,6 +41,7 @@ rsync -av --dry-run \
   --include='*.css' \
   --include='*.png' \
   --include='*.svg' \
+  --include='*.html' \
   --exclude='*'
 
 echo
