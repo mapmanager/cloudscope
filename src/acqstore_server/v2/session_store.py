@@ -68,6 +68,10 @@ class SessionStore:
             self._sessions[session_id] = entry
         return session_id
 
+    def has_session(self, session_id: str) -> bool:
+        """Return whether an unexpired session exists."""
+        return self._get_entry(session_id) is not None
+
     def get_channel(self, session_id: str, channel_index: int) -> bytes | None:
         """Return one source channel payload, or ``None`` when unavailable."""
         entry = self._get_entry(session_id)

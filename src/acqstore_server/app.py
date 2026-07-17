@@ -19,6 +19,8 @@ from acqstore_server.routes import (
     register_api_routes,
 )
 from acqstore_server.session_store import SessionStore
+from acqstore_server.v2.routes import create_router as create_v2_router
+from acqstore_server.v2.session_store import SessionStore as V2SessionStore
 
 _TRUE = {'1', 'true', 'yes', 'y', 'on'}
 
@@ -33,25 +35,29 @@ def create_app(
     *,
     session_store: SessionStore | None = None,
     pick_file_fn: PickFileFn | None = None,
+    v2_session_store: V2SessionStore | None = None,
 ) -> FastAPI:
     """Build the AcqStore Server ASGI app (API-only / CLI mode).
 
     Args:
         session_store: Optional store override (tests).
         pick_file_fn: Optional native/open picker override (tests).
+        v2_session_store: Optional API v2 store override (tests).
 
     Returns:
         Configured :class:`fastapi.FastAPI` instance.
     """
     ensure_logging()
     store = session_store or SessionStore()
+    v2_store = v2_session_store or V2SessionStore()
     pick_file = pick_file_fn or pick_acquisition_file
     app = FastAPI(
         title='AcqStore Server',
         version=APP_VERSION,
         description=(
-            'Localhost acquisition open API for calcium HTML clients. '
-            'Use /docs for interactive OpenAPI. Demo UI at /demo/.'
+            'Local HTTP API for opening acquisition files with AcqStore and '
+            'serving selected two-dimensional channel planes. Use /docs for '
+            'interactive OpenAPI. Demo UI at /demo/.'
         ),
         docs_url='/docs',
         redoc_url='/redoc',
@@ -65,6 +71,7 @@ def create_app(
         allow_headers=['*'],
     )
     register_api_routes(app, store, pick_file, include_root_json=True, mount_demo=True)
+    app.include_router(create_v2_router(store=v2_store, pick_file=pick_file))
     return app
 
 
@@ -155,7 +162,7 @@ def native_ui_run_kwargs(*, host: str, port: int) -> dict[str, object]:
         'storage_secret': 'acqstore-server-local',
         'fastapi_docs': True,
         'show_welcome_message': False,
-        # Required: do not gzip large /api/v1/session binary responses.
+        # Required: do not gzip large API session binary responses.
         'gzip_middleware_factory': None,
     }
 
@@ -170,6 +177,7 @@ def main_native() -> None:
     ensure_logging()
     host, port = _resolve_bind()
     store = SessionStore()
+    v2_store = V2SessionStore()
     pick_file = pick_acquisition_file
 
     nicegui_app.add_middleware(
@@ -186,6 +194,7 @@ def main_native() -> None:
         include_root_json=False,
         mount_demo=True,
     )
+    nicegui_app.include_router(create_v2_router(store=v2_store, pick_file=pick_file))
 
     @ui.page('/')
     def _status_page() -> None:

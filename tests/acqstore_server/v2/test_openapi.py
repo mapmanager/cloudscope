@@ -1,0 +1,16 @@
+"""OpenAPI coverage for side-by-side v1 and v2 APIs."""
+
+from fastapi.testclient import TestClient
+
+from acqstore_server.app import create_app
+
+
+def test_openapi_contains_frozen_v1_and_typed_v2_routes() -> None:
+    body = TestClient(create_app()).get('/openapi.json').json()
+    paths = body['paths']
+    assert '/api/v1/open' in paths
+    assert '/api/v2/open' in paths
+    assert '/api/v2/pick-and-open' in paths
+    assert '/api/v2/sessions/{session_id}/channels/{channel_index}/data' in paths
+    schema = paths['/api/v2/open']['post']['requestBody']['content']['application/json']['schema']
+    assert schema['$ref'].endswith('/OpenRequest')
