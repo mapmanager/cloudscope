@@ -36,3 +36,20 @@ API v1 remains frozen for the neuronal linescan analyzer v1.18_b client. V2 code
 - Channels are identified by source index, never by calcium/vessel roles.
 - The server reports array orientation and AcqStore coordinates without applying client display transposes.
 - `src/acqstore/` is read-only and is inspected before using AcqStore APIs.
+
+## Discovering the API
+
+Start with:
+
+```text
+GET /api/v2
+```
+
+This returns stable links to the health check, runtime capabilities, open endpoints, OpenAPI document, interactive documentation, and maintained browser demo.
+
+For machine-generated clients, the recommended inputs are:
+
+1. `GET /api/v2`
+2. `GET /openapi.json`
+3. this documentation directory
+4. the maintained JavaScript client at `/demo/v2/`

@@ -18,6 +18,8 @@ from acqstore_server.v2.encoding import encode_raw_f32_le
 from acqstore_server.v2.models import OpenedAcquisition, ReferenceImageData
 from acqstore_server.v2.open_service import OpenServiceError, open_acquisition
 from acqstore_server.v2.schemas import (
+    ApiIndexResponse,
+    ApiLinkResponse,
     AxisResponse,
     CapabilitiesResponse,
     ChannelResponse,
@@ -173,11 +175,76 @@ def create_router(*, store: SessionStore, pick_file: PickFileFn) -> APIRouter:
     """Create the API v2 router with injected session storage and file picker."""
     router = APIRouter(prefix='/api/v2', tags=['API v2'])
 
-    @router.get('/health')
+    @router.get(
+        '',
+        response_model=ApiIndexResponse,
+        summary='Discover API v2 resources',
+        description=(
+            'Return stable links to the API v2 health, capabilities, OpenAPI, '
+            'interactive documentation, and maintained browser demo resources.'
+        ),
+    )
+    def api_index() -> ApiIndexResponse:
+        return ApiIndexResponse(
+            description=(
+                'General-purpose local HTTP API for opening AcqStore-supported '
+                'acquisition files and serving generic two-dimensional channel planes.'
+            ),
+            links={
+                'health': ApiLinkResponse(
+                    href='/api/v2/health',
+                    method='GET',
+                    description='Lightweight process and API-version health check.',
+                ),
+                'capabilities': ApiLinkResponse(
+                    href='/api/v2/capabilities',
+                    method='GET',
+                    description='Runtime import formats, binary encoding, and session TTL.',
+                ),
+                'open': ApiLinkResponse(
+                    href='/api/v2/open',
+                    method='POST',
+                    description='Open a server-visible acquisition path.',
+                ),
+                'pickAndOpen': ApiLinkResponse(
+                    href='/api/v2/pick-and-open',
+                    method='POST',
+                    description='Open an acquisition selected with the native file picker.',
+                ),
+                'openapi': ApiLinkResponse(
+                    href='/openapi.json',
+                    method='GET',
+                    description='Machine-readable OpenAPI document.',
+                ),
+                'docs': ApiLinkResponse(
+                    href='/docs',
+                    method='GET',
+                    description='Interactive Swagger UI.',
+                ),
+                'demo': ApiLinkResponse(
+                    href='/demo/v2/',
+                    method='GET',
+                    description='Maintained browser JavaScript client.',
+                ),
+            },
+        )
+
+    @router.get(
+        '/health',
+        summary='Check API v2 health',
+        description='Return a lightweight success response without opening a file.',
+    )
     def health() -> dict[str, object]:
         return {'ok': True, 'apiVersion': 'v2'}
 
-    @router.get('/capabilities', response_model=CapabilitiesResponse)
+    @router.get(
+        '/capabilities',
+        response_model=CapabilitiesResponse,
+        summary='Describe runtime capabilities',
+        description=(
+            'Return AcqStore import extensions currently available to the server, the binary plane encoding, and the in-memory session TTL.'
+        ),
+    )
     def capabilities() -> CapabilitiesResponse:
         return CapabilitiesResponse(
             supported_import_extensions=list(get_supported_import_extensions()),
@@ -188,6 +255,10 @@ def create_router(*, store: SessionStore, pick_file: PickFileFn) -> APIRouter:
     @router.post(
         '/open',
         response_model=OpenResponse,
+        summary='Open an acquisition path',
+        description=(
+            'Open a path visible to the local server process, select generic channel indices, and create a temporary binary-data session.'
+        ),
         responses={
             404: {'model': ErrorResponse},
             415: {'model': ErrorResponse},
@@ -207,6 +278,8 @@ def create_router(*, store: SessionStore, pick_file: PickFileFn) -> APIRouter:
     @router.post(
         '/pick-and-open',
         response_model=OpenResponse,
+        summary='Pick and open an acquisition',
+        description=('Display the native file picker, then open the selected acquisition and create a temporary binary-data session.'),
         responses={
             200: {'model': OpenResponse | ErrorResponse},
             415: {'model': ErrorResponse},
@@ -231,6 +304,7 @@ def create_router(*, store: SessionStore, pick_file: PickFileFn) -> APIRouter:
     @router.get(
         '/sessions/{session_id}',
         response_model=SessionResponse,
+        summary='Inspect a live session',
         responses={404: {'model': ErrorResponse}},
     )
     def session_metadata(session_id: str) -> SessionResponse | JSONResponse:
@@ -252,6 +326,7 @@ def create_router(*, store: SessionStore, pick_file: PickFileFn) -> APIRouter:
     @router.delete(
         '/sessions/{session_id}',
         response_model=DeleteSessionResponse,
+        summary='Delete a live session',
         responses={404: {'model': ErrorResponse}},
     )
     def delete_session(session_id: str) -> DeleteSessionResponse | JSONResponse:
@@ -263,7 +338,21 @@ def create_router(*, store: SessionStore, pick_file: PickFileFn) -> APIRouter:
             )
         return DeleteSessionResponse(session_id=session_id)
 
-    @router.get('/sessions/{session_id}/channels/{channel_index}/data')
+    @router.get(
+        '/sessions/{session_id}/channels/{channel_index}/data',
+        summary='Download a source channel plane',
+        description=(
+            'Return one row-major little-endian float32 plane. Reshape using the shape reported by the corresponding open response.'
+        ),
+        responses={
+            200: {
+                'description': 'Raw little-endian float32 plane bytes.',
+                'content': {'application/octet-stream': {'schema': {'type': 'string', 'format': 'binary'}}},
+            },
+            404: {'model': ErrorResponse},
+            422: {'model': ErrorResponse},
+        },
+    )
     def channel_data(session_id: str, channel_index: int) -> Response:
         if channel_index < 0:
             return _error('channel_out_of_range', 'channelIndex must be non-negative')
@@ -282,7 +371,19 @@ def create_router(*, store: SessionStore, pick_file: PickFileFn) -> APIRouter:
             headers={'Content-Length': str(len(data)), 'Cache-Control': 'no-store'},
         )
 
-    @router.get('/sessions/{session_id}/reference/channels/{channel_index}/data')
+    @router.get(
+        '/sessions/{session_id}/reference/channels/{channel_index}/data',
+        summary='Download a reference-image channel plane',
+        description=('Return one reference-image plane in row-major little-endian float32 encoding using AcqStore coordinate semantics.'),
+        responses={
+            200: {
+                'description': 'Raw little-endian float32 reference plane bytes.',
+                'content': {'application/octet-stream': {'schema': {'type': 'string', 'format': 'binary'}}},
+            },
+            404: {'model': ErrorResponse},
+            422: {'model': ErrorResponse},
+        },
+    )
     def reference_channel_data(session_id: str, channel_index: int) -> Response:
         if channel_index < 0:
             return _error('channel_out_of_range', 'channelIndex must be non-negative')

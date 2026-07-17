@@ -29,3 +29,20 @@ def test_v2_openapi_includes_capabilities_route() -> None:
     document = TestClient(create_app()).get('/openapi.json').json()
     operation = document['paths']['/api/v2/capabilities']['get']
     assert operation['responses']['200']['content']['application/json']['schema']
+
+
+def test_v2_openapi_is_descriptive_for_generated_clients() -> None:
+    document = TestClient(create_app()).get('/openapi.json').json()
+    paths = document['paths']
+
+    assert '/api/v2' in paths
+    assert paths['/api/v2']['get']['summary'] == 'Discover API v2 resources'
+    assert paths['/api/v2/open']['post']['summary'] == 'Open an acquisition path'
+
+    binary_operation = paths['/api/v2/sessions/{session_id}/channels/{channel_index}/data']['get']
+    binary_schema = binary_operation['responses']['200']['content']['application/octet-stream']['schema']
+    assert binary_schema == {'type': 'string', 'format': 'binary'}
+
+    open_request = document['components']['schemas']['OpenRequest']
+    assert open_request['examples'][0] == {'path': '/data/example.oir'}
+    assert open_request['additionalProperties'] is False

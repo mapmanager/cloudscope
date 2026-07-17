@@ -45,7 +45,19 @@ class _ChannelSelectionRequest(ApiModel):
 class OpenRequest(_ChannelSelectionRequest):
     """Request body for opening a server-accessible acquisition path."""
 
-    path: str = Field(min_length=1)
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+        extra='forbid',
+        json_schema_extra={
+            'examples': [
+                {'path': '/data/example.oir'},
+                {'path': '/data/example.tif', 'channelIndices': [1, 0]},
+            ]
+        },
+    )
+
+    path: str = Field(min_length=1, description='Absolute path visible to the local server process.')
 
     @field_validator('path')
     @classmethod
@@ -58,7 +70,22 @@ class OpenRequest(_ChannelSelectionRequest):
 class PickAndOpenRequest(_ChannelSelectionRequest):
     """Request body for native file selection followed by opening."""
 
-    extensions: list[str] | None = None
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+        extra='forbid',
+        json_schema_extra={
+            'examples': [
+                {},
+                {'channelIndices': [0, 1], 'extensions': ['.oir', '.tif']},
+            ]
+        },
+    )
+
+    extensions: list[str] | None = Field(
+        default=None,
+        description='Optional native file-dialog extension filter.',
+    )
 
     @field_validator('extensions')
     @classmethod
@@ -76,6 +103,23 @@ class PickAndOpenRequest(_ChannelSelectionRequest):
         if len(normalized) != len(set(normalized)):
             raise ValueError('extensions must not contain duplicate values')
         return normalized
+
+
+class ApiLinkResponse(ApiModel):
+    """One discoverable API v2 resource link."""
+
+    href: str = Field(min_length=1)
+    method: Literal['GET', 'POST', 'DELETE']
+    description: str = Field(min_length=1)
+
+
+class ApiIndexResponse(ApiModel):
+    """Discoverable entry point for AcqStore Server API v2."""
+
+    ok: Literal[True] = True
+    api_version: Literal['v2'] = 'v2'
+    description: str
+    links: dict[str, ApiLinkResponse]
 
 
 class BinaryEncodingResponse(ApiModel):

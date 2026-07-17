@@ -101,3 +101,29 @@ DELETE /api/v2/sessions/{sessionId}
 ```
 
 Clients handling large acquisitions should delete sessions when their buffers are no longer needed. Expired or already-deleted sessions return `session_not_found`.
+
+## API index
+
+```http
+GET /api/v2
+```
+
+The API index is the stable discovery entry point for clients. It returns links rather than requiring callers to know every route in advance.
+
+## Binary response contract
+
+Source and reference channel URLs return:
+
+```text
+Content-Type: application/octet-stream
+Cache-Control: no-store
+```
+
+The payload is a row-major little-endian float32 array. Clients must:
+
+1. verify the downloaded byte count equals `byteLength`;
+2. decode with little-endian float32;
+3. verify the sample count equals the product of `plane.shape`;
+4. reshape using `plane.shape`.
+
+The OpenAPI document describes these responses as binary `application/octet-stream` payloads.
