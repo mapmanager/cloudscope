@@ -61,6 +61,22 @@ class ReferenceImageData:
 
 
 @dataclass(frozen=True, slots=True)
+class AcquisitionHeader:
+    """Normalized AcqStore image header for thin clients."""
+
+    shape: tuple[int, ...]
+    dims: tuple[str, ...]
+    sizes: dict[str, int]
+    dtype: str
+    num_channels: int
+    physical_units: tuple[float | None, ...]
+    physical_units_labels: tuple[str, ...]
+    date: str
+    time: str
+    file_size: str
+
+
+@dataclass(frozen=True, slots=True)
 class OpenedAcquisition:
     """Transport-neutral result of opening one acquisition file."""
 
@@ -68,6 +84,7 @@ class OpenedAcquisition:
     format: str
     source_dtype: str
     num_source_channels: int
+    header: AcquisitionHeader
     axes: tuple[AxisInfo, AxisInfo]
     channels: tuple[ChannelPlane, ...]
     reference: ReferenceImageData | None

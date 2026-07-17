@@ -41,6 +41,7 @@ ACQSTORE_SERVER_NATIVE=1 uv run python -m acqstore_server
 - generic ordered `channelIndices` selection;
 - AcqImage-backed loading with transport-neutral internal models;
 - calibrated two-dimensional source and reference planes;
+- normalized AcqStore acquisition header metadata in every successful open response;
 - raw little-endian float32 binary transport;
 - independent TTL session storage;
 - session metadata and explicit session deletion;

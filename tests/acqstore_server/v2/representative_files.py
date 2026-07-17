@@ -10,7 +10,12 @@ from pathlib import Path
 
 import numpy as np
 
-from acqstore_server.v2.models import AxisInfo, ChannelPlane, OpenedAcquisition
+from acqstore_server.v2.models import (
+    AcquisitionHeader,
+    AxisInfo,
+    ChannelPlane,
+    OpenedAcquisition,
+)
 
 
 def opened_acquisition_fixture(
@@ -38,6 +43,18 @@ def opened_acquisition_fixture(
         format=format_name,
         source_dtype='uint16',
         num_source_channels=max(channel_indices, default=-1) + 1,
+        header=AcquisitionHeader(
+            shape=(len(channel_indices), *shape),
+            dims=('C', 'Y', 'X'),
+            sizes={'C': len(channel_indices), 'Y': shape[0], 'X': shape[1]},
+            dtype='uint16',
+            num_channels=len(channel_indices),
+            physical_units=(1.0, 0.002, 0.5),
+            physical_units_labels=('Channels', 'seconds', 'micrometer'),
+            date='',
+            time='',
+            file_size='',
+        ),
         axes=(
             AxisInfo(
                 array_dimension=0,

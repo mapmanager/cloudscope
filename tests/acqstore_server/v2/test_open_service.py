@@ -21,6 +21,21 @@ class _Header:
     dims: tuple[str, ...] = ('C', 'Y', 'X')
     physical_units_labels: tuple[str, ...] = ('', 'um', 'um')
 
+    def as_json_dict(self) -> dict[str, object]:
+        return {
+            'path': '/tmp/sample.tif',
+            'shape': [2, 5, 4],
+            'dims': ['C', 'Y', 'X'],
+            'sizes': {'C': 2, 'Y': 5, 'X': 4},
+            'dtype': 'uint16',
+            'num_channels': 2,
+            'physical_units': [1.0, 0.25, 0.5],
+            'physical_units_labels': ['Channels', 'um', 'um'],
+            'date': '20260717',
+            'time': '11:30:00',
+            'file_size': '1.2 MB',
+        }
+
 
 class _Pixels:
     def __init__(self, planes: tuple[np.ndarray, ...]) -> None:
@@ -82,6 +97,9 @@ def test_open_all_channels_by_default_through_public_adapter_surface(
     assert [channel.index for channel in opened.channels] == [0, 1]
     assert [channel.name for channel in opened.channels] == ['CH1', 'CH2']
     assert opened.source_dtype == 'uint16'
+    assert opened.header.dims == ('C', 'Y', 'X')
+    assert opened.header.sizes == {'C': 2, 'Y': 5, 'X': 4}
+    assert opened.header.physical_units == (1.0, 0.25, 0.5)
     assert [(axis.name, axis.size, axis.step, axis.unit) for axis in opened.axes] == [
         ('Y', 5, 0.25, 'um'),
         ('X', 4, 0.5, 'um'),

@@ -131,3 +131,13 @@ The OpenAPI document describes these responses as binary `application/octet-stre
 ## Errors
 
 API v2 uses a stable `{ok, error, message}` envelope. Request-validation failures also include machine-readable `details`. See [API v2 errors](errors.md).
+
+
+## AcqStore header
+
+Successful `POST /api/v2/open` and `POST /api/v2/pick-and-open` responses include a
+`header` object sourced from AcqStore's public `ImageHeader.as_json_dict()` API. It
+contains the native acquisition shape, dimensions, dimension sizes, source dtype,
+channel count, physical calibration, acquisition date/time, and display file size.
+The server preserves AcqStore's normalized values and only applies camelCase JSON
+aliases.

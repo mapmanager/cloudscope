@@ -97,6 +97,18 @@ def test_open_response_serializes_json_contract_in_camel_case() -> None:
             source_dtype='uint16',
             num_channels=2,
         ),
+        header=HeaderResponse(
+            shape=[2, 5, 4],
+            dims=['C', 'Y', 'X'],
+            sizes={'C': 2, 'Y': 5, 'X': 4},
+            dtype='uint16',
+            num_channels=2,
+            physical_units=[1.0, 0.001, 0.2],
+            physical_units_labels=['Channels', 'seconds', 'micrometer'],
+            date='',
+            time='',
+            file_size='1.2 MB',
+        ),
         plane=plane,
         channels=[
             ChannelResponse(
@@ -112,6 +124,8 @@ def test_open_response_serializes_json_contract_in_camel_case() -> None:
     assert payload['sessionId'] == 'abc123'
     assert payload['source']['sourceDtype'] == 'uint16'
     assert payload['source']['numChannels'] == 2
+    assert payload['header']['dims'] == ['C', 'Y', 'X']
+    assert payload['header']['physicalUnits'][1] == 0.001
     assert payload['plane']['servedDtype'] == 'float32'
     assert payload['plane']['axes'][0]['arrayDimension'] == 0
     assert payload['channels'][0]['byteLength'] == 80

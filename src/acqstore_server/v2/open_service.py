@@ -13,6 +13,7 @@ from acqstore.acq_image.supported_import_extensions import (
 )
 from acqstore.acq_image.file_loaders.base_file_loader import ReferenceImage
 from acqstore_server.v2.models import (
+    AcquisitionHeader,
     AxisInfo,
     ChannelPlane,
     OpenedAcquisition,
@@ -82,6 +83,26 @@ def _validate_channel_indices(
         )
     return indices
 
+
+
+def _header_from_acq(acq: AcqImage) -> AcquisitionHeader:
+    """Return AcqStore's JSON-safe normalized image header."""
+    header = acq.images.header.as_json_dict()
+    return AcquisitionHeader(
+        shape=tuple(int(value) for value in header['shape']),
+        dims=tuple(str(value) for value in header['dims']),
+        sizes={str(key): int(value) for key, value in header['sizes'].items()},
+        dtype=str(header['dtype']),
+        num_channels=int(header['num_channels']),
+        physical_units=tuple(
+            None if value is None else float(value)
+            for value in header['physical_units']
+        ),
+        physical_units_labels=tuple(str(value) for value in header['physical_units_labels']),
+        date=str(header['date']),
+        time=str(header['time']),
+        file_size=str(header['file_size']),
+    )
 
 def _axis_info_from_acq(
     acq: AcqImage,
@@ -303,6 +324,7 @@ def open_acquisition(
         format=_format_from_path(resolved),
         source_dtype=source_dtype,
         num_source_channels=num_channels,
+        header=_header_from_acq(acq),
         axes=_axis_info_from_acq(acq, shape=expected_shape),
         channels=tuple(channels),
         reference=_reference_data(reference),

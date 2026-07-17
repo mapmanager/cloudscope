@@ -162,6 +162,22 @@ class SourceResponse(ApiModel):
     num_channels: int = Field(gt=0)
 
 
+
+class HeaderResponse(ApiModel):
+    """AcqStore image header normalized for JSON clients."""
+
+    shape: list[int]
+    dims: list[str]
+    sizes: dict[str, int]
+    dtype: str
+    num_channels: int = Field(gt=0)
+    physical_units: list[float | None]
+    physical_units_labels: list[str]
+    date: str
+    time: str
+    file_size: str
+
+
 class PlaneResponse(ApiModel):
     """Encoding and geometry shared by a collection of channel planes."""
 
@@ -227,6 +243,7 @@ class OpenResponse(ApiModel):
     ok: Literal[True] = True
     session_id: str
     source: SourceResponse
+    header: HeaderResponse
     plane: PlaneResponse
     channels: list[ChannelResponse]
     reference: ReferenceResponse | None = None

@@ -35,6 +35,9 @@ def test_v2_open_and_download_selected_channels(tmp_path: Path) -> None:
     assert payload['ok'] is True
     assert payload['source']['numChannels'] == 3
     assert payload['source']['sourceDtype'] == 'uint16'
+    assert payload['header']['dims'] == ['C', 'Y', 'X']
+    assert payload['header']['sizes'] == {'C': 3, 'Y': 5, 'X': 4}
+    assert payload['header']['dtype'] == 'uint16'
     assert payload['plane']['shape'] == [5, 4]
     assert payload['plane']['encoding'] == 'raw-f32-le'
     assert [item['index'] for item in payload['channels']] == [2, 0]
@@ -141,22 +144,22 @@ def test_v2_open_timeout_returns_stable_error(
 ) -> None:
     import time
 
-    from acqstore_server.v2 import routes as v2_routes
+    from acqstore_server.v2.open_service import open_acquisition
 
     path = tmp_path / 'slow.tif'
     _write_cyx_tif(path)
-    original = v2_routes.open_acquisition
 
     def slow_open(path_value: str, *, channel_indices: object = None) -> object:
         time.sleep(0.05)
-        return original(path_value, channel_indices=channel_indices)
+        return open_acquisition(path_value, channel_indices=channel_indices)
 
-    monkeypatch.setattr(v2_routes, 'open_acquisition', slow_open)
     monkeypatch.setenv('ACQSTORE_SERVER_OPEN_TIMEOUT_S', '0.001')
-    response = TestClient(create_app()).post('/api/v2/open', json={'path': str(path)})
+    response = TestClient(create_app(v2_open_fn=slow_open)).post(
+        '/api/v2/open',
+        json={'path': str(path)},
+    )
     assert response.status_code == 504
     assert response.json()['error'] == 'load_timeout'
-
 
 def test_v2_negative_binary_channel_index_is_rejected() -> None:
     client = TestClient(create_app())

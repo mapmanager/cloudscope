@@ -39,3 +39,10 @@ The demo exercises the public v2 contract:
 The canvas renders array dimension 1 horizontally and array dimension 0 vertically. That is a client display decision. The server does not transpose arrays or swap reference coordinates.
 
 Keep this demo synchronized with every intentional v2 contract change. Tests verify that it targets only `/api/v2` and does not contain v1 role fields.
+
+
+## Header display
+
+After an acquisition opens, the demo displays the AcqStore image header separately
+from the complete open response. This gives client developers a direct example of
+using `header.dims`, `header.sizes`, `header.physicalUnits`, and related metadata.

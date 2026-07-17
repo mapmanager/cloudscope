@@ -43,6 +43,10 @@ pre { max-height:360px; overflow:auto; margin:0; padding:10px; border-radius:8px
 <div id="status" class="status"></div>
 <p id="capabilities" class="meta">Loading server capabilities…</p>
 <section class="card">
+  <h2>AcqStore header</h2>
+  <pre id="headerPre">{}</pre>
+</section>
+<section class="card" style="margin-top:12px">
   <h2>Source channels</h2>
   <div id="channels" class="grid"></div>
 </section>
@@ -66,6 +70,7 @@ const channelsEl = document.getElementById('channels');
 const referencesEl = document.getElementById('references');
 const referenceEmptyEl = document.getElementById('referenceEmpty');
 const responsePre = document.getElementById('responsePre');
+const headerPre = document.getElementById('headerPre');
 const capabilitiesEl = document.getElementById('capabilities');
 let currentSessionId = null;
 
@@ -120,6 +125,7 @@ async function deleteCurrentSession() {
     referencesEl.replaceChildren();
     referenceEmptyEl.hidden = false;
     responsePre.textContent = '{}';
+    headerPre.textContent = '{}';
     setStatus(`Deleted session ${deletedId}.`, 'ok');
   } catch (error) {
     setStatus(error instanceof Error ? error.message : String(error), 'err');
@@ -196,6 +202,7 @@ async function renderResources(container, resources, plane, prefix) {
   }
 }
 async function renderOpen(payload) {
+  headerPre.textContent = JSON.stringify(payload.header, null, 2);
   responsePre.textContent = JSON.stringify(payload, null, 2);
   await renderResources(channelsEl, payload.channels, payload.plane, 'Channel');
   const reference = payload.reference;
