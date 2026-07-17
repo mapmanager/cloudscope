@@ -1,27 +1,45 @@
 # AcqStore Server
 
-AcqStore Server is a lightweight local HTTP server that exposes AcqStore through a stable HTTP API. It is intended for browser applications, JavaScript clients, and other tools that need to load scientific acquisitions without embedding microscope file readers.
+AcqStore Server is a small local HTTP service that uses **AcqStore** to open scientific image acquisitions and expose their metadata and image planes to thin clients.
 
 ## Start here
 
-If you are building a new browser or JavaScript client, read **client-roadmap.md**.
+New browser and JavaScript client developers should read:
 
-That document is the complete onboarding guide and should be sufficient to build a working client.
+**[Client roadmap](client-roadmap.md)**
 
-Everything under `reference/` is lookup documentation that you can consult later if needed.
+It contains the complete first workflow: start the server, open a file, read its header, fetch one image plane, display it, and delete the session.
 
-Existing API v1 integrations should continue using the documentation under `v1/`.
+Do not begin with the detailed reference documents. Use them only when the roadmap points to them or when you need a specific contract detail.
 
-## Interactive API documentation
+## Documentation layers
 
-While the server is running:
+- [`client-roadmap.md`](client-roadmap.md) — the onboarding path for a new client
+- [`reference/`](reference/README.md) — detailed API, JavaScript, error, testing, and architecture reference
+- [`v1/`](v1/README.md) — archived API v1 documentation for existing integrations
 
-- OpenAPI UI: `http://127.0.0.1:8767/docs`
-- OpenAPI JSON: `http://127.0.0.1:8767/openapi.json`
+## Running server
 
-## Repository layout
+External JavaScript developers normally receive and run **AcqStore Server.app**. They do not need to clone CloudScope or install Python.
 
-- `client-roadmap.md` — onboarding guide
-- `reference/` — detailed API and implementation reference
-- `tickets/` — development history
-- `v1/` — archived v1 documentation
+Python developers working from this repository can start the same server with:
+
+```bash
+uv run python -m acqstore_server
+```
+
+The default server origin is:
+
+```text
+http://127.0.0.1:8767
+```
+
+Useful live resources:
+
+```text
+http://127.0.0.1:8767/demo/v2/
+http://127.0.0.1:8767/docs
+http://127.0.0.1:8767/openapi.json
+```
+
+API v2 is the active client-development target. API v1 remains available for existing clients.

@@ -2,7 +2,7 @@
 
 API v1 is preserved for existing clients. It remains available at `/api/v1` and its maintained compatibility demo remains available at `/demo/`.
 
-V1 is not the active development target. New client development should use [API v2](../v2/README.md).
+V1 is not the active development target. New client development should use [API v2](../client-roadmap.md).
 
 ## Legacy documentation
 
