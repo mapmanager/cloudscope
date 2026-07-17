@@ -260,7 +260,7 @@
             <!-- <input id="acqstoreBaseUrl" type="text" value="http://127.0.0.1:8767" spellcheck="false" /> -->
           </div>
         </div>
-        <div id="acqstoreLoadInfo" class="alert">AcqStore Server: idle. Click “Load from AcqStore Server” to open a file via a native dialog.</div>
+        <div id="acqstoreLoadInfo" class="alert">Click “Load from AcqStore Server” to open a file.</div>
       </div>
       <!-- ACQSTORE: end 049 linescan-server-load-ui -->
       <div class="buttonRow" style="margin-top:8px"><button id="demoBtn" class="secondary">Generate demo</button><button id="resetBtn" class="danger">Reset</button></div>
@@ -1077,7 +1077,7 @@ async function loadFromAcqStoreServer(){
         throw new Error((health && health.message) || ('health check failed (HTTP ' + healthResp.status + ')'));
       }
     } catch(err){
-      throw new Error('Cannot reach AcqStore Server at ' + base + '. Start it with: uv run python -m acqstore_server. (' + err.message + ')');
+      throw new Error('Cannot reach AcqStore Server at ' + base + '. Make sure the "AcqStore Server.app" is running. (' + err.message + ')');
     }
     setAlert('acqstoreLoadInfo','Waiting for native file dialog from AcqStore Server…','warn');
     await yieldToBrowser();
@@ -1143,7 +1143,7 @@ async function loadFromAcqStoreServer(){
     await renderAcqStoreReferenceOverview(base, meta.reference);
     if(meta.reference){
       const nRef=meta.reference.numChannels || (meta.reference.channels||[]).length || 0;
-      setAlert('acqstoreLoadInfo',($('acqstoreLoadInfo')?.textContent || '') + ` Reference×${nRef}.`,'ok');
+      setAlert('acqstoreLoadInfo',($('acqstoreLoadInfo')?.textContent || '') + ` · Reference Images:${nRef}.`,'ok');
     }
   } catch(err){
     console.error(err);
@@ -1260,7 +1260,7 @@ function renderAcqStoreReferencePlot(plot, f32, height, width, scanPath, lineRoi
     plot_bgcolor:'#020617',
     font:{color:'#e5e7eb',family:'system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif',size:11},
     showlegend:false,
-    hovermode:'closest',
+    hovermode:false,
     xaxis:{
       title:{text:`${xUnit}`},
       color:'#cbd5e1',
