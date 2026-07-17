@@ -1,335 +1,455 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AcqStore Server v2 — Cursor demo client</title>
-<style>
-:root {
-  color-scheme: dark;
-  --bg:#0d1117; --panel:#161b22; --line:#30363d; --text:#e6edf3;
-  --muted:#8b949e; --accent:#58a6ff; --ok:#3fb950; --err:#f85149;
-}
-* { box-sizing:border-box; }
-body { margin:0; padding:20px; background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,sans-serif; }
-h1 { margin:0 0 4px; font-size:20px; color:var(--accent); }
-h2 { margin:0 0 10px; font-size:14px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); }
-p.sub { margin:0 0 16px; color:var(--muted); font-size:13px; }
-.row { display:flex; flex-wrap:wrap; gap:10px; align-items:end; margin:14px 0; }
-label { display:grid; gap:4px; font-size:12px; color:var(--muted); }
-input[type=text] { min-width:340px; padding:8px 10px; border:1px solid var(--line); border-radius:6px; background:#010409; color:var(--text); font-family:ui-monospace,monospace; font-size:12px; }
-button { padding:9px 16px; border:1px solid var(--line); border-radius:6px; background:var(--accent); color:#04121f; font-weight:600; font-size:13px; cursor:pointer; }
-button.secondary { background:var(--panel); color:var(--text); }
-button.danger { background:transparent; border-color:var(--err); color:var(--err); }
-button:disabled { opacity:.4; cursor:default; }
-.status { min-height:20px; font-size:13px; margin:4px 0 12px; }
-.status.ok { color:var(--ok); } .status.err { color:var(--err); }
-.card { border:1px solid var(--line); border-radius:10px; background:var(--panel); padding:14px; margin-bottom:14px; }
-pre { margin:0; padding:10px; max-height:320px; overflow:auto; border-radius:6px; background:#010409; font-size:11px; line-height:1.5; }
-table.kv { border-collapse:collapse; font-size:13px; width:100%; }
-table.kv td { padding:4px 10px 4px 0; border-bottom:1px solid var(--line); vertical-align:top; }
-table.kv td:first-child { color:var(--muted); white-space:nowrap; width:200px; }
-.canvas-wrap { overflow:auto; max-height:560px; border:1px solid var(--line); border-radius:6px; background:#010409; margin-top:8px; }
-canvas { display:block; }
-.meta { color:var(--muted); font-size:12px; margin:6px 0; }
-#serverBadge { font-size:12px; padding:3px 10px; border-radius:999px; border:1px solid var(--line); color:var(--muted); }
-#serverBadge.up { border-color:var(--ok); color:var(--ok); }
-#serverBadge.down { border-color:var(--err); color:var(--err); }
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AcqStore Server v2 — standalone browser client</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --text: #1a1d23;
+      --muted: #5b6472;
+      --border: #d5dae2;
+      --accent: #1f6feb;
+      --danger: #b42318;
+      --ok: #067647;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.45;
+    }
+    header {
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+    }
+    h1 { margin: 0 0 0.25rem; font-size: 1.15rem; }
+    header p { margin: 0; color: var(--muted); font-size: 0.9rem; }
+    main {
+      display: grid;
+      gap: 1rem;
+      padding: 1rem 1.25rem 2rem;
+      max-width: 1100px;
+    }
+    section {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.9rem 1rem;
+    }
+    h2 { margin: 0 0 0.75rem; font-size: 0.95rem; }
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+      margin-bottom: 0.6rem;
+    }
+    label { font-size: 0.85rem; color: var(--muted); }
+    input[type="text"] {
+      flex: 1 1 280px;
+      min-width: 200px;
+      padding: 0.45rem 0.6rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font: inherit;
+    }
+    button {
+      padding: 0.45rem 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #eef2f7;
+      color: var(--text);
+      font: inherit;
+      cursor: pointer;
+    }
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    button.danger {
+      background: #fff;
+      border-color: #f3b4ae;
+      color: var(--danger);
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    pre {
+      margin: 0;
+      padding: 0.65rem 0.75rem;
+      background: #f0f2f5;
+      border-radius: 6px;
+      overflow: auto;
+      max-height: 280px;
+      font-size: 0.78rem;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    #log {
+      min-height: 4rem;
+      color: var(--muted);
+    }
+    #log .ok { color: var(--ok); }
+    #log .err { color: var(--danger); }
+    canvas {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      border: 1px solid var(--border);
+      background: #111;
+      image-rendering: pixelated;
+    }
+    .meta { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.5rem; }
+  </style>
 </head>
 <body>
-<h1>AcqStore Server v2 — Cursor demo client</h1>
-<p class="sub">Standalone HTML + JavaScript client. Works when opened from <code>file://</code> or any origin; talks to a local AcqStore Server at <code>http://127.0.0.1:8767</code>.</p>
+  <header>
+    <h1>AcqStore Server v2 — standalone browser client</h1>
+    <p>
+      Built from <code>docs-dev/acqstore_server/README.md</code> and
+      <code>client-roadmap.md</code> only. Pure HTML + fetch + Canvas.
+    </p>
+  </header>
 
-<div class="row">
-  <span id="serverBadge">checking server…</span>
-  <button id="recheckBtn" class="secondary" type="button">Re-check server</button>
-</div>
+  <main>
+    <section>
+      <h2>Server</h2>
+      <div class="row">
+        <label for="server">Origin</label>
+        <input id="server" type="text" value="http://127.0.0.1:8767" />
+        <button id="btnHealth" type="button">1. Health</button>
+        <button id="btnCaps" type="button">2. Capabilities</button>
+      </div>
+      <pre id="healthOut">(not fetched)</pre>
+    </section>
 
-<section class="card">
-  <h2>1 · Server capabilities</h2>
-  <pre id="capabilitiesPre">not loaded</pre>
-</section>
+    <section>
+      <h2>Open acquisition</h2>
+      <div class="row">
+        <button id="btnPick" class="primary" type="button">3a. Pick and open</button>
+        <span class="meta">Native dialog on the server machine</span>
+      </div>
+      <div class="row">
+        <label for="path">Absolute path</label>
+        <input
+          id="path"
+          type="text"
+          placeholder="/absolute/path/visible/to/the/server.oir"
+        />
+        <button id="btnOpen" type="button">3b. Open path</button>
+      </div>
+    </section>
 
-<section class="card">
-  <h2>2 · Open an acquisition</h2>
-  <div class="row">
-    <button id="pickBtn" type="button">Pick and open (native dialog on server)</button>
-    <label>Server-visible absolute path
-      <input id="pathInput" type="text" placeholder="/absolute/path/to/acquisition.oir">
-    </label>
-    <button id="openBtn" type="button">Open path</button>
-    <button id="deleteBtn" class="danger" type="button" disabled>Delete session</button>
-  </div>
-  <div id="status" class="status"></div>
-</section>
+    <section>
+      <h2>4. Acquisition metadata (source)</h2>
+      <pre id="sourceOut">(none)</pre>
+    </section>
 
-<section class="card">
-  <h2>3 · Acquisition metadata</h2>
-  <table id="metaTable" class="kv"><tbody><tr><td colspan="2">No acquisition open.</td></tr></tbody></table>
-</section>
+    <section>
+      <h2>5. Acquisition header</h2>
+      <pre id="headerOut">(none)</pre>
+    </section>
 
-<section class="card">
-  <h2>4 · AcqStore header</h2>
-  <pre id="headerPre">not loaded</pre>
-</section>
+    <section>
+      <h2>6–7. Plane download + Canvas display</h2>
+      <div class="row">
+        <button id="btnFetchPlane" type="button" disabled>Fetch &amp; display plane</button>
+        <label>
+          <input id="transpose" type="checkbox" />
+          Client-side transpose before display (optional)
+        </label>
+      </div>
+      <p id="planeMeta" class="meta">No plane loaded.</p>
+      <canvas id="canvas" width="1" height="1"></canvas>
+    </section>
 
-<section class="card">
-  <h2>5 · First source image plane (channel 0, transposed for display)</h2>
-  <p id="planeMeta" class="meta">No plane loaded.</p>
-  <div class="canvas-wrap"><canvas id="planeCanvas" width="1" height="1"></canvas></div>
-</section>
+    <section>
+      <h2>8. Session</h2>
+      <div class="row">
+        <button id="btnDelete" class="danger" type="button" disabled>Delete session</button>
+        <span id="sessionMeta" class="meta">No session</span>
+      </div>
+    </section>
 
-<script>
-'use strict';
+    <section>
+      <h2>Log</h2>
+      <pre id="log"></pre>
+    </section>
+  </main>
 
-// External page: absolute server URL is required (docs: "URL handling" in the
-// JavaScript client guide — prepend the server origin to relative dataUrl values).
-const SERVER = 'http://127.0.0.1:8767';
-const API = `${SERVER}/api/v2`;
+  <script>
+    /**
+     * Client built from client-roadmap.md workflow:
+     * health → capabilities → pick-and-open|open → header/plane metadata
+     * → channels[].dataUrl Float32LE → Canvas → DELETE session
+     */
+    const $ = (id) => document.getElementById(id);
 
-const el = (id) => document.getElementById(id);
-const serverBadge = el('serverBadge');
-const capabilitiesPre = el('capabilitiesPre');
-const statusEl = el('status');
-const metaTableBody = el('metaTable').querySelector('tbody');
-const headerPre = el('headerPre');
-const planeMeta = el('planeMeta');
-const planeCanvas = el('planeCanvas');
-const pickBtn = el('pickBtn');
-const openBtn = el('openBtn');
-const deleteBtn = el('deleteBtn');
-const pathInput = el('pathInput');
+    let SERVER = 'http://127.0.0.1:8767';
+    let API = `${SERVER}/api/v2`;
+    let sessionId = null;
+    let opened = null;
 
-let currentSessionId = null;
-
-function setStatus(message, kind = '') {
-  statusEl.className = `status ${kind}`;
-  statusEl.textContent = message;
-}
-
-function setBusy(busy) {
-  pickBtn.disabled = busy;
-  openBtn.disabled = busy;
-  deleteBtn.disabled = busy || !currentSessionId;
-}
-
-// v2 JSON contract: errors are {ok:false, error:<stable code>, message, details}.
-// Branch on payload.ok / payload.error, not on message text.
-async function requestJson(url, options = {}) {
-  const response = await fetch(url, options);
-  const payload = await response.json();
-  if (!response.ok || payload.ok === false) {
-    const error = new Error(`${payload.error || response.status}: ${payload.message || response.statusText}`);
-    error.code = payload.error || `http_${response.status}`;
-    throw error;
-  }
-  return payload;
-}
-
-// Step 1+2: health check and capability discovery.
-async function checkServer() {
-  serverBadge.className = '';
-  serverBadge.textContent = 'checking server…';
-  try {
-    const health = await requestJson(`${API}/health`);
-    const capabilities = await requestJson(`${API}/capabilities`);
-    serverBadge.className = 'up';
-    serverBadge.textContent = `server healthy · API ${health.apiVersion}`;
-    capabilitiesPre.textContent = JSON.stringify(capabilities, null, 2);
-  } catch (error) {
-    serverBadge.className = 'down';
-    serverBadge.textContent = 'server unavailable';
-    capabilitiesPre.textContent = String(error);
-  }
-}
-
-function renderMetadata(payload) {
-  const rows = [
-    ['File name', payload.source.name],
-    ['Path', payload.source.path],
-    ['Format', payload.source.format],
-    ['Source dtype', payload.source.sourceDtype],
-    ['Source channels', payload.source.numChannels],
-    ['Session ID', payload.sessionId],
-    ['Loaded channels', payload.channels.map((c) => `${c.index} (${c.name})`).join(', ')],
-    ['Plane shape [rows, cols]', payload.plane.shape.join(' × ')],
-    ['Reference image', payload.reference ? `${payload.reference.channels.length} channel(s)` : 'none'],
-  ];
-  metaTableBody.replaceChildren(...rows.map(([key, value]) => {
-    const tr = document.createElement('tr');
-    const keyTd = document.createElement('td');
-    keyTd.textContent = key;
-    const valueTd = document.createElement('td');
-    valueTd.textContent = String(value);
-    tr.append(keyTd, valueTd);
-    return tr;
-  }));
-}
-
-// Binary contract (docs: "Binary source planes"):
-//  - fetch dataUrl with cache:'no-store'
-//  - byte count must equal channel.byteLength
-//  - decode little-endian float32
-//  - sample count must equal plane.shape[0] * plane.shape[1] (row-major)
-async function fetchPlane(channel, plane) {
-  const response = await fetch(`${SERVER}${channel.dataUrl}`, { cache: 'no-store' });
-  if (!response.ok) {
-    let message = `binary fetch failed: HTTP ${response.status}`;
-    if ((response.headers.get('content-type') || '').includes('application/json')) {
-      const payload = await response.json();
-      message = `${payload.error || response.status}: ${payload.message || message}`;
+    function syncOrigin() {
+      SERVER = $('server').value.replace(/\/$/, '');
+      API = `${SERVER}/api/v2`;
     }
-    throw new Error(message);
-  }
-  const buffer = await response.arrayBuffer();
-  if (buffer.byteLength !== channel.byteLength) {
-    throw new Error(`byteLength mismatch: expected ${channel.byteLength}, got ${buffer.byteLength}`);
-  }
-  // Float32Array assumes platform endianness; every browser JS engine in
-  // practice is little-endian, matching the server's raw-f32-le encoding.
-  const values = new Float32Array(buffer);
-  const expected = plane.shape[0] * plane.shape[1];
-  if (values.length !== expected) {
-    throw new Error(`sample count mismatch: expected ${expected}, got ${values.length}`);
-  }
-  return values;
-}
 
-// The server never transposes; the docs require the client to transpose the
-// row-major [rows, cols] plane immediately before display.
-function transposePlane(values, shape) {
-  const [rows, cols] = shape;
-  const transposed = new Float32Array(values.length);
-  for (let row = 0; row < rows; row += 1) {
-    for (let col = 0; col < cols; col += 1) {
-      transposed[col * rows + row] = values[row * cols + col];
+    function log(message, kind) {
+      const el = $('log');
+      const line = document.createElement('div');
+      if (kind) line.className = kind;
+      line.textContent = `${new Date().toISOString().slice(11, 19)}  ${message}`;
+      el.prepend(line);
     }
-  }
-  return { values: transposed, shape: [cols, rows] };
-}
 
-function finiteRange(values) {
-  let min = Infinity;
-  let max = -Infinity;
-  for (const value of values) {
-    if (Number.isFinite(value)) {
-      if (value < min) min = value;
-      if (value > max) max = value;
+    function showJson(el, value) {
+      el.textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
     }
-  }
-  return max > min ? [min, max] : [0, 1];
-}
 
-function drawPlane(canvas, values, shape) {
-  const [rows, cols] = shape;
-  const [min, max] = finiteRange(values);
-  const image = new ImageData(cols, rows);
-  for (let i = 0; i < values.length; i += 1) {
-    const gray = Math.max(0, Math.min(255, Math.round(((values[i] - min) / (max - min)) * 255)));
-    const offset = i * 4;
-    image.data[offset] = gray;
-    image.data[offset + 1] = gray;
-    image.data[offset + 2] = gray;
-    image.data[offset + 3] = 255;
-  }
-  const offscreen = document.createElement('canvas');
-  offscreen.width = cols;
-  offscreen.height = rows;
-  offscreen.getContext('2d').putImageData(image, 0, 0);
-  // Uniform fit scale, but never let an extreme-aspect plane (e.g. a 30000x24
-  // linescan) collapse below 32 display pixels on either axis.
-  const fit = Math.min(4, 1000 / cols, 520 / rows);
-  canvas.width = Math.max(32, Math.max(1, Math.round(cols * fit)));
-  canvas.height = Math.max(32, Math.max(1, Math.round(rows * fit)));
-  const context = canvas.getContext('2d');
-  context.imageSmoothingEnabled = false;
-  context.drawImage(offscreen, 0, 0, canvas.width, canvas.height);
-}
-
-function axisSummary(plane) {
-  return plane.axes
-    .map((axis) => `${axis.name}: ${axis.size} px × ${axis.step} ${axis.unit}`)
-    .join(' · ');
-}
-
-async function renderOpen(payload) {
-  currentSessionId = payload.sessionId;
-  renderMetadata(payload);
-  headerPre.textContent = JSON.stringify(payload.header, null, 2);
-
-  const channel = payload.channels[0];
-  const values = await fetchPlane(channel, payload.plane);
-  const display = transposePlane(values, payload.plane.shape);
-  drawPlane(planeCanvas, display.values, display.shape);
-  planeMeta.textContent =
-    `Channel ${channel.index} (${channel.name}) · served ${payload.plane.shape[0]} × ${payload.plane.shape[1]} row-major float32 · ` +
-    `displayed transposed as ${display.shape[0]} × ${display.shape[1]} · ${axisSummary(payload.plane)}`;
-}
-
-function clearAcquisitionUi() {
-  metaTableBody.replaceChildren();
-  const tr = document.createElement('tr');
-  const td = document.createElement('td');
-  td.colSpan = 2;
-  td.textContent = 'No acquisition open.';
-  tr.appendChild(td);
-  metaTableBody.appendChild(tr);
-  headerPre.textContent = 'not loaded';
-  planeMeta.textContent = 'No plane loaded.';
-  planeCanvas.width = 1;
-  planeCanvas.height = 1;
-}
-
-async function runOpen(kind) {
-  setBusy(true);
-  setStatus('Opening acquisition…');
-  try {
-    const payload = kind === 'pick'
-      ? await requestJson(`${API}/pick-and-open`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
-        })
-      : await requestJson(`${API}/open`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path: pathInput.value.trim() }),
-        });
-    await renderOpen(payload);
-    setStatus(`Loaded ${payload.source.name} · session ${payload.sessionId}`, 'ok');
-  } catch (error) {
-    if (error.code === 'cancelled') {
-      setStatus('File dialog cancelled.', '');
-    } else {
-      setStatus(error instanceof Error ? error.message : String(error), 'err');
+    function setSessionUi(active) {
+      $('btnFetchPlane').disabled = !active;
+      $('btnDelete').disabled = !active;
+      $('sessionMeta').textContent = active
+        ? `sessionId=${sessionId}`
+        : 'No session';
     }
-  } finally {
-    setBusy(false);
-  }
-}
 
-async function deleteCurrentSession() {
-  if (!currentSessionId) return;
-  setBusy(true);
-  try {
-    const sessionId = currentSessionId;
-    await requestJson(`${API}/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
-    currentSessionId = null;
-    clearAcquisitionUi();
-    setStatus(`Deleted session ${sessionId}.`, 'ok');
-  } catch (error) {
-    setStatus(error instanceof Error ? error.message : String(error), 'err');
-  } finally {
-    setBusy(false);
-  }
-}
+    function decodeFloat32LittleEndian(buffer) {
+      if (buffer.byteLength % 4 !== 0) {
+        throw new Error('Float32 payload length must be divisible by four');
+      }
+      const view = new DataView(buffer);
+      const values = new Float32Array(buffer.byteLength / 4);
+      for (let index = 0; index < values.length; index += 1) {
+        values[index] = view.getFloat32(index * 4, true);
+      }
+      return values;
+    }
 
-pickBtn.addEventListener('click', () => runOpen('pick'));
-openBtn.addEventListener('click', () => runOpen('path'));
-deleteBtn.addEventListener('click', deleteCurrentSession);
-el('recheckBtn').addEventListener('click', checkServer);
-checkServer();
-</script>
+    function transposePlane(values, shape) {
+      const [rows, columns] = shape;
+      const transposed = new Float32Array(values.length);
+      for (let row = 0; row < rows; row += 1) {
+        for (let column = 0; column < columns; column += 1) {
+          transposed[column * rows + row] = values[row * columns + column];
+        }
+      }
+      return { values: transposed, shape: [columns, rows] };
+    }
+
+    /** Min/max stretch Float32 plane to grayscale ImageData (Canvas). */
+    function renderPlaneToCanvas(values, shape) {
+      const [rows, columns] = shape;
+      const canvas = $('canvas');
+      canvas.width = columns;
+      canvas.height = rows;
+      const ctx = canvas.getContext('2d');
+      const image = ctx.createImageData(columns, rows);
+
+      let min = Infinity;
+      let max = -Infinity;
+      for (let i = 0; i < values.length; i += 1) {
+        const v = values[i];
+        if (!Number.isFinite(v)) continue;
+        if (v < min) min = v;
+        if (v > max) max = v;
+      }
+      if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) {
+        min = 0;
+        max = 1;
+      }
+      const scale = 255 / (max - min);
+
+      for (let i = 0; i < values.length; i += 1) {
+        const gray = Math.max(0, Math.min(255, Math.round((values[i] - min) * scale)));
+        const o = i * 4;
+        image.data[o] = gray;
+        image.data[o + 1] = gray;
+        image.data[o + 2] = gray;
+        image.data[o + 3] = 255;
+      }
+      ctx.putImageData(image, 0, 0);
+      return { min, max, rows, columns };
+    }
+
+    async function readJson(response) {
+      const text = await response.text();
+      try {
+        return text ? JSON.parse(text) : {};
+      } catch (err) {
+        throw new Error(`Non-JSON response (HTTP ${response.status}): ${text.slice(0, 200)}`);
+      }
+    }
+
+    async function checkHealth() {
+      syncOrigin();
+      const health = await fetch(`${API}/health`).then((r) => r.json());
+      showJson($('healthOut'), health);
+      if (!health.ok) {
+        throw new Error('AcqStore Server is not healthy');
+      }
+      log('Health OK', 'ok');
+      return health;
+    }
+
+    async function checkCapabilities() {
+      syncOrigin();
+      const capabilities = await fetch(`${API}/capabilities`).then((r) => r.json());
+      showJson($('healthOut'), { health: 'see previous', capabilities });
+      log('Capabilities received', 'ok');
+      return capabilities;
+    }
+
+    async function applyOpened(response, openedBody) {
+      if (!response.ok || openedBody.ok === false) {
+        throw new Error(
+          `${openedBody.error ?? response.status}: ${openedBody.message ?? response.statusText}`,
+        );
+      }
+      opened = openedBody;
+      sessionId = opened.sessionId;
+      showJson($('sourceOut'), opened.source ?? opened);
+      showJson($('headerOut'), opened.header ?? '(no header field)');
+      setSessionUi(true);
+      log(`Opened session ${sessionId}`, 'ok');
+      await fetchAndDisplayPlane();
+    }
+
+    async function pickAndOpen() {
+      syncOrigin();
+      const response = await fetch(`${API}/pick-and-open`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const body = await readJson(response);
+      if (body.ok === false && body.error === 'cancelled') {
+        log('Picker cancelled (HTTP 200, ok:false)', 'err');
+        showJson($('sourceOut'), body);
+        return;
+      }
+      await applyOpened(response, body);
+    }
+
+    async function openPath() {
+      syncOrigin();
+      const path = $('path').value.trim();
+      if (!path) {
+        throw new Error('Enter an absolute path visible to the server');
+      }
+      const response = await fetch(`${API}/open`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
+      });
+      const body = await readJson(response);
+      await applyOpened(response, body);
+    }
+
+    async function fetchAndDisplayPlane() {
+      if (!opened) {
+        throw new Error('No open acquisition');
+      }
+      const plane = opened.plane;
+      const firstChannel = opened.channels[0];
+      if (!firstChannel || !firstChannel.dataUrl) {
+        throw new Error('Open response missing channels[0].dataUrl');
+      }
+
+      // dataUrl is relative to server origin (roadmap §5)
+      const dataResponse = await fetch(`${SERVER}${firstChannel.dataUrl}`, {
+        cache: 'no-store',
+      });
+      if (!dataResponse.ok) {
+        throw new Error(`Binary request failed: HTTP ${dataResponse.status}`);
+      }
+
+      const buffer = await dataResponse.arrayBuffer();
+      if (buffer.byteLength !== firstChannel.byteLength) {
+        throw new Error(
+          `byteLength mismatch: expected ${firstChannel.byteLength}, got ${buffer.byteLength}`,
+        );
+      }
+
+      let values = decodeFloat32LittleEndian(buffer);
+      let shape = plane.shape;
+      const expectedSamples = shape[0] * shape[1];
+      if (values.length !== expectedSamples) {
+        throw new Error(
+          `sample-count mismatch: expected ${expectedSamples}, got ${values.length}`,
+        );
+      }
+
+      if ($('transpose').checked) {
+        const t = transposePlane(values, shape);
+        values = t.values;
+        shape = t.shape;
+      }
+
+      const stats = renderPlaneToCanvas(values, shape);
+      $('planeMeta').textContent =
+        `shape=[${shape.join(', ')}]  samples=${values.length}  ` +
+        `byteLength=${firstChannel.byteLength}  intensity=[${stats.min}, ${stats.max}]  ` +
+        `dataUrl=${firstChannel.dataUrl}`;
+      log('Plane decoded and drawn to Canvas', 'ok');
+    }
+
+    async function deleteSession() {
+      if (!sessionId) {
+        throw new Error('No session to delete');
+      }
+      syncOrigin();
+      const deleteResponse = await fetch(
+        `${API}/sessions/${encodeURIComponent(sessionId)}`,
+        { method: 'DELETE' },
+      );
+      const deleted = await readJson(deleteResponse);
+      if (!deleteResponse.ok || deleted.ok === false) {
+        throw new Error(
+          `${deleted.error ?? deleteResponse.status}: ${deleted.message ?? deleteResponse.statusText}`,
+        );
+      }
+      log(`Deleted session ${sessionId}`, 'ok');
+      sessionId = null;
+      opened = null;
+      setSessionUi(false);
+      showJson($('sourceOut'), '(session deleted)');
+      showJson($('headerOut'), '(session deleted)');
+      $('planeMeta').textContent = 'Session deleted.';
+    }
+
+    function wrap(fn) {
+      return async () => {
+        try {
+          await fn();
+        } catch (err) {
+          console.error(err);
+          log(String(err.message || err), 'err');
+        }
+      };
+    }
+
+    $('btnHealth').addEventListener('click', wrap(checkHealth));
+    $('btnCaps').addEventListener('click', wrap(checkCapabilities));
+    $('btnPick').addEventListener('click', wrap(pickAndOpen));
+    $('btnOpen').addEventListener('click', wrap(openPath));
+    $('btnFetchPlane').addEventListener('click', wrap(fetchAndDisplayPlane));
+    $('btnDelete').addEventListener('click', wrap(deleteSession));
+
+    // Auto-verify health on load (roadmap steps 1–2 start here)
+    wrap(async () => {
+      await checkHealth();
+      await checkCapabilities();
+    })();
+  </script>
 </body>
 </html>

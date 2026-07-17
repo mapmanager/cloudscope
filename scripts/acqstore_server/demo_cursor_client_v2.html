@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>AcqStore Server v2 client (eval v2)</title>
+  <style>
+    body { font-family: Georgia, "Times New Roman", serif; margin: 1.5rem; max-width: 960px; color: #222; }
+    h1 { font-size: 1.35rem; margin-bottom: 0.35rem; }
+    .note { color: #555; font-size: 0.9rem; margin-bottom: 1.25rem; }
+    fieldset { border: 1px solid #bbb; margin: 0 0 1rem; padding: 0.75rem 1rem; }
+    legend { padding: 0 0.35rem; font-weight: bold; }
+    input[type="text"] { width: min(100%, 36rem); }
+    button { margin: 0.2rem 0.35rem 0.2rem 0; }
+    output, pre {
+      display: block;
+      background: #f4f4f4;
+      border: 1px solid #ddd;
+      padding: 0.5rem 0.65rem;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: ui-monospace, Menlo, monospace;
+      font-size: 0.78rem;
+      max-height: 220px;
+      overflow: auto;
+    }
+    #status { min-height: 3.5rem; }
+    #status .fail { color: #9b1c1c; }
+    #status .pass { color: #146c2e; }
+    canvas { border: 1px solid #888; background: #000; max-width: 100%; image-rendering: pixelated; }
+  </style>
+</head>
+<body>
+  <h1>AcqStore Server — first browser client (v2 eval)</h1>
+  <p class="note">
+    Written from <code>docs-dev/acqstore_server/README.md</code> and
+    <code>client-roadmap.md</code> only. No prior client file was opened.
+  </p>
+
+  <fieldset>
+    <legend>Server origin</legend>
+    <label>SERVER <input id="origin" type="text" value="http://127.0.0.1:8767" /></label>
+    <div>
+      <button type="button" id="runHealth">Health</button>
+      <button type="button" id="runCaps">Capabilities</button>
+      <button type="button" id="runBoth">Health + capabilities</button>
+    </div>
+    <pre id="probeBox">—</pre>
+  </fieldset>
+
+  <fieldset>
+    <legend>Open acquisition</legend>
+    <div>
+      <button type="button" id="runPick">POST /pick-and-open</button>
+    </div>
+    <div>
+      <label>path
+        <input id="absPath" type="text" placeholder="/absolute/path/visible/to/the/server.oir" />
+      </label>
+      <button type="button" id="runOpen">POST /open</button>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Metadata (source)</legend>
+    <pre id="sourceBox">—</pre>
+  </fieldset>
+
+  <fieldset>
+    <legend>Acquisition header</legend>
+    <pre id="headerBox">—</pre>
+  </fieldset>
+
+  <fieldset>
+    <legend>Plane</legend>
+    <label><input type="checkbox" id="doTranspose" /> optional client-side transpose before display</label>
+    <div>
+      <button type="button" id="runPlane" disabled>Fetch + decode + draw channel 0</button>
+    </div>
+    <p id="planeInfo">No plane.</p>
+    <canvas id="view" width="8" height="8"></canvas>
+  </fieldset>
+
+  <fieldset>
+    <legend>Session</legend>
+    <button type="button" id="runDelete" disabled>DELETE session</button>
+    <output id="sessionBox">no session</output>
+  </fieldset>
+
+  <fieldset>
+    <legend>Status</legend>
+    <div id="status"></div>
+  </fieldset>
+
+  <script>
+    /* Roadmap constants and workflow — implemented from client-roadmap.md. */
+
+    function apiBase() {
+      const server = document.getElementById('origin').value.replace(/\/$/, '');
+      return { SERVER: server, API: `${server}/api/v2` };
+    }
+
+    let current = null; // { sessionId, opened }
+
+    function say(text, ok) {
+      const row = document.createElement('div');
+      row.className = ok === false ? 'fail' : ok === true ? 'pass' : '';
+      row.textContent = text;
+      document.getElementById('status').prepend(row);
+    }
+
+    function dump(el, value) {
+      el.textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+    }
+
+    function decodeFloat32LittleEndian(buffer) {
+      if (buffer.byteLength % 4 !== 0) {
+        throw new Error('Float32 payload length must be divisible by four');
+      }
+      const view = new DataView(buffer);
+      const values = new Float32Array(buffer.byteLength / 4);
+      for (let index = 0; index < values.length; index += 1) {
+        values[index] = view.getFloat32(index * 4, true);
+      }
+      return values;
+    }
+
+    function transposePlane(values, shape) {
+      const [rows, columns] = shape;
+      const transposed = new Float32Array(values.length);
+      for (let row = 0; row < rows; row += 1) {
+        for (let column = 0; column < columns; column += 1) {
+          transposed[column * rows + row] = values[row * columns + column];
+        }
+      }
+      return { values: transposed, shape: [columns, rows] };
+    }
+
+    function drawGrayscale(values, shape) {
+      const [rows, columns] = shape;
+      const canvas = document.getElementById('view');
+      canvas.width = columns;
+      canvas.height = rows;
+      const ctx = canvas.getContext('2d');
+      const image = ctx.createImageData(columns, rows);
+
+      let lo = Infinity;
+      let hi = -Infinity;
+      for (let i = 0; i < values.length; i += 1) {
+        const v = values[i];
+        if (!Number.isFinite(v)) continue;
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+      }
+      if (!(hi > lo)) {
+        lo = 0;
+        hi = 1;
+      }
+      const k = 255 / (hi - lo);
+      for (let i = 0; i < values.length; i += 1) {
+        const g = Math.max(0, Math.min(255, Math.round((values[i] - lo) * k)));
+        const p = i * 4;
+        image.data[p] = g;
+        image.data[p + 1] = g;
+        image.data[p + 2] = g;
+        image.data[p + 3] = 255;
+      }
+      ctx.putImageData(image, 0, 0);
+      return { lo, hi };
+    }
+
+    async function health() {
+      const { API } = apiBase();
+      const health = await fetch(`${API}/health`).then((r) => r.json());
+      if (!health.ok) {
+        throw new Error('AcqStore Server is not healthy');
+      }
+      dump(document.getElementById('probeBox'), health);
+      say('health ok', true);
+      return health;
+    }
+
+    async function capabilities() {
+      const { API } = apiBase();
+      const capabilities = await fetch(`${API}/capabilities`).then((r) => r.json());
+      dump(document.getElementById('probeBox'), capabilities);
+      say('capabilities ok', true);
+      return capabilities;
+    }
+
+    function armSession(opened) {
+      current = { sessionId: opened.sessionId, opened };
+      dump(document.getElementById('sourceBox'), opened.source ?? opened);
+      dump(document.getElementById('headerBox'), opened.header ?? null);
+      document.getElementById('sessionBox').textContent = `sessionId=${opened.sessionId}`;
+      document.getElementById('runPlane').disabled = false;
+      document.getElementById('runDelete').disabled = false;
+      say(`opened ${opened.sessionId}`, true);
+    }
+
+    async function handleOpenResponse(response, opened) {
+      if (opened && opened.ok === false && opened.error === 'cancelled') {
+        say('picker cancelled (HTTP 200, ok:false)', false);
+        dump(document.getElementById('sourceBox'), opened);
+        return;
+      }
+      if (!response.ok || opened.ok === false) {
+        throw new Error(
+          `${opened.error ?? response.status}: ${opened.message ?? response.statusText}`,
+        );
+      }
+      armSession(opened);
+      await fetchAndDraw();
+    }
+
+    async function pickAndOpen() {
+      const { API } = apiBase();
+      const response = await fetch(`${API}/pick-and-open`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const opened = await response.json();
+      await handleOpenResponse(response, opened);
+    }
+
+    async function openPath() {
+      const { API } = apiBase();
+      const path = document.getElementById('absPath').value.trim();
+      if (!path) throw new Error('absolute path required');
+      const response = await fetch(`${API}/open`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
+      });
+      const opened = await response.json();
+      await handleOpenResponse(response, opened);
+    }
+
+    async function fetchAndDraw() {
+      if (!current) throw new Error('no open acquisition');
+      const { SERVER } = apiBase();
+      const { plane, channels } = current.opened;
+      const firstChannel = channels[0];
+
+      const dataResponse = await fetch(`${SERVER}${firstChannel.dataUrl}`, {
+        cache: 'no-store',
+      });
+      if (!dataResponse.ok) {
+        throw new Error(`Binary request failed: HTTP ${dataResponse.status}`);
+      }
+      const buffer = await dataResponse.arrayBuffer();
+      if (buffer.byteLength !== firstChannel.byteLength) {
+        throw new Error(
+          `byteLength mismatch: expected ${firstChannel.byteLength}, got ${buffer.byteLength}`,
+        );
+      }
+
+      let values = decodeFloat32LittleEndian(buffer);
+      let shape = plane.shape;
+      const expectedSamples = shape[0] * shape[1];
+      if (values.length !== expectedSamples) {
+        throw new Error(
+          `sample-count mismatch: expected ${expectedSamples}, got ${values.length}`,
+        );
+      }
+
+      if (document.getElementById('doTranspose').checked) {
+        const t = transposePlane(values, shape);
+        values = t.values;
+        shape = t.shape;
+      }
+
+      const range = drawGrayscale(values, shape);
+      document.getElementById('planeInfo').textContent =
+        `shape=[${shape.join(', ')}] samples=${values.length} ` +
+        `byteLength=${firstChannel.byteLength} intensity=[${range.lo}, ${range.hi}] ` +
+        `dataUrl=${firstChannel.dataUrl}`;
+      say('plane drawn', true);
+    }
+
+    async function deleteSession() {
+      if (!current) throw new Error('no session');
+      const { API } = apiBase();
+      const sessionId = current.sessionId;
+      const deleteResponse = await fetch(
+        `${API}/sessions/${encodeURIComponent(sessionId)}`,
+        { method: 'DELETE' },
+      );
+      const deleted = await deleteResponse.json();
+      if (!deleteResponse.ok || deleted.ok === false) {
+        throw new Error(
+          `${deleted.error ?? deleteResponse.status}: ${deleted.message ?? deleteResponse.statusText}`,
+        );
+      }
+      current = null;
+      document.getElementById('runPlane').disabled = true;
+      document.getElementById('runDelete').disabled = true;
+      document.getElementById('sessionBox').textContent = 'no session';
+      dump(document.getElementById('sourceBox'), '(deleted)');
+      dump(document.getElementById('headerBox'), '(deleted)');
+      document.getElementById('planeInfo').textContent = 'Session deleted.';
+      say(`deleted ${sessionId}`, true);
+    }
+
+    function guard(fn) {
+      return async () => {
+        try {
+          await fn();
+        } catch (err) {
+          console.error(err);
+          say(String(err.message || err), false);
+        }
+      };
+    }
+
+    document.getElementById('runHealth').onclick = guard(health);
+    document.getElementById('runCaps').onclick = guard(capabilities);
+    document.getElementById('runBoth').onclick = guard(async () => {
+      await health();
+      await capabilities();
+    });
+    document.getElementById('runPick').onclick = guard(pickAndOpen);
+    document.getElementById('runOpen').onclick = guard(openPath);
+    document.getElementById('runPlane').onclick = guard(fetchAndDraw);
+    document.getElementById('runDelete').onclick = guard(deleteSession);
+  </script>
+</body>
+</html>
