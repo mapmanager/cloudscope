@@ -31,7 +31,8 @@ rsync -av --dry-run \
   ./ \
   --include='*/' \
   --include='*.py' \
-  --include='*.md' \
+  --include='*.html' \
+  --include='*.json' \
   --exclude='*'
 
 echo
@@ -48,6 +49,8 @@ rsync -av \
   --include='*/' \
   --include='*.py' \
   --include='*.md' \
+  --include='*.html' \
+  --include='*.json' \
   --exclude='*'
 
 echo

@@ -61,6 +61,8 @@ rsync -av \
   --include='*.css' \
   --include='*.png' \
   --include='*.svg' \
+  --include='*.html' \
+  --include='*.json' \
   --exclude='*'
 
 echo
