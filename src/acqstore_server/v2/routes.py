@@ -39,6 +39,7 @@ from acqstore_server.v2.schemas import (
 from acqstore_server.v2.session_store import SessionBuffers, SessionStore
 
 PickFileFn = Callable[[Sequence[str] | None], str | None]
+OpenAcquisitionFn = Callable[..., OpenedAcquisition]
 DEFAULT_OPEN_LOAD_TIMEOUT_S = 120.0
 logger = get_logger('v2.routes')
 
@@ -160,11 +161,16 @@ def _register_opened(opened: OpenedAcquisition, store: SessionStore) -> OpenResp
     )
 
 
-async def _open_threaded(path: str, channel_indices: Sequence[int] | None) -> OpenedAcquisition:
+async def _open_threaded(
+    path: str,
+    channel_indices: Sequence[int] | None,
+    *,
+    open_fn: OpenAcquisitionFn,
+) -> OpenedAcquisition:
     timeout_s = open_load_timeout_s()
     try:
         return await asyncio.wait_for(
-            asyncio.to_thread(open_acquisition, path, channel_indices=channel_indices),
+            asyncio.to_thread(open_fn, path, channel_indices=channel_indices),
             timeout=timeout_s,
         )
     except TimeoutError as exc:
@@ -174,7 +180,12 @@ async def _open_threaded(path: str, channel_indices: Sequence[int] | None) -> Op
         ) from exc
 
 
-def create_router(*, store: SessionStore, pick_file: PickFileFn) -> APIRouter:
+def create_router(
+    *,
+    store: SessionStore,
+    pick_file: PickFileFn,
+    open_fn: OpenAcquisitionFn = open_acquisition,
+) -> APIRouter:
     """Create the API v2 router with injected session storage and file picker."""
     router = APIRouter(
         prefix='/api/v2',
@@ -276,7 +287,11 @@ def create_router(*, store: SessionStore, pick_file: PickFileFn) -> APIRouter:
     )
     async def open_endpoint(request: OpenRequest) -> OpenResponse | JSONResponse:
         try:
-            opened = await _open_threaded(request.path, request.channel_indices)
+            opened = await _open_threaded(
+                request.path,
+                request.channel_indices,
+                open_fn=open_fn,
+            )
             return _register_opened(opened, store)
         except OpenServiceError as exc:
             logger.warning('v2 open failed: %s — %s', exc.code, exc.message)
@@ -302,7 +317,11 @@ def create_router(*, store: SessionStore, pick_file: PickFileFn) -> APIRouter:
         if selected is None:
             return _error('cancelled', 'User cancelled file dialog', status_code=200)
         try:
-            opened = await _open_threaded(selected, request.channel_indices)
+            opened = await _open_threaded(
+                selected,
+                request.channel_indices,
+                open_fn=open_fn,
+            )
             return _register_opened(opened, store)
         except OpenServiceError as exc:
             logger.warning('v2 pick-and-open failed: %s — %s', exc.code, exc.message)

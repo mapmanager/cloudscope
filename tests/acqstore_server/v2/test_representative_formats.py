@@ -1,86 +1,84 @@
-"""Optional behavioral API tests against representative microscopy files."""
+"""Server-boundary tests using deterministic opened-acquisition results.
+
+The filename is retained so replacement merges overwrite Ticket 010's optional
+real-format tests. Format decoding belongs to AcqStore's own test suite.
+"""
 
 from __future__ import annotations
+
+from collections.abc import Sequence
 
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
 from acqstore_server.app import create_app
+from acqstore_server.v2.models import OpenedAcquisition
 from acqstore_server.v2.session_store import SessionStore
-from tests.acqstore_server.v2.representative_files import (
-    REPRESENTATIVE_FORMATS,
-    RepresentativeFormat,
-    resolve_representative_file,
-)
+from tests.acqstore_server.v2.representative_files import opened_acquisition_fixture
 
 
-@pytest.mark.parametrize('spec', REPRESENTATIVE_FORMATS, ids=lambda spec: spec.name.lower())
-def test_representative_file_api_contract(spec: RepresentativeFormat) -> None:
-    """Open, download, decode, inspect, and delete one real acquisition session."""
-    path = resolve_representative_file(spec)
-    if path is None:
-        pytest.skip(
-            f'No representative {spec.name} file configured; set '
-            f'{spec.environment_variable} or ACQSTORE_SERVER_TEST_DATA_DIR'
+@pytest.mark.parametrize('format_name', ['tif', 'oir', 'czi', 'nd2'])
+def test_server_serializes_transport_neutral_open_result(format_name: str) -> None:
+    """A format label must not change the generic HTTP transport contract."""
+    calls: list[tuple[str, Sequence[int] | None]] = []
+
+    def fake_open(
+        path: str,
+        *,
+        channel_indices: Sequence[int] | None = None,
+    ) -> OpenedAcquisition:
+        calls.append((path, channel_indices))
+        requested = tuple(channel_indices) if channel_indices is not None else (0, 1)
+        return opened_acquisition_fixture(
+            path,
+            format_name=format_name,
+            channel_indices=requested,
         )
 
-    client = TestClient(create_app(v2_session_store=SessionStore(ttl_seconds=60.0)))
+    client = TestClient(
+        create_app(
+            v2_session_store=SessionStore(ttl_seconds=60.0),
+            v2_open_fn=fake_open,
+        )
+    )
     response = client.post(
         '/api/v2/open',
-        json={'path': str(path), 'channelIndices': [0]},
+        json={'path': f'/virtual/sample.{format_name}', 'channelIndices': [1, 0]},
     )
-    if response.status_code != 200:
-        pytest.fail(
-            f'API error while opening representative {spec.name} file {path}: '
-            f'HTTP {response.status_code} {response.text}'
-        )
 
+    assert response.status_code == 200
     payload = response.json()
-    assert payload['ok'] is True
-    assert payload['source']['path'] == str(path)
-    assert payload['source']['name'] == path.name
-    assert payload['source']['format'].casefold() == spec.extension.lstrip('.').casefold()
-    assert payload['source']['numChannels'] >= 1
-    assert payload['source']['sourceDtype']
+    assert calls == [(f'/virtual/sample.{format_name}', [1, 0])]
+    assert payload['source']['format'] == format_name
+    assert payload['plane']['shape'] == [5, 4]
+    assert [channel['index'] for channel in payload['channels']] == [1, 0]
 
-    shape = tuple(payload['plane']['shape'])
-    assert len(shape) == 2
-    assert all(size > 0 for size in shape)
-    assert payload['plane']['servedDtype'] == 'float32'
-    assert payload['plane']['encoding'] == 'raw-f32-le'
-    assert payload['plane']['layout'] == 'row-major'
+    for channel in payload['channels']:
+        binary = client.get(channel['dataUrl'])
+        assert binary.status_code == 200
+        decoded = np.frombuffer(binary.content, dtype='<f4').reshape(5, 4)
+        assert decoded.dtype == np.float32
+        assert decoded.shape == (5, 4)
 
-    axes = payload['plane']['axes']
-    assert [axis['arrayDimension'] for axis in axes] == [0, 1]
-    assert [axis['name'] for axis in axes] == ['Y', 'X']
-    assert [axis['size'] for axis in axes] == list(shape)
-    assert all(axis['step'] > 0 for axis in axes)
-    assert all(axis['unit'].strip() for axis in axes)
 
-    assert len(payload['channels']) == 1
-    channel = payload['channels'][0]
-    assert channel['index'] == 0
-    expected_bytes = int(np.prod(shape)) * np.dtype('<f4').itemsize
-    assert channel['byteLength'] == expected_bytes
+def test_server_forwards_channel_selection_to_open_boundary() -> None:
+    received: list[Sequence[int] | None] = []
 
-    binary = client.get(channel['dataUrl'])
-    assert binary.status_code == 200
-    assert binary.headers['content-type'].startswith('application/octet-stream')
-    assert binary.headers['cache-control'] == 'no-store'
-    assert len(binary.content) == expected_bytes
+    def fake_open(
+        path: str,
+        *,
+        channel_indices: Sequence[int] | None = None,
+    ) -> OpenedAcquisition:
+        received.append(channel_indices)
+        return opened_acquisition_fixture(path, channel_indices=(2,))
 
-    decoded = np.frombuffer(binary.content, dtype='<f4')
-    assert decoded.size == int(np.prod(shape))
-    assert decoded.reshape(shape).shape == shape
+    client = TestClient(create_app(v2_open_fn=fake_open))
+    response = client.post(
+        '/api/v2/open',
+        json={'path': '/virtual/source.oir', 'channelIndices': [2]},
+    )
 
-    session_id = payload['sessionId']
-    metadata = client.get(f'/api/v2/sessions/{session_id}')
-    assert metadata.status_code == 200
-    assert metadata.json()['channelIndices'] == [0]
-    assert metadata.json()['totalBytes'] >= expected_bytes
-
-    deleted = client.delete(f'/api/v2/sessions/{session_id}')
-    assert deleted.status_code == 200
-    assert deleted.json()['deleted'] is True
-    assert client.get(channel['dataUrl']).status_code == 404
+    assert response.status_code == 200
+    assert received == [[2]]
+    assert [channel['index'] for channel in response.json()['channels']] == [2]

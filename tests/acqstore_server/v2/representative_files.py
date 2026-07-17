@@ -1,65 +1,59 @@
-"""Resolve optional local representative acquisition files for API v2 tests."""
+"""Deterministic transport-neutral acquisition fixtures for API v2 tests.
+
+The filename is retained so existing replacement merges overwrite Ticket 010's
+optional real-file helper. These fixtures do not invoke AcqStore loaders.
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-import os
 from pathlib import Path
 
+import numpy as np
 
-@dataclass(frozen=True, slots=True)
-class RepresentativeFormat:
-    """Configuration for one optional representative acquisition format."""
-
-    name: str
-    extension: str
-    environment_variable: str
+from acqstore_server.v2.models import AxisInfo, ChannelPlane, OpenedAcquisition
 
 
-REPRESENTATIVE_FORMATS: tuple[RepresentativeFormat, ...] = (
-    RepresentativeFormat('TIFF', '.tif', 'ACQSTORE_SERVER_TEST_TIF'),
-    RepresentativeFormat('OIR', '.oir', 'ACQSTORE_SERVER_TEST_OIR'),
-    RepresentativeFormat('CZI', '.czi', 'ACQSTORE_SERVER_TEST_CZI'),
-    RepresentativeFormat('ND2', '.nd2', 'ACQSTORE_SERVER_TEST_ND2'),
-)
-
-TEST_DATA_DIR_ENV = 'ACQSTORE_SERVER_TEST_DATA_DIR'
-
-
-def resolve_representative_file(spec: RepresentativeFormat) -> Path | None:
-    """Return a configured representative file, or ``None`` when unavailable.
-
-    Resolution order:
-
-    1. The format-specific environment variable.
-    2. The first case-insensitive extension match below
-       ``ACQSTORE_SERVER_TEST_DATA_DIR``.
-
-    An explicitly configured path that does not exist raises ``AssertionError``
-    rather than silently skipping. This makes CI and local configuration errors
-    visible.
-    """
-    explicit = os.getenv(spec.environment_variable)
-    if explicit:
-        path = Path(explicit).expanduser().resolve(strict=False)
-        if not path.is_file():
-            raise AssertionError(
-                f'{spec.environment_variable} points to a missing file: {path}'
-            )
-        return path
-
-    root_value = os.getenv(TEST_DATA_DIR_ENV)
-    if not root_value:
-        return None
-
-    root = Path(root_value).expanduser().resolve(strict=False)
-    if not root.is_dir():
-        raise AssertionError(f'{TEST_DATA_DIR_ENV} is not a directory: {root}')
-
-    suffix = spec.extension.casefold()
-    matches = sorted(
-        path
-        for path in root.rglob('*')
-        if path.is_file() and path.suffix.casefold() == suffix
+def opened_acquisition_fixture(
+    path: str,
+    *,
+    format_name: str = 'synthetic',
+    channel_indices: tuple[int, ...] = (0, 1),
+    shape: tuple[int, int] = (5, 4),
+) -> OpenedAcquisition:
+    """Build a known-good service result without testing file decoding."""
+    channels = tuple(
+        ChannelPlane(
+            index=index,
+            name=f'Channel {index}',
+            source_dtype='uint16',
+            array=(
+                np.arange(shape[0] * shape[1], dtype=np.uint16).reshape(shape)
+                + index * 100
+            ),
+        )
+        for index in channel_indices
     )
-    return matches[0] if matches else None
+    return OpenedAcquisition(
+        path=Path(path),
+        format=format_name,
+        source_dtype='uint16',
+        num_source_channels=max(channel_indices, default=-1) + 1,
+        axes=(
+            AxisInfo(
+                array_dimension=0,
+                name='Y',
+                size=shape[0],
+                step=0.002,
+                unit='seconds',
+            ),
+            AxisInfo(
+                array_dimension=1,
+                name='X',
+                size=shape[1],
+                step=0.5,
+                unit='micrometer',
+            ),
+        ),
+        channels=channels,
+        reference=None,
+    )

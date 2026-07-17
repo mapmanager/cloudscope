@@ -20,7 +20,11 @@ from acqstore_server.routes import (
 )
 from acqstore_server.session_store import SessionStore
 from acqstore_server.v2.demo import register_demo_routes as register_v2_demo_routes
-from acqstore_server.v2.routes import create_router as create_v2_router
+from acqstore_server.v2.open_service import open_acquisition
+from acqstore_server.v2.routes import (
+    OpenAcquisitionFn,
+    create_router as create_v2_router,
+)
 from acqstore_server.v2.session_store import SessionStore as V2SessionStore
 
 _TRUE = {'1', 'true', 'yes', 'y', 'on'}
@@ -37,6 +41,7 @@ def create_app(
     session_store: SessionStore | None = None,
     pick_file_fn: PickFileFn | None = None,
     v2_session_store: V2SessionStore | None = None,
+    v2_open_fn: OpenAcquisitionFn = open_acquisition,
 ) -> FastAPI:
     """Build the AcqStore Server ASGI app (API-only / CLI mode).
 
@@ -44,6 +49,7 @@ def create_app(
         session_store: Optional store override (tests).
         pick_file_fn: Optional native/open picker override (tests).
         v2_session_store: Optional API v2 store override (tests).
+        v2_open_fn: Optional API v2 acquisition opener override (tests).
 
     Returns:
         Configured :class:`fastapi.FastAPI` instance.
@@ -72,7 +78,9 @@ def create_app(
         allow_headers=['*'],
     )
     register_api_routes(app, store, pick_file, include_root_json=True, mount_demo=True)
-    app.include_router(create_v2_router(store=v2_store, pick_file=pick_file))
+    app.include_router(
+        create_v2_router(store=v2_store, pick_file=pick_file, open_fn=v2_open_fn)
+    )
     register_v2_demo_routes(app)
     return app
 
