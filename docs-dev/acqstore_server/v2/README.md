@@ -52,7 +52,7 @@ ACQSTORE_SERVER_NATIVE=1 uv run python -m acqstore_server
 - [API reference](api.md)
 - [Architecture](architecture.md)
 - [Demo client](demo.md)
-- [JavaScript client](javascript-client.md)
+- [JavaScript client guide — start here for thin-client development](javascript-client.md)
 - [Python client](python-client.md)
 - [Format validation](format-validation.md)
 - [Testing boundary](testing.md)

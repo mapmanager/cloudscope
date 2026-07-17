@@ -6,12 +6,16 @@ import pytest
 from pydantic import ValidationError
 
 from acqstore_server.v2.schemas import (
+    AxisResponse,
     ChannelResponse,
     HeaderResponse,
+    OpenRequest,
     OpenResponse,
-    ReferenceImageResponse,
-    SessionResponse,
+    PickAndOpenRequest,
+    PlaneResponse,
+    SourceResponse,
 )
+
 
 def test_open_request_accepts_camel_case_and_preserves_channel_order() -> None:
     request = OpenRequest.model_validate(

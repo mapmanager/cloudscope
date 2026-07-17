@@ -1,6 +1,6 @@
 # AcqStore Server API v2
 
-API v2 is a generic, channel-indexed interface. It does not assign biological roles to channels.
+API v2 is a generic, channel-indexed HTTP interface over AcqStore.
 
 ## Open a server-accessible path
 
@@ -141,3 +141,7 @@ contains the native acquisition shape, dimensions, dimension sizes, source dtype
 channel count, physical calibration, acquisition date/time, and display file size.
 The server preserves AcqStore's normalized values and only applies camelCase JSON
 aliases.
+
+## JavaScript integration
+
+For the complete client workflow and copyable implementation, see the [JavaScript client guide](javascript-client.md).
