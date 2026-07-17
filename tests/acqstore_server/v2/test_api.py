@@ -133,3 +133,33 @@ def test_v2_validation_and_missing_path() -> None:
     missing = client.post('/api/v2/open', json={'path': '/tmp/missing-v2.tif'})
     assert missing.status_code == 404
     assert missing.json()['error'] == 'path_not_found'
+
+
+def test_v2_open_timeout_returns_stable_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import time
+
+    from acqstore_server.v2 import routes as v2_routes
+
+    path = tmp_path / 'slow.tif'
+    _write_cyx_tif(path)
+    original = v2_routes.open_acquisition
+
+    def slow_open(path_value: str, *, channel_indices: object = None) -> object:
+        time.sleep(0.05)
+        return original(path_value, channel_indices=channel_indices)
+
+    monkeypatch.setattr(v2_routes, 'open_acquisition', slow_open)
+    monkeypatch.setenv('ACQSTORE_SERVER_OPEN_TIMEOUT_S', '0.001')
+    response = TestClient(create_app()).post('/api/v2/open', json={'path': str(path)})
+    assert response.status_code == 504
+    assert response.json()['error'] == 'load_timeout'
+
+
+def test_v2_negative_binary_channel_index_is_rejected() -> None:
+    client = TestClient(create_app())
+    response = client.get('/api/v2/sessions/example/channels/-1/data')
+    assert response.status_code == 422
+    assert response.json()['error'] == 'channel_out_of_range'

@@ -19,6 +19,7 @@ from acqstore_server.routes import (
     register_api_routes,
 )
 from acqstore_server.session_store import SessionStore
+from acqstore_server.v2.demo import register_demo_routes as register_v2_demo_routes
 from acqstore_server.v2.routes import create_router as create_v2_router
 from acqstore_server.v2.session_store import SessionStore as V2SessionStore
 
@@ -57,7 +58,7 @@ def create_app(
         description=(
             'Local HTTP API for opening acquisition files with AcqStore and '
             'serving selected two-dimensional channel planes. Use /docs for '
-            'interactive OpenAPI. Demo UI at /demo/.'
+            'interactive OpenAPI. Demo UIs at /demo/ (v1) and /demo/v2/.'
         ),
         docs_url='/docs',
         redoc_url='/redoc',
@@ -72,6 +73,7 @@ def create_app(
     )
     register_api_routes(app, store, pick_file, include_root_json=True, mount_demo=True)
     app.include_router(create_v2_router(store=v2_store, pick_file=pick_file))
+    register_v2_demo_routes(app)
     return app
 
 
@@ -195,6 +197,7 @@ def main_native() -> None:
         mount_demo=True,
     )
     nicegui_app.include_router(create_v2_router(store=v2_store, pick_file=pick_file))
+    register_v2_demo_routes(nicegui_app)
 
     @ui.page('/')
     def _status_page() -> None:
