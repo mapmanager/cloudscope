@@ -1,9 +1,15 @@
 # API v2 JavaScript demo
 
+Start the server from the repository root:
+
+```bash
+uv run python -m acqstore_server
+```
+
 The maintained browser demo is served at:
 
 ```text
-/demo/v2/
+http://127.0.0.1:8767/demo/v2/
 ```
 
 Its source is:
@@ -31,3 +37,11 @@ reference coordinates.
 
 Keep this demo synchronized with every intentional v2 contract change. Tests verify
 that it targets only `/api/v2` and does not contain v1 role fields.
+
+## Expected workflow
+
+1. Click **Pick and open**.
+2. The server opens the operating-system file dialog.
+3. AcqStore opens the selected acquisition.
+4. The demo fetches metadata and little-endian float32 plane data from API v2.
+5. **Delete session** releases the server-side buffers.

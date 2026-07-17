@@ -2,6 +2,34 @@
 
 Living documentation for the local **AcqStore Server** lab tool (HTTP open API for calcium HTML clients).
 
+## Run API v2 now
+
+From the repository root:
+
+```bash
+uv run python -m acqstore_server
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8767/demo/v2/
+```
+
+Click **Pick and open**. The server shows the native file dialog, opens the selected acquisition through AcqStore, and serves its planes to the browser. Stop the server with **Ctrl+C**.
+
+For the optional NiceGUI native status window:
+
+```bash
+ACQSTORE_SERVER_NATIVE=1 uv run python -m acqstore_server
+```
+
+The direct ASGI equivalent is:
+
+```bash
+uv run uvicorn acqstore_server.app:app --host 127.0.0.1 --port 8767
+```
+
 ## Start here (humans + LLMs)
 
 | Doc | Role |
@@ -85,7 +113,8 @@ installed that middleware). See ticket `048_native_gzip_session_fetch_fix`.
 | http://127.0.0.1:8767/docs | **Interactive OpenAPI** (Swagger UI) — try endpoints |
 | http://127.0.0.1:8767/redoc | Alternate API docs |
 | http://127.0.0.1:8767/openapi.json | Machine-readable OpenAPI schema |
-| http://127.0.0.1:8767/demo/ | demo UI (served by the server; needs a **current** server) |
+| http://127.0.0.1:8767/demo/v2/ | **Maintained API v2 demo** — start here |
+| http://127.0.0.1:8767/demo/ | Frozen v1 demo |
 | http://127.0.0.1:8767/api/v1/health | health |
 | `~/Library/Logs/AcqStore Server/acqstore_server.log` | rotating log file |
 

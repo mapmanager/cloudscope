@@ -58,8 +58,8 @@ def build_status_page(*, host: str, port: int) -> None:
 
         with ui.row().classes('gap-2 flex-wrap'):
             ui.button(
-                'Open demo',
-                on_click=lambda: webbrowser.open(f'{base}/demo/'),
+                'Open v2 demo',
+                on_click=lambda: webbrowser.open(f'{base}/demo/v2/'),
             ).props('color=primary')
             ui.button(
                 'API docs (/docs)',
@@ -67,7 +67,7 @@ def build_status_page(*, host: str, port: int) -> None:
             ).props('outline')
 
             async def _show_health() -> None:
-                url = f'{base}/api/v1/health'
+                url = f'{base}/api/v2/health'
                 try:
                     def _fetch() -> str:
                         with urllib.request.urlopen(url, timeout=5) as resp:

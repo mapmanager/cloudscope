@@ -1,5 +1,21 @@
 # AcqStore Server API v2
 
+## Run the server and demo
+
+From the repository root:
+
+```bash
+uv run python -m acqstore_server
+```
+
+Open `http://127.0.0.1:8767/demo/v2/`, click **Pick and open**, and select an acquisition.
+
+Optional native status window:
+
+```bash
+ACQSTORE_SERVER_NATIVE=1 uv run python -m acqstore_server
+```
+
 API v2 is the active development API. It is a general AcqStore HTTP interface and does not assign biological roles to source channels.
 
 ## Implemented
