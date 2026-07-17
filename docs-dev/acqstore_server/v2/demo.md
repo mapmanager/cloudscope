@@ -1,9 +1,9 @@
 # API v2 JavaScript demo
 
-The maintained browser demo is a generic thin client served at:
+The maintained browser demo is the reference thin client for API v2:
 
 ```text
-/demo/v2/
+http://127.0.0.1:8767/demo/v2/
 ```
 
 Its source is:
@@ -12,37 +12,33 @@ Its source is:
 src/acqstore_server/static/demo/v2/index.html
 ```
 
-It requires a running AcqStore Server. The server may be started from a Python development checkout or by launching the packaged desktop application.
+It requires a running AcqStore Server, either the packaged desktop application or a server started from source.
 
-The intended workflow is:
+## Lifecycle exercised by the demo
 
-```text
-Click Pick and open
-→ server shows a native file dialog
-→ AcqStore opens the selected acquisition through AcqImage
-→ server returns metadata and session URLs
-→ browser downloads and renders selected planes
-```
+The demo intentionally exercises the complete baseline client lifecycle:
 
-The v2 demo is intentionally separate from the frozen v1 demo at `/demo/`. It is not tied to any particular biological analysis or external application.
+1. `GET /api/v2/health`
+2. `GET /api/v2/capabilities`
+3. `POST /api/v2/pick-and-open` or `POST /api/v2/open`
+4. `GET /api/v2/sessions/{sessionId}`
+5. fetch each source `channels[].dataUrl`
+6. fetch each optional `reference.channels[].dataUrl`
+7. decode raw little-endian float32 data
+8. validate `byteLength` and `plane.shape`
+9. transpose immediately before canvas display
+10. `DELETE /api/v2/sessions/{sessionId}`
 
-The demo exercises the public v2 contract:
+The server uses AcqStore and `AcqImage` to open the acquisition. The demo displays the returned AcqStore header, live session metadata, source channels, optional reference channels, and the full open response.
 
-- `POST /api/v2/open`
-- `POST /api/v2/pick-and-open`
-- `channels[].dataUrl`
-- `reference.channels[].dataUrl`
-- `plane.shape`
-- `plane.axes`
-- raw little-endian float32 decoding
+## Orientation
 
-Immediately before canvas rendering, the demo explicitly transposes the row-major plane returned by the server. This makes source array dimension 0 horizontal and source array dimension 1 vertical in the demo display. The server response itself remains unmodified and is never transposed by the API.
+The API returns the original row-major two-dimensional plane. The server never transposes it.
 
-Keep this demo synchronized with every intentional v2 contract change. Tests verify that it targets only `/api/v2` and does not contain v1 role fields.
+Immediately before canvas rendering, the demo calls `transposePlane()` for both source and reference planes. This is a demo display decision and does not alter the HTTP contract.
 
+## Compatibility
 
-## Header display
+The v2 demo is independent of the frozen v1 demo at `/demo/`. It contains no application-specific channel roles and is not tied to an external calcium client.
 
-After an acquisition opens, the demo displays the AcqStore image header separately
-from the complete open response. This gives client developers a direct example of
-using `header.dims`, `header.sizes`, `header.physicalUnits`, and related metadata.
+Keep this demo synchronized with the API reference, JavaScript guide, and OpenAPI contract tests.

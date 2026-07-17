@@ -38,8 +38,12 @@ pre { max-height:360px; overflow:auto; margin:0; padding:10px; border-radius:8px
   <button id="closeBtn" type="button" disabled>Delete session</button>
 </div>
 <div id="status" class="status"></div>
-<p id="capabilities" class="meta">Loading server capabilities…</p>
+<p id="serverInfo" class="meta">Checking server…</p>
 <section class="card">
+  <h2>Session</h2>
+  <pre id="sessionPre">{}</pre>
+</section>
+<section class="card" style="margin-top:12px">
   <h2>AcqStore header</h2>
   <pre id="headerPre">{}</pre>
 </section>
@@ -68,7 +72,8 @@ const referencesEl = document.getElementById('references');
 const referenceEmptyEl = document.getElementById('referenceEmpty');
 const responsePre = document.getElementById('responsePre');
 const headerPre = document.getElementById('headerPre');
-const capabilitiesEl = document.getElementById('capabilities');
+const sessionPre = document.getElementById('sessionPre');
+const serverInfoEl = document.getElementById('serverInfo');
 let currentSessionId = null;
 
 function setBusy(busy) {
@@ -101,14 +106,18 @@ async function getJson(url, options={}) {
   }
   return payload;
 }
-async function loadCapabilities() {
+async function loadServerInfo() {
   try {
-    const payload = await getJson(`${API}/capabilities`);
-    capabilitiesEl.textContent =
-      `Allowed formats: ${payload.allowedImportExtensions.join(', ')} · ` +
-      `session TTL ${payload.sessionTtlSeconds}s · ${payload.binary.encoding}`;
+    const [health, capabilities] = await Promise.all([
+      getJson(`${API}/health`),
+      getJson(`${API}/capabilities`),
+    ]);
+    serverInfoEl.textContent =
+      `Server ${health.apiVersion} ready · ` +
+      `Allowed formats: ${capabilities.allowedImportExtensions.join(', ')} · ` +
+      `session TTL ${capabilities.sessionTtlSeconds}s · ${capabilities.binary.encoding}`;
   } catch (error) {
-    capabilitiesEl.textContent = `Capabilities unavailable: ${error}`;
+    serverInfoEl.textContent = `Server unavailable: ${error}`;
   }
 }
 async function deleteCurrentSession() {
@@ -123,6 +132,7 @@ async function deleteCurrentSession() {
     referenceEmptyEl.hidden = false;
     responsePre.textContent = '{}';
     headerPre.textContent = '{}';
+    sessionPre.textContent = '{}';
     setStatus(`Deleted session ${deletedId}.`, 'ok');
   } catch (error) {
     setStatus(error instanceof Error ? error.message : String(error), 'err');
@@ -210,6 +220,8 @@ async function renderResources(container, resources, plane, prefix) {
   }
 }
 async function renderOpen(payload) {
+  const session = await getJson(`${API}/sessions/${encodeURIComponent(payload.sessionId)}`);
+  sessionPre.textContent = JSON.stringify(session, null, 2);
   headerPre.textContent = JSON.stringify(payload.header, null, 2);
   responsePre.textContent = JSON.stringify(payload, null, 2);
   await renderResources(channelsEl, payload.channels, payload.plane, 'Channel');
@@ -238,7 +250,7 @@ async function runOpen(kind) {
 pickBtn.addEventListener('click', () => runOpen('pick'));
 openBtn.addEventListener('click', () => runOpen('path'));
 closeBtn.addEventListener('click', deleteCurrentSession);
-loadCapabilities();
+loadServerInfo();
 </script>
 </body>
 </html>

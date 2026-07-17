@@ -36,10 +36,17 @@ def test_openapi_exposes_javascript_client_lifecycle() -> None:
 def test_openapi_keeps_v2_json_models_camel_case() -> None:
     schemas = _openapi()['components']['schemas']
 
+    api_index = schemas['ApiIndexResponse']['properties']
+    assert 'apiVersion' in api_index
+    assert 'api_version' not in api_index
+
     open_response = schemas['OpenResponse']['properties']
     assert 'sessionId' in open_response
-    assert 'apiVersion' in open_response
     assert 'session_id' not in open_response
+
+    header = schemas['HeaderResponse']['properties']
+    assert {'numChannels', 'physicalUnits', 'physicalUnitsLabels', 'fileSize'} <= set(header)
+    assert 'num_channels' not in header
 
     channel = schemas['ChannelResponse']['properties']
     assert {'byteLength', 'dataUrl'} <= set(channel)
@@ -47,7 +54,15 @@ def test_openapi_keeps_v2_json_models_camel_case() -> None:
     assert 'data_url' not in channel
 
     plane = schemas['PlaneResponse']['properties']
-    assert {'servedDtype', 'mediaType'} <= set(plane)
+    assert 'servedDtype' in plane
+    assert 'served_dtype' not in plane
+
+    axis = schemas['AxisResponse']['properties']
+    assert 'arrayDimension' in axis
+    assert 'array_dimension' not in axis
+
+    binary = schemas['BinaryEncodingResponse']['properties']
+    assert {'servedDtype', 'mediaType'} <= set(binary)
 
 
 def test_openapi_documents_binary_responses() -> None:

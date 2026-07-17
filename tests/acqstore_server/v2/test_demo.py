@@ -6,19 +6,32 @@ from acqstore_server.app import create_app
 from acqstore_server.v2.demo import resolve_v2_demo_index
 
 
-def test_v2_demo_file_exists_and_targets_only_v2_api() -> None:
+def test_v2_demo_file_exists_and_exercises_client_lifecycle() -> None:
     path = resolve_v2_demo_index()
     assert path is not None
     html = path.read_text(encoding='utf-8')
+
     assert "const API = '/api/v2'" in html
     assert '/api/v1' not in html
     assert 'calciumChannel' not in html
     assert 'vesselChannel' not in html
-    assert 'dataUrl' in html
-    assert 'plane.shape' in html
-    assert '/capabilities' in html
-    assert "method:'DELETE'" in html
-    assert 'currentSessionId' in html
+
+    required_contract_terms = (
+        '`${API}/health`',
+        '`${API}/capabilities`',
+        '`${API}/pick-and-open`',
+        '`${API}/open`',
+        '`${API}/sessions/${encodeURIComponent(payload.sessionId)}`',
+        "method:'DELETE'",
+        'dataUrl',
+        'resource.byteLength',
+        'plane.shape',
+        'currentSessionId',
+        'sessionPre',
+    )
+    for term in required_contract_terms:
+        assert term in html
+
     assert 'function transposePlane(values, shape)' in html
     assert 'const displayPlane = transposePlane(values, plane.shape)' in html
     assert 'drawPlane(canvas, displayPlane.values, displayPlane.shape)' in html
