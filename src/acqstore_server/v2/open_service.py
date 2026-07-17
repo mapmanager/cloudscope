@@ -291,7 +291,7 @@ def open_acquisition(
         raise OpenServiceError('decode_failed', 'No source channels were selected')
 
     reference: ReferenceImage | None = None
-    loader = acq.images.file_loader
+    loader = acq.images
     if loader.has_reference_image:
         reference = loader.reference_image
 
