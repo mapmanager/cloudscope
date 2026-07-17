@@ -4,7 +4,7 @@ set -euo pipefail
 ZIP_NAME="${1:?Usage: make_source_zip.sh output.zip}"
 
 zip -r "$ZIP_NAME" \
-    src tests docs-dev scripts pyproject.toml README.md \
+    src tests docs-dev scripts pyproject.toml uv.lock .github/workflowsREADME.md \
     -x \
     "*/__pycache__/*" \
     "*.pyc" \
