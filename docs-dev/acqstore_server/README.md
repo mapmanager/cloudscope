@@ -1,105 +1,73 @@
 # AcqStore Server
 
-AcqStore Server is a local HTTP service that exposes the Python **AcqStore** API to thin clients. It uses AcqStore, including `AcqImage`, to open scientific image acquisitions and serve image planes, reference images, coordinates, and metadata as JSON and binary HTTP resources.
+AcqStore Server exposes the Python **AcqStore** API over local HTTP. It uses AcqStore, including `AcqImage`, to open scientific image acquisitions and serve image planes, reference images, calibrated coordinates, and metadata to thin HTTP clients.
 
-The maintained generic browser client is API v2 at:
+The maintained generic browser client is [`src/acqstore_server/static/demo/v2/index.html`](../../src/acqstore_server/static/demo/v2/index.html), served at `/demo/v2/`.
+
+## Start here
+
+- **New JavaScript client developers:** [API v2 JavaScript client guide](v2/javascript-client.md)
+- **API v2 overview:** [v2/README.md](v2/README.md)
+- **Existing v1 integrations:** [v1/README.md](v1/README.md)
+- **Interactive API documentation:** `http://127.0.0.1:8767/docs` while the server is running
+
+## A running server is required
+
+A browser or JavaScript client does not open microscope formats itself. It connects to a running AcqStore Server, which uses AcqStore to open the acquisition and expose the resulting data over HTTP.
+
+### JavaScript developers and end users
+
+External JavaScript developers and end users are not expected to clone CloudScope or manage Python. They normally run the packaged **AcqStore Server.app** supplied by the AcqStore Server developers. The app starts the local server and provides a small status window.
+
+The packaged macOS app is currently available on request from Robert Cudmore at `robert.cudmore@gmail.com`.
+
+After the app is running, begin with:
 
 ```text
 http://127.0.0.1:8767/demo/v2/
+http://127.0.0.1:8767/api/v2
+http://127.0.0.1:8767/docs
 ```
 
-Its source is:
+### Python developers
 
-```text
-src/acqstore_server/static/demo/v2/index.html
-```
-
-## Two ways to run it
-
-### Python development installation
-
-For developers working from a CloudScope checkout:
+From the CloudScope repository:
 
 ```bash
 uv run python -m acqstore_server
 ```
 
-Then open:
-
-```text
-http://127.0.0.1:8767/demo/v2/
-```
-
-Optional native NiceGUI status window:
+Optional native status window:
 
 ```bash
 ACQSTORE_SERVER_NATIVE=1 uv run python -m acqstore_server
 ```
 
-This mode requires the repository's Python environment and is intended for AcqStore Server development, testing, and debugging.
+## Building the packaged macOS app
 
-### Packaged desktop application
+This section is for Python and release developers, not thin-client authors.
 
-External HTML/JavaScript client developers and end users are not expected to clone CloudScope or manage Python. They run the packaged **AcqStore Server.app**, which starts the same local HTTP API and provides a small NiceGUI status window.
+Local build entry point:
 
-The packaged application is built by:
+```bash
+./packaging/acqstore_server/build_app.sh
+```
+
+The signed and notarized CI build is defined by:
 
 ```text
 .github/workflows/build-acqstore-server-macos.yml
 ```
 
-and the scripts under:
+Supporting release scripts live under:
 
 ```text
 packaging/acqstore_server/
 ```
 
-The thin client still requires a running AcqStore Server; the packaged app supplies that server without requiring the client user to install or operate Python directly.
+## Version policy
 
-## Why a thin client uses it
-
-A browser or other thin client can use AcqStore's acquisition loading without implementing microscope file readers or importing Python libraries itself. The client sends HTTP requests to a running AcqStore Server, receives acquisition metadata as JSON, and downloads selected planes as binary float32 data.
-
-## Primary v2 resources
-
-| Resource | Purpose |
-|---|---|
-| [`v2/README.md`](v2/README.md) | API v2 overview and design boundary |
-| [`v2/api.md`](v2/api.md) | Endpoint contract |
-| [`v2/demo.md`](v2/demo.md) | Maintained generic JavaScript demo |
-| [`v2/javascript-client.md`](v2/javascript-client.md) | JavaScript client guidance |
-| [`v2/python-client.md`](v2/python-client.md) | Python HTTP client guidance |
-| [`v2/testing.md`](v2/testing.md) | Server-versus-AcqStore testing boundary |
-| [`entry_point_and_packaging.md`](entry_point_and_packaging.md) | Entry-point and packaging details |
-
-Live discovery while the server is running:
-
-```text
-http://127.0.0.1:8767/api/v2
-http://127.0.0.1:8767/docs
-http://127.0.0.1:8767/openapi.json
-```
-
-## Scope
-
-Active v2 development is limited to:
-
-```text
-src/acqstore_server/
-tests/acqstore_server/
-docs-dev/acqstore_server/
-src/acqstore_server/static/demo/v2/
-```
-
-API v1 and `/demo/` remain frozen compatibility surfaces. Historical v1 documentation may describe earlier application-specific clients; those clients are external to the API v2 implementation and do not define the v2 contract.
-
-## Stop the server
-
-In terminal mode, press **Ctrl+C**. In native mode, quit the status window.
-
-If port `8767` is already occupied on macOS:
-
-```bash
-lsof -nP -iTCP:8767 -sTCP:LISTEN
-kill $(lsof -nP -iTCP:8767 -sTCP:LISTEN -t)
-```
+- **API v2** is the active development target.
+- **API v1** remains intact for existing clients.
+- The generic v2 demo is the maintained reference client for new integrations.
+- External application-specific clients are outside the AcqStore Server source and v2 documentation boundary.

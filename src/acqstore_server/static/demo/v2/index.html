@@ -28,10 +28,7 @@ pre { max-height:360px; overflow:auto; margin:0; padding:10px; border-radius:8px
 </head>
 <body>
 <h1>AcqStore Server API v2 demo</h1>
-<p>
-  Generic JavaScript client for <code>/api/v2</code>. It renders array dimension 1 horizontally and
-  array dimension 0 vertically. This display choice is client-side; the server does not transpose data.
-</p>
+<p>Generic JavaScript client for <code>/api/v2</code>.</p>
 <div class="controls">
   <button id="pickBtn" type="button">Pick and open</button>
   <label>Server-accessible path
@@ -155,6 +152,16 @@ function finiteRange(values) {
   }
   return max > min ? [min, max] : [0, 1];
 }
+function transposePlane(values, shape) {
+  const rows = shape[0], cols = shape[1];
+  const transposed = new Float32Array(values.length);
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      transposed[col * rows + row] = values[row * cols + col];
+    }
+  }
+  return {values: transposed, shape: [cols, rows]};
+}
 function drawPlane(canvas, values, shape) {
   const rows = shape[0], cols = shape[1];
   const [min, max] = finiteRange(values);
@@ -198,7 +205,8 @@ async function renderResources(container, resources, plane, prefix) {
     card.append(title, meta, wrap);
     container.appendChild(card);
     const values = await fetchPlane(resource, plane);
-    drawPlane(canvas, values, plane.shape);
+    const displayPlane = transposePlane(values, plane.shape);
+    drawPlane(canvas, displayPlane.values, displayPlane.shape);
   }
 }
 async function renderOpen(payload) {

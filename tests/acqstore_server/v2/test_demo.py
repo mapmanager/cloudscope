@@ -19,6 +19,10 @@ def test_v2_demo_file_exists_and_targets_only_v2_api() -> None:
     assert '/capabilities' in html
     assert "method:'DELETE'" in html
     assert 'currentSessionId' in html
+    assert 'function transposePlane(values, shape)' in html
+    assert 'const displayPlane = transposePlane(values, plane.shape)' in html
+    assert 'drawPlane(canvas, displayPlane.values, displayPlane.shape)' in html
+    assert 'array dimension 1 horizontally' not in html
 
 
 def test_v2_demo_is_served_at_versioned_path() -> None:

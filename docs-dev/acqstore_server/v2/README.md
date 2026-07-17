@@ -2,8 +2,6 @@
 
 AcqStore Server v2 exposes the Python **AcqStore** API over local HTTP. It uses AcqStore, including `AcqImage`, to open scientific image acquisitions and make image planes, reference images, calibrated coordinates, and metadata available to thin clients.
 
-The server performs acquisition loading through AcqStore. It does not reimplement format decoding, and it does not assign application-specific biological roles to channels.
-
 ## Intended clients
 
 A v2 client is a thin HTTP client that connects to a running AcqStore Server. The maintained example is the generic JavaScript demo at:
@@ -12,10 +10,10 @@ A v2 client is a thin HTTP client that connects to a running AcqStore Server. Th
 /demo/v2/
 ```
 
-A client developer can focus on visualization and interaction while AcqStore handles acquisition loading behind the server. A server process is always required:
+A client developer can focus on visualization and interaction while AcqStore handles acquisition loading behind the server. A running server process is always required.
 
-- Python developers may run it from source;
-- end users and external HTML-client developers may run the packaged macOS application without operating the Python environment directly.
+- JavaScript developers and end users normally run the packaged macOS app supplied by the AcqStore Server developers. It is currently available on request from Robert Cudmore at `robert.cudmore@gmail.com`.
+- Python developers may run the server from source.
 
 ## Run from source
 

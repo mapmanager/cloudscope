@@ -36,7 +36,7 @@ The demo exercises the public v2 contract:
 - `plane.axes`
 - raw little-endian float32 decoding
 
-The canvas renders array dimension 1 horizontally and array dimension 0 vertically. That is a client display decision. The server does not transpose arrays or swap reference coordinates.
+Immediately before canvas rendering, the demo explicitly transposes the row-major plane returned by the server. This makes source array dimension 0 horizontal and source array dimension 1 vertical in the demo display. The server response itself remains unmodified and is never transposed by the API.
 
 Keep this demo synchronized with every intentional v2 contract change. Tests verify that it targets only `/api/v2` and does not contain v1 role fields.
 
