@@ -58,7 +58,7 @@ def build_status_page(*, host: str, port: int) -> None:
 
         with ui.row().classes('gap-2 flex-wrap'):
             ui.button(
-                'Open v2 demo',
+                'Open demo',
                 on_click=lambda: webbrowser.open(f'{base}/demo/v2/'),
             ).props('color=primary')
             ui.button(
