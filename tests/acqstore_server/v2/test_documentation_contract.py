@@ -12,10 +12,11 @@ def test_javascript_guide_covers_complete_v2_client_lifecycle() -> None:
     guide = (DOCS_DIR / 'javascript-client.md').read_text(encoding='utf-8')
 
     required_contract_terms = (
-        '/api/v2/health',
-        '/api/v2/capabilities',
-        '/api/v2/pick-and-open',
-        '/api/v2/open',
+        "const API = `${SERVER}/api/v2`",
+        '`${API}/health`',
+        '`${API}/capabilities`',
+        '`${API}/pick-and-open`',
+        '`${API}/open`',
         '/sessions/${encodeURIComponent(sessionId)}',
         'decodeFloat32LittleEndian',
         'DataView',
