@@ -127,3 +127,7 @@ The payload is a row-major little-endian float32 array. Clients must:
 4. reshape using `plane.shape`.
 
 The OpenAPI document describes these responses as binary `application/octet-stream` payloads.
+
+## Errors
+
+API v2 uses a stable `{ok, error, message}` envelope. Request-validation failures also include machine-readable `details`. See [API v2 errors](errors.md).

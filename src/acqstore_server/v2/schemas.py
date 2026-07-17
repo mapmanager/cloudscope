@@ -251,9 +251,18 @@ class DeleteSessionResponse(ApiModel):
     deleted: Literal[True] = True
 
 
+class ErrorDetailResponse(ApiModel):
+    """One machine-readable request-validation issue."""
+
+    location: list[str]
+    message: str
+    type: str
+
+
 class ErrorResponse(ApiModel):
     """Stable API v2 error envelope."""
 
     ok: Literal[False] = False
     error: str
     message: str
+    details: list[ErrorDetailResponse] | None = None

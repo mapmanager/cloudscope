@@ -46,3 +46,16 @@ def test_v2_openapi_is_descriptive_for_generated_clients() -> None:
     open_request = document['components']['schemas']['OpenRequest']
     assert open_request['examples'][0] == {'path': '/data/example.oir'}
     assert open_request['additionalProperties'] is False
+
+
+def test_v2_openapi_documents_validation_error_envelope() -> None:
+    document = TestClient(create_app()).get('/openapi.json').json()
+    operation = document['paths']['/api/v2/open']['post']
+
+    validation_schema = operation['responses']['422']['content']['application/json']['schema']
+    assert validation_schema['$ref'].endswith('/ErrorResponse')
+
+    error_schema = document['components']['schemas']['ErrorResponse']
+    assert error_schema['properties']['details']['anyOf'][0]['items']['$ref'].endswith(
+        '/ErrorDetailResponse'
+    )

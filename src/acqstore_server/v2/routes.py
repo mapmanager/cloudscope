@@ -15,6 +15,7 @@ from acqstore.acq_image.supported_import_extensions import (
 
 from acqstore_server.logging_setup import get_logger
 from acqstore_server.v2.encoding import encode_raw_f32_le
+from acqstore_server.v2.errors import StableValidationRoute
 from acqstore_server.v2.models import OpenedAcquisition, ReferenceImageData
 from acqstore_server.v2.open_service import OpenServiceError, open_acquisition
 from acqstore_server.v2.schemas import (
@@ -67,7 +68,9 @@ def open_load_timeout_s() -> float:
 
 
 def _error(code: str, message: str, *, status_code: int | None = None) -> JSONResponse:
-    body = ErrorResponse(error=code, message=message).model_dump(by_alias=True, mode='json')
+    body = ErrorResponse(error=code, message=message).model_dump(
+        by_alias=True, mode='json', exclude_none=True
+    )
     return JSONResponse(body, status_code=status_code or _ERROR_STATUS.get(code, 500))
 
 
@@ -173,7 +176,11 @@ async def _open_threaded(path: str, channel_indices: Sequence[int] | None) -> Op
 
 def create_router(*, store: SessionStore, pick_file: PickFileFn) -> APIRouter:
     """Create the API v2 router with injected session storage and file picker."""
-    router = APIRouter(prefix='/api/v2', tags=['API v2'])
+    router = APIRouter(
+        prefix='/api/v2',
+        tags=['API v2'],
+        route_class=StableValidationRoute,
+    )
 
     @router.get(
         '',
