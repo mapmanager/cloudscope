@@ -23,7 +23,7 @@ API v2 is the active development API. It is a general AcqStore HTTP interface an
 - [JavaScript client](javascript-client.md)
 - [Python client](python-client.md)
 - [Format validation](format-validation.md)
-- [Representative format testing](representative-format-testing.md)
+- [Testing boundary](testing.md)
 
 ## Compatibility boundary
 
