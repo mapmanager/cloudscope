@@ -2,7 +2,7 @@
 
 **Audience:** Claude (or a developer pasting this into Claude) updating
 `neuronal_calcium_linescan_analyzer_vN.html` (or the in-repo fork under
-`clients/neuronal_calcium_linescan/`).
+`scripts/acqstore_server/clients/neuronal_calcium_linescan/`).
 
 **Do not invent API fields.** Implement exactly against this contract.
 
@@ -315,7 +315,7 @@ async function loadFromAcqStoreServer() {
   renderAll();
 
   // Reference: fetch meta.reference.channels[i].url — see reference_api_v0.md
-  // and clients/neuronal_calcium_linescan (ticket 050) for a working panel.
+  // and scripts/acqstore_server/clients/neuronal_calcium_linescan (ticket 050) for a working panel.
 }
 ```
 
@@ -325,4 +325,4 @@ Live miniature of this integration (owned by AcqStore Server, not the calcium ap
 
 In-repo full analyzer fork:
 
-`clients/neuronal_calcium_linescan/neuronal_calcium_linescan_analyzer_v1_18.html`
+`scripts/acqstore_server/clients/neuronal_calcium_linescan/` (e.g. `linescan_analyzer_v1_18_b.html`)

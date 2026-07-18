@@ -13,7 +13,7 @@ Localhost **file-open HTTP API** for calcium HTML clients (especially OIR dual-c
 |-------|------|------|
 | Server package | `src/acqstore_server/` | FastAPI routes, open service, session store, native UI |
 | Tiny demo | `src/acqstore_server/static/demo/` | Same-origin contract smoke UI (`/demo/`) |
-| Calcium HTML fork | `clients/neuronal_calcium_linescan/` | ~5k-line analyzer with **additive** AcqStore load + reference card |
+| Calcium HTML fork | `scripts/acqstore_server/clients/neuronal_calcium_linescan/` | ~5k-line analyzer with **additive** AcqStore load + reference card |
 | Tests | `tests/acqstore_server/` | `uv run pytest tests/acqstore_server/` |
 | Pack | `packaging/acqstore_server/` | macOS `.app` |
 | Design | `docs-dev/cursor_tickets/036_acqstore_server_design.md` | Original design (may lag; prefer this guide + OpenAPI) |
@@ -77,7 +77,7 @@ Deleted (do not restore): `GET …/reference/plane`, top-level `reference.url`.
 
 ## In-repo HTML fork (status: load + reference done)
 
-`clients/neuronal_calcium_linescan/neuronal_calcium_linescan_analyzer_v1_18.html`
+`scripts/acqstore_server/clients/neuronal_calcium_linescan/` (e.g. `linescan_analyzer_v1_18_b.html`)
 
 | Feature | Status |
 |---------|--------|

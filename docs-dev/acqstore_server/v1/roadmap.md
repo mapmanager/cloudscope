@@ -1,6 +1,7 @@
 # AcqStore Server — roadmap (living)
 
-**Calcium HTML:** in-repo working fork lives under `clients/neuronal_calcium_linescan/`
+**Calcium HTML:** in-repo working fork lives under
+`scripts/acqstore_server/clients/neuronal_calcium_linescan/`
 (additive AcqStore load + reference overview). Upstream TIFF path stays.
 External colleagues may still integrate via the API handouts alone.
 
