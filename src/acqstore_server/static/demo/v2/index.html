@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AcqStore Server API v2 demo</title>
+<style>
+:root { color-scheme: dark; --bg:#0b1220; --panel:#111827; --line:#334155; --text:#e5e7eb; --muted:#94a3b8; --accent:#38bdf8; --ok:#34d399; --err:#fb7185; }
+* { box-sizing:border-box; }
+body { margin:0; padding:18px; background:var(--bg); color:var(--text); font-family:system-ui,sans-serif; }
+h1 { margin:0 0 6px; font-size:22px; color:var(--accent); }
+h2 { margin:0 0 10px; font-size:15px; }
+p { color:var(--muted); font-size:13px; }
+.controls { display:flex; flex-wrap:wrap; gap:10px; align-items:end; margin:16px 0; }
+label { display:grid; gap:5px; color:var(--muted); font-size:12px; }
+input { min-width:300px; padding:9px; border:1px solid var(--line); border-radius:8px; background:#020617; color:var(--text); }
+button { padding:10px 14px; border:0; border-radius:8px; background:var(--accent); color:#03131d; font-weight:700; cursor:pointer; }
+button:disabled { opacity:.45; cursor:default; }
+.status { min-height:20px; font-size:13px; }
+.status.ok { color:var(--ok); } .status.err { color:var(--err); }
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:12px; }
+.card { border:1px solid var(--line); border-radius:12px; background:var(--panel); padding:12px; overflow:hidden; }
+.canvas-wrap { overflow:auto; max-height:520px; border:1px solid var(--line); border-radius:8px; background:#020617; }
+canvas { display:block; image-rendering:auto; }
+pre { max-height:360px; overflow:auto; margin:0; padding:10px; border-radius:8px; background:#020617; font-size:11px; }
+.meta { color:var(--muted); font-size:12px; margin:0 0 8px; }
+</style>
+</head>
+<body>
+<h1>AcqStore Server API v2 demo</h1>
+<p>Generic JavaScript client for <code>/api/v2</code>.</p>
+<div class="controls">
+  <button id="pickBtn" type="button">Pick and open</button>
+  <label>Server-accessible path
+    <input id="pathInput" type="text" placeholder="/absolute/path/to/file.oir">
+  </label>
+  <button id="openBtn" type="button">Open path</button>
+  <button id="closeBtn" type="button" disabled>Delete session</button>
+</div>
+<div id="status" class="status"></div>
+<p id="serverInfo" class="meta">Checking server…</p>
+<section class="card">
+  <h2>Session</h2>
+  <pre id="sessionPre">{}</pre>
+</section>
+<section class="card" style="margin-top:12px">
+  <h2>AcqStore header</h2>
+  <pre id="headerPre">{}</pre>
+</section>
+<section class="card" style="margin-top:12px">
+  <h2>Source channels</h2>
+  <div id="channels" class="grid"></div>
+</section>
+<section class="card" style="margin-top:12px">
+  <h2>Reference channels</h2>
+  <div id="references" class="grid"></div>
+  <p id="referenceEmpty">No reference image loaded.</p>
+</section>
+<section class="card" style="margin-top:12px">
+  <h2>Open response</h2>
+  <pre id="responsePre">{}</pre>
+</section>
+<script>
+const API = '/api/v2';
+const pickBtn = document.getElementById('pickBtn');
+const openBtn = document.getElementById('openBtn');
+const closeBtn = document.getElementById('closeBtn');
+const pathInput = document.getElementById('pathInput');
+const statusEl = document.getElementById('status');
+const channelsEl = document.getElementById('channels');
+const referencesEl = document.getElementById('references');
+const referenceEmptyEl = document.getElementById('referenceEmpty');
+const responsePre = document.getElementById('responsePre');
+const headerPre = document.getElementById('headerPre');
+const sessionPre = document.getElementById('sessionPre');
+const serverInfoEl = document.getElementById('serverInfo');
+let currentSessionId = null;
+
+function setBusy(busy) {
+  pickBtn.disabled = busy;
+  openBtn.disabled = busy;
+  closeBtn.disabled = busy || !currentSessionId;
+}
+function setStatus(message, kind='') {
+  statusEl.className = 'status ' + kind;
+  statusEl.textContent = message;
+}
+async function jsonRequest(url, body) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json();
+  if (!response.ok || payload.ok === false) {
+    throw new Error(`${payload.error || response.status}: ${payload.message || response.statusText}`);
+  }
+  return payload;
+}
+
+async function getJson(url, options={}) {
+  const response = await fetch(url, options);
+  const payload = await response.json();
+  if (!response.ok || payload.ok === false) {
+    throw new Error(`${payload.error || response.status}: ${payload.message || response.statusText}`);
+  }
+  return payload;
+}
+async function loadServerInfo() {
+  try {
+    const [health, capabilities] = await Promise.all([
+      getJson(`${API}/health`),
+      getJson(`${API}/capabilities`),
+    ]);
+    serverInfoEl.textContent =
+      `Server ${health.apiVersion} ready · ` +
+      `Allowed formats: ${capabilities.allowedImportExtensions.join(', ')} · ` +
+      `session TTL ${capabilities.sessionTtlSeconds}s · ${capabilities.binary.encoding}`;
+  } catch (error) {
+    serverInfoEl.textContent = `Server unavailable: ${error}`;
+  }
+}
+async function deleteCurrentSession() {
+  if (!currentSessionId) return;
+  setBusy(true);
+  try {
+    const deletedId = currentSessionId;
+    await getJson(`${API}/sessions/${encodeURIComponent(deletedId)}`, {method:'DELETE'});
+    currentSessionId = null;
+    channelsEl.replaceChildren();
+    referencesEl.replaceChildren();
+    referenceEmptyEl.hidden = false;
+    responsePre.textContent = '{}';
+    headerPre.textContent = '{}';
+    sessionPre.textContent = '{}';
+    setStatus(`Deleted session ${deletedId}.`, 'ok');
+  } catch (error) {
+    setStatus(error instanceof Error ? error.message : String(error), 'err');
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function fetchPlane(resource, plane) {
+  const response = await fetch(resource.dataUrl, {cache:'no-store'});
+  if (!response.ok) throw new Error(`binary fetch failed: ${response.status}`);
+  const buffer = await response.arrayBuffer();
+  if (buffer.byteLength !== resource.byteLength) {
+    throw new Error(`byteLength mismatch: expected ${resource.byteLength}, got ${buffer.byteLength}`);
+  }
+  const values = new Float32Array(buffer);
+  const expected = plane.shape[0] * plane.shape[1];
+  if (values.length !== expected) {
+    throw new Error(`sample count mismatch: expected ${expected}, got ${values.length}`);
+  }
+  return values;
+}
+function finiteRange(values) {
+  let min = Infinity, max = -Infinity;
+  for (const value of values) {
+    if (Number.isFinite(value)) { if (value < min) min = value; if (value > max) max = value; }
+  }
+  return max > min ? [min, max] : [0, 1];
+}
+function transposePlane(values, shape) {
+  const rows = shape[0], cols = shape[1];
+  const transposed = new Float32Array(values.length);
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      transposed[col * rows + row] = values[row * cols + col];
+    }
+  }
+  return {values: transposed, shape: [cols, rows]};
+}
+function drawPlane(canvas, values, shape) {
+  const rows = shape[0], cols = shape[1];
+  const [min, max] = finiteRange(values);
+  const image = new ImageData(cols, rows);
+  for (let i = 0; i < values.length; i++) {
+    const normalized = (values[i] - min) / (max - min);
+    const gray = Math.max(0, Math.min(255, Math.round(normalized * 255)));
+    const offset = i * 4;
+    image.data[offset] = gray;
+    image.data[offset + 1] = gray;
+    image.data[offset + 2] = gray;
+    image.data[offset + 3] = 255;
+  }
+  const offscreen = document.createElement('canvas');
+  offscreen.width = cols; offscreen.height = rows;
+  offscreen.getContext('2d').putImageData(image, 0, 0);
+  const scale = Math.min(4, 900 / cols, 460 / rows);
+  canvas.width = Math.max(1, Math.round(cols * scale));
+  canvas.height = Math.max(1, Math.round(rows * scale));
+  canvas.getContext('2d').drawImage(offscreen, 0, 0, canvas.width, canvas.height);
+}
+function axisSummary(plane) {
+  return plane.axes.map(axis =>
+    `dim${axis.arrayDimension} ${axis.name}: ${axis.size} × ${axis.step} ${axis.unit}`
+  ).join(' · ');
+}
+async function renderResources(container, resources, plane, prefix) {
+  container.replaceChildren();
+  for (const resource of resources) {
+    const card = document.createElement('article');
+    card.className = 'card';
+    const title = document.createElement('h2');
+    title.textContent = `${prefix} ${resource.index}${resource.name ? ` · ${resource.name}` : ''}`;
+    const meta = document.createElement('p');
+    meta.className = 'meta';
+    meta.textContent = `${plane.shape[0]} × ${plane.shape[1]} · ${axisSummary(plane)}`;
+    const wrap = document.createElement('div');
+    wrap.className = 'canvas-wrap';
+    const canvas = document.createElement('canvas');
+    wrap.appendChild(canvas);
+    card.append(title, meta, wrap);
+    container.appendChild(card);
+    const values = await fetchPlane(resource, plane);
+    const displayPlane = transposePlane(values, plane.shape);
+    drawPlane(canvas, displayPlane.values, displayPlane.shape);
+  }
+}
+async function renderOpen(payload) {
+  const session = await getJson(`${API}/sessions/${encodeURIComponent(payload.sessionId)}`);
+  sessionPre.textContent = JSON.stringify(session, null, 2);
+  headerPre.textContent = JSON.stringify(payload.header, null, 2);
+  responsePre.textContent = JSON.stringify(payload, null, 2);
+  await renderResources(channelsEl, payload.channels, payload.plane, 'Channel');
+  const reference = payload.reference;
+  referenceEmptyEl.hidden = Boolean(reference);
+  referencesEl.replaceChildren();
+  if (reference) {
+    await renderResources(referencesEl, reference.channels, reference.plane, 'Reference channel');
+  }
+}
+async function runOpen(kind) {
+  setBusy(true); setStatus('Opening acquisition…');
+  try {
+    const payload = kind === 'pick'
+      ? await jsonRequest(`${API}/pick-and-open`, {})
+      : await jsonRequest(`${API}/open`, {path:pathInput.value});
+    currentSessionId = payload.sessionId;
+    await renderOpen(payload);
+    setStatus(`Loaded ${payload.source.name}: ${payload.channels.length} channel(s).`, 'ok');
+  } catch (error) {
+    setStatus(error instanceof Error ? error.message : String(error), 'err');
+  } finally {
+    setBusy(false);
+  }
+}
+pickBtn.addEventListener('click', () => runOpen('pick'));
+openBtn.addEventListener('click', () => runOpen('path'));
+closeBtn.addEventListener('click', deleteCurrentSession);
+loadServerInfo();
+</script>
+</body>
+</html>

@@ -1,33 +1,29 @@
 #!/usr/bin/env bash
-# Regenerate platform packaging icons from the master PNG.
+# Regenerate platform packaging icons from master PNGs.
 #
-# Source of truth:
-#   packaging/assets/CloudScope.png  (1024x1024 recommended)
+# Masters (committed):
+#   packaging/assets/CloudScope.png       — black CS on white
+#   packaging/assets/AcqStoreServer.png   — teal AS on white
 #
-# Outputs (committed alongside the master):
-#   packaging/assets/CloudScope.icns  (macOS nicegui-pack / PyInstaller)
-#   packaging/assets/CloudScope.ico   (Windows nicegui-pack / PyInstaller)
+# Outputs (committed alongside masters):
+#   *.icns  (macOS nicegui-pack / PyInstaller)
+#   *.ico   (Windows nicegui-pack / PyInstaller)
 #
 # Requires: macOS (iconutil), uv, Pillow (project dependency).
 #
 # Usage (from repo root):
-#   ./packaging/assets/build_icons.sh
+#   ./packaging/assets/build_icons.sh              # both apps
+#   ./packaging/assets/build_icons.sh CloudScope
+#   ./packaging/assets/build_icons.sh AcqStoreServer
 #
 # You do NOT need to run this for normal builds if .icns/.ico are already
-# committed. Run it only when CloudScope.png changes.
+# committed. Run it only when a master PNG changes.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-MASTER="$SCRIPT_DIR/CloudScope.png"
-ICNS_OUT="$SCRIPT_DIR/CloudScope.icns"
-ICO_OUT="$SCRIPT_DIR/CloudScope.ico"
 
-if [[ ! -f "$MASTER" ]]; then
-  echo "ERROR: master PNG not found: $MASTER" >&2
-  exit 2
-fi
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "ERROR: building .icns requires macOS iconutil." >&2
   exit 2
@@ -41,16 +37,29 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 2
 fi
 
-ICONSET="$(mktemp -d "${TMPDIR:-/tmp}/CloudScopeXXXX").iconset"
-mkdir -p "$ICONSET"
-trap 'rm -rf "$ICONSET"' EXIT
+build_one() {
+  local stem="$1"
+  local master="$SCRIPT_DIR/${stem}.png"
+  local icns_out="$SCRIPT_DIR/${stem}.icns"
+  local ico_out="$SCRIPT_DIR/${stem}.ico"
 
-echo "[icons] Master: $MASTER"
-echo "[icons] Iconset: $ICONSET"
+  if [[ ! -f "$master" ]]; then
+    echo "ERROR: master PNG not found: $master" >&2
+    exit 2
+  fi
 
-cd "$REPO_ROOT"
-export MASTER ICONSET ICO_OUT
-uv run python <<'PY'
+  local iconset
+  iconset="$(mktemp -d "${TMPDIR:-/tmp}/${stem}XXXX").iconset"
+  mkdir -p "$iconset"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$iconset'" RETURN
+
+  echo "[icons] Master: $master"
+  echo "[icons] Iconset: $iconset"
+
+  cd "$REPO_ROOT"
+  export MASTER="$master" ICONSET="$iconset" ICO_OUT="$ico_out"
+  uv run python <<'PY'
 from pathlib import Path
 import os
 
@@ -64,7 +73,6 @@ img = Image.open(master).convert("RGBA")
 if img.size != (1024, 1024):
     print(f"[icons] WARNING: master is {img.size}, expected 1024x1024")
 
-# Apple iconset pixel sizes -> required filenames
 specs = [
     (16, "icon_16x16.png"),
     (32, "icon_16x16@2x.png"),
@@ -86,6 +94,17 @@ img.save(ico_out, format="ICO", sizes=sizes)
 print(f"[icons] wrote {ico_out}")
 PY
 
-iconutil -c icns "$ICONSET" -o "$ICNS_OUT"
-echo "[icons] wrote $ICNS_OUT"
+  iconutil -c icns "$iconset" -o "$icns_out"
+  echo "[icons] wrote $icns_out"
+}
+
+TARGETS=("$@")
+if [[ "${#TARGETS[@]}" -eq 0 ]]; then
+  TARGETS=(CloudScope AcqStoreServer)
+fi
+
+for stem in "${TARGETS[@]}"; do
+  build_one "$stem"
+done
+
 echo "[icons] Done."

@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AcqStore Server v2 — standalone browser client</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --text: #1a1d23;
+      --muted: #5b6472;
+      --border: #d5dae2;
+      --accent: #1f6feb;
+      --danger: #b42318;
+      --ok: #067647;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.45;
+    }
+    header {
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+    }
+    h1 { margin: 0 0 0.25rem; font-size: 1.15rem; }
+    header p { margin: 0; color: var(--muted); font-size: 0.9rem; }
+    main {
+      display: grid;
+      gap: 1rem;
+      padding: 1rem 1.25rem 2rem;
+      max-width: 1100px;
+    }
+    section {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.9rem 1rem;
+    }
+    h2 { margin: 0 0 0.75rem; font-size: 0.95rem; }
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+      margin-bottom: 0.6rem;
+    }
+    label { font-size: 0.85rem; color: var(--muted); }
+    input[type="text"] {
+      flex: 1 1 280px;
+      min-width: 200px;
+      padding: 0.45rem 0.6rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font: inherit;
+    }
+    button {
+      padding: 0.45rem 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #eef2f7;
+      color: var(--text);
+      font: inherit;
+      cursor: pointer;
+    }
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    button.danger {
+      background: #fff;
+      border-color: #f3b4ae;
+      color: var(--danger);
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    pre {
+      margin: 0;
+      padding: 0.65rem 0.75rem;
+      background: #f0f2f5;
+      border-radius: 6px;
+      overflow: auto;
+      max-height: 280px;
+      font-size: 0.78rem;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    #log {
+      min-height: 4rem;
+      color: var(--muted);
+    }
+    #log .ok { color: var(--ok); }
+    #log .err { color: var(--danger); }
+    canvas {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      border: 1px solid var(--border);
+      background: #111;
+      image-rendering: pixelated;
+    }
+    .meta { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.5rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>AcqStore Server v2 — standalone browser client</h1>
+    <p>
+      Built from <code>docs-dev/acqstore_server/README.md</code> and
+      <code>client-roadmap.md</code> only. Pure HTML + fetch + Canvas.
+    </p>
+  </header>
+
+  <main>
+    <section>
+      <h2>Server</h2>
+      <div class="row">
+        <label for="server">Origin</label>
+        <input id="server" type="text" value="http://127.0.0.1:8767" />
+        <button id="btnHealth" type="button">1. Health</button>
+        <button id="btnCaps" type="button">2. Capabilities</button>
+      </div>
+      <pre id="healthOut">(not fetched)</pre>
+    </section>
+
+    <section>
+      <h2>Open acquisition</h2>
+      <div class="row">
+        <button id="btnPick" class="primary" type="button">3a. Pick and open</button>
+        <span class="meta">Native dialog on the server machine</span>
+      </div>
+      <div class="row">
+        <label for="path">Absolute path</label>
+        <input
+          id="path"
+          type="text"
+          placeholder="/absolute/path/visible/to/the/server.oir"
+        />
+        <button id="btnOpen" type="button">3b. Open path</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>4. Acquisition metadata (source)</h2>
+      <pre id="sourceOut">(none)</pre>
+    </section>
+
+    <section>
+      <h2>5. Acquisition header</h2>
+      <pre id="headerOut">(none)</pre>
+    </section>
+
+    <section>
+      <h2>6–7. Plane download + Canvas display</h2>
+      <div class="row">
+        <button id="btnFetchPlane" type="button" disabled>Fetch &amp; display plane</button>
+        <label>
+          <input id="transpose" type="checkbox" />
+          Client-side transpose before display (optional)
+        </label>
+      </div>
+      <p id="planeMeta" class="meta">No plane loaded.</p>
+      <canvas id="canvas" width="1" height="1"></canvas>
+    </section>
+
+    <section>
+      <h2>8. Session</h2>
+      <div class="row">
+        <button id="btnDelete" class="danger" type="button" disabled>Delete session</button>
+        <span id="sessionMeta" class="meta">No session</span>
+      </div>
+    </section>
+
+    <section>
+      <h2>Log</h2>
+      <pre id="log"></pre>
+    </section>
+  </main>
+
+  <script>
+    /**
+     * Client built from client-roadmap.md workflow:
+     * health → capabilities → pick-and-open|open → header/plane metadata
+     * → channels[].dataUrl Float32LE → Canvas → DELETE session
+     */
+    const $ = (id) => document.getElementById(id);
+
+    let SERVER = 'http://127.0.0.1:8767';
+    let API = `${SERVER}/api/v2`;
+    let sessionId = null;
+    let opened = null;
+
+    function syncOrigin() {
+      SERVER = $('server').value.replace(/\/$/, '');
+      API = `${SERVER}/api/v2`;
+    }
+
+    function log(message, kind) {
+      const el = $('log');
+      const line = document.createElement('div');
+      if (kind) line.className = kind;
+      line.textContent = `${new Date().toISOString().slice(11, 19)}  ${message}`;
+      el.prepend(line);
+    }
+
+    function showJson(el, value) {
+      el.textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+    }
+
+    function setSessionUi(active) {
+      $('btnFetchPlane').disabled = !active;
+      $('btnDelete').disabled = !active;
+      $('sessionMeta').textContent = active
+        ? `sessionId=${sessionId}`
+        : 'No session';
+    }
+
+    function decodeFloat32LittleEndian(buffer) {
+      if (buffer.byteLength % 4 !== 0) {
+        throw new Error('Float32 payload length must be divisible by four');
+      }
+      const view = new DataView(buffer);
+      const values = new Float32Array(buffer.byteLength / 4);
+      for (let index = 0; index < values.length; index += 1) {
+        values[index] = view.getFloat32(index * 4, true);
+      }
+      return values;
+    }
+
+    function transposePlane(values, shape) {
+      const [rows, columns] = shape;
+      const transposed = new Float32Array(values.length);
+      for (let row = 0; row < rows; row += 1) {
+        for (let column = 0; column < columns; column += 1) {
+          transposed[column * rows + row] = values[row * columns + column];
+        }
+      }
+      return { values: transposed, shape: [columns, rows] };
+    }
+
+    /** Min/max stretch Float32 plane to grayscale ImageData (Canvas). */
+    function renderPlaneToCanvas(values, shape) {
+      const [rows, columns] = shape;
+      const canvas = $('canvas');
+      canvas.width = columns;
+      canvas.height = rows;
+      const ctx = canvas.getContext('2d');
+      const image = ctx.createImageData(columns, rows);
+
+      let min = Infinity;
+      let max = -Infinity;
+      for (let i = 0; i < values.length; i += 1) {
+        const v = values[i];
+        if (!Number.isFinite(v)) continue;
+        if (v < min) min = v;
+        if (v > max) max = v;
+      }
+      if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) {
+        min = 0;
+        max = 1;
+      }
+      const scale = 255 / (max - min);
+
+      for (let i = 0; i < values.length; i += 1) {
+        const gray = Math.max(0, Math.min(255, Math.round((values[i] - min) * scale)));
+        const o = i * 4;
+        image.data[o] = gray;
+        image.data[o + 1] = gray;
+        image.data[o + 2] = gray;
+        image.data[o + 3] = 255;
+      }
+      ctx.putImageData(image, 0, 0);
+      return { min, max, rows, columns };
+    }
+
+    async function readJson(response) {
+      const text = await response.text();
+      try {
+        return text ? JSON.parse(text) : {};
+      } catch (err) {
+        throw new Error(`Non-JSON response (HTTP ${response.status}): ${text.slice(0, 200)}`);
+      }
+    }
+
+    async function checkHealth() {
+      syncOrigin();
+      const health = await fetch(`${API}/health`).then((r) => r.json());
+      showJson($('healthOut'), health);
+      if (!health.ok) {
+        throw new Error('AcqStore Server is not healthy');
+      }
+      log('Health OK', 'ok');
+      return health;
+    }
+
+    async function checkCapabilities() {
+      syncOrigin();
+      const capabilities = await fetch(`${API}/capabilities`).then((r) => r.json());
+      showJson($('healthOut'), { health: 'see previous', capabilities });
+      log('Capabilities received', 'ok');
+      return capabilities;
+    }
+
+    async function applyOpened(response, openedBody) {
+      if (!response.ok || openedBody.ok === false) {
+        throw new Error(
+          `${openedBody.error ?? response.status}: ${openedBody.message ?? response.statusText}`,
+        );
+      }
+      opened = openedBody;
+      sessionId = opened.sessionId;
+      showJson($('sourceOut'), opened.source ?? opened);
+      showJson($('headerOut'), opened.header ?? '(no header field)');
+      setSessionUi(true);
+      log(`Opened session ${sessionId}`, 'ok');
+      await fetchAndDisplayPlane();
+    }
+
+    async function pickAndOpen() {
+      syncOrigin();
+      const response = await fetch(`${API}/pick-and-open`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const body = await readJson(response);
+      if (body.ok === false && body.error === 'cancelled') {
+        log('Picker cancelled (HTTP 200, ok:false)', 'err');
+        showJson($('sourceOut'), body);
+        return;
+      }
+      await applyOpened(response, body);
+    }
+
+    async function openPath() {
+      syncOrigin();
+      const path = $('path').value.trim();
+      if (!path) {
+        throw new Error('Enter an absolute path visible to the server');
+      }
+      const response = await fetch(`${API}/open`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
+      });
+      const body = await readJson(response);
+      await applyOpened(response, body);
+    }
+
+    async function fetchAndDisplayPlane() {
+      if (!opened) {
+        throw new Error('No open acquisition');
+      }
+      const plane = opened.plane;
+      const firstChannel = opened.channels[0];
+      if (!firstChannel || !firstChannel.dataUrl) {
+        throw new Error('Open response missing channels[0].dataUrl');
+      }
+
+      // dataUrl is relative to server origin (roadmap §5)
+      const dataResponse = await fetch(`${SERVER}${firstChannel.dataUrl}`, {
+        cache: 'no-store',
+      });
+      if (!dataResponse.ok) {
+        throw new Error(`Binary request failed: HTTP ${dataResponse.status}`);
+      }
+
+      const buffer = await dataResponse.arrayBuffer();
+      if (buffer.byteLength !== firstChannel.byteLength) {
+        throw new Error(
+          `byteLength mismatch: expected ${firstChannel.byteLength}, got ${buffer.byteLength}`,
+        );
+      }
+
+      let values = decodeFloat32LittleEndian(buffer);
+      let shape = plane.shape;
+      const expectedSamples = shape[0] * shape[1];
+      if (values.length !== expectedSamples) {
+        throw new Error(
+          `sample-count mismatch: expected ${expectedSamples}, got ${values.length}`,
+        );
+      }
+
+      if ($('transpose').checked) {
+        const t = transposePlane(values, shape);
+        values = t.values;
+        shape = t.shape;
+      }
+
+      const stats = renderPlaneToCanvas(values, shape);
+      $('planeMeta').textContent =
+        `shape=[${shape.join(', ')}]  samples=${values.length}  ` +
+        `byteLength=${firstChannel.byteLength}  intensity=[${stats.min}, ${stats.max}]  ` +
+        `dataUrl=${firstChannel.dataUrl}`;
+      log('Plane decoded and drawn to Canvas', 'ok');
+    }
+
+    async function deleteSession() {
+      if (!sessionId) {
+        throw new Error('No session to delete');
+      }
+      syncOrigin();
+      const deleteResponse = await fetch(
+        `${API}/sessions/${encodeURIComponent(sessionId)}`,
+        { method: 'DELETE' },
+      );
+      const deleted = await readJson(deleteResponse);
+      if (!deleteResponse.ok || deleted.ok === false) {
+        throw new Error(
+          `${deleted.error ?? deleteResponse.status}: ${deleted.message ?? deleteResponse.statusText}`,
+        );
+      }
+      log(`Deleted session ${sessionId}`, 'ok');
+      sessionId = null;
+      opened = null;
+      setSessionUi(false);
+      showJson($('sourceOut'), '(session deleted)');
+      showJson($('headerOut'), '(session deleted)');
+      $('planeMeta').textContent = 'Session deleted.';
+    }
+
+    function wrap(fn) {
+      return async () => {
+        try {
+          await fn();
+        } catch (err) {
+          console.error(err);
+          log(String(err.message || err), 'err');
+        }
+      };
+    }
+
+    $('btnHealth').addEventListener('click', wrap(checkHealth));
+    $('btnCaps').addEventListener('click', wrap(checkCapabilities));
+    $('btnPick').addEventListener('click', wrap(pickAndOpen));
+    $('btnOpen').addEventListener('click', wrap(openPath));
+    $('btnFetchPlane').addEventListener('click', wrap(fetchAndDisplayPlane));
+    $('btnDelete').addEventListener('click', wrap(deleteSession));
+
+    // Auto-verify health on load (roadmap steps 1–2 start here)
+    wrap(async () => {
+      await checkHealth();
+      await checkCapabilities();
+    })();
+  </script>
+</body>
+</html>

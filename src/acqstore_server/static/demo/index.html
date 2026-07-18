@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AcqStore Server demo</title>
+<style>
+  :root { --bg:#0f172a; --panel:#111827; --text:#e5e7eb; --muted:#9ca3af; --accent:#38bdf8; --line:#374151; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:system-ui,sans-serif; background:var(--bg); color:var(--text); padding:16px; }
+  h1 { font-size:20px; color:var(--accent); margin:0 0 8px; }
+  h2 { font-size:14px; margin:0 0 8px; }
+  h3 { font-size:12px; margin:0 0 6px; color:var(--muted); font-weight:600; }
+  p, .muted { color:var(--muted); font-size:13px; }
+  button { background:var(--accent); color:#04111d; border:0; border-radius:8px; padding:10px 14px; font-weight:700; cursor:pointer; }
+  button:disabled { opacity:.45; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; margin:12px 0; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px; flex:1 1 420px; min-width:300px; }
+  .card.wide { flex:1 1 100%; }
+  /* Wrap hugs canvas; scroll when kymograph is wide. No tall empty black box. */
+  .canvasWrap {
+    width:100%;
+    max-height:420px;
+    overflow:auto;
+    background:#020617;
+    border-radius:8px;
+    border:1px solid var(--line);
+    line-height:0;
+  }
+  .canvasWrap.ref { max-height:none; }
+  .refGrid { display:flex; flex-wrap:wrap; gap:12px; }
+  .refPanel { flex:1 1 280px; max-width:420px; min-width:240px; }
+  canvas { display:block; background:#020617; }
+  pre { background:#020617; border:1px solid var(--line); border-radius:8px; padding:10px; overflow:auto; max-height:280px; font-size:11px; }
+  .alert { margin-top:8px; font-size:13px; }
+  .alert.err { color:#f87171; }
+  .alert.ok { color:#34d399; }
+</style>
+</head>
+<body>
+  <h1>AcqStore Server demo</h1>
+  <!-- <p class="muted">
+    Client-only display: <strong>transpose</strong> maps API dim0 → canvas X and dim1 → canvas Y
+    (server does not transpose). Long kymographs use a <strong>time sampleStep</strong> preview
+    (same idea as the calcium HTML), then <code>drawImage</code> scale — not a full-resolution
+    pixel loop. Keep this page in sync when the HTTP API changes.
+  </p> -->
+  <div class="row">
+    <button id="loadBtn" type="button">Load from AcqStore Server</button>
+    <span id="status" class="alert"></span>
+  </div>
+  <div class="row">
+    <section class="card wide">
+        <!-- <h2 id="calciumTitle">Calcium channel · channel 0 (dim0→x, dim1→y)</h2> -->
+        <h2 id="calciumTitle">Channel 0</h2>
+        <div class="canvasWrap"><canvas id="calciumCanvas" width="960" height="200"></canvas></div>
+    </section>
+  </div>
+  <div class="row">
+    <section class="card wide" id="vesselsCard" hidden>
+        <!-- <h2 id="vesselsTitle">Vessels channel · channel 1 (dim0→x, dim1→y)</h2> -->
+        <h2 id="vesselsTitle">Channel 1</h2>
+        <div class="canvasWrap"><canvas id="vesselsCanvas" width="960" height="200"></canvas></div>
+    </section>
+  </div>
+  <div class="row">
+    <section class="card wide">
+      <h2>Reference + scan path</h2>
+      <div id="refGrid" class="refGrid"></div>
+      <p id="refHint" class="muted">No reference yet.</p>
+    </section>
+  </div>
+  <section class="card wide">
+    <h2>Open JSON (metadata)</h2>
+    <pre id="metaPre">{}</pre>
+  </section>
+  <!--
+  <section class="card wide">
+    <h2>Load timing (ms) — bottleneck diagnosis</h2>
+    <pre id="perfPre">Load a file to see stage timings.</pre>
+  </section>
+  -->
+
+<script>
+const BASE = '';
+
+const PERF = [];
+function perfMark(name, ms, detail) {
+  const row = { name, ms: Math.round(ms * 10) / 10, ...(detail || {}) };
+  PERF.push(row);
+  console.info('[demo-perf]', row.name, row.ms + 'ms', detail || '');
+  const el = document.getElementById('perfPre');
+  if (el) {
+    el.textContent = PERF.map((r) => {
+      const extra = Object.keys(r)
+        .filter((k) => k !== 'name' && k !== 'ms')
+        .map((k) => `${k}=${r[k]}`)
+        .join(' ');
+      return `${String(r.ms).padStart(8)}  ${r.name}${extra ? '  ' + extra : ''}`;
+    }).join('\n');
+  }
+}
+function perfReset() {
+  PERF.length = 0;
+  const el = document.getElementById('perfPre');
+  if (el) el.textContent = 'Timing…';
+}
+
+async function fetchF32Plane(ch) {
+  const label = ch.role || ('ref' + (ch.index ?? '?'));
+  const tNet0 = performance.now();
+  const r = await fetch(BASE + ch.url);
+  const tHeaders = performance.now();
+  if (!r.ok) throw new Error('fetch failed ' + ch.url + ' status ' + r.status);
+  const buf = await r.arrayBuffer();
+  const tBuf = performance.now();
+  const f32 = new Float32Array(buf);
+  const tView = performance.now();
+  if (f32.length !== ch.height * ch.width) {
+    throw new Error('length mismatch for ' + label);
+  }
+  perfMark(`fetch.${label}.http_headers`, tHeaders - tNet0, {
+    url: ch.url, bytes: ch.byteLength,
+  });
+  perfMark(`fetch.${label}.arrayBuffer`, tBuf - tHeaders, {
+    bytes: buf.byteLength,
+  });
+  perfMark(`fetch.${label}.Float32Array`, tView - tBuf, {
+    samples: f32.length,
+  });
+  perfMark(`fetch.${label}.TOTAL`, tView - tNet0, {
+    MBps: (buf.byteLength / 1e6 / ((tView - tNet0) / 1000)).toFixed(1),
+  });
+  return { f32, height: ch.height, width: ch.width };
+}
+
+function setStatus(el, text, kind) {
+  el.className = kind ? ('alert ' + kind) : 'alert';
+  el.textContent = text;
+}
+
+/** Yield so status text paints between heavy stages. */
+function tick() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/**
+ * Display pyramid along time (same idea as neuronal_calcium_linescan_analyzer_v1_18
+ * ``displaySampleStepForCanvas``): long kymographs are not painted 1:1.
+ */
+function displaySampleStepForTime(timeLen, targetCanvasWidth) {
+  if (timeLen <= 3000) return 1;
+  const target = Math.max(600, Math.ceil((targetCanvasWidth || timeLen) * 1.5));
+  const previewW = Math.min(3000, target);
+  return Math.max(1, Math.ceil(timeLen / previewW));
+}
+
+/**
+ * Build grayscale ImageData for a transposed kymograph preview.
+ * API plane is row-major (dim0=time=height, dim1=space=width).
+ * Preview: X = time (subsampled), Y = space (full).
+ */
+function kymographToImageData(f32, height, width, sampleStep) {
+  const step = Math.max(1, Math.round(sampleStep || 1));
+  const dw = Math.max(1, Math.ceil(height / step));
+  const dh = width;
+  const t0 = performance.now();
+  const imageData = new ImageData(dw, dh);
+  const buf = imageData.data;
+  let vmin = Infinity;
+  let vmax = -Infinity;
+  for (let yy = 0; yy < dh; yy++) {
+    for (let xx = 0; xx < dw; xx++) {
+      const y = Math.min(height - 1, Math.floor(xx * step + step / 2));
+      const x = yy;
+      const v = f32[y * width + x];
+      if (Number.isFinite(v)) {
+        if (v < vmin) vmin = v;
+        if (v > vmax) vmax = v;
+      }
+    }
+  }
+  const tRange = performance.now();
+  if (!(vmax > vmin)) {
+    vmin = 0;
+    vmax = 1;
+  }
+  for (let yy = 0; yy < dh; yy++) {
+    for (let xx = 0; xx < dw; xx++) {
+      const y = Math.min(height - 1, Math.floor(xx * step + step / 2));
+      const x = yy;
+      const v = f32[y * width + x];
+      const t = (v - vmin) / (vmax - vmin);
+      const g = Math.max(0, Math.min(255, Math.round(t * 255)));
+      const o = (yy * dw + xx) * 4;
+      buf[o] = g;
+      buf[o + 1] = g;
+      buf[o + 2] = Math.min(255, g + 40);
+      buf[o + 3] = 255;
+    }
+  }
+  const tFill = performance.now();
+  return {
+    imageData,
+    sampleStep: step,
+    previewW: dw,
+    previewH: dh,
+    msRange: tRange - t0,
+    msFill: tFill - tRange,
+    msTotal: tFill - t0,
+  };
+}
+
+/**
+ * Draw plane using calcium-HTML strategy:
+ * sample along time → putImageData on offscreen → drawImage scale to visible canvas.
+ * Transpose (display): canvas X = dim0/time, canvas Y = dim1/space.
+ */
+function drawPlane(canvas, f32, height, width, transpose, maxW, maxH) {
+  const ctx = canvas.getContext('2d');
+  if (!transpose) {
+    // Non-kymograph fallback: contain fit, no time pyramid.
+    const scale = Math.min(maxW / width, maxH / height, 4);
+    const dw = Math.max(1, Math.floor(width * scale));
+    const dh = Math.max(1, Math.floor(height * scale));
+    const step = Math.max(1, Math.round(1 / Math.max(scale, 1e-6)));
+    const imageData = new ImageData(dw, dh);
+    let vmin = Infinity;
+    let vmax = -Infinity;
+    for (let py = 0; py < dh; py++) {
+      for (let px = 0; px < dw; px++) {
+        const v = f32[Math.min(height - 1, Math.floor(py / scale)) * width
+          + Math.min(width - 1, Math.floor(px / scale))];
+        if (Number.isFinite(v)) {
+          if (v < vmin) vmin = v;
+          if (v > vmax) vmax = v;
+        }
+      }
+    }
+    if (!(vmax > vmin)) {
+      vmin = 0;
+      vmax = 1;
+    }
+    for (let py = 0; py < dh; py++) {
+      for (let px = 0; px < dw; px++) {
+        const v = f32[Math.min(height - 1, Math.floor(py / scale)) * width
+          + Math.min(width - 1, Math.floor(px / scale))];
+        const t = (v - vmin) / (vmax - vmin);
+        const g = Math.max(0, Math.min(255, Math.round(t * 255)));
+        const o = (py * dw + px) * 4;
+        imageData.data[o] = g;
+        imageData.data[o + 1] = g;
+        imageData.data[o + 2] = Math.min(255, g + 40);
+        imageData.data[o + 3] = 255;
+      }
+    }
+    canvas.width = dw;
+    canvas.height = dh;
+    ctx.putImageData(imageData, 0, 0);
+    return { scaleX: scale, scaleY: scale, dw, dh, sampleStep: step };
+  }
+
+  const sampleStep = displaySampleStepForTime(height, maxW);
+  const tBuild0 = performance.now();
+  const built = kymographToImageData(f32, height, width, sampleStep);
+  const { imageData, previewW, previewH } = built;
+  const tBuild1 = performance.now();
+  const off = document.createElement('canvas');
+  off.width = previewW;
+  off.height = previewH;
+  off.getContext('2d').putImageData(imageData, 0, 0);
+  const tPut = performance.now();
+
+  // Prefer filling height (space axis); allow horizontal scroll for time.
+  const boxAspect = maxW / Math.max(maxH, 1);
+  const previewAspect = previewW / Math.max(previewH, 1);
+  let scale;
+  if (previewAspect > boxAspect * 1.35) {
+    scale = Math.min(maxH / previewH, 4);
+  } else {
+    scale = Math.min(maxW / previewW, maxH / previewH, 4);
+  }
+  const dw = Math.max(1, Math.round(previewW * scale));
+  const dh = Math.max(1, Math.round(previewH * scale));
+  canvas.width = dw;
+  canvas.height = dh;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(off, 0, 0, dw, dh);
+  const tBlit = performance.now();
+
+  perfMark('draw.kymo.buildImageData', built.msTotal, {
+    sampleStep, previewW, previewH, pixels: previewW * previewH,
+    msRange: Math.round(built.msRange), msFill: Math.round(built.msFill),
+  });
+  perfMark('draw.kymo.putImageData', tPut - tBuild1, { previewW, previewH });
+  perfMark('draw.kymo.drawImage', tBlit - tPut, { dw, dh });
+  perfMark('draw.kymo.TOTAL', tBlit - tBuild0, {
+    srcH: height, srcW: width, sampleStep,
+  });
+
+  // API (x=space/dim1, y=time/dim0) → canvas after transpose + time subsample.
+  const scaleX = dw / height; // time → canvas X
+  const scaleY = dh / width; // space → canvas Y
+  return { scaleX, scaleY, dw, dh, sampleStep, previewW, previewH };
+}
+
+function drawReference(canvas, f32, height, width, scanPath, lineRoi) {
+  // Same display transpose as calcium: dim0→X, dim1→Y.
+  // API scanPath/lineRoi are in reference pixel coords (x=dim1/X, y=dim0/Y).
+  const layout = drawPlane(canvas, f32, height, width, true, 360, 360);
+  const ctx = canvas.getContext('2d');
+  ctx.strokeStyle = '#f87171';
+  ctx.lineWidth = 2;
+  const toCanvas = (px, py) => [py * layout.scaleX, px * layout.scaleY];
+  if (scanPath && scanPath.x && scanPath.y && scanPath.x.length) {
+    ctx.beginPath();
+    for (let i = 0; i < scanPath.x.length; i++) {
+      const [cx, cy] = toCanvas(scanPath.x[i], scanPath.y[i]);
+      if (i === 0) ctx.moveTo(cx, cy); else ctx.lineTo(cx, cy);
+    }
+    ctx.stroke();
+  } else if (lineRoi && lineRoi.length === 4) {
+    const [x0, y0, x1, y1] = lineRoi;
+    const [c0x, c0y] = toCanvas(x0, y0);
+    const [c1x, c1y] = toCanvas(x1, y1);
+    ctx.beginPath();
+    ctx.moveTo(c0x, c0y);
+    ctx.lineTo(c1x, c1y);
+    ctx.stroke();
+  }
+}
+
+function clearRefGrid() {
+  const grid = document.getElementById('refGrid');
+  grid.innerHTML = '';
+}
+
+async function load() {
+  const status = document.getElementById('status');
+  const btn = document.getElementById('loadBtn');
+  const vesselsCard = document.getElementById('vesselsCard');
+  const hint = document.getElementById('refHint');
+  btn.disabled = true;
+  perfReset();
+  setStatus(status, 'Waiting for native file dialog…');
+  vesselsCard.hidden = true;
+  clearRefGrid();
+  hint.textContent = 'No reference yet.';
+  document.getElementById('calciumTitle').textContent = 'Channel 0';
+  document.getElementById('vesselsTitle').textContent = 'Channel 1';
+  const tAll0 = performance.now();
+  try {
+    const tOpen0 = performance.now();
+    const resp = await fetch(BASE + '/api/v1/pick-and-open', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ calciumChannel: 0, vesselChannel: 1 }),
+    });
+    const tOpenHttp = performance.now();
+    setStatus(status, 'Decoding open response…');
+    await tick();
+    const meta = await resp.json();
+    const tOpenJson = performance.now();
+    perfMark('open.http', tOpenHttp - tOpen0, { status: resp.status });
+    perfMark('open.json_parse', tOpenJson - tOpenHttp);
+    document.getElementById('metaPre').textContent = JSON.stringify(meta, null, 2);
+    if (!meta.ok) {
+      if (meta.error === 'cancelled') {
+        setStatus(status, 'Cancelled.');
+        return;
+      }
+      throw new Error(meta.message || meta.error);
+    }
+
+    setStatus(
+      status,
+      `Opened C=${meta.source.numChannels}` +
+        (meta.channels.vessels ? ' · dual-channel' : ' · single-channel') +
+        (meta.reference ? ` · reference×${meta.reference.numChannels}` : ' · no reference') +
+        ' — fetching calcium…',
+    );
+    await tick();
+
+    const cal = meta.calibration;
+    const channelTitle = (idx, height, width) =>
+      `Channel ${idx} · ${height}×${width} · ${cal.dim_0_step} ${cal.dim_0_units} · ${cal.dim_1_step} ${cal.dim_1_units}`;
+
+    if (meta.channels.vessels) {
+      vesselsCard.hidden = false;
+      document.getElementById('vesselsTitle').textContent =
+        `Channel ${meta.channels.vessels.index} — pending…`;
+    }
+
+    const caIdx = meta.channels.calcium.index;
+    const calcium = await fetchF32Plane(meta.channels.calcium);
+    setStatus(
+      status,
+      `fetched channel 0 — drawing…`,
+    );
+    await tick();
+    drawPlane(
+      document.getElementById('calciumCanvas'),
+      calcium.f32, calcium.height, calcium.width,
+      true, 960, 400,
+    );
+    document.getElementById('calciumTitle').textContent =
+      channelTitle(caIdx, calcium.height, calcium.width);
+
+    if (meta.channels.vessels) {
+      const vIdx = meta.channels.vessels.index;
+      setStatus(status, 'Fetching vessels…');
+      await tick();
+      const vessels = await fetchF32Plane(meta.channels.vessels);
+      setStatus(status, 'fetched channel 1 — drawing…');
+      await tick();
+      drawPlane(
+        document.getElementById('vesselsCanvas'),
+        vessels.f32, vessels.height, vessels.width,
+        true, 960, 400,
+      );
+      document.getElementById('vesselsTitle').textContent =
+        channelTitle(vIdx, vessels.height, vessels.width);
+    }
+
+    const grid = document.getElementById('refGrid');
+    if (meta.reference) {
+      const refChannels = meta.reference.channels || [];
+      if (!refChannels.length) {
+        hint.textContent = 'Reference meta present but channels[] is empty.';
+      } else {
+        hint.textContent = `Loading ${refChannels.length} reference channel(s)…`;
+      }
+      for (const ch of refChannels) {
+        setStatus(status, `Fetching reference channel ${ch.index}…`);
+        await tick();
+        const panel = document.createElement('div');
+        panel.className = 'refPanel';
+        const title = document.createElement('h3');
+        title.textContent = `Reference channel ${ch.index}`;
+        const wrap = document.createElement('div');
+        wrap.className = 'canvasWrap ref';
+        const canvas = document.createElement('canvas');
+        canvas.width = 360;
+        canvas.height = 360;
+        wrap.appendChild(canvas);
+        panel.appendChild(title);
+        panel.appendChild(wrap);
+        grid.appendChild(panel);
+        const tRef0 = performance.now();
+        const plane = await fetchF32Plane(ch);
+        const tRef1 = performance.now();
+        drawReference(
+          canvas,
+          plane.f32, plane.height, plane.width,
+          meta.reference.scanPath,
+          meta.reference.lineRoi,
+        );
+        perfMark(`draw.ref${ch.index}.TOTAL`, performance.now() - tRef1);
+      }
+      hint.textContent =
+        `Reference ${meta.reference.height}×${meta.reference.width} · ` +
+        // `${refChannels.length} channel(s) · display transposed · scroll primary panels if wide` +
+        `${refChannels.length} channel(s)` +
+        (meta.reference.scanPath ? ' · scan path on each' :
+          (meta.reference.lineRoi ? ' · lineRoi on each' : ''));
+    } else {
+      hint.textContent = 'No reference image in this file (reference: null).';
+    }
+    perfMark('ALL_STAGES_TOTAL', performance.now() - tAll0);
+    setStatus(
+      status,
+      `Loaded ${meta.source.path} · C=${meta.source.numChannels}` +
+        (meta.channels.vessels ? ' · dual-channel' : ' · single-channel') +
+        (meta.reference ? ` · reference×${meta.reference.numChannels}` : '') +
+        ` · total ${Math.round(performance.now() - tAll0)} ms`,
+      'ok',
+    );
+  } catch (err) {
+    setStatus(status, String(err.message || err), 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('loadBtn').onclick = load;
+</script>
+</body>
+</html>

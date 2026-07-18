@@ -32,6 +32,11 @@ rsync -av --dry-run \
   --include='*/' \
   --include='*.py' \
   --include='*.md' \
+  --include='*.html' \
+  --include='*.json' \
+  --include='*.svg' \
+  --include='*.css' \
+  --include='*.js' \
   --exclude='*'
 
 echo
@@ -48,6 +53,11 @@ rsync -av \
   --include='*/' \
   --include='*.py' \
   --include='*.md' \
+  --include='*.html' \
+  --include='*.json' \
+  --include='*.css' \
+  --include='*.js' \
+  --include='*.svg' \
   --exclude='*'
 
 echo
