@@ -51,7 +51,7 @@ services:
       CLOUDSCOPE_DEMO_SESSION_QUOTA_MB: "500"
       CLOUDSCOPE_DEMO_MAX_UPLOAD_MB: "250"
       CLOUDSCOPE_DEMO_MAX_SESSION_AGE_HOURS: "24"
-      CLOUDSCOPE_PRESET_DATA_MANNING: "/data/presets/manning_velocity_20260625"
+      # CLOUDSCOPE_PRESET_DATA_MANNING: "/data/presets/manning_velocity_20260625"
     volumes:
       - ./data:/data
       - ../cloudscope-data/data/manning_velocity_20260625:/data/presets/manning_velocity_20260625:ro

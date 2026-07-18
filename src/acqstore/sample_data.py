@@ -66,7 +66,7 @@ SAMPLES: dict[str, SampleDataset] = {
         name=DIAMETER_SAMPLE_DATA,
         version='v1',
         url=f'{_RELEASE_BASE}/diameter-sample-data.zip',
-        sha256='0d897008319e998ddabc383abb1245f8fefe5b9655f44de1b094f09cfe464d7a',
+        sha256='c84048c404497585cfa2813b00cf8993d838237f4c796d609abe6024b5ebbc24',
         extracted_dir=DIAMETER_SAMPLE_DATA,
         description='TIF kymograph sample data for diameter analysis demos.',
     ),
