@@ -31,13 +31,14 @@ New to the interface? Start with [Using the GUI](users/gui.md) — load sample d
 
     [:octicons-arrow-right-24: Open cloudscope.mapmanager.net](https://cloudscope.mapmanager.net){target="_blank" rel="noopener"}
 
--   :material-download:{ .lg .middle } **Download the desktop app**
+-   :material-download:{ .lg .middle } **Get the desktop app**
 
     ---
 
-    CloudScope desktop is the same application on macOS and Windows. Step-by-step install instructions for each platform are in the documentation.
+    CloudScope desktop is the same application on macOS and Windows. Request a build, then follow
+    the platform install steps in the documentation.
 
-    [:octicons-arrow-right-24: Install the desktop app](users/install.md)
+    [:octicons-arrow-right-24: Get the desktop app](users/install.md)
 
 </div>
 
@@ -78,7 +79,7 @@ Support for commercial microscopy formats builds on the Python imaging ecosystem
 
     ---
 
-    Install the desktop app, open the web app, load data, run analysis, visualize images, and export results.
+    Get the desktop app, open the web app, load data, run analysis, visualize images, and export results.
 
     [:octicons-arrow-right-24: End User Guide](users/index.md)
 

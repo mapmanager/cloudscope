@@ -1,12 +1,12 @@
-# Install the desktop app
+# Get the desktop app
 
 !!! tip "Try CloudScope first"
     You can use the [web application](https://cloudscope.mapmanager.net){target="_blank" rel="noopener"}
     without installing anything.
 
-## Get the desktop app
-
-Please [fill out this form](request-desktop-app.md) to get the desktop app for macOS or Windows.
+Please [fill out this form](request-desktop-app.md) to request the desktop app for macOS or
+Windows. We will email you a download link. After you receive the ZIP, use the platform steps
+below to install and run it.
 
 ## Running the desktop app
 
@@ -98,4 +98,4 @@ then compare the hash of the ZIP to the contents of the checksum file.
 
 - [Using the GUI](gui.md)
 - [Saved file formats](saved-files.md)
-- [End-user recipes](recipes/index.md) — load sample data to confirm your installation
+- [End-user recipes](recipes/index.md) — load sample data to confirm your install

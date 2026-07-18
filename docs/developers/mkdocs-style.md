@@ -104,7 +104,7 @@ Indent the `!!!` line to match other tab content (four spaces). Indent admonitio
         Step two.
 ```
 
-Live example: [Install the desktop app](../users/install.md).
+Live example: [Get the desktop app](../users/install.md).
 
 Reference: [Material content tabs](https://squidfunk.github.io/mkdocs-material/reference/content-tabs/).
 

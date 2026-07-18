@@ -13,8 +13,8 @@ CloudScope supports these **commercial microscopy formats**:
 
 | Format | Extension | Notes |
 |---|---|---|
-| Olympus / Evident | `.oir` | May include a reference/overview image. |
-| Zeiss | `.czi` | May include a reference/overview image and scan path. |
+| Olympus / Evident | `.oir` | May include a reference/overview image. Physical units and reference spatial scales are loaded from the file when available. |
+| Zeiss | `.czi` | May include a reference/overview image and scan path. Physical units are loaded from the file when available. |
 | Nikon | `.nd2` | Nikon NIS-Elements acquisitions. |
 
 and these **open image formats**:
@@ -22,13 +22,17 @@ and these **open image formats**:
 | Format | Extension | Notes |
 |---|---|---|
 | TIFF | `.tif` | Generic TIFF image files, including multi-channel images. |
-| OME-Zarr | `.ome.zarr` | Directory-backed OME-Zarr stores. |
+| OME-Zarr | `.ome.zarr` | Directory-backed OME-Zarr stores (load). |
 
 ## Notes
 
+- **Physical units.** OIR and CZI loaders often populate Y/X physical unit size and labels
+  (and reference-image scales when a reference exists). Plain TIFF files may lack embedded
+  scaling — use [GUI: Image header](gui-image-header.md) to set or override units, then save.
 - **Reference images.** OIR and CZI files often, but not always, include a
   reference or overview image and scan-path metadata. See
   [Kymograph reference images](../notebooks/kymograph-reference-image.ipynb).
+  Export a reference with **Save Reference As Tif** (see [Saved file formats](saved-files.md#export-tiff)).
 - **Load reporting.** Files that cannot be read are reported as warnings (missing
   file, unsupported type, or read error) rather than failing the whole folder
   load.

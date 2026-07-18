@@ -32,6 +32,25 @@ Optional plot overlays (context menu on the peak-detection plot):
 - Show or hide a **diameter** trace when diameter analysis has been run on the same file,
   channel, and ROI (default off).
 
+## Edit F0 (baseline)
+
+After a successful peak-detection run, you can adjust the F0 baseline from the
+**peak-detection plot** without leaving the Home page:
+
+1. Right-click the peak-detection plot and choose **Edit F0**.
+2. An Edit F0 toolbar and F0 plot appear above the df/f0 plot.
+3. Choose one of:
+   - **Manual** — drag the yellow **Manual F0** horizontal line to the desired baseline,
+     then click **Set Manual F0**.
+   - **Percentile (auto)** — set the baseline percentile in the toolbar, then click
+     **Set Auto F0**.
+4. CloudScope re-runs peak detection with the new baseline and updates the plot.
+5. Click **Close** to leave Edit F0 mode without further changes (or leave after a Set).
+
+**Set Manual F0** stores `baseline_method="manual"` and the chosen `manual_f0_baseline`.
+**Set Auto F0** stores `baseline_method="percentile"` and the chosen `baseline_percentile`.
+Save with **Save Selected** or **Save All** to persist the updated parameters and results.
+
 ## Results
 
 Review peak-detection results in the **Peak Detect** panel and the **Peak detection plot** at

@@ -72,6 +72,17 @@ From the load/save controls:
 Both actions write the JSON file and any analysis CSV files that need updating for the affected
 acquisition files.
 
+## Export TIFF
+
+CloudScope can also **export** TIFF files. These are separate from the JSON/CSV sidecars written
+by **Save Selected** / **Save All**. Exports create a new TIFF; they do not modify the source
+acquisition file.
+
+| Action | Where | What is written |
+|---|---|---|
+| **Save As Tif...** | File list context menu | Primary acquisition pixels for the selected file as a TIFF (native save dialog on desktop; browser download in the web app). |
+| **Save Reference As Tif** | Reference Image panel | Full multichannel reference/overview image as a TIFF when a reference is present. Suggested name is `<source-stem>-reference.tif`. ImageJ X/Y resolution is written from the reference spatial calibration when available. Scan paths and line ROIs are not burned into the exported pixels. |
+
 ## See also
 
 - [End User Guide](index.md) — getting started and basic workflow

@@ -86,7 +86,7 @@ nav:
   - Home: index.md
   - End User:
       - users/index.md
-      - Install the desktop app: users/install.md
+      - Get the desktop app: users/install.md
       - Supported file formats: users/supported-file-formats.md
       - Using the GUI: users/gui.md
       - Blinded analysis mode: users/blinded-mode.md

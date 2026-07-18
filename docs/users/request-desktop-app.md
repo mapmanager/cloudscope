@@ -1,8 +1,10 @@
-# Request the CloudScope Desktop App
+# Request the desktop app
 
 Please fill out the form below to request the CloudScope desktop app. We will email you with a download link.
 
 As always, contact Robert Cudmore (robert.cudmore@gmail.com) with any questions. We are always looking for collaborators and users!
+
+After you receive the ZIP, see [Get the desktop app](install.md) for Windows and macOS install and run steps.
 
 <style>
 .sp-form {

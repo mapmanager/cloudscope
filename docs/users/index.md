@@ -16,9 +16,11 @@ The fastest way to try CloudScope is the public browser application:
 
 The browser app provides the same GUI and analysis workflows as the desktop app.
 
-## Running the desktop app
+## Get the desktop app
 
-CloudScope desktop is the same application on macOS and Windows. [Please fill out this form to request the desktop app](request-desktop-app.md)
+CloudScope desktop is the same application on macOS and Windows. Start with
+[Get the desktop app](install.md) — request a build via the form, then follow the Windows or
+macOS install steps after you receive the ZIP.
 
 ## Supported file formats
 
@@ -82,7 +84,7 @@ Traditional two-dimensional image analysis workflows are not yet implemented as 
 
 ## Where to go next
 
-- [Install the desktop app](install.md)
+- [Get the desktop app](install.md)
 - [Using the GUI](gui.md)
 - [Pool plots](pool-plots.md)
 - [Saved file formats](saved-files.md)

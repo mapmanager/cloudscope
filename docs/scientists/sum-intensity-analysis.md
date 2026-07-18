@@ -40,7 +40,13 @@ Built-in detection presets provide starting parameter sets:
 
 Presets are copied into the analysis when selected; editing controls afterward does not change
 the built-in preset registry. Manual F0 uses `baseline_method="manual"` and a user-supplied
-`manual_f0_baseline` value.
+`manual_f0_baseline` value. Percentile F0 uses `baseline_method="percentile"` and
+`baseline_percentile`.
+
+In the GUI, after a run, the peak-detection plot context menu **Edit F0** opens an interactive
+baseline editor: drag a Manual F0 line and click **Set Manual F0**, or choose a percentile and
+click **Set Auto F0**. Both actions write the corresponding detection parameters and re-run
+analysis. See [Peak detection (End User)](../users/recipes/sum-intensity-analysis.md#edit-f0-baseline).
 
 For the full parameter schema and defaults, see the
 [Sum Intensity Analysis API](../api/sum-intensity-analysis.md) (`get_detection_param_schema`).

@@ -122,9 +122,9 @@ icon again to close the panel and return to the icon-only toolbar.
 | **Velocity** | Configure and run *in vivo* blood-flow velocity analysis. See [Analysis panels](#analysis-panels). |
 | **Diameter** | Configure and run vessel diameter analysis. See [Analysis panels](#analysis-panels). |
 | **Peak Detect** | Configure and run peak detection (for example GCaMP reporter fluorescence). See [Analysis panels](#analysis-panels). |
-| **Reference Image** | View the reference or overview image when the file format provides one (for example Olympus `.oir` or Zeiss `.czi` line scan kymographs). When available, this panel can also show the **scan path** for the line scan. |
+| **Reference Image** | View the reference or overview image and related metadata when the file format provides one (for example Olympus `.oir` or Zeiss `.czi` line scan kymographs). When available, this panel can also show the **scan path** for the line scan. Use **Save Reference As Tif** to export the reference image (see [Saved file formats](saved-files.md#export-tiff)). |
 | **Config** | Application settings (text size, folder load depth, table font, auto-contrast percentiles, and **blinded analysis mode**). See [GUI: App config](gui-app-config.md) and [Blinded analysis mode](blinded-mode.md). |
-| **App info** | Build and version information, log preview, and **Open Logs** for troubleshooting. |
+| **App info** | Version and build metadata (when available from a packaged or deployed build), log preview, and **Open Logs** for troubleshooting. |
 
 <div class="cs-clear"></div>
 
@@ -167,6 +167,9 @@ Right-click the file list tree to open the context menu:
 
 - **Reveal In Finder** — open the selected file's folder in the system file manager (the menu
   label follows macOS wording in the app today).
+- **Save As Tif...** — export the selected acquisition image pixels as a TIFF file (native save
+  dialog on desktop; browser download in the web app). This writes a new file; it does not
+  replace the source. See [Saved file formats](saved-files.md#export-tiff).
 - **Unload Data** — free lazy-loaded image pixels and analysis for the selected file
   while keeping the file entry in the list.
 - **Expand All** / **Collapse All** — expand or collapse all tree nodes.
