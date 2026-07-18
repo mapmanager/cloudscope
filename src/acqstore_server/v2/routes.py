@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 from collections.abc import Callable, Sequence
 from fastapi import APIRouter, Response
 from fastapi.responses import JSONResponse
@@ -174,6 +175,81 @@ def _register_opened(opened: OpenedAcquisition, store: SessionStore) -> OpenResp
     )
 
 
+def _format_axis(axis: object) -> str:
+    """Return one compact, human-readable served-axis summary."""
+    return (
+        f'dim{axis.array_dimension} {axis.name} size={axis.size} '
+        f'step={axis.step:.6g} {axis.unit}'
+    )
+
+
+def _log_opened_acquisition(opened: OpenedAcquisition, *, elapsed_ms: float) -> None:
+    """Log a readable API v2 acquisition summary without large payload dumps."""
+    logger.info('Opened %s in %.1f ms', opened.path.name, elapsed_ms)
+    logger.info('  path=%s', opened.path)
+    logger.info(
+        '  source format=%s dtype=%s channels=%s',
+        opened.format,
+        opened.source_dtype,
+        opened.num_source_channels,
+    )
+    logger.info('  header dims=%s', opened.header.dims)
+    logger.info('  header shape=%s', opened.header.shape)
+    logger.info('  header sizes=%s', opened.header.sizes)
+    logger.info(
+        '  header date=%s time=%s fileSize=%s',
+        opened.header.date or '-',
+        opened.header.time or '-',
+        opened.header.file_size or '-',
+    )
+    logger.info('  plane shape=%s', tuple(int(v) for v in opened.channels[0].array.shape))
+    for axis in opened.axes:
+        logger.info('  plane axis %s', _format_axis(axis))
+    logger.info(
+        '  selected channels=%s',
+        [channel.index for channel in opened.channels],
+    )
+    for channel in opened.channels:
+        logger.info(
+            '  channel[%s] name=%s shape=%s sourceDtype=%s',
+            channel.index,
+            channel.name,
+            tuple(int(v) for v in channel.array.shape),
+            channel.source_dtype,
+        )
+
+    reference = opened.reference
+    if reference is None:
+        logger.info('  reference=none')
+        return
+
+    logger.info(
+        '  reference channels=%s shape=%s',
+        len(reference.channels),
+        tuple(int(v) for v in reference.channels[0].array.shape),
+    )
+    for axis in reference.axes:
+        logger.info('  reference axis %s', _format_axis(axis))
+    for channel in reference.channels:
+        logger.info(
+            '  reference channel[%s] shape=%s sourceDtype=%s',
+            channel.index,
+            tuple(int(v) for v in channel.array.shape),
+            channel.source_dtype,
+        )
+    if reference.line_roi is None:
+        logger.info('  reference lineRoi=none')
+    else:
+        logger.info('  reference lineRoi=%s', reference.line_roi)
+    if reference.scan_path is None:
+        logger.info('  reference scanPath=none')
+    else:
+        logger.info(
+            '  reference scanPath points=%s',
+            len(reference.scan_path.x),
+        )
+
+
 async def _open_threaded(
     path: str,
     channel_indices: Sequence[int] | None,
@@ -181,8 +257,9 @@ async def _open_threaded(
     open_fn: OpenAcquisitionFn,
 ) -> OpenedAcquisition:
     timeout_s = open_load_timeout_s()
+    started = time.perf_counter()
     try:
-        return await asyncio.wait_for(
+        opened = await asyncio.wait_for(
             asyncio.to_thread(open_fn, path, channel_indices=channel_indices),
             timeout=timeout_s,
         )
@@ -191,6 +268,11 @@ async def _open_threaded(
             'load_timeout',
             f'Open/decode exceeded {timeout_s:g}s for path: {path}',
         ) from exc
+    _log_opened_acquisition(
+        opened,
+        elapsed_ms=(time.perf_counter() - started) * 1000.0,
+    )
+    return opened
 
 
 def create_router(

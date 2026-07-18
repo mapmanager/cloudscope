@@ -226,3 +226,57 @@ def test_v2_capabilities_are_sourced_from_acqstore_public_api() -> None:
         'mediaType': 'application/octet-stream',
     }
     assert payload['sessionTtlSeconds'] == 42.0
+
+
+def test_v2_open_logs_human_readable_acquisition_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """API v2 logs concise source, plane, channel, and reference details."""
+    from acqstore_server.v2 import routes as v2_routes
+
+    path = tmp_path / 'logged-reference.tif'
+    source = np.arange(20, dtype=np.uint16).reshape(5, 4)
+    tifffile.imwrite(path, source, metadata={'axes': 'YX'}, photometric='minisblack')
+    reference = ReferenceImage(
+        array=np.stack(
+            [np.ones((3, 4), dtype=np.uint16), np.full((3, 4), 2, dtype=np.uint16)],
+            axis=0,
+        ),
+        dims=('C', 'Y', 'X'),
+        num_channels=2,
+        line_roi=(1.0, 2.0, 3.0, 4.0),
+        coord_units=(('X', 'um'), ('Y', 'um')),
+        coord_scales=(('X', 0.5), ('Y', 0.25)),
+        coords=(),
+        scan_path=np.asarray([[1.0, 3.0], [2.0, 4.0]], dtype=float),
+    )
+    monkeypatch.setattr(BaseFileLoader, 'has_reference_image', property(lambda self: True))
+    monkeypatch.setattr(BaseFileLoader, 'reference_image', property(lambda self: reference))
+
+    messages: list[str] = []
+
+    def capture(message: str, *args: object) -> None:
+        messages.append(message % args if args else message)
+
+    monkeypatch.setattr(v2_routes.logger, 'info', capture)
+
+    response = TestClient(create_app(v2_session_store=SessionStore())).post(
+        '/api/v2/open',
+        json={'path': str(path.resolve())},
+    )
+
+    assert response.status_code == 200
+    joined = '\n'.join(messages)
+    assert 'Opened logged-reference.tif in ' in joined
+    assert '  source format=tif dtype=uint16 channels=1' in joined
+    assert "  header dims=('Y', 'X')" in joined
+    assert '  header shape=(5, 4)' in joined
+    assert '  plane shape=(5, 4)' in joined
+    assert '  selected channels=[0]' in joined
+    assert '  channel[0] name=CH1 shape=(5, 4) sourceDtype=uint16' in joined
+    assert '  reference channels=2 shape=(3, 4)' in joined
+    assert '  reference channel[0] shape=(3, 4) sourceDtype=uint16' in joined
+    assert '  reference channel[1] shape=(3, 4) sourceDtype=uint16' in joined
+    assert '  reference lineRoi=(1.0, 2.0, 3.0, 4.0)' in joined
+    assert '  reference scanPath points=2' in joined
