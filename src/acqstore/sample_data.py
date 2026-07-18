@@ -74,7 +74,7 @@ SAMPLES: dict[str, SampleDataset] = {
         name=VELOCITY_SAMPLE_DATA,
         version='v1',
         url=f'{_RELEASE_BASE}/velocity-sample-data.zip',
-        sha256='a8223a2c7984bd43ef3df882e7f9f7216459341b76285af4286ff809a5d64941',
+        sha256='52ef017c672a539814bfb313b29810760496b0260912f7b43faf2c72b1e22659',
         extracted_dir=VELOCITY_SAMPLE_DATA,
         description='OIR kymograph sample data for velocity analysis demos.',
     ),
