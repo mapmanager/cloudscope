@@ -20,7 +20,7 @@ This project uses a simple changelog format inspired by Keep a Changelog. During
 
 ---
 
-## [0.2.0] - YYYY-MM-DD
+## [0.2.0] - 2026-07-18
 
 ### acqstore (backend / data model)
 
