@@ -72,7 +72,7 @@ class UnknownSampleError(SampleDataError):
 
 
 def list_samples() -> tuple[SampleDataset, ...]:
-    """Return catalog sample datasets in stable name order."""
+    """Return catalog sample datasets in catalog display order."""
     global _CATALOG
     if _CATALOG is None:
         _CATALOG = _load_catalog()
@@ -213,7 +213,7 @@ def _parse_catalog(catalog_text: str) -> tuple[SampleDataset, ...]:
         seen_names.add(sample.name)
         samples.append(sample)
 
-    return tuple(sorted(samples, key=lambda sample: sample.name))
+    return tuple(samples)
 
 
 def _parse_catalog_item(item: dict[str, Any], *, index: int) -> SampleDataset:

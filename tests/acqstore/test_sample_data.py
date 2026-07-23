@@ -69,6 +69,31 @@ def test_list_samples_fetches_parses_and_caches_catalog(tmp_path, monkeypatch) -
     assert json.loads(cache_path.read_text(encoding='utf-8'))[0]['id'] == 'unit-sample'
 
 
+def test_list_samples_preserves_catalog_display_order(monkeypatch) -> None:
+    catalog = [
+        {
+            'id': 'velocity-sample-data',
+            'label': 'Velocity Sample Data',
+            'description': 'Velocity sample.',
+            'url': 'https://example.invalid/velocity-sample-data.zip',
+            'sha256': _SHA256,
+        },
+        {
+            'id': 'diameter-sample-data',
+            'label': 'Diameter Sample Data',
+            'description': 'Diameter sample.',
+            'url': 'https://example.invalid/diameter-sample-data.zip',
+            'sha256': 'b' * 64,
+        },
+    ]
+    monkeypatch.setattr(sample_data_module, '_fetch_catalog', lambda: json.dumps(catalog))
+
+    assert [sample.name for sample in list_samples()] == [
+        'velocity-sample-data',
+        'diameter-sample-data',
+    ]
+
+
 def test_list_samples_reuses_in_memory_catalog(monkeypatch) -> None:
     calls = 0
 
