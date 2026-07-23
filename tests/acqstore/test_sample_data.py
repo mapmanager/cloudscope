@@ -1,7 +1,8 @@
-"""Tests for AcqStore sample-data download/extract helpers."""
+"""Tests for AcqStore sample-data catalog/download/extract helpers."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import zipfile
 
@@ -19,26 +20,102 @@ from acqstore.sample_data import (
 )
 
 
-def _make_zip(path: Path, *, root_name: str = 'demo-small') -> None:
+_SHA256 = 'a' * 64
+
+
+def _catalog_text(*, sample_id: str = 'unit-sample', label: str = 'Unit Sample') -> str:
+    return json.dumps(
+        [
+            {
+                'id': sample_id,
+                'label': label,
+                'description': 'Unit-test sample data.',
+                'url': f'https://example.invalid/{sample_id}.zip',
+                'sha256': _SHA256,
+            }
+        ]
+    )
+
+
+def _sample() -> SampleDataset:
+    return SampleDataset(
+        name='unit-sample',
+        label='Unit Sample',
+        description='Unit-test sample data.',
+        url='https://example.invalid/unit-sample.zip',
+        sha256=_SHA256,
+    )
+
+
+def _make_zip(path: Path, *, root_name: str = 'unit-sample') -> None:
     with zipfile.ZipFile(path, 'w') as zf:
         zf.writestr(f'{root_name}/cond1/a.oir', 'raw')
         zf.writestr(f'{root_name}/cond1/a.oir.json', '{}')
 
 
-def test_list_samples_includes_registered_datasets() -> None:
+@pytest.fixture(autouse=True)
+def _reset_catalog_cache(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(sample_data_module, '_CATALOG', None)
+    monkeypatch.setenv('CLOUDSCOPE_SAMPLE_DATA_DIR', str(tmp_path / 'sample-cache'))
+
+
+def test_list_samples_fetches_parses_and_caches_catalog(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(sample_data_module, '_fetch_catalog', lambda: _catalog_text())
+
     samples = list_samples()
-    names = [item.name for item in samples]
-    assert 'diameter-sample-data' in names
-    assert 'velocity-sample-data' in names
+
+    assert samples == (_sample(),)
+    cache_path = tmp_path / 'sample-cache' / '_catalog' / 'catalog.json'
+    assert json.loads(cache_path.read_text(encoding='utf-8'))[0]['id'] == 'unit-sample'
 
 
-def test_get_sample_returns_registered_sample() -> None:
-    sample = get_sample('diameter-sample-data')
-    assert sample.name == 'diameter-sample-data'
-    assert sample.extracted_dir == 'diameter-sample-data'
+def test_list_samples_reuses_in_memory_catalog(monkeypatch) -> None:
+    calls = 0
+
+    def _fetch() -> str:
+        nonlocal calls
+        calls += 1
+        return _catalog_text()
+
+    monkeypatch.setattr(sample_data_module, '_fetch_catalog', _fetch)
+
+    assert list_samples() == list_samples()
+    assert calls == 1
 
 
-def test_get_sample_raises_for_unknown_sample() -> None:
+def test_list_samples_uses_cached_catalog_when_fetch_fails(tmp_path, monkeypatch) -> None:
+    cache_path = tmp_path / 'sample-cache' / '_catalog' / 'catalog.json'
+    cache_path.parent.mkdir(parents=True)
+    cache_path.write_text(_catalog_text(), encoding='utf-8')
+
+    def _fail_fetch() -> str:
+        raise SampleDataError('offline')
+
+    monkeypatch.setattr(sample_data_module, '_fetch_catalog', _fail_fetch)
+
+    assert list_samples() == (_sample(),)
+
+
+def test_list_samples_rejects_duplicate_ids(monkeypatch) -> None:
+    item = json.loads(_catalog_text())[0]
+    monkeypatch.setattr(sample_data_module, '_fetch_catalog', lambda: json.dumps([item, item]))
+
+    with pytest.raises(SampleDataError, match='duplicate id'):
+        list_samples()
+
+
+def test_get_sample_returns_catalog_sample(monkeypatch) -> None:
+    monkeypatch.setattr(sample_data_module, '_fetch_catalog', lambda: _catalog_text())
+
+    sample = get_sample('unit-sample')
+
+    assert sample.name == 'unit-sample'
+    assert sample.label == 'Unit Sample'
+
+
+def test_get_sample_raises_for_unknown_sample(monkeypatch) -> None:
+    monkeypatch.setattr(sample_data_module, '_fetch_catalog', lambda: _catalog_text())
+
     with pytest.raises(UnknownSampleError, match='Unknown sample dataset'):
         get_sample('missing')
 
@@ -51,41 +128,27 @@ def test_get_sample_data_dir_uses_env_override(tmp_path, monkeypatch) -> None:
 def test_ensure_sample_extracts_archive_and_returns_extracted_dir(tmp_path, monkeypatch) -> None:
     archive = tmp_path / 'archive.zip'
     _make_zip(archive)
-    sample = SampleDataset(
-        name='unit-sample',
-        version='v1',
-        url='https://example.invalid/unit-sample-v1.zip',
-        sha256='abc',
-        extracted_dir='demo-small',
-    )
-
-    monkeypatch.setitem(sample_data_module.SAMPLES, sample.name, sample)
+    monkeypatch.setattr(sample_data_module, '_CATALOG', (_sample(),))
     monkeypatch.setattr('acqstore.sample_data._retrieve_archive', lambda _sample, _archive_dir: archive)
 
-    load_path = ensure_sample(sample.name, sample_data_dir=tmp_path / 'cache')
+    load_path = ensure_sample('unit-sample', sample_data_dir=tmp_path / 'cache')
 
-    assert load_path == tmp_path / 'cache' / 'unit-sample-v1' / 'demo-small'
+    assert load_path == tmp_path / 'cache' / f'unit-sample-{_SHA256[:12]}' / 'unit-sample'
     assert (load_path / 'cond1' / 'a.oir').is_file()
-    assert (tmp_path / 'cache' / 'unit-sample-v1' / '.cloudscope_sample_extracted').is_file()
+    assert (load_path.parent / '.cloudscope_sample_extracted').is_file()
 
 
 def test_ensure_sample_reuses_existing_extracted_sample(tmp_path, monkeypatch) -> None:
-    sample = SampleDataset(
-        name='unit-sample',
-        version='v1',
-        url='https://example.invalid/unit-sample-v1.zip',
-        sha256='abc',
-        extracted_dir='demo-small',
-    )
-    load_path = tmp_path / 'cache' / 'unit-sample-v1' / 'demo-small'
+    sample = _sample()
+    load_path = tmp_path / 'cache' / sample.cache_key / sample.name
     load_path.mkdir(parents=True)
-    marker = tmp_path / 'cache' / 'unit-sample-v1' / '.cloudscope_sample_extracted'
+    marker = load_path.parent / '.cloudscope_sample_extracted'
     marker.write_text('done', encoding='utf-8')
+    monkeypatch.setattr(sample_data_module, '_CATALOG', (sample,))
 
     def _fail_retrieve(_sample, _archive_dir):
         raise AssertionError('should not retrieve when marker and folder exist')
 
-    monkeypatch.setitem(sample_data_module.SAMPLES, sample.name, sample)
     monkeypatch.setattr('acqstore.sample_data._retrieve_archive', _fail_retrieve)
 
     assert ensure_sample(sample.name, sample_data_dir=tmp_path / 'cache') == load_path
@@ -94,14 +157,8 @@ def test_ensure_sample_reuses_existing_extracted_sample(tmp_path, monkeypatch) -
 def test_ensure_sample_raises_when_expected_directory_missing(tmp_path, monkeypatch) -> None:
     archive = tmp_path / 'archive.zip'
     _make_zip(archive, root_name='unexpected-root')
-    sample = SampleDataset(
-        name='unit-sample',
-        version='v1',
-        url='https://example.invalid/unit-sample-v1.zip',
-        sha256='abc',
-        extracted_dir='demo-small',
-    )
-    monkeypatch.setitem(sample_data_module.SAMPLES, sample.name, sample)
+    sample = _sample()
+    monkeypatch.setattr(sample_data_module, '_CATALOG', (sample,))
     monkeypatch.setattr('acqstore.sample_data._retrieve_archive', lambda _sample, _archive_dir: archive)
 
     with pytest.raises(SampleDataError, match='did not extract expected directory'):
@@ -112,14 +169,8 @@ def test_ensure_sample_rejects_unsafe_zip_member(tmp_path, monkeypatch) -> None:
     archive = tmp_path / 'archive.zip'
     with zipfile.ZipFile(archive, 'w') as zf:
         zf.writestr('../evil.txt', 'bad')
-    sample = SampleDataset(
-        name='unit-sample',
-        version='v1',
-        url='https://example.invalid/unit-sample-v1.zip',
-        sha256='abc',
-        extracted_dir='demo-small',
-    )
-    monkeypatch.setitem(sample_data_module.SAMPLES, sample.name, sample)
+    sample = _sample()
+    monkeypatch.setattr(sample_data_module, '_CATALOG', (sample,))
     monkeypatch.setattr('acqstore.sample_data._retrieve_archive', lambda _sample, _archive_dir: archive)
 
     with pytest.raises(SampleDataError, match='Unsafe path'):

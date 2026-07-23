@@ -10,7 +10,7 @@ from pathlib import Path
 from nicegui import app, ui
 
 from acqstore.acq_image.supported_import_extensions import get_allowed_import_extensions
-from acqstore.sample_data import DIAMETER_SAMPLE_DATA, VELOCITY_SAMPLE_DATA
+from acqstore.sample_data import list_samples
 from acqstore.upload_store import (
     UploadCollisionError,
     UploadError,
@@ -343,14 +343,11 @@ class LoadSaveView(BaseView):
                 ui.separator()
             ui.menu_item('Load CSV', lambda: self._on_load_clicked(LoadPathKind.CSV))
 
-            ui.menu_item(
-                'Load Diameter Sample Data',
-                lambda: self._on_load_sample_data_clicked(DIAMETER_SAMPLE_DATA),
-            )
-            ui.menu_item(
-                'Load Velocity Sample Data',
-                lambda: self._on_load_sample_data_clicked(VELOCITY_SAMPLE_DATA),
-            )
+            for sample in list_samples():
+                ui.menu_item(
+                    f'Load {sample.label}',
+                    lambda name=sample.name: self._on_load_sample_data_clicked(name),
+                )
 
             self._append_manning_preset_menu_item()
             if recent_folders or recent_files:

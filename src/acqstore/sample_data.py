@@ -8,9 +8,13 @@ can call :func:`ensure_sample` and then pass the returned folder path to
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import os
 from pathlib import Path
 import shutil
+from typing import Any
+from urllib.error import URLError
+from urllib.request import urlopen
 import zipfile
 
 from platformdirs import user_data_dir
@@ -18,42 +22,40 @@ from platformdirs import user_data_dir
 
 SAMPLE_DATA_DIR_ENV = 'CLOUDSCOPE_SAMPLE_DATA_DIR'
 DEFAULT_APP_NAME = 'cloudscope'
+CATALOG_URL = 'https://raw.githubusercontent.com/mapmanager/cloudscope-data/main/catalog.json'
 
-DIAMETER_SAMPLE_DATA = 'diameter-sample-data'
-VELOCITY_SAMPLE_DATA = 'velocity-sample-data'
-
-_RELEASE_BASE = 'https://github.com/mapmanager/cloudscope-data/releases/download/v0.1.0'
+_CATALOG_CACHE_DIR = '_catalog'
+_CATALOG_CACHE_FILENAME = 'catalog.json'
+_CATALOG: tuple['SampleDataset', ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class SampleDataset:
-    """Registry entry for one downloadable sample dataset.
+    """Catalog entry for one downloadable sample dataset.
 
     Attributes:
-        name: Stable user-facing sample key.
-        version: Dataset archive/cache version. Bump when archive contents change.
+        name: Stable sample identifier from the catalog ``id`` field.
+        label: User-facing sample label.
+        description: Short description suitable for UI help text.
         url: Remote zip archive URL.
         sha256: Expected archive SHA-256 digest, without the ``sha256:`` prefix.
-        extracted_dir: Directory inside the extracted archive that AcqImageList can load.
-        description: Short description suitable for UI labels/help text.
     """
 
     name: str
-    version: str
+    label: str
+    description: str
     url: str
     sha256: str
-    extracted_dir: str
-    description: str = ''
 
     @property
     def cache_key(self) -> str:
-        """Return versioned cache directory name for this sample."""
-        return f'{self.name}-{self.version}'
+        """Return content-addressed cache directory name for this sample."""
+        return f'{self.name}-{self.sha256[:12]}'
 
     @property
     def archive_filename(self) -> str:
         """Return deterministic local archive filename."""
-        return f'{self.name}-{self.version}.zip'
+        return f'{self.name}.zip'
 
     @property
     def known_hash(self) -> str:
@@ -61,55 +63,39 @@ class SampleDataset:
         return f'sha256:{self.sha256}'
 
 
-SAMPLES: dict[str, SampleDataset] = {
-    DIAMETER_SAMPLE_DATA: SampleDataset(
-        name=DIAMETER_SAMPLE_DATA,
-        version='v1',
-        url=f'{_RELEASE_BASE}/diameter-sample-data.zip',
-        sha256='c84048c404497585cfa2813b00cf8993d838237f4c796d609abe6024b5ebbc24',
-        extracted_dir=DIAMETER_SAMPLE_DATA,
-        description='TIF kymograph sample data for diameter analysis demos.',
-    ),
-    VELOCITY_SAMPLE_DATA: SampleDataset(
-        name=VELOCITY_SAMPLE_DATA,
-        version='v1',
-        url=f'{_RELEASE_BASE}/velocity-sample-data.zip',
-        sha256='52ef017c672a539814bfb313b29810760496b0260912f7b43faf2c72b1e22659',
-        extracted_dir=VELOCITY_SAMPLE_DATA,
-        description='OIR kymograph sample data for velocity analysis demos.',
-    ),
-}
-
-
 class SampleDataError(RuntimeError):
     """Base error for sample-data operations."""
 
 
 class UnknownSampleError(SampleDataError):
-    """Raised when a requested sample name is not registered."""
+    """Raised when a requested sample name is not present in the catalog."""
 
 
 def list_samples() -> tuple[SampleDataset, ...]:
-    """Return registered sample datasets in stable name order."""
-    return tuple(SAMPLES[name] for name in sorted(SAMPLES))
+    """Return catalog sample datasets in stable name order."""
+    global _CATALOG
+    if _CATALOG is None:
+        _CATALOG = _load_catalog()
+    return _CATALOG
 
 
 def get_sample(name: str) -> SampleDataset:
-    """Return one registered sample dataset.
+    """Return one sample dataset from the catalog.
 
     Args:
-        name: Registered sample name.
+        name: Catalog sample identifier.
 
     Returns:
         Sample dataset definition.
 
     Raises:
-        UnknownSampleError: If ``name`` is not registered.
+        UnknownSampleError: If ``name`` is not present in the catalog.
     """
+    samples = {sample.name: sample for sample in list_samples()}
     try:
-        return SAMPLES[name]
+        return samples[name]
     except KeyError as exc:
-        known = ', '.join(sorted(SAMPLES)) or '<none>'
+        known = ', '.join(sorted(samples)) or '<none>'
         raise UnknownSampleError(f'Unknown sample dataset {name!r}; known samples: {known}') from exc
 
 
@@ -134,7 +120,7 @@ def ensure_sample(name: str, *, sample_data_dir: str | Path | None = None) -> Pa
     """Ensure a sample dataset is downloaded/extracted and return its load folder.
 
     Args:
-        name: Registered sample name.
+        name: Catalog sample identifier.
         sample_data_dir: Optional cache root override. Primarily useful for tests
             or scripts; deployment should normally use ``CLOUDSCOPE_SAMPLE_DATA_DIR``.
 
@@ -142,14 +128,14 @@ def ensure_sample(name: str, *, sample_data_dir: str | Path | None = None) -> Pa
         Local folder path that can be passed to ``AcqImageList`` as a folder.
 
     Raises:
-        UnknownSampleError: If ``name`` is not registered.
+        UnknownSampleError: If ``name`` is not present in the catalog.
         SampleDataError: If the archive cannot be downloaded, validated, or
             extracted into the expected directory.
     """
     sample = get_sample(name)
     root = Path(sample_data_dir).expanduser().resolve(strict=False) if sample_data_dir is not None else get_sample_data_dir()
     sample_root = root / sample.cache_key
-    load_path = sample_root / sample.extracted_dir
+    load_path = sample_root / sample.name
     marker_path = sample_root / '.cloudscope_sample_extracted'
 
     if load_path.is_dir() and marker_path.is_file():
@@ -160,12 +146,99 @@ def ensure_sample(name: str, *, sample_data_dir: str | Path | None = None) -> Pa
     _extract_zip(archive_path, sample_root)
 
     if not load_path.is_dir():
-        raise SampleDataError(
-            f'Sample {sample.name!r} did not extract expected directory {sample.extracted_dir!r} from {archive_path}'
-        )
+        raise SampleDataError(f'Sample {sample.name!r} did not extract expected directory {sample.name!r} from {archive_path}')
 
-    marker_path.write_text(f'{sample.name}\n{sample.version}\n{sample.sha256}\n', encoding='utf-8')
+    marker_path.write_text(f'{sample.name}\n{sample.sha256}\n', encoding='utf-8')
     return load_path
+
+
+def _load_catalog() -> tuple[SampleDataset, ...]:
+    """Fetch, cache, parse, and validate the sample catalog."""
+    cache_path = get_sample_data_dir() / _CATALOG_CACHE_DIR / _CATALOG_CACHE_FILENAME
+    try:
+        catalog_text = _fetch_catalog()
+    except SampleDataError:
+        if not cache_path.is_file():
+            raise
+        try:
+            catalog_text = cache_path.read_text(encoding='utf-8')
+        except OSError as exc:
+            raise SampleDataError(f'Could not read cached sample catalog {cache_path}: {exc}') from exc
+    else:
+        _write_catalog_cache(cache_path, catalog_text)
+
+    return _parse_catalog(catalog_text)
+
+
+def _fetch_catalog() -> str:
+    """Download the catalog JSON text from ``cloudscope-data``."""
+    try:
+        with urlopen(CATALOG_URL, timeout=30) as response:  # noqa: S310 - fixed trusted HTTPS URL
+            return response.read().decode('utf-8')
+    except (OSError, UnicodeError, URLError) as exc:
+        raise SampleDataError(f'Could not fetch sample catalog from {CATALOG_URL}: {exc}') from exc
+
+
+def _write_catalog_cache(cache_path: Path, catalog_text: str) -> None:
+    """Write catalog text atomically to the local cache."""
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = cache_path.with_suffix('.tmp')
+    try:
+        tmp_path.write_text(catalog_text, encoding='utf-8')
+        tmp_path.replace(cache_path)
+    except OSError as exc:
+        if tmp_path.exists():
+            tmp_path.unlink()
+        raise SampleDataError(f'Could not cache sample catalog at {cache_path}: {exc}') from exc
+
+
+def _parse_catalog(catalog_text: str) -> tuple[SampleDataset, ...]:
+    """Parse catalog JSON into validated sample definitions."""
+    try:
+        raw_catalog = json.loads(catalog_text)
+    except json.JSONDecodeError as exc:
+        raise SampleDataError(f'Sample catalog is not valid JSON: {exc}') from exc
+
+    if not isinstance(raw_catalog, list):
+        raise SampleDataError('Sample catalog must be a JSON array')
+
+    samples: list[SampleDataset] = []
+    seen_names: set[str] = set()
+    for index, item in enumerate(raw_catalog):
+        if not isinstance(item, dict):
+            raise SampleDataError(f'Sample catalog item {index} must be a JSON object')
+        sample = _parse_catalog_item(item, index=index)
+        if sample.name in seen_names:
+            raise SampleDataError(f'Sample catalog contains duplicate id {sample.name!r}')
+        seen_names.add(sample.name)
+        samples.append(sample)
+
+    return tuple(sorted(samples, key=lambda sample: sample.name))
+
+
+def _parse_catalog_item(item: dict[str, Any], *, index: int) -> SampleDataset:
+    """Parse and validate one catalog object."""
+    required = ('id', 'label', 'description', 'url', 'sha256')
+    values: dict[str, str] = {}
+    for key in required:
+        value = item.get(key)
+        if not isinstance(value, str) or not value.strip():
+            raise SampleDataError(f'Sample catalog item {index} has invalid {key!r}')
+        values[key] = value.strip()
+
+    sha256 = values['sha256'].lower()
+    if len(sha256) != 64 or any(char not in '0123456789abcdef' for char in sha256):
+        raise SampleDataError(f'Sample catalog item {index} has invalid SHA-256 digest')
+    if not values['url'].startswith('https://'):
+        raise SampleDataError(f'Sample catalog item {index} URL must use HTTPS')
+
+    return SampleDataset(
+        name=values['id'],
+        label=values['label'],
+        description=values['description'],
+        url=values['url'],
+        sha256=sha256,
+    )
 
 
 def _retrieve_archive(sample: SampleDataset, archive_dir: Path) -> Path:

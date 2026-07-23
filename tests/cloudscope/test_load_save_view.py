@@ -405,16 +405,15 @@ def test_local_path_pickers_enabled_matches_native_mode(monkeypatch) -> None:
 
 
 def test_load_sample_data_clicked_publishes_sample_intent(tmp_path) -> None:
-    from acqstore.sample_data import VELOCITY_SAMPLE_DATA
     from cloudscope.events.files import LoadSampleDataIntent
 
     view = _new_view(tmp_path)
     events: list[LoadSampleDataIntent] = []
     view.event_bus.subscribe(LoadSampleDataIntent, events.append)
 
-    view._on_load_sample_data_clicked(VELOCITY_SAMPLE_DATA)
+    view._on_load_sample_data_clicked('velocity-sample-data')
 
-    assert events == [LoadSampleDataIntent(name=VELOCITY_SAMPLE_DATA)]
+    assert events == [LoadSampleDataIntent(name='velocity-sample-data')]
 
 
 def _server_demo_view(tmp_path: Path) -> LoadSaveView:
