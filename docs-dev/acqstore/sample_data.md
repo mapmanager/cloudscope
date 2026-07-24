@@ -1,34 +1,37 @@
 # AcqStore Sample Data
 
 AcqStore owns reusable sample-data download helpers so scripts and CloudScope can
-load the same datasets without GUI-specific code.
+load the same datasets without GUI-specific code. The `cloudscope-data`
+repository is the single source of truth for the catalog and dataset archives.
 
 ## Runtime contract
 
 ```python
-from acqstore.acq_image.acq_image_list import AcqImageList
-from acqstore.sample_data import ensure_sample
+from acqstore.acq_image import AcqImageList
+from acqstore.sample_data import ensure_sample, get_sample, list_samples
 
-folder = ensure_sample("demo-small")
+samples = list_samples()
+sample = get_sample(samples[0].name)
+folder = ensure_sample(sample.name)
 acq_list = AcqImageList(str(folder), path_kind="folder")
 ```
 
-`ensure_sample()` returns a local directory that has the same structure as a
-normal user-selected acquisition folder. CloudScope should pass that path through
-its existing folder-load path.
+`list_samples()` returns entries in catalog display order. `get_sample()` returns
+one entry by its stable catalog ID. `ensure_sample()` downloads, verifies, and
+extracts the corresponding archive, then returns its loadable dataset folder.
 
 ## Default storage location
 
 Sample data is stored under:
 
 ```text
-platformdirs.user_data_dir("cloudscope") / "sample-data"
+platformdirs.user_data_dir("acqstore") / "sample-data"
 ```
 
 On macOS this is usually:
 
 ```text
-~/Library/Application Support/cloudscope/sample-data
+~/Library/Application Support/acqstore/sample-data
 ```
 
 Deployments can override this with:
@@ -37,66 +40,35 @@ Deployments can override this with:
 export CLOUDSCOPE_SAMPLE_DATA_DIR=/data/sample-data
 ```
 
-For Docker/cloud deployments, mount that directory to persistent storage so the
-sample archive is not downloaded again whenever the container is recreated.
+For Docker or cloud deployments, mount that directory to persistent storage so
+archives and extracted samples are reused.
 
-## Zip archive convention
+## Catalog and archive contract
 
-Each release asset should be a zip file named with the sample name and version:
-
-```text
-demo-small-v1.zip
-```
-
-The zip should contain exactly one loadable top-level dataset folder:
+AcqStore downloads and caches:
 
 ```text
-demo-small-v1.zip
-  demo-small/
-    cond1/
-    cond2/
+https://raw.githubusercontent.com/mapmanager/cloudscope-data/main/catalog.json
 ```
 
-Create the archive from the parent directory with:
+Each catalog entry provides:
 
-```bash
-zip -r demo-small-v1.zip demo-small
-```
+- `id`: stable sample identifier and expected top-level extracted directory
+- `label`: user-facing display label
+- `description`: short user-facing description
+- `url`: immutable release ZIP URL
+- `sha256`: expected archive SHA-256 digest
 
-The `SampleDataset.extracted_dir` field should match that top-level folder:
-
-```python
-SampleDataset(
-    name="demo-small",
-    version="v1",
-    extracted_dir="demo-small",
-    ...
-)
-```
-
-## Docker Compose example
-
-```yaml
-services:
-  cloudscope:
-    environment:
-      CLOUDSCOPE_SAMPLE_DATA_DIR: "/data/sample-data"
-    volumes:
-      - ./example-data:/data
-```
-
-Inside the container, `ensure_sample("demo-small")` returns a path similar to:
-
-```text
-/data/sample-data/demo-small-v1/demo-small
-```
+The catalog list order is the client display order. Each ZIP must contain a
+loadable top-level directory whose name exactly matches the entry's `id`.
 
 ## Architecture notes
 
-- `acqstore.sample_data` owns the registry, download, hash validation, zip
-  extraction, and returned filesystem path.
+- `cloudscope-data` owns the catalog and downloadable dataset archives.
+- `acqstore.sample_data` owns catalog retrieval, local caching, hash validation,
+  ZIP extraction, and the returned filesystem path.
 - `acqstore.sample_data` must not import `cloudscope`, `nicegui`, or
   `nicewidgets`.
-- `cloudscope` owns UI buttons, notifications, and progress.
+- CloudScope consumes only the public AcqStore sample-data API.
 - `AcqImageList` remains path-based and does not know whether a path came from a
-  native picker, Docker mount, or downloaded sample data.
+  native picker, mounted storage, or downloaded sample data.

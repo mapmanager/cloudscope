@@ -21,7 +21,7 @@ from platformdirs import user_data_dir
 
 
 SAMPLE_DATA_DIR_ENV = 'CLOUDSCOPE_SAMPLE_DATA_DIR'
-DEFAULT_APP_NAME = 'cloudscope'
+DEFAULT_APP_NAME = 'acqstore'
 CATALOG_URL = 'https://raw.githubusercontent.com/mapmanager/cloudscope-data/main/catalog.json'
 
 _CATALOG_CACHE_DIR = '_catalog'
@@ -105,10 +105,10 @@ def get_sample_data_dir() -> Path:
     Resolution order:
 
     1. ``CLOUDSCOPE_SAMPLE_DATA_DIR`` when set.
-    2. ``platformdirs.user_data_dir("cloudscope") / "sample-data"``.
+    2. ``platformdirs.user_data_dir("acqstore") / "sample-data"``.
 
     On macOS the default is usually
-    ``~/Library/Application Support/cloudscope/sample-data``.
+    ``~/Library/Application Support/acqstore/sample-data``.
     """
     env_path = os.getenv(SAMPLE_DATA_DIR_ENV)
     if env_path:
@@ -136,7 +136,7 @@ def ensure_sample(name: str, *, sample_data_dir: str | Path | None = None) -> Pa
     root = Path(sample_data_dir).expanduser().resolve(strict=False) if sample_data_dir is not None else get_sample_data_dir()
     sample_root = root / sample.cache_key
     load_path = sample_root / sample.name
-    marker_path = sample_root / '.cloudscope_sample_extracted'
+    marker_path = sample_root / '.acqstore_sample_extracted'
 
     if load_path.is_dir() and marker_path.is_file():
         return load_path

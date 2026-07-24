@@ -150,6 +150,13 @@ def test_get_sample_data_dir_uses_env_override(tmp_path, monkeypatch) -> None:
     assert get_sample_data_dir() == (tmp_path / 'sample-cache').resolve(strict=False)
 
 
+def test_get_sample_data_dir_uses_acqstore_app_name(monkeypatch) -> None:
+    monkeypatch.delenv('CLOUDSCOPE_SAMPLE_DATA_DIR', raising=False)
+    monkeypatch.setattr(sample_data_module, 'user_data_dir', lambda app_name: f'/tmp/{app_name}')
+
+    assert get_sample_data_dir() == Path('/tmp/acqstore/sample-data')
+
+
 def test_ensure_sample_extracts_archive_and_returns_extracted_dir(tmp_path, monkeypatch) -> None:
     archive = tmp_path / 'archive.zip'
     _make_zip(archive)
@@ -160,14 +167,14 @@ def test_ensure_sample_extracts_archive_and_returns_extracted_dir(tmp_path, monk
 
     assert load_path == tmp_path / 'cache' / f'unit-sample-{_SHA256[:12]}' / 'unit-sample'
     assert (load_path / 'cond1' / 'a.oir').is_file()
-    assert (load_path.parent / '.cloudscope_sample_extracted').is_file()
+    assert (load_path.parent / '.acqstore_sample_extracted').is_file()
 
 
 def test_ensure_sample_reuses_existing_extracted_sample(tmp_path, monkeypatch) -> None:
     sample = _sample()
     load_path = tmp_path / 'cache' / sample.cache_key / sample.name
     load_path.mkdir(parents=True)
-    marker = load_path.parent / '.cloudscope_sample_extracted'
+    marker = load_path.parent / '.acqstore_sample_extracted'
     marker.write_text('done', encoding='utf-8')
     monkeypatch.setattr(sample_data_module, '_CATALOG', (sample,))
 
